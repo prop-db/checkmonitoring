@@ -1,6 +1,6 @@
 import { requireUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
-import { getSummary, listChecks } from '@/lib/queries'
+import { getSummary, listChecks, countChecks } from '@/lib/queries'
 import { SummaryCards } from '@/components/SummaryCards'
 import { CheckTable } from '@/components/CheckTable'
 import type { CheckStatus } from '@prisma/client'
@@ -13,12 +13,23 @@ export default async function DashboardPage({
   const user = await requireUser()
   const params = await searchParams
 
-  const [summary, rows] = await Promise.all([
+  // `status` comes from the URL. Casting it straight to CheckStatus would hand
+  // Prisma an invalid enum value on a hand-edited or stale bookmarked link and
+  // crash the page with a 500. Validate, and ignore anything unrecognised.
+  const VALID: readonly string[] = [
+    'GENERATED', 'SIGNATURE_PENDING', 'SIGNED',
+    'READY_FOR_RELEASE', 'SCHEDULED', 'RELEASED', 'CANCELLED',
+  ]
+  const status = params.status && VALID.includes(params.status)
+    ? (params.status as CheckStatus)
+    : undefined
+
+  const filters = { q: params.q, status }
+
+  const [summary, rows, matching] = await Promise.all([
     getSummary(prisma),
-    listChecks(prisma, {
-      q: params.q,
-      status: params.status ? (params.status as CheckStatus) : undefined,
-    }),
+    listChecks(prisma, filters),
+    countChecks(prisma, filters),
   ])
 
   return (
@@ -47,6 +58,13 @@ export default async function DashboardPage({
           APPLY
         </button>
       </form>
+
+      {matching > rows.length && (
+        <p className="rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          SHOWING {rows.length.toLocaleString('en-PH')} OF {matching.toLocaleString('en-PH')} MATCHING CHECKS.
+          Narrow the search or filters to see the rest.
+        </p>
+      )}
 
       <CheckTable rows={rows} />
     </main>

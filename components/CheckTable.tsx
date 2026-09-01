@@ -31,7 +31,12 @@ export function CheckTable({ rows }: { rows: CheckRow[] }) {
           {rows.map((r) => (
             <tr key={r.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
               <td className="px-4 py-3 font-medium">{r.checkNumber}</td>
-              <td className="px-4 py-3 text-slate-600">{r.bills[0]?.apvNumber ?? '—'}</td>
+              {/* Every bill, not just the first: search matches APV/PO across all
+                  of them, and showing one arbitrary bill would display a different
+                  APV than the user searched for. */}
+              <td className="px-4 py-3 text-slate-600">
+                {r.bills.length ? r.bills.map((b) => b.apvNumber).join(', ') : '—'}
+              </td>
               <td className="px-4 py-3">
                 {r.payeeName}
                 {r.eligibility === 'INTERNAL' && (
