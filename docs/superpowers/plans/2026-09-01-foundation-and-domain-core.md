@@ -1405,18 +1405,26 @@ export const testDb = new PrismaClient({
 })
 
 export async function resetDb() {
+  // One transaction, so a network blip mid-sweep cannot leave the database
+  // half-truncated and the next test failing for a confusing reason.
   // Order matters: children before parents.
-  await testDb.auditLog.deleteMany()
-  await testDb.portalEvent.deleteMany()
-  await testDb.notification.deleteMany()
-  await testDb.checkBill.deleteMany()
-  await testDb.check.deleteMany()
-  await testDb.cashAccount.deleteMany()
-  await testDb.checkBook.deleteMany()
-  await testDb.vendor.deleteMany()
-  await testDb.company.deleteMany()
-  await testDb.bank.deleteMany()
-  await testDb.user.deleteMany()
+  await testDb.$transaction([
+    testDb.auditLog.deleteMany(),
+    testDb.portalEvent.deleteMany(),
+    testDb.notification.deleteMany(),
+    testDb.checkBill.deleteMany(),
+    testDb.check.deleteMany(),
+    testDb.cashAccount.deleteMany(),
+    testDb.checkBook.deleteMany(),
+    testDb.vendor.deleteMany(),
+    testDb.company.deleteMany(),
+    testDb.bank.deleteMany(),
+    testDb.user.deleteMany(),
+    // Standalone tables with no foreign keys. Included so a later test that
+    // writes a SyncRun or a Setting does not leak state into the next one.
+    testDb.syncRun.deleteMany(),
+    testDb.setting.deleteMany(),
+  ])
 }
 ```
 
