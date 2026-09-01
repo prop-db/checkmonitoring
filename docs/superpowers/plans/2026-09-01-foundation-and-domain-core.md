@@ -141,7 +141,9 @@ export async function register() {
 }
 ```
 
-`tailwind.config.ts`:
+`tailwind.config.mts` — the `.mts` extension for the same reason as the Vitest config:
+with no `"type": "module"` in `package.json`, a `.ts` config is loaded as CommonJS and
+Node warns on every build.
 
 ```ts
 import type { Config } from 'tailwindcss'
@@ -2164,7 +2166,15 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ## Task 7: Authentication and Roles
 
 **Files:**
-- Create: `lib/auth.ts`, `auth.config.ts`, `app/api/auth/[...nextauth]/route.ts`, `app/login/page.tsx`, `middleware.ts`, `lib/password.ts`
+- Create: `lib/auth.ts`, `auth.config.ts`, `app/api/auth/[...nextauth]/route.ts`, `app/login/page.tsx`, `middleware.ts`, `lib/password.ts`, `types/next-auth.d.ts`
+
+`types/next-auth.d.ts` is required, not optional: under `strict`, `session.user.role` and
+`token.role` do not exist on NextAuth's stock types. Declare a module augmentation adding
+`role` to `Session["user"]`, `User`, and `JWT`, or the callbacks in `auth.config.ts` will
+not compile.
+
+In `app/login/page.tsx`, `searchParams` is a **Promise** in Next.js 15 and must be awaited:
+`{ searchParams }: { searchParams: Promise<{ error?: string }> }`.
 - Test: `tests/auth/password.test.ts`, `tests/auth/guards.test.ts`
 
 **Interfaces:**
@@ -2350,6 +2360,10 @@ export const { GET, POST } = handlers
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { auth } from '@/lib/auth'
+
+// Runs on the Node.js runtime, not Edge: `lib/auth.ts` pulls in argon2 and the
+// Prisma client, neither of which can execute in the Edge sandbox.
+export const runtime = 'nodejs'
 
 export default auth((req: NextRequest & { auth: unknown }) => {
   const isLoggedIn = Boolean(req.auth)
