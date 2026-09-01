@@ -7,15 +7,19 @@ export const testDb = new PrismaClient({
 
 export async function resetDb() {
   // Order matters: children before parents.
-  await testDb.auditLog.deleteMany()
-  await testDb.portalEvent.deleteMany()
-  await testDb.notification.deleteMany()
-  await testDb.checkBill.deleteMany()
-  await testDb.check.deleteMany()
-  await testDb.cashAccount.deleteMany()
-  await testDb.checkBook.deleteMany()
-  await testDb.vendor.deleteMany()
-  await testDb.company.deleteMany()
-  await testDb.bank.deleteMany()
-  await testDb.user.deleteMany()
+  await testDb.$transaction([
+    testDb.auditLog.deleteMany(),
+    testDb.portalEvent.deleteMany(),
+    testDb.notification.deleteMany(),
+    testDb.checkBill.deleteMany(),
+    testDb.check.deleteMany(),
+    testDb.cashAccount.deleteMany(),
+    testDb.checkBook.deleteMany(),
+    testDb.vendor.deleteMany(),
+    testDb.company.deleteMany(),
+    testDb.bank.deleteMany(),
+    testDb.user.deleteMany(),
+    testDb.syncRun.deleteMany(),
+    testDb.setting.deleteMany(),
+  ])
 }
