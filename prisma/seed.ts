@@ -40,6 +40,11 @@ const CHECK_BOOKS = [
 // Twelve fixture checks covering every status so the dashboard has something
 // meaningful to render before the importer exists (Plan 2). Payees, amounts and
 // check numbers are drawn from the real workbooks.
+//
+// NOTE: every upsert below passes `update: {}` — deliberately, so re-running the
+// seed is idempotent. The consequence is that **editing a fixture here and
+// re-running `npm run db:seed` does nothing**: the row already exists and is
+// left untouched. To pick up an edit, delete the affected rows first.
 const FIXTURES = [
   { n: '6000329924', payee: 'HENKEL PHILIPPINES INC.',              amt: '197715.42', acct: 'BPI STK',  cat: 'LOCAL SUPPLIER', status: 'SIGNATURE_PENDING', apv: 'AP-ST040284', po: 'PO-ST-028143' },
   { n: '6000330768', payee: 'Hoxin Builders & Construction Supply', amt: '32500.00',  acct: 'BPI STK',  cat: 'LOCAL SUPPLIER', status: 'SIGNATURE_PENDING', apv: 'AP-ST040955', po: 'PO-ST-030072' },
@@ -56,6 +61,22 @@ const FIXTURES = [
 ] as const
 
 async function main() {
+  // This seed creates known-password accounts. It must never touch production.
+  if (process.env.NODE_ENV === 'production' || process.env.ALLOW_PROD_SEED === 'true') {
+    if (process.env.ALLOW_PROD_SEED !== 'true') {
+      throw new Error(
+        'Refusing to seed: NODE_ENV is production. This script creates accounts with known ' +
+        'passwords. If you genuinely intend this, set ALLOW_PROD_SEED=true.',
+      )
+    }
+  }
+  console.warn(
+    '\n  Seeding development accounts with known passwords:\n' +
+    '    admin@rcl.test / Adm1n!Passw0rd      (FINANCE_ADMIN)\n' +
+    '    finance@rcl.test / F1nance!Passw0rd  (FINANCE_USER)\n' +
+    '  These MUST be removed or rotated before any production deployment.\n',
+  )
+
   const companies = new Map<string, string>()
   for (const c of COMPANIES) {
     const row = await prisma.company.upsert({
