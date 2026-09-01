@@ -1,0 +1,289 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Migrations take Postgres advisory locks, which Neon's pooled (PgBouncer)
+  // endpoint does not support. `directUrl` is the same connection string with
+  // "-pooler" removed, and is used by Prisma Migrate only.
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+enum Role {
+  FINANCE_USER
+  FINANCE_ADMIN
+}
+
+enum CheckStatus {
+  GENERATED
+  SIGNATURE_PENDING
+  SIGNED
+  READY_FOR_RELEASE
+  SCHEDULED
+  RELEASED
+  CANCELLED
+}
+
+enum ClearingStatus {
+  NONE
+  DEPOSITED
+  ENCASHED
+  CLEARED
+}
+
+enum Eligibility {
+  SUPPLIER
+  BROKER
+  INTERNAL
+}
+
+enum PortalDomain {
+  LOCAL
+  BROKER
+}
+
+enum PortalSyncStatus {
+  NOT_APPLICABLE
+  PENDING
+  SYNCED
+  FAILED
+}
+
+enum ActorType {
+  SYSTEM
+  USER
+}
+
+enum PortalDirection {
+  OUT
+  IN
+}
+
+model Company {
+  id           String        @id @default(cuid())
+  code         String        @unique   // STK, A1+, P&P
+  name         String
+  legalNames   String[]                // used by eligibility to detect inter-company
+  cashAccounts CashAccount[]
+  checkBooks   CheckBook[]
+  checks       Check[]
+  createdAt    DateTime      @default(now())
+}
+
+model Bank {
+  id           String        @id @default(cuid())
+  code         String        @unique   // BPI, MBTC, BDO
+  name         String
+  cashAccounts CashAccount[]
+  checkBooks   CheckBook[]
+}
+
+model CashAccount {
+  id        String  @id @default(cuid())
+  code      String  @unique            // "BPI STK"
+  bankId    String
+  companyId String
+  bank      Bank    @relation(fields: [bankId], references: [id])
+  company   Company @relation(fields: [companyId], references: [id])
+  checks    Check[]
+}
+
+model CheckBook {
+  id        String  @id @default(cuid())
+  code      String  @unique            // "BPI-S-4636"
+  bankId    String
+  companyId String
+  bank      Bank    @relation(fields: [bankId], references: [id])
+  company   Company @relation(fields: [companyId], references: [id])
+  checks    Check[]
+}
+
+model Vendor {
+  id                  String       @id @default(cuid())
+  vendorId            String?      @unique
+  canonicalName       String       @unique
+  aliases             String[]
+  eligibilityDefault  Eligibility?
+  checks              Check[]
+}
+
+model Check {
+  id                 String           @id @default(cuid())
+  acumaticaPaymentId String?          @unique
+
+  checkNumber        String
+  cvNumber           String?
+  checkDate          DateTime?
+  amount             Decimal          @db.Decimal(18, 2)
+  currency           String           @default("PHP")
+
+  companyId          String
+  cashAccountId      String?
+  checkBookId        String?
+  vendorId           String?
+  payeeName          String
+
+  category           String?
+  eligibility        Eligibility
+  eligibilityOverriddenById String?
+
+  portalTradeId      Int?
+  portalDomain       PortalDomain?
+  portalSyncStatus   PortalSyncStatus @default(NOT_APPLICABLE)
+
+  status             CheckStatus      @default(GENERATED)
+
+  signedById            String?
+  signedAt              DateTime?
+  readyById             String?
+  readyAt               DateTime?
+  availablePickupDate   DateTime?
+
+  scheduledPickupDate   DateTime?
+  scheduledPickupTime   String?
+  pickupRep             String?
+  portalConfirmedAt     DateTime?
+
+  releasedById       String?
+  releasedAt         DateTime?
+  orNumber           String?
+  orDate             DateTime?
+  remarks            String?
+
+  pointPerson        String?
+  checksPossession   String?
+
+  clearingStatus     ClearingStatus   @default(NONE)
+  crNumber           String?
+  clearedDate        DateTime?
+
+  cancelledById      String?
+  cancelledAt        DateTime?
+  cancelReason       String?
+
+  sourceSheet        String?
+  sourceRow          Int?
+  isStale            Boolean          @default(false)
+
+  company            Company          @relation(fields: [companyId], references: [id])
+  cashAccount        CashAccount?     @relation(fields: [cashAccountId], references: [id])
+  checkBook          CheckBook?       @relation(fields: [checkBookId], references: [id])
+  vendor             Vendor?          @relation(fields: [vendorId], references: [id])
+  signedBy           User?            @relation("signedBy", fields: [signedById], references: [id])
+  readyBy            User?            @relation("readyBy", fields: [readyById], references: [id])
+  releasedBy         User?            @relation("releasedBy", fields: [releasedById], references: [id])
+  cancelledBy        User?            @relation("cancelledBy", fields: [cancelledById], references: [id])
+  eligibilityOverriddenBy User?       @relation("eligibilityOverriddenBy", fields: [eligibilityOverriddenById], references: [id])
+
+  bills              CheckBill[]
+  auditLogs          AuditLog[]
+  portalEvents       PortalEvent[]
+  notifications      Notification[]
+
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@unique([companyId, checkNumber])
+  @@index([status])
+  @@index([eligibility])
+  @@index([checkDate])
+  @@index([availablePickupDate])
+}
+
+model CheckBill {
+  id            String    @id @default(cuid())
+  checkId       String
+  apvNumber     String
+  poNumber      String?
+  rrNumber      String?
+  statusRr      String?
+  description   String?
+  glAccount     String?
+  dueDate       DateTime?
+  termsCode     String?
+  amount        Decimal   @db.Decimal(18, 2)
+  createdByName String?
+
+  check         Check     @relation(fields: [checkId], references: [id], onDelete: Cascade)
+
+  @@index([apvNumber])
+  @@index([poNumber])
+}
+
+model AuditLog {
+  id        String    @id @default(cuid())
+  checkId   String?
+  actorType ActorType
+  userId    String?
+  action    String
+  details   Json?
+  remarks   String?
+  createdAt DateTime  @default(now())
+
+  check     Check?    @relation(fields: [checkId], references: [id])
+  user      User?     @relation(fields: [userId], references: [id])
+
+  @@index([checkId, createdAt])
+}
+
+model PortalEvent {
+  id        String          @id @default(cuid())
+  checkId   String
+  direction PortalDirection
+  payload   Json
+  status    String          @default("PENDING")
+  attempts  Int             @default(0)
+  lastError String?
+  createdAt DateTime        @default(now())
+
+  check     Check           @relation(fields: [checkId], references: [id])
+
+  @@index([status, createdAt])
+}
+
+model SyncRun {
+  id         String    @id @default(cuid())
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  mode       String
+  imported   Int       @default(0)
+  updated    Int       @default(0)
+  errors     Int       @default(0)
+  message    String?
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  type      String
+  message   String
+  checkId   String?
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+
+  check     Check?   @relation(fields: [checkId], references: [id])
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  passwordHash String
+  role         Role      @default(FINANCE_USER)
+  active       Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+
+  auditLogs         AuditLog[]
+  signedChecks      Check[]   @relation("signedBy")
+  readyChecks       Check[]   @relation("readyBy")
+  releasedChecks    Check[]   @relation("releasedBy")
+  cancelledChecks   Check[]   @relation("cancelledBy")
+  overriddenChecks  Check[]   @relation("eligibilityOverriddenBy")
+}
+
+model Setting {
+  key   String @id
+  value String
+}
