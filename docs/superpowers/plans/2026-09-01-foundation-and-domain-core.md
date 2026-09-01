@@ -2170,8 +2170,14 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 `types/next-auth.d.ts` is required, not optional: under `strict`, `session.user.role` and
 `token.role` do not exist on NextAuth's stock types. Declare a module augmentation adding
-`role` to `Session["user"]`, `User`, and `JWT`, or the callbacks in `auth.config.ts` will
-not compile.
+`role` to `Session["user"]`, `User`, and `JWT`.
+
+**Type `role` as the literal union `'FINANCE_USER' | 'FINANCE_ADMIN'`, never as `string`.**
+Typing it loosely defeats the entire point of the augmentation: `role === 'FINANCE_ADMN'`
+would compile clean and silently deny every admin. With the union, that typo is a build
+error. For the same reason `auth.config.ts` must not launder the value through
+`as string` casts, and `lib/auth.ts` must not need an `as unknown as SessionUser`
+double-cast — with the augmentation correct, the types line up on their own.
 
 In `app/login/page.tsx`, `searchParams` is a **Promise** in Next.js 15 and must be awaited:
 `{ searchParams }: { searchParams: Promise<{ error?: string }> }`.
@@ -2217,6 +2223,15 @@ describe('password strength', () => {
     expect(r.ok).toBe(false)
   })
 
+  it('enforces the length boundary exactly', () => {
+    expect(validatePasswordStrength('Aa1!aaaaaaa').ok).toBe(false)   // 11
+    expect(validatePasswordStrength('Aa1!aaaaaaaa').ok).toBe(true)   // 12
+  })
+
+  it('does not accept a bare space as the symbol', () => {
+    expect(validatePasswordStrength('Aa1aaaaaaaaa ').ok).toBe(false)
+  })
+
   it('requires upper, lower, digit and symbol', () => {
     expect(validatePasswordStrength('alllowercase1!').ok).toBe(false)
     expect(validatePasswordStrength('ALLUPPERCASE1!').ok).toBe(false)
@@ -2258,7 +2273,8 @@ export function validatePasswordStrength(plain: string): { ok: true } | { ok: fa
     [/[a-z]/, 'a lowercase letter'],
     [/[A-Z]/, 'an uppercase letter'],
     [/[0-9]/, 'a digit'],
-    [/[^A-Za-z0-9]/, 'a symbol'],
+    // Excludes whitespace: a bare space is not a symbol for policy purposes.
+    [/[^A-Za-z0-9\s]/, 'a symbol'],
   ]
   const missing = checks.filter(([re]) => !re.test(plain)).map(([, label]) => label)
   if (missing.length) {
@@ -2278,10 +2294,16 @@ Expected: PASS.
 `auth.config.ts`:
 
 ```ts
+import { randomBytes } from 'node:crypto'
 import type { NextAuthConfig } from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
 import { prisma } from '@/lib/db'
-import { verifyPassword } from '@/lib/password'
+import { hashPassword, verifyPassword } from '@/lib/password'
+
+// Computed once, lazily, from a value nobody knows. Used to equalise the cost
+// of rejecting a login, so response time cannot be used to enumerate accounts.
+let dummy: Promise<string> | null = null
+const dummyHash = () => (dummy ??= hashPassword(randomBytes(32).toString('hex')))
 
 export const authConfig: NextAuthConfig = {
   session: { strategy: 'jwt', maxAge: 30 * 60 },  // 30-minute idle timeout
@@ -2295,7 +2317,17 @@ export const authConfig: NextAuthConfig = {
         if (!email || !password) return null
 
         const user = await prisma.user.findUnique({ where: { email } })
-        if (!user || !user.active) return null
+
+        // Rejecting early on "no such user" or "deactivated" would return far
+        // faster than a real password check, because argon2 is deliberately
+        // slow. That timing difference tells an attacker which addresses are
+        // real, active accounts. Verify against a throwaway hash instead, so
+        // every rejection costs the same.
+        if (!user || !user.active) {
+          await verifyPassword(await dummyHash(), password)
+          return null
+        }
+
         if (!(await verifyPassword(user.passwordHash, password))) return null
 
         await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
@@ -2368,7 +2400,9 @@ export const runtime = 'nodejs'
 export default auth((req: NextRequest & { auth: unknown }) => {
   const isLoggedIn = Boolean(req.auth)
   const { pathname } = req.nextUrl
-  const isPublic = pathname.startsWith('/login') || pathname.startsWith('/api/auth')
+  // Exact/segment matching, not a bare prefix: `startsWith('/login')` would
+  // also treat a future `/loginhelp` route as public.
+  const isPublic = pathname === '/login' || pathname.startsWith('/api/auth/')
   if (!isLoggedIn && !isPublic) {
     return NextResponse.redirect(new URL('/login', req.nextUrl))
   }
