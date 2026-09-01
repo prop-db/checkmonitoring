@@ -2958,7 +2958,9 @@ export async function getSummary(db: Db) {
   }
 }
 
-export async function listChecks(db: Db, filters: CheckFilters, limit = 200) {
+// Shared by listChecks and countChecks so the table and its "showing N of M"
+// count can never drift apart.
+function buildWhere(filters: CheckFilters): Prisma.CheckWhereInput {
   const where: Prisma.CheckWhereInput = {}
 
   if (filters.status) where.status = filters.status
@@ -2971,6 +2973,8 @@ export async function listChecks(db: Db, filters: CheckFilters, limit = 200) {
 
   const q = filters.q?.trim()
   if (q) {
+    // Prisma ANDs sibling keys with OR, so this narrows within the other
+    // filters rather than widening past them.
     where.OR = [
       { checkNumber: { contains: q, mode: 'insensitive' } },
       { cvNumber: { contains: q, mode: 'insensitive' } },
@@ -2980,12 +2984,28 @@ export async function listChecks(db: Db, filters: CheckFilters, limit = 200) {
     ]
   }
 
+  return where
+}
+
+export async function listChecks(db: Db, filters: CheckFilters, limit = 200) {
+  const where = buildWhere(filters)
+
   return db.check.findMany({
     where,
-    include: { company: true, cashAccount: true, bills: { take: 1 } },
+    // All bills, not just the first: search matches APV/PO across every bill on
+    // a check, so showing only `bills[0]` would display a different APV than the
+    // one the user searched for — indistinguishable from a false positive.
+    include: { company: true, cashAccount: true, bills: { orderBy: { apvNumber: 'asc' } } },
     orderBy: [{ checkDate: 'desc' }, { checkNumber: 'asc' }],
     take: limit,
   })
+}
+
+// Companion to `listChecks`: the number of rows the same filters match, ignoring
+// the display limit. The table needs this to say "SHOWING 200 OF 12,264" rather
+// than silently truncating under a summary card reporting the full count.
+export async function countChecks(db: Db, filters: CheckFilters): Promise<number> {
+  return db.check.count({ where: buildWhere(filters) })
 }
 
 export type CheckRow = Awaited<ReturnType<typeof listChecks>>[number]
@@ -3092,7 +3112,12 @@ export function CheckTable({ rows }: { rows: CheckRow[] }) {
           {rows.map((r) => (
             <tr key={r.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
               <td className="px-4 py-3 font-medium">{r.checkNumber}</td>
-              <td className="px-4 py-3 text-slate-600">{r.bills[0]?.apvNumber ?? '\u2014'}</td>
+              {/* Every bill, not just the first: search matches APV/PO across all
+                  of them, and showing one arbitrary bill would display a different
+                  APV than the user searched for. */}
+              <td className="px-4 py-3 text-slate-600">
+                {r.bills.length ? r.bills.map((b) => b.apvNumber).join(', ') : '\u2014'}
+              </td>
               <td className="px-4 py-3">
                 {r.payeeName}
                 {r.eligibility === 'INTERNAL' && (
@@ -3139,12 +3164,23 @@ export default async function DashboardPage({
   const user = await requireUser()
   const params = await searchParams
 
-  const [summary, rows] = await Promise.all([
+  // `status` comes from the URL. Casting it straight to CheckStatus would hand
+  // Prisma an invalid enum value on a hand-edited or stale bookmarked link and
+  // crash the page with a 500. Validate, and ignore anything unrecognised.
+  const VALID: readonly string[] = [
+    'GENERATED', 'SIGNATURE_PENDING', 'SIGNED',
+    'READY_FOR_RELEASE', 'SCHEDULED', 'RELEASED', 'CANCELLED',
+  ]
+  const status = params.status && VALID.includes(params.status)
+    ? (params.status as CheckStatus)
+    : undefined
+
+  const filters = { q: params.q, status }
+
+  const [summary, rows, matching] = await Promise.all([
     getSummary(prisma),
-    listChecks(prisma, {
-      q: params.q,
-      status: params.status ? (params.status as CheckStatus) : undefined,
-    }),
+    listChecks(prisma, filters),
+    countChecks(prisma, filters),
   ])
 
   return (
@@ -3174,11 +3210,23 @@ export default async function DashboardPage({
         </button>
       </form>
 
+      {matching > rows.length && (
+        <p className="rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          SHOWING {rows.length.toLocaleString('en-PH')} OF {matching.toLocaleString('en-PH')} MATCHING CHECKS.
+          Narrow the search or filters to see the rest.
+        </p>
+      )}
+
       <CheckTable rows={rows} />
     </main>
   )
 }
 ```
+
+The "showing N of M" notice is not decoration. The summary cards aggregate over the
+whole table while the list is capped at 200 rows, so against the client's 12,264-row
+register a Finance user reconciling the card total against the visible rows would
+otherwise be chasing a discrepancy that does not exist.
 
 - [ ] **Step 7: Run the app and confirm the dashboard renders**
 
