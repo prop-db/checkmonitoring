@@ -1208,6 +1208,20 @@ describe('real payees from the client register', () => {
     }
   })
 
+  // These constrain INTERNAL_PAYEE_PATTERNS. Without them a greedier
+  // /\bPAYROLL\b/ or /\bPCF\b/ would pass the suite while silently blocking
+  // real vendors — the failure that presents to Finance as "the system is broken".
+  it('does not capture vendors whose names merely contain payroll or PCF', () => {
+    for (const p of [
+      'ABC Payroll Solutions Corp',
+      'PayrollHero Philippines, Inc.',
+      'ABC PCF Corporation',
+      'PETTY CASHIER SERVICES CORP.',
+    ]) {
+      expect(classify(p, 'LOCAL SUPPLIER').eligibility, p).toBe('SUPPLIER')
+    }
+  })
+
   // Labour cooperatives are mixed: sometimes a service invoice a representative
   // collects, sometimes payroll. Finance decided these are classified by the
   // category on the individual check, never by the payee name.
@@ -1277,11 +1291,19 @@ export const GOVERNMENT_PATTERNS: readonly RegExp[] = [
 
 // Internal payees that are not government: payroll runs and petty-cash
 // replenishments drawn in the group's own name, and bare fund transfers.
+//
+// These are deliberately narrow. A bare /\bPAYROLL\b/ would capture genuine
+// payroll-outsourcing vendors ("ABC Payroll Solutions Corp"), and a bare
+// /\bPCF\b/ would capture any supplier using those three letters as an
+// initialism — both common enough in the Philippines to matter. Every pattern
+// here is tied to the cash-run naming convention actually used in the client's
+// register, and the negative tests below hold them to it.
 export const INTERNAL_PAYEE_PATTERNS: readonly RegExp[] = [
-  /\bPAYROLL\b/,                        // CASH PAYROLL A1+, CASH(PAYROLL)
-  /PETTY CASH/,                         // SCM Petty Cash, SITIO PETTY CASH
-  /\bPCF\b/,                            // CASH PCF, PCF PONDEROSA
-  /^FUND TRANSFER$/,
+  /\bCASH\s*\(?\s*PAYROLL\b/,           // CASH PAYROLL A1+, CASH PAYROLL STARKSON, CASH(PAYROLL)
+  /\bPETTY CASH\b/,                     // SCM Petty Cash, SITIO PETTY CASH
+  /^PCF\b/,                             // PCF PONDEROSA
+  /\bCASH PCF\b/,                       // CASH PCF
+  /^FUND TRANSFER$/,                    // anchored: the phrase is too generic unbounded
 ]
 
 const norm = (s: string | null | undefined) => String(s ?? '').trim().toUpperCase().replace(/\s+/g, ' ')
