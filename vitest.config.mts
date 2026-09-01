@@ -15,5 +15,12 @@ export default defineConfig({
     environment: 'node',
     globals: true,
     include: ['tests/**/*.test.ts'],
+    // All test files share one external Neon database with no per-file
+    // isolation. `resetDb()` truncates shared tables from `beforeEach`, so
+    // running files in parallel lets one file's reset race another file's
+    // fixture inserts (observed as a spurious FK-violation failure once the
+    // suite grew large enough for the windows to overlap). Files still run
+    // in one process; only cross-file concurrency is disabled.
+    fileParallelism: false,
   },
 })
