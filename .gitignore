@@ -7,3 +7,6 @@ node_modules/
 
 # Source workbooks hold real vendor names, amounts and check numbers.
 *.xlsx
+
+# TypeScript incremental build cache
+tsconfig.tsbuildinfo

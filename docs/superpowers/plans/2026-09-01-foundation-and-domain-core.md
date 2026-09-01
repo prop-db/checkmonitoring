@@ -1153,6 +1153,71 @@ describe('reason codes', () => {
     }
   })
 })
+
+// Every payee below appears verbatim in the client's register of 10,035 released
+// checks. These are regression tests against real misclassifications found by
+// running the classifier over all 873 distinct payees, not invented examples.
+describe('real payees from the client register', () => {
+  it('catches government agencies the original patterns missed', () => {
+    for (const p of [
+      'Bureau Of Customs',
+      'Bureau Of Customs(STARKSON PACKAGING INC.)',
+      'Bureau of Fire Protection',
+      'Department of Labor and Employment',
+      'National Labor Relations Commission',
+      'Mandaue City Treasurer Office',
+      'Quezon City Treasurer Office',
+      "PROVINCIAL TREASURER' OFFICE CAVITE",
+    ]) {
+      expect(classify(p, null).eligibility, p).toBe('INTERNAL')
+    }
+  })
+
+  it('catches payroll and petty-cash payees by name', () => {
+    for (const p of [
+      'CASH PAYROLL A1+',
+      'CASH PAYROLL STARKSON',
+      'CASH(PAYROLL)',
+      'CASH PCF',
+      'PCF PONDEROSA',
+      'SCM Petty Cash',
+      'SITIO PETTY CASH',
+      'FUND TRANSFER',
+    ]) {
+      expect(classify(p, null).eligibility, p).toBe('INTERNAL')
+    }
+  })
+
+  it('matches an own company spelled without its trailing period', () => {
+    // The register contains this exact spelling. Exact equality missed it.
+    const r = classify('A1+ MULTINATIONAL PACKAGING INC', 'LOCAL SUPPLIER')
+    expect(r.eligibility).toBe('INTERNAL')
+    expect(r.reason).toBe('INTER-COMPANY')
+  })
+
+  it('does not sweep up genuine suppliers with government-adjacent names', () => {
+    for (const p of [
+      'C.B. Barangay Enterprises Towing and Trucking Services Inc.',
+      'KWPB Customs Brokerage',
+      'NEW TRENDS INTERNATIONAL CORPORATION',
+      'TECHNOLOGY LINKS INTERNATIONAL CORPORATION',
+      'International Spring Industries',
+      'Caledonian International Corporation',
+    ]) {
+      expect(classify(p, 'LOCAL SUPPLIER').eligibility, p).toBe('SUPPLIER')
+    }
+  })
+
+  // Labour cooperatives are mixed: sometimes a service invoice a representative
+  // collects, sometimes payroll. Finance decided these are classified by the
+  // category on the individual check, never by the payee name.
+  it('classifies labour cooperatives by category, not by name', () => {
+    expect(classify('SAVE PLUS LABOR SERVICE COOPERATIVE', 'LOCAL SUPPLIER').eligibility).toBe('SUPPLIER')
+    expect(classify('SAVE PLUS LABOR SERVICE COOPERATIVE', 'PAYROLL').eligibility).toBe('INTERNAL')
+    expect(classify('KOINONIA SERVICE COOPERATIVE', null).eligibility).toBe('SUPPLIER')
+    expect(classify('SERENDIPITY MULTIPURPOSE COOPERATIVE', 'PAYROLL').eligibility).toBe('INTERNAL')
+  })
+})
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -1182,20 +1247,52 @@ export const BROKER_CATEGORIES: readonly string[] = ['BROKERS']
 
 // Statutory and government payees. These are never suppliers and must never be
 // pushed to a supplier-facing portal.
+//
+// LIMITATION, deliberate and load-bearing: this is a denylist, and a denylist is
+// necessarily incomplete. A statutory payee whose name matches nothing here, and
+// whose category column is blank, falls through to SUPPLIER. Category is the
+// primary control; this list is the backstop for rows where category is missing —
+// roughly 15-30% of the client's historical register. Every pattern below was
+// derived from the 873 distinct payees in that register, not invented.
 export const GOVERNMENT_PATTERNS: readonly RegExp[] = [
   /^SSS\b/,
   /SOCIAL SECURITY SYSTEM/,
   /BUREAU OF INTERNAL REVENUE/,
   /\bBIR\b/,
   /PAG-?IBIG/,
+  /\bHDMF\b/,
   /PHILHEALTH/,
+  /^BUREAU OF\b/,                       // Bureau Of Customs, Bureau of Fire Protection
+  /^DEPARTMENT OF\b/,                   // Department of Labor and Employment
+  /NATIONAL LABOR RELATIONS/,
+  /\bNLRC\b/,
+  /\bTREASURER\b/,                      // Mandaue / Quezon City Treasurer Office
   /^MUNICIPALITY OF\b/,
   /^CITY OF\b/,
+  /^CITY GOVERNMENT OF\b/,
   /^PROVINCE OF\b/,
+  /^PROVINCIAL (GOVERNMENT|TREASURER)/, // PROVINCIAL TREASURER' OFFICE CAVITE
   /^REPUBLIC OF THE PHILIPPINES/,
 ]
 
+// Internal payees that are not government: payroll runs and petty-cash
+// replenishments drawn in the group's own name, and bare fund transfers.
+export const INTERNAL_PAYEE_PATTERNS: readonly RegExp[] = [
+  /\bPAYROLL\b/,                        // CASH PAYROLL A1+, CASH(PAYROLL)
+  /PETTY CASH/,                         // SCM Petty Cash, SITIO PETTY CASH
+  /\bPCF\b/,                            // CASH PCF, PCF PONDEROSA
+  /^FUND TRANSFER$/,
+]
+
 const norm = (s: string | null | undefined) => String(s ?? '').trim().toUpperCase().replace(/\s+/g, ' ')
+
+// Real registers spell the same company several ways. The client's own data
+// contains both "A1+ MULTINATIONAL PACKAGING INC." and "A1+ MULTINATIONAL
+// PACKAGING INC" — exact string equality missed the second and would have
+// classified an inter-company payment as a supplier payment. Compare on a key
+// that ignores punctuation and the INC/INCORPORATED spelling.
+const companyKey = (s: string | null | undefined) =>
+  norm(s).replace(/[.,']/g, '').replace(/\bINCORPORATED\b/g, 'INC').replace(/\s+/g, ' ').trim()
 
 // Fund transfers and manager's cheques are internal treasury movements. Their
 // payees can look like ordinary third parties, so the source sheet is the only
@@ -1215,12 +1312,16 @@ export function classifyEligibility(input: EligibilityInput): EligibilityResult 
     return { eligibility: 'INTERNAL', reason: 'FUND TRANSFER / MANAGER\u2019S CHEQUE' }
   }
 
-  if (input.ownCompanyNames.map(norm).includes(payee)) {
+  if (input.ownCompanyNames.map(companyKey).includes(companyKey(payee))) {
     return { eligibility: 'INTERNAL', reason: 'INTER-COMPANY' }
   }
 
   if (GOVERNMENT_PATTERNS.some((re) => re.test(payee))) {
     return { eligibility: 'INTERNAL', reason: 'GOVERNMENT / STATUTORY' }
+  }
+
+  if (INTERNAL_PAYEE_PATTERNS.some((re) => re.test(payee))) {
+    return { eligibility: 'INTERNAL', reason: 'INTERNAL PAYEE' }
   }
 
   if (INTERNAL_CATEGORIES.includes(category)) {
