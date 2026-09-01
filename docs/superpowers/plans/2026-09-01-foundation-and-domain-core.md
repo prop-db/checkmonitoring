@@ -52,7 +52,7 @@
 ## Task 1: Project Scaffold and Tooling
 
 **Files:**
-- Create: `package.json`, `tsconfig.json`, `next.config.ts`, `tailwind.config.ts`, `postcss.config.mjs`, `app/globals.css`, `app/layout.tsx`, `app/page.tsx`, `instrumentation.ts`, `vitest.config.ts`, `.gitignore`, `.env.example`
+- Create: `package.json`, `tsconfig.json`, `next.config.ts`, `tailwind.config.ts`, `postcss.config.mjs`, `app/globals.css`, `app/layout.tsx`, `app/page.tsx`, `instrumentation.ts`, `vitest.config.mts`, `.gitignore`, `.env.example`
 - Test: `tests/smoke.test.ts`
 
 **Interfaces:**
@@ -71,7 +71,7 @@ npm init -y
 
 ```bash
 npm install next@15 react@19 react-dom@19 @prisma/client@6 next-auth@beta argon2 zod decimal.js
-npm install -D typescript @types/node @types/react @types/react-dom prisma@6 tailwindcss@3.4 postcss autoprefixer vitest @vitejs/plugin-react vite-tsconfig-paths dotenv
+npm install -D typescript @types/node @types/react @types/react-dom prisma@6 tailwindcss@3.4 postcss autoprefixer vitest @vitejs/plugin-react dotenv
 ```
 
 - [ ] **Step 3: Write the config files**
@@ -215,14 +215,25 @@ export default function Home() {
 }
 ```
 
-`vitest.config.ts`:
+`vitest.config.mts` — the `.mts` extension matters: with no `"type": "module"` in
+`package.json`, a `.ts` config is loaded as CommonJS and Vite warns about the ESM
+syntax on every run. Path aliases use Vite's native resolution rather than the
+`vite-tsconfig-paths` plugin, which Vite now warns is redundant.
 
 ```ts
 import { defineConfig } from 'vitest/config'
-import tsconfigPaths from 'vite-tsconfig-paths'
+import { config } from 'dotenv'
+
+// Vitest does not put .env into process.env on its own. Without this, every
+// database test reads `undefined` for DATABASE_URL_TEST — and Prisma silently
+// falls back to the schema's DATABASE_URL, aiming a suite that truncates every
+// table at the application database.
+// `quiet` suppresses dotenv's startup banner, which includes rotating
+// promotional tips. Test output must stay pristine so real warnings are visible.
+config({ quiet: true })
 
 export default defineConfig({
-  plugins: [tsconfigPaths()],
+  resolve: { tsconfigPaths: true },
   test: {
     environment: 'node',
     globals: true,
@@ -258,14 +269,33 @@ AUTH_SECRET="generate-with-openssl-rand-base64-32"
 
 `tests/smoke.test.ts`:
 
+The test must control `process.env.TZ` itself. Asserting the value after calling
+`register()` without first clearing it proves nothing — it passes whenever the
+ambient environment already happens to say `Asia/Manila`, even if `register()`
+were a no-op. Both branches of the `||` need exercising.
+
 ```ts
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import { register } from '@/instrumentation'
 
 describe('instrumentation', () => {
-  it('pins the timezone to Asia/Manila', async () => {
+  const original = process.env.TZ
+
+  afterEach(() => {
+    if (original === undefined) delete process.env.TZ
+    else process.env.TZ = original
+  })
+
+  it('pins the timezone to Asia/Manila when none is configured', async () => {
+    delete process.env.TZ
     await register()
     expect(process.env.TZ).toBe('Asia/Manila')
+  })
+
+  it('leaves an explicitly configured timezone alone', async () => {
+    process.env.TZ = 'UTC'
+    await register()
+    expect(process.env.TZ).toBe('UTC')
   })
 })
 ```
@@ -273,7 +303,7 @@ describe('instrumentation', () => {
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `npm test`
-Expected: `1 passed`. If it fails with "Cannot find module '@/instrumentation'", confirm `vite-tsconfig-paths` is in `vitest.config.ts` plugins.
+Expected: `2 passed`, with no warnings in the output. If it fails with "Cannot find module '@/instrumentation'", the `@/` alias is not resolving — confirm `resolve: { tsconfigPaths: true }` is set in `vitest.config.mts` and that `paths` in `tsconfig.json` maps `@/*` to `./*`.
 
 - [ ] **Step 6: Verify the app builds**
 
@@ -301,16 +331,28 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Consumes: Task 1's project setup
 - Produces: `prisma` client singleton exported from `lib/db.ts`; enums `CheckStatus`, `ClearingStatus`, `Eligibility`, `PortalDomain`, `PortalSyncStatus`, `Role`, `ActorType`, `PortalDirection`; models `Company`, `Bank`, `CashAccount`, `CheckBook`, `Vendor`, `Check`, `CheckBill`, `AuditLog`, `PortalEvent`, `SyncRun`, `Notification`, `User`, `Setting`
 
-- [ ] **Step 1: Create the Postgres databases**
+- [ ] **Step 1: Confirm the databases are reachable**
+
+The databases are already provisioned on **Neon** (cloud PostgreSQL, region
+`ap-southeast-1`), and `.env` already holds working credentials. There is no local
+PostgreSQL, no `psql`, and no Docker on this machine — do not try to install any of them
+and do not run `createdb`.
+
+Four connection variables exist in `.env`: `DATABASE_URL` and `DATABASE_URL_TEST` are
+pooled endpoints used by the app and the test suite; `DIRECT_DATABASE_URL` and
+`DIRECT_DATABASE_URL_TEST` are the same endpoints without `-pooler`, used by Prisma
+Migrate only.
+
+Verify both are reachable before going further:
 
 ```bash
-createdb check_monitoring
-createdb check_monitoring_test
+set -a; . ./.env; set +a
+echo "SELECT 1;" | npx prisma db execute --url "$DATABASE_URL" --stdin
+echo "SELECT 1;" | npx prisma db execute --url "$DATABASE_URL_TEST" --stdin
 ```
 
-If `createdb` is unavailable, run in psql: `CREATE DATABASE check_monitoring;` and `CREATE DATABASE check_monitoring_test;`
-
-Then copy `.env.example` to `.env` and fill in real credentials.
+Expected: `Script executed successfully.` twice. Never print the contents of `.env` —
+it holds live database credentials.
 
 - [ ] **Step 2: Write `prisma/schema.prisma`**
 
@@ -320,8 +362,12 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Migrations take Postgres advisory locks, which Neon's pooled (PgBouncer)
+  // endpoint does not support. `directUrl` is the same connection string with
+  // "-pooler" removed, and is used by Prisma Migrate only.
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 enum Role {
@@ -622,21 +668,61 @@ npx prisma migrate dev --name init
 
 Expected: migration applied, `@prisma/client` generated.
 
-- [ ] **Step 5: Write the schema test**
+- [ ] **Step 5: Write the test-database guard, then the schema test**
+
+`tests/helpers/test-db-url.ts` — every database test resolves its URL through this,
+so the suite can never silently point at live data:
+
+```ts
+// Guards the most destructive mistake available in this repo: running a suite
+// that truncates every table against the application database. Vitest does not
+// load .env into process.env by default, and Prisma treats an `undefined` url as
+// "use the schema's DATABASE_URL" — so an unset test URL fails silently and
+// destructively rather than loudly.
+export function testDatabaseUrl(): string {
+  const url = process.env.DATABASE_URL_TEST
+  if (!url) {
+    throw new Error(
+      'DATABASE_URL_TEST is not set. Tests truncate every table and must never run against ' +
+      'the application database. Check that .env exists and that vitest.config.mts loads it.',
+    )
+  }
+  if (url === process.env.DATABASE_URL) {
+    throw new Error(
+      'DATABASE_URL_TEST is identical to DATABASE_URL. Refusing to run a destructive suite ' +
+      'against the application database.',
+    )
+  }
+  return url
+}
+```
 
 `tests/schema.test.ts`:
 
 ```ts
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterAll } from 'vitest'
 import { PrismaClient } from '@prisma/client'
+import { testDatabaseUrl } from './helpers/test-db-url'
 
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL_TEST } } })
+const prisma = new PrismaClient({ datasources: { db: { url: testDatabaseUrl() } } })
+
+const createdCompanyIds: string[] = []
+
+// The test database is a real cloud database, not an ephemeral container.
+// A test that inserts without cleaning up grows it without bound on every run.
+afterAll(async () => {
+  await prisma.check.deleteMany({ where: { companyId: { in: createdCompanyIds } } })
+  await prisma.company.deleteMany({ where: { id: { in: createdCompanyIds } } })
+  await prisma.$disconnect()
+})
 
 describe('schema', () => {
   it('enforces the composite unique key on company + check number', async () => {
     const company = await prisma.company.create({
       data: { code: `T${Date.now()}`, name: 'Test Co', legalNames: [] },
     })
+    createdCompanyIds.push(company.id)
+
     const base = {
       companyId: company.id,
       checkNumber: '6000000001',
@@ -653,7 +739,7 @@ describe('schema', () => {
 - [ ] **Step 6: Apply migrations to the test database, then run the test**
 
 ```bash
-DATABASE_URL="$DATABASE_URL_TEST" npx prisma migrate deploy
+DIRECT_DATABASE_URL="$DIRECT_DATABASE_URL_TEST" npx prisma migrate deploy
 npm test -- tests/schema.test.ts
 ```
 
@@ -1185,9 +1271,10 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ```ts
 import { PrismaClient } from '@prisma/client'
+import { testDatabaseUrl } from './test-db-url'
 
 export const testDb = new PrismaClient({
-  datasources: { db: { url: process.env.DATABASE_URL_TEST } },
+  datasources: { db: { url: testDatabaseUrl() } },
 })
 
 export async function resetDb() {
