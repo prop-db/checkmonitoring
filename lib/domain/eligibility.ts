@@ -48,7 +48,7 @@ export const GOVERNMENT_PATTERNS: readonly RegExp[] = [
 // Internal payees that are not government: payroll runs and petty-cash
 // replenishments drawn in the group's own name, and bare fund transfers.
 export const INTERNAL_PAYEE_PATTERNS: readonly RegExp[] = [
-  /\bCASH\s*\(?\s*PAYROLL\b/,           // CASH PAYROLL A1+, CASH PAYROLL STARKSON, CASH(PAYROLL)
+  /\bCASH[\s(]+PAYROLL\b/,              // CASH PAYROLL A1+, CASH PAYROLL STARKSON, CASH(PAYROLL)
   /\bPETTY CASH\b/,                     // SCM Petty Cash, SITIO PETTY CASH
   /^PCF\b/,                             // PCF PONDEROSA
   /\bCASH PCF\b/,                       // CASH PCF

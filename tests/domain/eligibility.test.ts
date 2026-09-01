@@ -134,6 +134,10 @@ describe('real payees from the client register', () => {
       'PayrollHero Philippines, Inc.',
       'ABC PCF Corporation',
       'PETTY CASHIER SERVICES CORP.',
+      // The separator in CASH[\s(]+PAYROLL must be mandatory. With `\s*` it was
+      // optional, so this fused form matched — a case the original broad
+      // /\bPAYROLL\b/ did not match, making the "narrowing" a widening here.
+      'CASHPAYROLL INC',
     ]) {
       expect(classify(p, 'LOCAL SUPPLIER').eligibility, p).toBe('SUPPLIER')
     }
