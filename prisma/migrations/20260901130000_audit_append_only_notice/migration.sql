@@ -4,9 +4,14 @@
 -- project the app connects as neondb_owner, which owns the table and therefore
 -- keeps UPDATE and DELETE regardless of any REVOKE.
 --
--- This migration is idempotent and re-runnable. It reports which branch it took
--- so `prisma migrate deploy` output records, every time, whether the control is
--- live in the environment being deployed to.
+-- This migration is idempotent and re-runnable. It emits a RAISE NOTICE saying
+-- which branch it took, but be aware that `prisma migrate deploy` does NOT
+-- surface Postgres notices in its own output -- the notice reaches the server
+-- log, and a client such as psql would display it. To answer "is this control
+-- live?" reliably, query the grant directly:
+--   SELECT has_table_privilege(current_user, '"AuditLog"', 'UPDATE');
+-- FALSE means the control is active for the connecting role. TRUE means the
+-- connecting role can still rewrite audit history and the control is dormant.
 --
 -- To make it live: create the role, grant it only SELECT/INSERT on "AuditLog",
 -- and point the application's connection string at it.
