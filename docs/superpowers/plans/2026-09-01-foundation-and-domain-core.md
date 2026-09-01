@@ -238,6 +238,12 @@ export default defineConfig({
     environment: 'node',
     globals: true,
     include: ['tests/**/*.test.ts'],
+    // Every database test shares one Neon database, and `resetDb()` truncates
+    // every table. Run test files serially: in parallel, one file's reset wipes
+    // another file's fixtures mid-test, producing failures that look random.
+    // The correct fix for a local throwaway database would be per-worker
+    // schemas; against a single shared cloud database, serial is the honest one.
+    fileParallelism: false,
   },
 })
 ```
@@ -2065,8 +2071,10 @@ export async function markReleased(
       },
     })
     await writeAudit(tx, {
+      // `AuditInput.remarks` is `string | undefined`, not `string | null` —
+      // passing `?? null` here fails under `strict`.
       checkId: check.id, actorType: 'USER', userId: args.userId, action: 'released',
-      remarks: args.remarks ?? null,
+      remarks: args.remarks,
     })
     return updated
   })
