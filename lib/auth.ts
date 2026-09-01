@@ -8,8 +8,13 @@ export type SessionUser = { id: string; email: string; name: string; role: 'FINA
 
 export async function requireUser(): Promise<SessionUser> {
   const session = await auth()
-  if (!session?.user?.id) redirect('/login')
-  return session.user as unknown as SessionUser
+  const user = session?.user
+  // NextAuth's own User/Session types keep `name`/`email` nullable and
+  // optional (they're meant to cover OAuth profiles with missing fields).
+  // Our Credentials provider always sets them, so treat their absence here
+  // as "not really signed in" rather than casting the gap away.
+  if (!user?.id || !user.email || !user.name) redirect('/login')
+  return { id: user.id, email: user.email, name: user.name, role: user.role }
 }
 
 export async function requireAdmin(): Promise<SessionUser> {

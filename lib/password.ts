@@ -22,7 +22,8 @@ export function validatePasswordStrength(plain: string): { ok: true } | { ok: fa
     [/[a-z]/, 'a lowercase letter'],
     [/[A-Z]/, 'an uppercase letter'],
     [/[0-9]/, 'a digit'],
-    [/[^A-Za-z0-9]/, 'a symbol'],
+    // Excludes whitespace: a bare space is not a symbol for policy purposes.
+    [/[^A-Za-z0-9\s]/, 'a symbol'],
   ]
   const missing = checks.filter(([re]) => !re.test(plain)).map(([, label]) => label)
   if (missing.length) {

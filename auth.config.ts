@@ -1,7 +1,13 @@
+import { randomBytes } from 'node:crypto'
 import type { NextAuthConfig } from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
 import { prisma } from '@/lib/db'
-import { verifyPassword } from '@/lib/password'
+import { hashPassword, verifyPassword } from '@/lib/password'
+
+// Computed once, lazily, from a value nobody knows. Used to equalise the cost
+// of rejecting a login, so response time cannot be used to enumerate accounts.
+let dummy: Promise<string> | null = null
+const dummyHash = () => (dummy ??= hashPassword(randomBytes(32).toString('hex')))
 
 export const authConfig: NextAuthConfig = {
   session: { strategy: 'jwt', maxAge: 30 * 60 },  // 30-minute idle timeout
@@ -15,13 +21,24 @@ export const authConfig: NextAuthConfig = {
         if (!email || !password) return null
 
         const user = await prisma.user.findUnique({ where: { email } })
+
         // `active` gates sign-in only. Users are deactivated, never deleted —
         // Check.signedById/readyById/releasedById/cancelledById and
         // AuditLog.userId are all onDelete: SetNull, so hard-deleting a user
         // would silently erase who authorised each check release from the
         // audit trail this system exists to preserve. There is no delete-user
         // helper anywhere in this codebase; do not add one.
-        if (!user || !user.active) return null
+        //
+        // Rejecting early on "no such user" or "deactivated" would return far
+        // faster than a real password check, because argon2 is deliberately
+        // slow. That timing difference tells an attacker which addresses are
+        // real, active accounts. Verify against a throwaway hash instead, so
+        // every rejection costs the same.
+        if (!user || !user.active) {
+          await verifyPassword(await dummyHash(), password)
+          return null
+        }
+
         if (!(await verifyPassword(user.passwordHash, password))) return null
 
         await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
@@ -33,14 +50,14 @@ export const authConfig: NextAuthConfig = {
     jwt({ token, user }) {
       if (user) {
         token.uid = user.id
-        token.role = (user as { role: string }).role
+        token.role = user.role
       }
       return token
     },
     session({ session, token }) {
       if (session.user) {
         session.user.id = token.uid as string
-        session.user.role = token.role as string
+        if (token.role) session.user.role = token.role
       }
       return session
     },

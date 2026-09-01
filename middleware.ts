@@ -10,7 +10,9 @@ export const runtime = 'nodejs'
 export default auth((req: NextRequest & { auth: unknown }) => {
   const isLoggedIn = Boolean(req.auth)
   const { pathname } = req.nextUrl
-  const isPublic = pathname.startsWith('/login') || pathname.startsWith('/api/auth')
+  // Exact/segment matching, not a bare prefix: `startsWith('/login')` would
+  // also treat a future `/loginhelp` route as public.
+  const isPublic = pathname === '/login' || pathname.startsWith('/api/auth/')
   if (!isLoggedIn && !isPublic) {
     return NextResponse.redirect(new URL('/login', req.nextUrl))
   }

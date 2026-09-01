@@ -24,6 +24,15 @@ describe('password strength', () => {
     expect(r.ok).toBe(false)
   })
 
+  it('enforces the length boundary exactly', () => {
+    expect(validatePasswordStrength('Aa1!aaaaaaa').ok).toBe(false)   // 11
+    expect(validatePasswordStrength('Aa1!aaaaaaaa').ok).toBe(true)   // 12
+  })
+
+  it('does not accept a bare space as the symbol', () => {
+    expect(validatePasswordStrength('Aa1aaaaaaaaa ').ok).toBe(false)
+  })
+
   it('requires upper, lower, digit and symbol', () => {
     expect(validatePasswordStrength('alllowercase1!').ok).toBe(false)
     expect(validatePasswordStrength('ALLUPPERCASE1!').ok).toBe(false)
