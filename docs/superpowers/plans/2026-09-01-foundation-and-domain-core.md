@@ -1217,6 +1217,10 @@ describe('real payees from the client register', () => {
       'PayrollHero Philippines, Inc.',
       'ABC PCF Corporation',
       'PETTY CASHIER SERVICES CORP.',
+      // The separator in CASH[\s(]+PAYROLL must be mandatory. With `\s*` it was
+      // optional, so this fused form matched — a case the original broad
+      // /\bPAYROLL\b/ did not match, making the "narrowing" a widening here.
+      'CASHPAYROLL INC',
     ]) {
       expect(classify(p, 'LOCAL SUPPLIER').eligibility, p).toBe('SUPPLIER')
     }
@@ -1299,7 +1303,7 @@ export const GOVERNMENT_PATTERNS: readonly RegExp[] = [
 // here is tied to the cash-run naming convention actually used in the client's
 // register, and the negative tests below hold them to it.
 export const INTERNAL_PAYEE_PATTERNS: readonly RegExp[] = [
-  /\bCASH\s*\(?\s*PAYROLL\b/,           // CASH PAYROLL A1+, CASH PAYROLL STARKSON, CASH(PAYROLL)
+  /\bCASH[\s(]+PAYROLL\b/,              // CASH PAYROLL A1+, CASH PAYROLL STARKSON, CASH(PAYROLL)
   /\bPETTY CASH\b/,                     // SCM Petty Cash, SITIO PETTY CASH
   /^PCF\b/,                             // PCF PONDEROSA
   /\bCASH PCF\b/,                       // CASH PCF
