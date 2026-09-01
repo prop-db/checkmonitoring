@@ -1,0 +1,9 @@
+node_modules/
+.next/
+.env
+.env.local
+*.log
+/coverage
+
+# Source workbooks hold real vendor names, amounts and check numbers.
+*.xlsx
