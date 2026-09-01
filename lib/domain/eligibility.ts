@@ -48,10 +48,11 @@ export const GOVERNMENT_PATTERNS: readonly RegExp[] = [
 // Internal payees that are not government: payroll runs and petty-cash
 // replenishments drawn in the group's own name, and bare fund transfers.
 export const INTERNAL_PAYEE_PATTERNS: readonly RegExp[] = [
-  /\bPAYROLL\b/,                        // CASH PAYROLL A1+, CASH(PAYROLL)
-  /PETTY CASH/,                         // SCM Petty Cash, SITIO PETTY CASH
-  /\bPCF\b/,                            // CASH PCF, PCF PONDEROSA
-  /^FUND TRANSFER$/,
+  /\bCASH\s*\(?\s*PAYROLL\b/,           // CASH PAYROLL A1+, CASH PAYROLL STARKSON, CASH(PAYROLL)
+  /\bPETTY CASH\b/,                     // SCM Petty Cash, SITIO PETTY CASH
+  /^PCF\b/,                             // PCF PONDEROSA
+  /\bCASH PCF\b/,                       // CASH PCF
+  /^FUND TRANSFER$/,                    // anchored: the phrase is too generic unbounded
 ]
 
 const norm = (s: string | null | undefined) => String(s ?? '').trim().toUpperCase().replace(/\s+/g, ' ')

@@ -128,6 +128,17 @@ describe('real payees from the client register', () => {
     }
   })
 
+  it('does not capture vendors whose names merely contain payroll or PCF', () => {
+    for (const p of [
+      'ABC Payroll Solutions Corp',
+      'PayrollHero Philippines, Inc.',
+      'ABC PCF Corporation',
+      'PETTY CASHIER SERVICES CORP.',
+    ]) {
+      expect(classify(p, 'LOCAL SUPPLIER').eligibility, p).toBe('SUPPLIER')
+    }
+  })
+
   // Labour cooperatives are mixed: sometimes a service invoice a representative
   // collects, sometimes payroll. Finance decided these are classified by the
   // category on the individual check, never by the payee name.
