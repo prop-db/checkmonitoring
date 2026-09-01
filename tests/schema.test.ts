@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { PrismaClient } from '@prisma/client'
+import { testDatabaseUrl } from './helpers/test-db-url'
 
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL_TEST } } })
+const prisma = new PrismaClient({ datasources: { db: { url: testDatabaseUrl() } } })
 
 describe('schema', () => {
   it('enforces the composite unique key on company + check number', async () => {
