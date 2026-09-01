@@ -1,4 +1,4 @@
-﻿import { describe, it, expect } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { classifyEligibility } from '@/lib/domain/eligibility'
 
 const OWN = ['STARKSON PACKAGING INC.', 'A1+ MULTINATIONAL PACKAGING INC.', 'STARKSON INDUSTRIES']
@@ -71,5 +71,70 @@ describe('reason codes', () => {
     for (const [p, c] of [['GDSM MARKETING', 'LOCAL SUPPLIER'], ['X', 'PAYROLL'], ['SSS', null]] as const) {
       expect(classify(p, c).reason.length).toBeGreaterThan(0)
     }
+  })
+})
+
+// Every payee below appears verbatim in the client's register of 10,035 released
+// checks. These are regression tests against real misclassifications found by
+// running the classifier over all 873 distinct payees, not invented examples.
+describe('real payees from the client register', () => {
+  it('catches government agencies the original patterns missed', () => {
+    for (const p of [
+      'Bureau Of Customs',
+      'Bureau Of Customs(STARKSON PACKAGING INC.)',
+      'Bureau of Fire Protection',
+      'Department of Labor and Employment',
+      'National Labor Relations Commission',
+      'Mandaue City Treasurer Office',
+      'Quezon City Treasurer Office',
+      "PROVINCIAL TREASURER' OFFICE CAVITE",
+    ]) {
+      expect(classify(p, null).eligibility, p).toBe('INTERNAL')
+    }
+  })
+
+  it('catches payroll and petty-cash payees by name', () => {
+    for (const p of [
+      'CASH PAYROLL A1+',
+      'CASH PAYROLL STARKSON',
+      'CASH(PAYROLL)',
+      'CASH PCF',
+      'PCF PONDEROSA',
+      'SCM Petty Cash',
+      'SITIO PETTY CASH',
+      'FUND TRANSFER',
+    ]) {
+      expect(classify(p, null).eligibility, p).toBe('INTERNAL')
+    }
+  })
+
+  it('matches an own company spelled without its trailing period', () => {
+    // The register contains this exact spelling. Exact equality missed it.
+    const r = classify('A1+ MULTINATIONAL PACKAGING INC', 'LOCAL SUPPLIER')
+    expect(r.eligibility).toBe('INTERNAL')
+    expect(r.reason).toBe('INTER-COMPANY')
+  })
+
+  it('does not sweep up genuine suppliers with government-adjacent names', () => {
+    for (const p of [
+      'C.B. Barangay Enterprises Towing and Trucking Services Inc.',
+      'KWPB Customs Brokerage',
+      'NEW TRENDS INTERNATIONAL CORPORATION',
+      'TECHNOLOGY LINKS INTERNATIONAL CORPORATION',
+      'International Spring Industries',
+      'Caledonian International Corporation',
+    ]) {
+      expect(classify(p, 'LOCAL SUPPLIER').eligibility, p).toBe('SUPPLIER')
+    }
+  })
+
+  // Labour cooperatives are mixed: sometimes a service invoice a representative
+  // collects, sometimes payroll. Finance decided these are classified by the
+  // category on the individual check, never by the payee name.
+  it('classifies labour cooperatives by category, not by name', () => {
+    expect(classify('SAVE PLUS LABOR SERVICE COOPERATIVE', 'LOCAL SUPPLIER').eligibility).toBe('SUPPLIER')
+    expect(classify('SAVE PLUS LABOR SERVICE COOPERATIVE', 'PAYROLL').eligibility).toBe('INTERNAL')
+    expect(classify('KOINONIA SERVICE COOPERATIVE', null).eligibility).toBe('SUPPLIER')
+    expect(classify('SERENDIPITY MULTIPURPOSE COOPERATIVE', 'PAYROLL').eligibility).toBe('INTERNAL')
   })
 })
