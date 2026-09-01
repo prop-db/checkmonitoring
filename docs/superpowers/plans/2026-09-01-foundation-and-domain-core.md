@@ -2568,6 +2568,21 @@ describe('formatPhp', () => {
     expect(formatPhp('16000000')).toBe('\u20B116,000,000.00')
     expect(formatPhp('1471800.5')).toBe('\u20B11,471,800.50')
   })
+
+  it('rounds half-up rather than truncating', () => {
+    expect(formatPhp('10.005')).toBe('\u20B110.01')
+    expect(formatPhp('10.004')).toBe('\u20B110.00')
+    expect(formatPhp('0.999')).toBe('\u20B11.00')
+    expect(formatPhp('9.999')).toBe('\u20B110.00')
+    expect(formatPhp('99.999')).toBe('\u20B1100.00')
+    // Carry across a grouping boundary must not corrupt the separators.
+    expect(formatPhp('999999.999')).toBe('\u20B11,000,000.00')
+  })
+
+  it('formats negative amounts with the sign outside the peso symbol', () => {
+    expect(formatPhp('-32500.00')).toBe('-\u20B132,500.00')
+    expect(formatPhp('-0.005')).toBe('-\u20B10.01')
+  })
 })
 ```
 
@@ -2583,13 +2598,39 @@ import { Prisma } from '@prisma/client'
 
 // Amounts are Decimal end to end. Never convert to a JS number for arithmetic;
 // this helper is presentation-only and formats from the decimal string.
+
+// Increments a non-negative integer string. Used for the carry when rounding
+// 9.999 up to 10.00 \u2014 done on the string so a 16-digit peso amount cannot lose
+// precision on the way through a float.
+function incrementDigits(s: string): string {
+  const d = s.split('')
+  for (let i = d.length - 1; i >= 0; i--) {
+    if (d[i] === '9') { d[i] = '0'; continue }
+    d[i] = String(Number(d[i]) + 1)
+    return d.join('')
+  }
+  return '1' + d.join('')
+}
+
 export function formatPhp(value: string | number | Prisma.Decimal): string {
   const asString = typeof value === 'string' ? value : value.toString()
-  const [whole, fraction = ''] = asString.split('.')
-  const negative = whole.startsWith('-')
-  const digits = negative ? whole.slice(1) : whole
-  const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
-  const cents = (fraction + '00').slice(0, 2)
+  const negative = asString.startsWith('-')
+  const abs = negative ? asString.slice(1) : asString
+  const [rawWhole, fraction = ''] = abs.split('.')
+
+  // Round half-up at the third decimal rather than truncating. A money
+  // formatter that truncates understates every amount it touches, which is the
+  // wrong direction to be wrong in for a Finance system.
+  const padded = (fraction + '000').slice(0, 3)
+  let whole = rawWhole === '' ? '0' : rawWhole
+  let cents = padded.slice(0, 2)
+  if (padded.charCodeAt(2) - 48 >= 5) {
+    const bumped = Number(cents) + 1          // two digits only; safe
+    if (bumped === 100) { whole = incrementDigits(whole); cents = '00' }
+    else cents = String(bumped).padStart(2, '0')
+  }
+
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
   return `${negative ? '-' : ''}\u20B1${grouped}.${cents}`
 }
 ```
@@ -2646,6 +2687,11 @@ const CHECK_BOOKS = [
 // Twelve fixture checks covering every status so the dashboard has something
 // meaningful to render before the importer exists (Plan 2). Payees, amounts and
 // check numbers are drawn from the real workbooks.
+//
+// NOTE: every upsert below passes `update: {}` — deliberately, so re-running the
+// seed is idempotent. The consequence is that **editing a fixture here and
+// re-running `npm run db:seed` does nothing**: the row already exists and is
+// left untouched. To pick up an edit, delete the affected rows first.
 const FIXTURES = [
   { n: '6000329924', payee: 'HENKEL PHILIPPINES INC.',              amt: '197715.42', acct: 'BPI STK',  cat: 'LOCAL SUPPLIER', status: 'SIGNATURE_PENDING', apv: 'AP-ST040284', po: 'PO-ST-028143' },
   { n: '6000330768', payee: 'Hoxin Builders & Construction Supply', amt: '32500.00',  acct: 'BPI STK',  cat: 'LOCAL SUPPLIER', status: 'SIGNATURE_PENDING', apv: 'AP-ST040955', po: 'PO-ST-030072' },
@@ -2662,6 +2708,22 @@ const FIXTURES = [
 ] as const
 
 async function main() {
+  // This seed creates known-password accounts. It must never touch production.
+  if (process.env.NODE_ENV === 'production' || process.env.ALLOW_PROD_SEED === 'true') {
+    if (process.env.ALLOW_PROD_SEED !== 'true') {
+      throw new Error(
+        'Refusing to seed: NODE_ENV is production. This script creates accounts with known ' +
+        'passwords. If you genuinely intend this, set ALLOW_PROD_SEED=true.',
+      )
+    }
+  }
+  console.warn(
+    '\n  Seeding development accounts with known passwords:\n' +
+    '    admin@rcl.test / Adm1n!Passw0rd      (FINANCE_ADMIN)\n' +
+    '    finance@rcl.test / F1nance!Passw0rd  (FINANCE_USER)\n' +
+    '  These MUST be removed or rotated before any production deployment.\n',
+  )
+
   const companies = new Map<string, string>()
   for (const c of COMPANIES) {
     const row = await prisma.company.upsert({
