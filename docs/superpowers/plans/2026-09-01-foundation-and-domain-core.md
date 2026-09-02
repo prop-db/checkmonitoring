@@ -3375,10 +3375,11 @@ const date = (f: FormData, k: string) => {
 
 // Domain errors carry user-facing copy written to the spec; anything else is a
 // bug and must not leak its message to a Finance user.
-async function run(fn: () => Promise<unknown>): Promise<ActionResult> {
+async function run(checkId: string, fn: () => Promise<unknown>): Promise<ActionResult> {
   try {
     await fn()
     revalidatePath('/')
+    revalidatePath(`/checks/${checkId}`)
     return { ok: true }
   } catch (e) {
     if (e instanceof DomainError) return { ok: false, message: e.message }
@@ -3390,13 +3391,13 @@ async function run(fn: () => Promise<unknown>): Promise<ActionResult> {
 export async function signAction(formData: FormData): Promise<ActionResult> {
   const user = await requireUser()
   const checkId = str(formData, 'checkId')
-  return run(() => markSigned(prisma, { checkId, userId: user.id, now: new Date() }))
+  return run(checkId, () => markSigned(prisma, { checkId, userId: user.id, now: new Date() }))
 }
 
 export async function readyForReleaseAction(formData: FormData): Promise<ActionResult> {
   const user = await requireUser()
   const checkId = str(formData, 'checkId')
-  return run(() => markReadyForRelease(prisma, {
+  return run(checkId, () => markReadyForRelease(prisma, {
     checkId, userId: user.id,
     availablePickupDate: date(formData, 'availablePickupDate'),
     now: new Date(),
@@ -3405,16 +3406,18 @@ export async function readyForReleaseAction(formData: FormData): Promise<ActionR
 
 export async function revertAction(formData: FormData): Promise<ActionResult> {
   const user = await requireUser()
-  return run(() => revertAvailability(prisma, {
-    checkId: str(formData, 'checkId'), userId: user.id,
+  const checkId = str(formData, 'checkId')
+  return run(checkId, () => revertAvailability(prisma, {
+    checkId, userId: user.id,
     reason: str(formData, 'reason'), now: new Date(),
   }))
 }
 
 export async function releaseAction(formData: FormData): Promise<ActionResult> {
   const user = await requireUser()
-  return run(() => markReleased(prisma, {
-    checkId: str(formData, 'checkId'), userId: user.id,
+  const checkId = str(formData, 'checkId')
+  return run(checkId, () => markReleased(prisma, {
+    checkId, userId: user.id,
     orNumber: str(formData, 'orNumber') || undefined,
     orDate: date(formData, 'orDate') ?? undefined,
     remarks: str(formData, 'remarks') || undefined,
@@ -3424,8 +3427,9 @@ export async function releaseAction(formData: FormData): Promise<ActionResult> {
 
 export async function clearingAction(formData: FormData): Promise<ActionResult> {
   const user = await requireUser()
-  return run(() => recordClearing(prisma, {
-    checkId: str(formData, 'checkId'), userId: user.id,
+  const checkId = str(formData, 'checkId')
+  return run(checkId, () => recordClearing(prisma, {
+    checkId, userId: user.id,
     clearingStatus: str(formData, 'clearingStatus') as ClearingStatus,
     crNumber: str(formData, 'crNumber') || undefined,
     clearedDate: date(formData, 'clearedDate') ?? undefined,
@@ -3435,8 +3439,9 @@ export async function clearingAction(formData: FormData): Promise<ActionResult> 
 
 export async function cancelAction(formData: FormData): Promise<ActionResult> {
   const user = await requireUser()
-  return run(() => cancelCheck(prisma, {
-    checkId: str(formData, 'checkId'), userId: user.id,
+  const checkId = str(formData, 'checkId')
+  return run(checkId, () => cancelCheck(prisma, {
+    checkId, userId: user.id,
     reason: str(formData, 'reason'), now: new Date(),
   }))
 }
@@ -3487,6 +3492,57 @@ export function AuditTrail({ rows }: { rows: Row[] }) {
         </tbody>
       </table>
     </section>
+  )
+}
+```
+
+- [ ] **Step 5b: Write `components/ActionForm.tsx`**
+
+Every wired action must be able to show its failure message. A plain
+`<form action={serverAction}>` cannot: React's form-action prop expects a handler
+returning `void`, so the `ActionResult` is discarded and a refused action shows the
+user nothing. That would make the spec-mandated string *"This check cannot be
+released because it has already been RELEASED."* — which only `releaseAction` can
+produce — impossible to display. A small client component fixes both the typing and
+the silent failure, and disables the button while pending so a double-click cannot
+fire the action twice.
+
+```tsx
+'use client'
+
+import { useState, useTransition } from 'react'
+import type { ActionResult } from '@/app/checks/actions'
+
+export function ActionForm({
+  action, checkId, label, className, children,
+}: {
+  action: (formData: FormData) => Promise<ActionResult>
+  checkId: string
+  label: string
+  className?: string
+  children?: React.ReactNode
+}) {
+  const [pending, startTransition] = useTransition()
+  const [result, setResult] = useState<ActionResult | null>(null)
+
+  return (
+    <form
+      className="space-y-3"
+      onSubmit={(e) => {
+        e.preventDefault()
+        const formData = new FormData(e.currentTarget)
+        startTransition(async () => setResult(await action(formData)))
+      }}
+    >
+      <input type="hidden" name="checkId" value={checkId} />
+      {children}
+      <button type="submit" disabled={pending} className={className}>
+        {pending ? 'SAVING…' : label}
+      </button>
+      {result && !result.ok && (
+        <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{result.message}</p>
+      )}
+    </form>
   )
 }
 ```
@@ -3605,7 +3661,9 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
         <dl className="grid grid-cols-2 gap-4 md:grid-cols-3">
           <Field label="CHECK NUMBER" value={check.checkNumber} />
           <Field label="CV NUMBER" value={check.cvNumber ?? '\u2014'} />
-          <Field label="APV NUMBER" value={check.bills[0]?.apvNumber ?? '\u2014'} />
+          {/* Every bill, matching the dashboard table: a multi-bill check must not
+              display one arbitrary APV as though it were the only one. */}
+          <Field label="APV NUMBER" value={check.bills.length ? check.bills.map((b) => b.apvNumber).join(', ') : '\u2014'} />
           <Field label="PAYEE" value={check.payeeName} />
           <Field label="COMPANY" value={check.company.code} />
           <Field label="CHECK DATE" value={fmtDate(check.checkDate)} />
@@ -3639,10 +3697,12 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
         <h2 className="mb-4 text-sm font-semibold tracking-wide">ACTIONS</h2>
 
         {check.status === 'SIGNATURE_PENDING' && (
-          <form action={signAction}>
-            <input type="hidden" name="checkId" value={check.id} />
-            <button className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white">MARK SIGNED</button>
-          </form>
+          <ActionForm
+            action={signAction}
+            checkId={check.id}
+            label="MARK SIGNED"
+            className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          />
         )}
 
         {check.status === 'SIGNED' && (
@@ -3650,15 +3710,16 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
         )}
 
         {(check.status === 'READY_FOR_RELEASE' || check.status === 'SCHEDULED') && (
-          <form action={releaseAction} className="space-y-3">
-            <input type="hidden" name="checkId" value={check.id} />
+          <ActionForm
+            action={releaseAction}
+            checkId={check.id}
+            label="MARK RELEASED"
+            className="block rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
             <label className="block text-xs font-medium tracking-wide text-slate-600">REMARKS</label>
             <input name="remarks" placeholder="Picked up by supplier"
               className="w-96 rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-            <button className="block rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white">
-              MARK RELEASED
-            </button>
-          </form>
+          </ActionForm>
         )}
 
         {check.status === 'RELEASED' && (
