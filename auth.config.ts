@@ -7,7 +7,18 @@ import { hashPassword, verifyPassword } from '@/lib/password'
 // Computed once, lazily, from a value nobody knows. Used to equalise the cost
 // of rejecting a login, so response time cannot be used to enumerate accounts.
 let dummy: Promise<string> | null = null
-const dummyHash = () => (dummy ??= hashPassword(randomBytes(32).toString('hex')))
+const dummyHash = () => {
+  // If hashing ever rejects, `dummy` must not stay set to a rejected promise —
+  // that would fail every subsequent unknown-email login with a 500 instead of
+  // "invalid credentials" (in the very code path meant to disguise that
+  // distinction) until the process restarts. Clear it on failure so the next
+  // call retries.
+  dummy ??= hashPassword(randomBytes(32).toString('hex')).catch((e) => {
+    dummy = null
+    throw e
+  })
+  return dummy
+}
 
 export const authConfig: NextAuthConfig = {
   session: { strategy: 'jwt', maxAge: 30 * 60 },  // 30-minute idle timeout

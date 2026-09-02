@@ -61,14 +61,22 @@ const FIXTURES = [
 ] as const
 
 async function main() {
-  // This seed creates known-password accounts. It must never touch production.
-  if (process.env.NODE_ENV === 'production' || process.env.ALLOW_PROD_SEED === 'true') {
-    if (process.env.ALLOW_PROD_SEED !== 'true') {
-      throw new Error(
-        'Refusing to seed: NODE_ENV is production. This script creates accounts with known ' +
-        'passwords. If you genuinely intend this, set ALLOW_PROD_SEED=true.',
-      )
-    }
+  // This seed creates known-password accounts. Guessing at "production" via
+  // NODE_ENV doesn't work: `npm run db:seed` runs with NODE_ENV unset, so that
+  // guard never fired even though the script always connects to whatever
+  // DATABASE_URL points at. Instead, detect real data directly: if the target
+  // database already holds checks that aren't one of our twelve fixtures, this
+  // is not a fresh dev/test database and we refuse to touch it.
+  const fixtureNumbers = FIXTURES.map((f) => f.n)
+  const nonFixtureCount = await prisma.check.count({
+    where: { checkNumber: { notIn: fixtureNumbers } },
+  })
+  if (nonFixtureCount > 0 && process.env.ALLOW_SEED_OVER_REAL_DATA !== 'true') {
+    throw new Error(
+      `Refusing to seed: the target database contains ${nonFixtureCount} checks that are not fixtures.\n` +
+      'This looks like real data. Set ALLOW_SEED_OVER_REAL_DATA=true only if you are\n' +
+      'certain, and never against production.',
+    )
   }
   console.warn(
     '\n  Seeding development accounts with known passwords:\n' +

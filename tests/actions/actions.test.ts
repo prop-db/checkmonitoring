@@ -195,7 +195,7 @@ describe('applyPickupConfirmation', () => {
     const check = await makeCheck({ status: 'SIGNED' })
     await markReadyForRelease(testDb, { checkId: check.id, userId: user.id, availablePickupDate: PICKUP, now: NOW })
     const out = await applyPickupConfirmation(testDb, { checkId: check.id, pickupDate: PICKUP, confirmedAt: NOW })
-    expect(out.status).not.toBe('RELEASED')
+    expect(out.status).toBe('SCHEDULED')
   })
 
   it('refuses to confirm against a check that is not available', async () => {

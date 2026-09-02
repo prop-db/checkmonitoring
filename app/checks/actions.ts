@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { z } from 'zod'
 import { prisma } from '@/lib/db'
 import { requireUser } from '@/lib/auth'
 import { DomainError } from '@/lib/domain/errors'
@@ -8,15 +9,18 @@ import {
   markSigned, markReadyForRelease, revertAvailability,
   markReleased, recordClearing, cancelCheck,
 } from '@/lib/domain/actions'
-import type { ClearingStatus } from '@/lib/domain/check-status'
 
 export type ActionResult = { ok: true } | { ok: false; message: string }
 
 const str = (f: FormData, k: string) => String(f.get(k) ?? '').trim()
 const date = (f: FormData, k: string) => {
   const v = str(f, k)
-  return v ? new Date(v) : null
+  if (!v) return null
+  const d = new Date(v)
+  return Number.isNaN(d.getTime()) ? null : d
 }
+
+const clearingStatusSchema = z.enum(['NONE', 'DEPOSITED', 'ENCASHED', 'CLEARED'])
 
 // Domain errors carry user-facing copy written to the spec; anything else is a
 // bug and must not leak its message to a Finance user.
@@ -82,9 +86,11 @@ export async function releaseAction(formData: FormData): Promise<ActionResult> {
 export async function clearingAction(formData: FormData): Promise<ActionResult> {
   const user = await requireUser()
   const checkId = str(formData, 'checkId')
+  const parsed = clearingStatusSchema.safeParse(str(formData, 'clearingStatus'))
+  if (!parsed.success) return { ok: false, message: 'Invalid clearing status.' }
   return run(checkId, () => recordClearing(prisma, {
     checkId, userId: user.id,
-    clearingStatus: str(formData, 'clearingStatus') as ClearingStatus,
+    clearingStatus: parsed.data,
     crNumber: str(formData, 'crNumber') || undefined,
     clearedDate: date(formData, 'clearedDate') ?? undefined,
     now: new Date(),

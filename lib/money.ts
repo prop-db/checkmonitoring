@@ -16,7 +16,7 @@ function incrementDigits(s: string): string {
   return '1' + d.join('')
 }
 
-export function formatPhp(value: string | number | Prisma.Decimal): string {
+export function formatPhp(value: string | Prisma.Decimal): string {
   const asString = typeof value === 'string' ? value : value.toString()
   const negative = asString.startsWith('-')
   const abs = negative ? asString.slice(1) : asString

@@ -95,6 +95,10 @@ describe('READY FOR RELEASE guards', () => {
   it('treats an empty string as missing', () => {
     const r = checkReadyForRelease({ ...validReady, payeeName: '   ' })
     expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.code).toBe('MISSING_FIELDS')
+    expect(r.message).toBe(
+      'This check cannot be released because required information is missing: PAYEE.')
   })
 
   it('reports ALREADY_RELEASED ahead of missing fields', () => {

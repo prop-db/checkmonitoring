@@ -72,3 +72,12 @@ describe('releaseAction', () => {
     expect(after.status).toBe('RELEASED')
   })
 })
+
+describe('clearingAction', () => {
+  it('rejects a bogus clearingStatus without throwing', async () => {
+    const { clearingAction } = await import('@/app/checks/actions')
+    const check = await makeCheck({ status: 'SIGNED' })
+    const result = await clearingAction(fd({ checkId: check.id, clearingStatus: 'NOT_A_REAL_STATUS' }))
+    expect(result).toEqual({ ok: false, message: 'Invalid clearing status.' })
+  })
+})

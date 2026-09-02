@@ -2,10 +2,6 @@
   "name": "check-monitoring",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
-  "directories": {
-    "doc": "docs"
-  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -26,7 +22,6 @@
   "dependencies": {
     "@prisma/client": "^6.19.3",
     "argon2": "^0.45.1",
-    "decimal.js": "^10.6.0",
     "next": "^15.5.25",
     "next-auth": "^5.0.0-beta.32",
     "react": "^19.2.8",
@@ -37,7 +32,6 @@
     "@types/node": "^26.4.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
-    "@vitejs/plugin-react": "^6.1.1",
     "autoprefixer": "^10.5.4",
     "dotenv": "^17.4.2",
     "postcss": "^8.5.26",

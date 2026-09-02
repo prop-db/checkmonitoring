@@ -30,9 +30,10 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
   const check = await prisma.check.findUnique({
     where: { id },
     include: {
-      company: true, cashAccount: true, checkBook: true, bills: true,
+      company: true, cashAccount: true, checkBook: true,
+      bills: { orderBy: { apvNumber: 'asc' } },
       signedBy: true, readyBy: true, releasedBy: true,
-      auditLogs: { include: { user: true }, orderBy: { createdAt: 'asc' } },
+      auditLogs: { include: { user: true }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
     },
   })
   if (!check) notFound()
