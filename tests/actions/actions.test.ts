@@ -148,13 +148,25 @@ describe('revertAvailability', () => {
   })
 
   // Regression test for the other half of the bug: an INTERNAL check must
-  // never produce a portal event, even if portalSyncStatus happens to be
-  // non-default (e.g. left over from a prior state).
-  it('emits no event when reverting an INTERNAL check even when portalSyncStatus is non-default', async () => {
+  // never produce a portal event. This used to be proved by forcing
+  // portalSyncStatus to 'PENDING' on an INTERNAL check via testDb, but that
+  // state is now unreachable: the database's own CHECK constraint
+  // (check_internal_never_routes_to_portal) rejects it directly, which is a
+  // stronger guarantee than the original test asserted.
+  it('rejects an attempt to force an INTERNAL check into a portal-routed state', async () => {
     const user = await makeUser()
     const check = await makeCheck({ status: 'SIGNED', eligibility: 'INTERNAL' })
     await markReadyForRelease(testDb, { checkId: check.id, userId: user.id, availablePickupDate: PICKUP, now: NOW })
-    await testDb.check.update({ where: { id: check.id }, data: { portalSyncStatus: 'PENDING' } })
+
+    await expect(testDb.check.update({
+      where: { id: check.id }, data: { portalSyncStatus: 'PENDING' },
+    })).rejects.toThrow()
+  })
+
+  it('emits no event when reverting an INTERNAL check marked ready then reverted', async () => {
+    const user = await makeUser()
+    const check = await makeCheck({ status: 'SIGNED', eligibility: 'INTERNAL' })
+    await markReadyForRelease(testDb, { checkId: check.id, userId: user.id, availablePickupDate: PICKUP, now: NOW })
 
     await revertAvailability(testDb, { checkId: check.id, userId: user.id, reason: 'x', now: NOW })
 

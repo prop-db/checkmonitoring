@@ -7,19 +7,22 @@ export const testDb = new PrismaClient({
 
 export async function resetDb() {
   // Order matters: children before parents.
-  await testDb.$transaction([
-    testDb.auditLog.deleteMany(),
-    testDb.portalEvent.deleteMany(),
-    testDb.notification.deleteMany(),
-    testDb.checkBill.deleteMany(),
-    testDb.check.deleteMany(),
-    testDb.cashAccount.deleteMany(),
-    testDb.checkBook.deleteMany(),
-    testDb.vendor.deleteMany(),
-    testDb.company.deleteMany(),
-    testDb.bank.deleteMany(),
-    testDb.user.deleteMany(),
-    testDb.syncRun.deleteMany(),
-    testDb.setting.deleteMany(),
-  ])
+  await testDb.$transaction(async (tx) => {
+    // The AuditLog trigger blocks DELETE. Tests are the only legitimate reason
+    // to purge audit history; SET LOCAL scopes this to the transaction.
+    await tx.$executeRawUnsafe(`SET LOCAL app.allow_audit_purge = 'on'`)
+    await tx.auditLog.deleteMany()
+    await tx.portalEvent.deleteMany()
+    await tx.notification.deleteMany()
+    await tx.checkBill.deleteMany()
+    await tx.check.deleteMany()
+    await tx.cashAccount.deleteMany()
+    await tx.checkBook.deleteMany()
+    await tx.vendor.deleteMany()
+    await tx.company.deleteMany()
+    await tx.bank.deleteMany()
+    await tx.user.deleteMany()
+    await tx.syncRun.deleteMany()
+    await tx.setting.deleteMany()
+  })
 }

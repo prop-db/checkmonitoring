@@ -30,4 +30,17 @@ describe('writeAudit', () => {
     const mod = await import('@/lib/audit')
     expect(Object.keys(mod)).toEqual(['writeAudit'])
   })
+
+  it('is rejected at the database level by direct UPDATE and DELETE', async () => {
+    await writeAudit(testDb, { actorType: 'SYSTEM', action: 'imported_from_acumatica', remarks: 'New check' })
+    const row = await testDb.auditLog.findFirstOrThrow()
+
+    await expect(testDb.auditLog.update({
+      where: { id: row.id }, data: { remarks: 'tampered' },
+    })).rejects.toThrow()
+
+    await expect(testDb.auditLog.delete({
+      where: { id: row.id },
+    })).rejects.toThrow()
+  })
 })

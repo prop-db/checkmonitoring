@@ -109,6 +109,13 @@ model Vendor {
   checks              Check[]
 }
 
+// @@check "check_internal_never_routes_to_portal" (migration
+// 20260901140000_internal_never_routes_to_portal): Prisma does not manage
+// CHECK constraints, so this comment is the record of one that exists only
+// in the database. It enforces that an INTERNAL check can never carry portal
+// routing state:
+//   eligibility <> 'INTERNAL'
+//   OR (portalDomain IS NULL AND portalSyncStatus = 'NOT_APPLICABLE')
 model Check {
   id                 String           @id @default(cuid())
   acumaticaPaymentId String?          @unique
