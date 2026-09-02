@@ -1,6 +1,7 @@
 import type { Check, Prisma, PrismaClient, ClearingStatus as PrismaClearing } from '@prisma/client'
 import { writeAudit } from '@/lib/audit'
 import { DomainError } from './errors'
+import { portalRoute, type Eligibility } from './eligibility'
 import {
   assertTransition, assertClearing, checkReadyForRelease,
   type CheckStatus, type ClearingStatus,
@@ -67,7 +68,8 @@ export async function markReadyForRelease(
 
     // Routing condition, NOT a guard: an INTERNAL check still changes status,
     // it simply never produces a portal event.
-    const pushes = check.eligibility === 'SUPPLIER' || check.eligibility === 'BROKER'
+    const route = portalRoute(check.eligibility as Eligibility)
+    const pushes = route !== null
 
     const updated = await tx.check.update({
       where: { id: check.id },
@@ -77,7 +79,7 @@ export async function markReadyForRelease(
         readyAt: args.now,
         availablePickupDate: args.availablePickupDate,
         portalSyncStatus: pushes ? 'PENDING' : 'NOT_APPLICABLE',
-        portalDomain: pushes ? (check.eligibility === 'BROKER' ? 'BROKER' : 'LOCAL') : null,
+        portalDomain: route,
       },
     })
 
@@ -118,7 +120,8 @@ export async function revertAvailability(
     const check = await load(tx, args.checkId)
     assertTransition(check.status as CheckStatus, 'SIGNED')
 
-    const pushes = check.portalSyncStatus !== 'NOT_APPLICABLE'
+    const route = portalRoute(check.eligibility as Eligibility)
+    const pushes = route !== null
 
     // Clearing the confirmation matters: a stale pickup date on a check that is
     // no longer available shows up as a phantom schedule on the dashboard.
@@ -134,6 +137,7 @@ export async function revertAvailability(
         readyById: null,
         readyAt: null,
         portalSyncStatus: pushes ? 'PENDING' : 'NOT_APPLICABLE',
+        portalDomain: route,
       },
     })
 
@@ -190,6 +194,10 @@ export async function markReleased(
   return inTx(db, async (tx) => {
     const check = await load(tx, args.checkId)
     assertTransition(check.status as CheckStatus, 'RELEASED')
+
+    const route = portalRoute(check.eligibility as Eligibility)
+    const pushes = route !== null
+
     const updated = await tx.check.update({
       where: { id: check.id },
       data: {
@@ -199,8 +207,26 @@ export async function markReleased(
         orNumber: args.orNumber ?? null,
         orDate: args.orDate ?? null,
         remarks: args.remarks ?? check.remarks,
+        portalSyncStatus: pushes ? 'PENDING' : 'NOT_APPLICABLE',
       },
     })
+
+    if (pushes) {
+      await tx.portalEvent.create({
+        data: {
+          checkId: check.id,
+          direction: 'OUT',
+          status: 'PENDING',
+          payload: {
+            action: 'RELEASED',
+            checkNumber: check.checkNumber,
+            releasedAt: args.now.toISOString(),
+            orNumber: args.orNumber ?? null,
+          },
+        },
+      })
+    }
+
     await writeAudit(tx, {
       checkId: check.id, actorType: 'USER', userId: args.userId, action: 'released',
       remarks: args.remarks,

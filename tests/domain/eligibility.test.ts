@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { classifyEligibility } from '@/lib/domain/eligibility'
+import { classifyEligibility, portalRoute } from '@/lib/domain/eligibility'
 
 const OWN = ['STARKSON PACKAGING INC.', 'A1+ MULTINATIONAL PACKAGING INC.', 'STARKSON INDUSTRIES']
 
@@ -151,5 +151,19 @@ describe('real payees from the client register', () => {
     expect(classify('SAVE PLUS LABOR SERVICE COOPERATIVE', 'PAYROLL').eligibility).toBe('INTERNAL')
     expect(classify('KOINONIA SERVICE COOPERATIVE', null).eligibility).toBe('SUPPLIER')
     expect(classify('SERENDIPITY MULTIPURPOSE COOPERATIVE', 'PAYROLL').eligibility).toBe('INTERNAL')
+  })
+})
+
+describe('portalRoute', () => {
+  it('routes SUPPLIER to the LOCAL portal domain', () => {
+    expect(portalRoute('SUPPLIER')).toBe('LOCAL')
+  })
+
+  it('routes BROKER to the BROKER portal domain', () => {
+    expect(portalRoute('BROKER')).toBe('BROKER')
+  })
+
+  it('never routes INTERNAL to the portal', () => {
+    expect(portalRoute('INTERNAL')).toBeNull()
   })
 })

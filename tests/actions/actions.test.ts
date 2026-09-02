@@ -128,6 +128,38 @@ describe('revertAvailability', () => {
       checkId: check.id, userId: user.id, reason: '   ', now: NOW,
     })).rejects.toMatchObject({ code: 'REASON_REQUIRED' })
   })
+
+  // Regression test for the bug: markReadyForRelease routes on eligibility,
+  // but a seeded check can reach READY_FOR_RELEASE with portalSyncStatus still
+  // at its schema default of NOT_APPLICABLE (the seed never set it). If revert
+  // routed on portalSyncStatus instead of eligibility, this would emit no
+  // retract event and leave the portal advertising a withdrawn check.
+  it('emits a REVERT event for a SUPPLIER check even when portalSyncStatus was left at its default', async () => {
+    const user = await makeUser()
+    const check = await makeCheck({ status: 'SIGNED', eligibility: 'SUPPLIER' })
+    await markReadyForRelease(testDb, { checkId: check.id, userId: user.id, availablePickupDate: PICKUP, now: NOW })
+    // Reproduce the seeded shape: portalSyncStatus back at the schema default.
+    await testDb.check.update({ where: { id: check.id }, data: { portalSyncStatus: 'NOT_APPLICABLE' } })
+
+    await revertAvailability(testDb, { checkId: check.id, userId: user.id, reason: 'x', now: NOW })
+
+    const events = await testDb.portalEvent.findMany({ where: { checkId: check.id } })
+    expect(events.some((e) => (e.payload as { action?: string }).action === 'REVERT')).toBe(true)
+  })
+
+  // Regression test for the other half of the bug: an INTERNAL check must
+  // never produce a portal event, even if portalSyncStatus happens to be
+  // non-default (e.g. left over from a prior state).
+  it('emits no event when reverting an INTERNAL check even when portalSyncStatus is non-default', async () => {
+    const user = await makeUser()
+    const check = await makeCheck({ status: 'SIGNED', eligibility: 'INTERNAL' })
+    await markReadyForRelease(testDb, { checkId: check.id, userId: user.id, availablePickupDate: PICKUP, now: NOW })
+    await testDb.check.update({ where: { id: check.id }, data: { portalSyncStatus: 'PENDING' } })
+
+    await revertAvailability(testDb, { checkId: check.id, userId: user.id, reason: 'x', now: NOW })
+
+    expect(await testDb.portalEvent.count({ where: { checkId: check.id } })).toBe(0)
+  })
 })
 
 describe('applyPickupConfirmation', () => {
@@ -181,6 +213,32 @@ describe('markReleased', () => {
     const check = await makeCheck({ status: 'SIGNED' })
     await expect(markReleased(testDb, { checkId: check.id, userId: user.id, now: NOW }))
       .rejects.toMatchObject({ code: 'ILLEGAL_TRANSITION' })
+  })
+
+  it('queues a RELEASED portal event for a SUPPLIER check', async () => {
+    const user = await makeUser()
+    const check = await makeCheck({ status: 'SIGNED', eligibility: 'SUPPLIER' })
+    await markReadyForRelease(testDb, { checkId: check.id, userId: user.id, availablePickupDate: PICKUP, now: NOW })
+    await markReleased(testDb, { checkId: check.id, userId: user.id, orNumber: 'OR-1', now: NOW })
+
+    const events = await testDb.portalEvent.findMany({ where: { checkId: check.id } })
+    const released = events.find((e) => (e.payload as { action?: string }).action === 'RELEASED')
+    expect(released).toBeDefined()
+    expect(released?.direction).toBe('OUT')
+    expect(released?.status).toBe('PENDING')
+    const updated = await testDb.check.findUniqueOrThrow({ where: { id: check.id } })
+    expect(updated.portalSyncStatus).toBe('PENDING')
+  })
+
+  it('queues no portal event when releasing an INTERNAL check', async () => {
+    const user = await makeUser()
+    const check = await makeCheck({ status: 'SIGNED', eligibility: 'INTERNAL' })
+    await markReadyForRelease(testDb, { checkId: check.id, userId: user.id, availablePickupDate: PICKUP, now: NOW })
+    await markReleased(testDb, { checkId: check.id, userId: user.id, now: NOW })
+
+    expect(await testDb.portalEvent.count({ where: { checkId: check.id } })).toBe(0)
+    const updated = await testDb.check.findUniqueOrThrow({ where: { id: check.id } })
+    expect(updated.portalSyncStatus).toBe('NOT_APPLICABLE')
   })
 })
 

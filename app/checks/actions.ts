@@ -28,6 +28,12 @@ async function run(checkId: string, fn: () => Promise<unknown>): Promise<ActionR
     return { ok: true }
   } catch (e) {
     if (e instanceof DomainError) return { ok: false, message: e.message }
+    // Next implements redirect()/notFound() by throwing; these must propagate.
+    if (e && typeof e === 'object' && 'digest' in e && typeof (e as { digest: unknown }).digest === 'string'
+        && ((e as { digest: string }).digest.startsWith('NEXT_REDIRECT')
+            || (e as { digest: string }).digest === 'NEXT_NOT_FOUND')) {
+      throw e
+    }
     console.error(e)
     return { ok: false, message: 'Something went wrong. Please try again.' }
   }
@@ -51,6 +57,9 @@ export async function readyForReleaseAction(formData: FormData): Promise<ActionR
 
 export async function revertAction(formData: FormData): Promise<ActionResult> {
   const user = await requireUser()
+  if (user.role !== 'FINANCE_ADMIN') {
+    return { ok: false, message: 'Only a Finance Admin can revert a check’s availability.' }
+  }
   const checkId = str(formData, 'checkId')
   return run(checkId, () => revertAvailability(prisma, {
     checkId, userId: user.id,
@@ -84,6 +93,9 @@ export async function clearingAction(formData: FormData): Promise<ActionResult> 
 
 export async function cancelAction(formData: FormData): Promise<ActionResult> {
   const user = await requireUser()
+  if (user.role !== 'FINANCE_ADMIN') {
+    return { ok: false, message: 'Only a Finance Admin can cancel a check.' }
+  }
   const checkId = str(formData, 'checkId')
   return run(checkId, () => cancelCheck(prisma, {
     checkId, userId: user.id,

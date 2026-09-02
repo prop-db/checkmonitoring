@@ -9,6 +9,18 @@ export type EligibilityInput = {
 
 export type EligibilityResult = { eligibility: Eligibility; reason: string }
 
+export type PortalDomain = 'LOCAL' | 'BROKER'
+
+// The single decision of whether a check touches the Supplier Portal, and as
+// what. Derived from eligibility alone — never from portalSyncStatus, which is
+// mutable, defaults to NOT_APPLICABLE, and would silently route a check the
+// wrong way. Every outbox write site must go through this.
+export function portalRoute(eligibility: Eligibility): PortalDomain | null {
+  if (eligibility === 'SUPPLIER') return 'LOCAL'
+  if (eligibility === 'BROKER') return 'BROKER'
+  return null // INTERNAL never touches the portal
+}
+
 export const INTERNAL_CATEGORIES: readonly string[] = [
   'PAYROLL', 'SALARIES', 'FTP', 'TAX', 'FUND TRANSFER',
 ]
