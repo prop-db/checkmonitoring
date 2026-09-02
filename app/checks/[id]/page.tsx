@@ -6,6 +6,7 @@ import { formatPhp } from '@/lib/money'
 import { StatusPill } from '@/components/StatusPill'
 import { AuditTrail } from '@/components/AuditTrail'
 import { ReadyForReleaseForm } from '@/components/ReadyForReleaseForm'
+import { ActionForm } from '@/components/ActionForm'
 import { signAction, releaseAction } from '../actions'
 
 const fmtDate = (d: Date | null) =>
@@ -62,7 +63,9 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
         <dl className="grid grid-cols-2 gap-4 md:grid-cols-3">
           <Field label="CHECK NUMBER" value={check.checkNumber} />
           <Field label="CV NUMBER" value={check.cvNumber ?? '—'} />
-          <Field label="APV NUMBER" value={check.bills[0]?.apvNumber ?? '—'} />
+          {/* Every bill, matching the dashboard table: a multi-bill check must not
+              display one arbitrary APV as though it were the only one. */}
+          <Field label="APV NUMBER" value={check.bills.length ? check.bills.map((b) => b.apvNumber).join(', ') : '—'} />
           <Field label="PAYEE" value={check.payeeName} />
           <Field label="COMPANY" value={check.company.code} />
           <Field label="CHECK DATE" value={fmtDate(check.checkDate)} />
@@ -96,15 +99,12 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
         <h2 className="mb-4 text-sm font-semibold tracking-wide">ACTIONS</h2>
 
         {check.status === 'SIGNATURE_PENDING' && (
-          <form
-            action={async (formData: FormData) => {
-              'use server'
-              await signAction(formData)
-            }}
-          >
-            <input type="hidden" name="checkId" value={check.id} />
-            <button className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white">MARK SIGNED</button>
-          </form>
+          <ActionForm
+            action={signAction}
+            checkId={check.id}
+            label="MARK SIGNED"
+            className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          />
         )}
 
         {check.status === 'SIGNED' && (
@@ -112,21 +112,16 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
         )}
 
         {(check.status === 'READY_FOR_RELEASE' || check.status === 'SCHEDULED') && (
-          <form
-            action={async (formData: FormData) => {
-              'use server'
-              await releaseAction(formData)
-            }}
-            className="space-y-3"
+          <ActionForm
+            action={releaseAction}
+            checkId={check.id}
+            label="MARK RELEASED"
+            className="block rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
-            <input type="hidden" name="checkId" value={check.id} />
             <label className="block text-xs font-medium tracking-wide text-slate-600">REMARKS</label>
             <input name="remarks" placeholder="Picked up by supplier"
               className="w-96 rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-            <button className="block rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white">
-              MARK RELEASED
-            </button>
-          </form>
+          </ActionForm>
         )}
 
         {check.status === 'RELEASED' && (
