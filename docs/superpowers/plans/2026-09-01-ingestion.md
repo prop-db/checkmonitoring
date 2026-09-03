@@ -1068,7 +1068,11 @@ import type { RawRow } from './workbook'
 export type ParsedRow = {
   sheet: string
   row: number
-  checkNumber: string | null
+  // Non-nullable by construction: a row without a cheque number cannot be keyed
+  // and goes to the review queue instead, so it never reaches `parsed`. Typing
+  // this `string | null` would make every downstream consumer handle a case
+  // that cannot occur — and `reconcile` cannot key a Map on a nullable value.
+  checkNumber: string
   cvNumber: string | null
   apvNumbers: string[]
   poNumbers: string[]
@@ -1083,6 +1087,11 @@ export type ParsedRow = {
 
 export type ReviewItem = { sheet: string; row: number; reason: 'NO_CHECK_NUMBER'; cells: unknown[] }
 
+// While a row is being assembled its cheque number may still be absent. The
+// draft carries that possibility; `ParsedRow` does not, and the narrowing
+// happens at the one point where the row is accepted.
+type Draft = Omit<ParsedRow, 'checkNumber'> & { checkNumber: string | null }
+
 // A row with no cheque number cannot be keyed and is sent for review rather
 // than dropped. Nothing is ever discarded silently: parsed.length +
 // review.length always equals the input length.
@@ -1091,7 +1100,7 @@ export function parseRows(rows: RawRow[]): { parsed: ParsedRow[]; review: Review
   const review: ReviewItem[] = []
 
   for (const raw of rows) {
-    const r: ParsedRow = {
+    const r: Draft = {
       sheet: raw.sheet, row: raw.row,
       checkNumber: null, cvNumber: null, apvNumbers: [], poNumbers: [],
       checkBook: null, category: null, clearingRef: null,
@@ -1123,7 +1132,8 @@ export function parseRows(rows: RawRow[]): { parsed: ParsedRow[]; review: Review
       }
     }
 
-    if (!r.checkNumber) {
+    const checkNumber = r.checkNumber
+    if (!checkNumber) {
       review.push({ sheet: raw.sheet, row: raw.row, reason: 'NO_CHECK_NUMBER', cells: raw.cells })
       continue
     }
@@ -1147,7 +1157,9 @@ export function parseRows(rows: RawRow[]): { parsed: ParsedRow[]; review: Review
     const candidates = [...r.unclassified].sort((a, b) => a.length - b.length)
     r.payee = candidates[0] ?? null
 
-    parsed.push(r)
+    // The one narrowing point: past the guard above, the cheque number is known
+    // to exist, so the row satisfies ParsedRow rather than Draft.
+    parsed.push({ ...r, checkNumber })
   }
 
   return { parsed, review }
