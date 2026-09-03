@@ -25,7 +25,16 @@ Everything from Plan 1 still binds. In addition:
 - **Nothing in this plan may write a `PortalEvent` or call the Supplier Portal.** Import and sync change a check's *data*, never its release status. A check imported at `SIGNATURE_PENDING` stays there until a Finance user acts.
 - **`AuditLog` is append-only** — enforced by a database trigger. Every import and sync writes `SYSTEM`-actor audit rows through `writeAudit`.
 - **An `INTERNAL` check cannot hold portal routing state** — enforced by a CHECK constraint. Any import path that sets `portalDomain` or `portalSyncStatus` must go through `portalRoute()`.
-- Currency is PHP; amounts are `Decimal(18,2)` and never a JavaScript `number`.
+- **Amounts are `Decimal(18,2)` and never a JavaScript `number`.**
+- **Currency is NOT PHP-only.** Verified against the live feed: of 1,490 payment rows sampled,
+  1,270 are PHP, 138 CNY and 82 USD. **Never sum across currencies.** Every amount carries its
+  currency, every total is per-currency, and `formatPhp` is replaced by a currency-aware
+  `formatMoney(amount, currency)`. A single peso total spanning three currencies is not a rounding
+  problem, it is a meaningless number that looks authoritative.
+- **Not every Acumatica payment is a cheque.** The `DG` (Dongguan) and `SH` (Shanghai) branches pay
+  in CNY and their `PaymentRef` carries an AP reference (`AP-DG001931`), not a cheque number. They
+  are imported so nothing is invisible, but flagged `isCheque = false` and **can never be marked
+  SIGNED, READY FOR RELEASE or RELEASED** — there is no physical cheque to hand over.
 - Test output must be pristine. `npx tsc --noEmit` clean, `npm run build` warning-free.
 - Every commit message ends with `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
 
@@ -452,6 +461,89 @@ separate legal entities issuing separate cheques.
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
+
+---
+
+## Task 2b: Currency and Non-Cheque Payments
+
+Added after connecting to the live Acumatica feed, which contradicted two assumptions the spec and the register had both left implicit. This task must land before any import runs, because both facts change what a correct import looks like.
+
+**Files:**
+- Modify: `prisma/schema.prisma` (+ migration), `prisma/reference-data.ts`, `lib/integrations/acumatica/companies.ts`, `lib/money.ts`, `lib/queries.ts`, `components/SummaryCards.tsx`, `lib/domain/check-status.ts`
+- Test: `tests/money.test.ts`, `tests/integrations/companies.test.ts`, `tests/domain/check-status.test.ts`, `tests/queries.test.ts`
+
+**Interfaces produced:**
+- `formatMoney(amount: string | Prisma.Decimal, currency: string): string` — replaces `formatPhp`
+- `getSummary(db)` returns `totalsByCurrency: { currency: string; total: string; count: number }[]` instead of a single `totalValue`
+- `companyForBranch` additionally routes `DG` → `DG` and `SH` → `SH`
+- `Check.isCheque: Boolean @default(true)`
+- `assertReleasable(check)` — throws unless `isCheque`
+
+- [ ] **Step 1: Two more companies, and route their branches**
+
+Dongguan Office (`DG`) and Shanghai Office (`SH`), both in the Go-Live tenant. Add to `COMPANIES` and to the `GOLIVE` routing map. Their cash account is `RMB-C-2213`.
+
+Extend `tests/integrations/companies.test.ts`:
+
+```ts
+it('routes the China offices', () => {
+  expect(companyForBranch('GOLIVE', 'DG')).toBe('DG')
+  expect(companyForBranch('GOLIVE', 'SH')).toBe('SH')
+})
+```
+
+- [ ] **Step 2: `isCheque` on the Check model**
+
+```prisma
+  // Not every Acumatica payment is a cheque. The China offices pay by transfer,
+  // and their PaymentRef carries an AP reference rather than a cheque number.
+  // Such a payment is tracked but has no physical document to sign or hand over.
+  isCheque Boolean @default(true)
+```
+
+Migration via `migrate diff` + `migrate deploy` to both databases (`migrate dev` does not run in this shell).
+
+- [ ] **Step 3: A non-cheque payment cannot enter the release ladder**
+
+In `lib/domain/check-status.ts`, add to the READY FOR RELEASE guards — and to `markSigned` and `markReleased` in `lib/domain/actions.ts` — a check that refuses a non-cheque payment:
+
+```ts
+export function assertReleasable(input: { isCheque: boolean }): void {
+  if (!input.isCheque) {
+    throw new DomainError(
+      'NOT_A_CHEQUE',
+      'This payment is not a cheque, so it cannot be signed or released. It is tracked here for visibility only.',
+    )
+  }
+}
+```
+
+Test that a non-cheque payment is refused at each of sign, ready and release, and that the audit trail records nothing for the refused attempt.
+
+- [ ] **Step 4: `formatMoney` replaces `formatPhp`**
+
+Keep the half-up rounding and the string-based carry exactly as they are — only the symbol becomes a parameter:
+
+```ts
+const SYMBOLS: Readonly<Record<string, string>> = { PHP: '₱', CNY: '¥', USD: '$' }
+
+// An unknown currency renders its ISO code rather than guessing a symbol: a
+// wrong symbol on a financial figure is worse than an unfamiliar one.
+export function formatMoney(value: string | number | Prisma.Decimal, currency: string): string {
+  const symbol = SYMBOLS[currency?.toUpperCase()] ?? `${currency} `
+  // ... existing rounding and grouping, with `symbol` in place of the hardcoded ₱
+}
+```
+
+Tests: every existing `formatPhp` case still passes through `formatMoney(x, 'PHP')`; `formatMoney('892140', 'CNY')` renders `¥892,140.00`; an unknown code renders `XYZ 1,000.00` rather than a peso sign.
+
+- [ ] **Step 5: Per-currency totals**
+
+`getSummary` groups by currency. The dashboard card lists one line per currency with its count. **There must be no code path that adds two different currencies together** — a test asserting a mixed-currency dataset produces multiple totals, not one, is the point of this step.
+
+- [ ] **Step 6: Run everything, walk the dashboard, commit**
+
+The seeded data is all PHP, so add a temporary CNY check to the **test** database to exercise the breakdown, and remove it. Do not add non-PHP fixtures to the seed.
 
 ---
 
