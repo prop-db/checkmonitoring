@@ -65,6 +65,10 @@ export function parseRows(rows: RawRow[]): { parsed: ParsedRow[]; review: Review
         case 'DATE_SERIAL': r.checkDate ??= excelSerialToDate(Number(cell)); break
         case 'CATEGORY': r.category ??= text?.toUpperCase() ?? null; break
         case 'CLEARING_REF': r.clearingRef ??= text?.toUpperCase() ?? null; break
+        case 'AMOUNT': r.amount ??= text?.replace(/,/g, '') ?? null; break
+        // A status word is neither a field nor free text; dropping it keeps it
+        // out of the payee candidates.
+        case 'STATUS_WORD': break
         default: if (text) r.unclassified.push(text)
       }
     }

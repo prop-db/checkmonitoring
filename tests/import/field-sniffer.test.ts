@@ -62,8 +62,29 @@ describe('sniff', () => {
     expect(sniff(174602)).toBe('CHECK_NUMBER')
   })
 
+  it('identifies text-formatted amounts', () => {
+    // Running the parser over the real register produced vendors named
+    // "17187.5" and "3746.25": decimal text fell through to UNKNOWN and won the
+    // payee slot. A decimal point is required, so cheque numbers are unaffected.
+    for (const v of ['17187.5', '1718.75', '3746.25', '197715.42', '1,234.56']) {
+      expect(sniff(v), v).toBe('AMOUNT')
+    }
+  })
+
+  it('does not mistake a whole-number cheque number for an amount', () => {
+    expect(sniff('6000329924')).toBe('CHECK_NUMBER')
+    expect(sniff('174602')).toBe('CHECK_NUMBER')
+  })
+
+  it('identifies status words the register scatters across columns', () => {
+    // "CANCELLED" became a vendor name before this rule existed.
+    for (const v of ['PAID', 'YES', 'CANCELLED', 'DEPOSITED', 'CLEARED', 'RELEASED']) {
+      expect(sniff(v), v).toBe('STATUS_WORD')
+    }
+  })
+
   it('returns UNKNOWN rather than guessing', () => {
-    for (const v of ['', '   ', '#N/A', null, undefined, 'DEPOSITED', 'Some free text description']) {
+    for (const v of ['', '   ', '#N/A', null, undefined, 'Some free text description']) {
       expect(sniff(v as unknown), String(v)).toBe('UNKNOWN')
     }
   })
