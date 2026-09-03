@@ -16,12 +16,21 @@ export type Conflict = {
 
 export type VendorMerge = { canonical: string; variants: string[] }
 
+// The register's own status vocabulary — the words its sheet names use, not the
+// release ladder's. `lib/import/implied-status.ts` maps these onto `CheckStatus`
+// and applies Finance's ruling when one cheque's sheets disagree.
+export type RegisterStatus = 'CANCELLED' | 'RELEASED' | 'AVAILABLE' | 'FINDING' | 'FT_MC'
+
 // Which sheet a row came from is what the register believed about that cheque.
 // Two sheets implying different things about one cheque is a contradiction only
 // a human can settle: deciding a cheque on both RELEASED and CANCELLED is
 // "really" released is a judgement about money that has already moved.
 // CANCELLED is tested first because several sheet names contain both words.
-const IMPLIED_STATUS: readonly (readonly [RegExp, string])[] = [
+//
+// Exported because the importer must reach the same verdict this report does.
+// A second, divergent copy of this table is how the reconciliation report and
+// the import come to disagree about the same cheque — so extend this one.
+export const IMPLIED_STATUS: readonly (readonly [RegExp, RegisterStatus])[] = [
   [/CANCELLED/i, 'CANCELLED'],
   [/RELEASED/i, 'RELEASED'],
   [/AVAIL/i, 'AVAILABLE'],
@@ -29,7 +38,9 @@ const IMPLIED_STATUS: readonly (readonly [RegExp, string])[] = [
   [/FT ?& ?MC/i, 'FT_MC'],
 ]
 
-function impliedStatus(sheet: string): string | null {
+// `null` when the sheet name asserts nothing — the pending registers, where a
+// cheque simply waits.
+export function registerStatus(sheet: string): RegisterStatus | null {
   for (const [re, status] of IMPLIED_STATUS) if (re.test(sheet)) return status
   return null
 }
@@ -77,7 +88,7 @@ export function reconcile(
       })
 
       const statuses = [...new Set(
-        sheets.map(impliedStatus).filter((s): s is string => s !== null),
+        sheets.map(registerStatus).filter((s): s is RegisterStatus => s !== null),
       )]
       if (statuses.length > 1) {
         conflicts.push({
