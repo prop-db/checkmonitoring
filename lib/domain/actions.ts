@@ -287,6 +287,74 @@ export async function recordClearing(
   })
 }
 
+/**
+ * The wording that makes a void after release impossible to miss in the audit
+ * trail. Exported so the test asserts the shipped string rather than a copy of
+ * it: this is the sentence a Finance user reads when deciding whether to ring
+ * the bank, and a paraphrase that drifts is worse than no warning.
+ */
+export const VOID_AFTER_RELEASE_WARNING =
+  'MONEY MAY ALREADY HAVE MOVED: this cheque had already been RELEASED to the payee when ' +
+  'Acumatica voided it, so it may have been presented or cleared. Confirm with the bank before ' +
+  'treating it as unpaid.'
+
+/**
+ * A void is an Acumatica FACT, not a Finance decision — which is the whole of
+ * the difference between this and `cancelCheck`. The ERP has cancelled the
+ * payment document; this system does not get a say, it only has to stop showing
+ * a cheque the source of truth says no longer exists. Hence `actorType: 'SYSTEM'`
+ * and no `userId`: there is no Finance user to attribute it to, and inventing
+ * one would put a person's name against a decision they did not make.
+ *
+ * The plan said a void applies "from any non-RELEASED status". That is
+ * superseded. `check-status.ts` permits RELEASED -> VOIDED deliberately: a
+ * stop-payment on a cheque already handed over is a real event, and this system
+ * disagreeing with the ERP is the worse failure. CANCELLED remains terminal, so
+ * a void arriving for a cancelled cheque throws rather than overwriting a
+ * Finance decision that carries a recorded reason.
+ *
+ * Writes no `PortalEvent`, like everything else in Plan 2. That has a
+ * consequence worth stating plainly: a cheque already published to the supplier
+ * portal as AVAILABLE and then voided in Acumatica goes on showing as available
+ * to the supplier. It is recorded as a known gap for Plan 3 in
+ * `.superpowers/sdd/progress.md` and must not be "fixed" here by writing an
+ * event — publishing is a Finance action, never an import consequence.
+ */
+export async function voidCheck(
+  db: Db, args: { checkId: string; reason: string; now: Date },
+): Promise<Check> {
+  if (!args.reason || args.reason.trim() === '') {
+    throw new DomainError('REASON_REQUIRED', 'A reason is required to void a check.')
+  }
+  return inTx(db, async (tx) => {
+    const check = await load(tx, args.checkId)
+    const from = check.status as CheckStatus
+    assertTransition(from, 'VOIDED')
+
+    const updated = await tx.check.update({
+      where: { id: check.id },
+      // The release facts are left standing. They are what makes this void
+      // alarming, and clearing them would erase the evidence that the cheque
+      // was ever handed over.
+      data: { status: 'VOIDED', voidedAt: args.now },
+    })
+
+    // A distinct action, not just distinct remarks: every audit query, filter
+    // and screen that groups by action then separates this case for free,
+    // whereas a warning buried in free text is one a list view never shows.
+    const afterRelease = from === 'RELEASED'
+    await writeAudit(tx, {
+      checkId: check.id,
+      actorType: 'SYSTEM',
+      action: afterRelease ? 'voided_after_release' : 'voided',
+      details: { fromStatus: from, releasedAt: check.releasedAt?.toISOString() ?? null },
+      remarks: afterRelease ? `${VOID_AFTER_RELEASE_WARNING} ${args.reason}` : args.reason,
+    })
+
+    return updated
+  })
+}
+
 export async function cancelCheck(
   db: Db, args: { checkId: string; userId: string; reason: string; now: Date },
 ): Promise<Check> {

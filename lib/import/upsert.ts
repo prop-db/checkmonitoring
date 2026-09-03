@@ -1,0 +1,514 @@
+import type { Check, Prisma, PrismaClient, StagedReason } from '@prisma/client'
+import { writeAudit } from '@/lib/audit'
+import { voidCheck } from '@/lib/domain/actions'
+import { canTransition, type CheckStatus } from '@/lib/domain/check-status'
+import { classifyEligibility, portalRoute } from '@/lib/domain/eligibility'
+import { DomainError } from '@/lib/domain/errors'
+import type { NormalisedRow } from '@/lib/normalised-row'
+import { resolveImpliedStatus } from './implied-status'
+
+type Db = PrismaClient | Prisma.TransactionClient
+
+// The same shape `lib/domain/actions.ts` uses. A caller can pass an existing
+// transaction client; otherwise we open our own, so a check and its audit row
+// are never written apart.
+async function inTx<T>(db: Db, fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  if ('$transaction' in db && typeof db.$transaction === 'function') {
+    return (db as PrismaClient).$transaction(fn)
+  }
+  return fn(db as Prisma.TransactionClient)
+}
+
+/**
+ * Import brings in what the source knows: amounts, dates, vendor, cash account.
+ * It must never touch what Finance knows — whether the cheque has been signed,
+ * made available, scheduled, released, cleared or cancelled. Neither Acumatica
+ * nor the register has any notion of those, so an import that wrote them would
+ * silently undo a Finance user's work, at the scale of 12,000 rows and with no
+ * error to notice.
+ *
+ * Exported so the list is reviewable in one place, and so
+ * `tests/import/upsert.test.ts` can drive its assertions off it: adding a field
+ * here extends the test automatically, and adding a column to `Check` without
+ * classifying it fails a test outright.
+ */
+export const IMMUTABLE_ON_UPDATE = [
+  'status', 'signedById', 'signedAt', 'readyById', 'readyAt',
+  'availablePickupDate', 'scheduledPickupDate', 'scheduledPickupTime', 'pickupRep',
+  'portalConfirmedAt', 'releasedById', 'releasedAt', 'orNumber', 'orDate',
+  'clearingStatus', 'crNumber', 'clearedDate', 'cancelledById', 'cancelledAt', 'cancelReason',
+] as const satisfies readonly (keyof Check)[]
+
+/**
+ * The other half of the same decision: the columns an import owns. `companyId`
+ * and `checkNumber` are here because a create writes them; an update never
+ * does, since together they are the row it looked the check up by.
+ *
+ * Note what is NOT here. `voidedAt` is written only through `voidCheck`, never
+ * by a bare update. `vendorId` is left alone because vendor merges are reported
+ * and never applied. `remarks`, `pointPerson` and `checksPossession` are free
+ * text Finance maintains.
+ */
+export const IMPORT_WRITABLE = [
+  'acumaticaPaymentId', 'checkNumber', 'cvNumber', 'checkDate', 'amount', 'currency',
+  'isCheque', 'companyId', 'cashAccountId', 'checkBookId', 'payeeName', 'category',
+  'eligibility', 'portalDomain', 'portalSyncStatus', 'sourceSheet', 'sourceRow',
+  'acumaticaDocType', 'acumaticaStatus', 'acumaticaBranch', 'acumaticaTenant', 'lastModifiedOn',
+] as const satisfies readonly (keyof Check)[]
+
+/**
+ * Cited as the basis of every automatic status resolution, so each of the 102
+ * cheques whose sheets contradict each other is traceable to the decision that
+ * settled it rather than to "the importer chose". Recorded in
+ * `.superpowers/sdd/progress.md`.
+ */
+export const FINANCE_RULING_BASIS = 'Finance ruling of 2026-09-03 on register contradictions'
+
+export type UpsertArgs = {
+  row: NormalisedRow
+  /** `Company.legalNames`, for classifyEligibility's inter-company check. */
+  ownCompanyNames: readonly string[]
+  now: Date
+  /**
+   * Every sheet this cheque number appears on across the whole import, not just
+   * this row's. Defaults to this row's sheet. When two of them imply different
+   * statuses, `resolveImpliedStatus` applies the Finance ruling — and throws on
+   * a combination nobody has ruled on, which this function deliberately does
+   * not catch.
+   */
+  sheets?: readonly string[]
+  /**
+   * Every company code this cheque number resolves to across the whole import.
+   * More than one and the row is staged rather than written. Defaults to this
+   * row's own company, which is the honest answer when the caller is looking at
+   * one row in isolation (the Acumatica sync) rather than at a whole register.
+   */
+  companies?: readonly string[]
+}
+
+export type UpsertResult =
+  | { outcome: 'CREATED'; checkId: string }
+  | { outcome: 'UPDATED'; checkId: string }
+  | { outcome: 'STAGED'; stagedCheckId: string; reason: StagedReason }
+
+// On an update, a null from the incoming row means "this source does not carry
+// this field", never "clear what you have". The payments generic inquiry
+// publishes no checkbook, no category and no bill references; a workbook row
+// carries no Acumatica provenance. Writing those nulls through would make every
+// sync erase what the register established and every import erase what the sync
+// established, one field at a time.
+const keep = <T>(value: T | null): T | undefined => value ?? undefined
+
+/**
+ * The single write path for both the workbook importer and the Acumatica sync.
+ * Duplicate prevention lives here and nowhere else: one `(companyId,
+ * checkNumber)` lookup, one create-or-update, and no second place for the two
+ * ingestion paths to disagree about what counts as the same cheque.
+ *
+ * Writes no `PortalEvent`, ever. Publishing a cheque to the supplier portal is
+ * a Finance action; an import is not a reason to tell a supplier anything.
+ */
+export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResult> {
+  const { row, now } = args
+
+  const sheets = args.sheets ?? (row.sourceSheet ? [row.sourceSheet] : [])
+  // Throws on a clash Finance has not ruled on. Deliberately not caught: a new
+  // combination is a fact about money that a human has to decide, and quietly
+  // picking one of the candidates is exactly the invention this importer exists
+  // to avoid.
+  const implied = resolveImpliedStatus(sheets)
+
+  const companies = [...new Set(args.companies ?? (row.companyCode ? [row.companyCode] : []))]
+
+  // Staging order is the order in which a defect makes the row unwritable.
+  // A row with no cheque number cannot be keyed at all, so it is not in any
+  // group. AMBIGUOUS_COMPANY comes before NO_COMPANY so that every row of a
+  // contested cheque number lands in one bucket — including a row that resolves
+  // no company of its own, because splitting one cheque's evidence across two
+  // reasons is precisely what a human settling it must not have to notice.
+  const checkNumber = row.checkNumber
+  if (checkNumber === null) return stageRow(db, row, implied.status, 'NO_CHECK_NUMBER', [])
+  if (companies.length > 1) return stageRow(db, row, implied.status, 'AMBIGUOUS_COMPANY', companies)
+  if (row.companyCode === null) return stageRow(db, row, implied.status, 'NO_COMPANY', [])
+
+  const company = await db.company.findUnique({ where: { code: row.companyCode } })
+  if (!company) {
+    // A code the row states but no Company row carries is a seeding fault, not
+    // a fact about the cheque. Staging it would bury a configuration error
+    // under thousands of "unknown company" rows that a human would then try to
+    // correct one at a time.
+    throw new DomainError(
+      'UNKNOWN_COMPANY',
+      `No company is registered under the code ${row.companyCode}, which ` +
+        `${row.sourceSheet ?? row.source} row ${row.sourceRow ?? '?'} claims. ` +
+        'Seed the company before importing.',
+    )
+  }
+
+  // Codes are looked up, never created. An unrecognised code leaves the link
+  // unmade: seven cash accounts in the live Acumatica feed (PAYROLL and
+  // PCF-SITIO among them) are absent from reference data, and inventing rows
+  // for them would put a cheque in a bank account that does not exist.
+  const cashAccount = row.cashAccountCode
+    ? await db.cashAccount.findUnique({ where: { code: row.cashAccountCode } })
+    : null
+  const checkBook = row.checkBookCode
+    ? await db.checkBook.findUnique({ where: { code: row.checkBookCode } })
+    : null
+
+  return inTx(db, async (tx) => {
+    const existing = await tx.check.findUnique({
+      where: { companyId_checkNumber: { companyId: company.id, checkNumber } },
+    })
+
+    const classified = classifyEligibility({
+      payeeName: row.payeeName,
+      category: row.category,
+      sourceSheet: row.sourceSheet,
+      ownCompanyNames: args.ownCompanyNames,
+    })
+    const route = portalRoute(classified.eligibility)
+
+    if (!existing) {
+      const created = await tx.check.create({
+        data: {
+          companyId: company.id,
+          checkNumber,
+          acumaticaPaymentId: row.acumaticaPaymentId,
+          cvNumber: row.cvNumber,
+          checkDate: row.checkDate,
+          amount: row.amount,
+          // The only place a currency is not stated outright. The workbook
+          // mapper has already applied the register's PHP default, so this is
+          // reachable only for an Acumatica row whose feed omitted Currency —
+          // a surprise — and it falls to the column default rather than being
+          // relabelled here, where it would look like a decision.
+          currency: keep(row.currency),
+          isCheque: row.isCheque,
+          cashAccountId: cashAccount?.id ?? null,
+          checkBookId: checkBook?.id ?? null,
+          payeeName: row.payeeName,
+          category: row.category,
+          eligibility: classified.eligibility,
+          portalDomain: route,
+          // Routing is decided at import; publishing is not. PENDING means "a
+          // portal push is queued", and nothing in Plan 2 queues one — writing
+          // it here would leave a promise to a supplier that no outbox keeps.
+          portalSyncStatus: 'NOT_APPLICABLE',
+          status: implied.status,
+          // The register's own clearing reference. Set once, at create; from
+          // then on `crNumber` is Finance's, which is why it is immutable below.
+          crNumber: row.clearingRef,
+          sourceSheet: row.sourceSheet,
+          sourceRow: row.sourceRow,
+          acumaticaDocType: row.acumaticaDocType,
+          acumaticaStatus: row.acumaticaStatus,
+          acumaticaBranch: row.acumaticaBranch,
+          acumaticaTenant: row.acumaticaTenant,
+          lastModifiedOn: row.lastModifiedOn,
+        },
+      })
+
+      await writeAudit(tx, {
+        checkId: created.id,
+        actorType: 'SYSTEM',
+        action: 'imported',
+        details: {
+          source: row.source,
+          status: implied.status,
+          eligibility: classified.eligibility,
+          eligibilityReason: classified.reason,
+          sourceSheet: row.sourceSheet,
+          sourceRow: row.sourceRow,
+        },
+        remarks: `Imported from ${row.source} at ${implied.status}.`,
+      })
+
+      // Recorded on the create and only on the create: the ruling justifies a
+      // status decision, and a re-import never makes one.
+      if (implied.implied.length > 1) {
+        await writeAudit(tx, {
+          checkId: created.id,
+          actorType: 'SYSTEM',
+          action: 'implied_status_resolved',
+          details: {
+            sheets: implied.sheets,
+            implied: implied.implied,
+            chosen: implied.resolvedFrom,
+            status: implied.status,
+            basis: FINANCE_RULING_BASIS,
+          },
+          remarks:
+            `The register implies ${implied.implied.join(' and ')} for this cheque, on ` +
+            `${implied.sheets.join(', ')}. Resolved to ${implied.resolvedFrom} ` +
+            `(${implied.status}) under the ${FINANCE_RULING_BASIS}.`,
+        })
+      }
+
+      await applyVoid(tx, created.id, implied.status, row, now)
+      return { outcome: 'CREATED', checkId: created.id }
+    }
+
+    // A Finance user who has overridden the classification has said something
+    // the payee and category columns cannot say. Recomputing over the top of it
+    // would make the override last exactly until the next sync.
+    const overridden = existing.eligibilityOverriddenById !== null
+
+    await tx.check.update({
+      where: { id: existing.id },
+      data: {
+        acumaticaPaymentId: keep(row.acumaticaPaymentId),
+        cvNumber: keep(row.cvNumber),
+        checkDate: keep(row.checkDate),
+        amount: keep(row.amount),
+        currency: keep(row.currency),
+        isCheque: row.isCheque,
+        cashAccountId: cashAccount?.id,
+        checkBookId: checkBook?.id,
+        payeeName: keep(row.payeeName),
+        category: keep(row.category),
+        eligibility: overridden ? undefined : classified.eligibility,
+        portalDomain: overridden ? undefined : route,
+        // Only when the cheque has just become INTERNAL, because the CHECK
+        // constraint forbids an INTERNAL check holding portal routing state.
+        // Leaving it alone otherwise is what preserves a PENDING push a Finance
+        // user queued. Clearing it in the INTERNAL case does undo that push —
+        // deliberately: a cheque that is now INTERNAL must not be published.
+        portalSyncStatus: overridden || route !== null ? undefined : 'NOT_APPLICABLE',
+        sourceSheet: keep(row.sourceSheet),
+        sourceRow: keep(row.sourceRow),
+        acumaticaDocType: keep(row.acumaticaDocType),
+        acumaticaStatus: keep(row.acumaticaStatus),
+        acumaticaBranch: keep(row.acumaticaBranch),
+        acumaticaTenant: keep(row.acumaticaTenant),
+        lastModifiedOn: keep(row.lastModifiedOn),
+      },
+    })
+
+    await writeAudit(tx, {
+      checkId: existing.id,
+      actorType: 'SYSTEM',
+      action: 'import_updated',
+      details: {
+        source: row.source,
+        eligibility: overridden ? existing.eligibility : classified.eligibility,
+        eligibilityOverridden: overridden,
+        sourceSheet: row.sourceSheet,
+        sourceRow: row.sourceRow,
+      },
+      remarks: `Updated from ${row.source}; status left at ${existing.status}.`,
+    })
+
+    await applyVoid(tx, existing.id, existing.status as CheckStatus, row, now)
+    return { outcome: 'UPDATED', checkId: existing.id }
+  })
+}
+
+/**
+ * The one status change an import may make, because Acumatica *does* know a
+ * cheque was voided. Routed through `voidCheck` rather than a bare update so
+ * the transition, the timestamp and the audit row — including the conspicuous
+ * one for a void after release — are written in exactly one place.
+ */
+async function applyVoid(
+  tx: Prisma.TransactionClient,
+  checkId: string,
+  current: CheckStatus,
+  row: NormalisedRow,
+  now: Date,
+): Promise<void> {
+  if (!row.voided) return
+
+  // Already recorded. Returning silently is what keeps a re-run idempotent —
+  // `VOIDED` is terminal, so asserting the transition again would abort the
+  // import on every cheque it had already voided.
+  if (current === 'VOIDED') return
+
+  if (!canTransition(current, 'VOIDED')) {
+    // CANCELLED is the only case left: a terminal Finance decision carrying a
+    // recorded reason, which an ERP fact does not get to overwrite. The
+    // disagreement between this system and the source of truth is still
+    // something somebody has to see, so it is recorded rather than thrown —
+    // throwing would abort a 12,000-row import over one contested cheque.
+    await writeAudit(tx, {
+      checkId,
+      actorType: 'SYSTEM',
+      action: 'void_not_applied',
+      details: {
+        currentStatus: current,
+        acumaticaDocType: row.acumaticaDocType,
+        acumaticaStatus: row.acumaticaStatus,
+      },
+      remarks:
+        `Acumatica reports this cheque voided, but it is ${current} here — a terminal Finance ` +
+        'decision with a recorded reason. The status is unchanged and the disagreement needs a human.',
+    })
+    return
+  }
+
+  await voidCheck(tx, {
+    checkId,
+    reason:
+      `Voided in Acumatica (${row.acumaticaDocType ?? 'document type not stated'}, ` +
+      `status ${row.acumaticaStatus ?? 'not stated'}).`,
+    now,
+  })
+}
+
+/**
+ * A row kept whole rather than written or dropped. Keyed on `(sourceSheet,
+ * sourceRow)`, so re-running the import updates a staged row instead of
+ * producing a second one.
+ *
+ * No audit row: `AuditLog` is check-scoped, a staged row is not a check, and
+ * 2,700 rows with a null `checkId` would bury the trail that matters. The
+ * `StagedCheck` row is itself the record.
+ */
+async function stageRow(
+  db: Db,
+  row: NormalisedRow,
+  impliedStatus: CheckStatus,
+  reason: StagedReason,
+  conflictingCompanies: readonly string[],
+): Promise<UpsertResult> {
+  const { sourceSheet, sourceRow } = row
+  if (sourceSheet === null || sourceRow === null) {
+    // An Acumatica row carries no sheet or row number, so there is nowhere to
+    // stage it and no cell to point a human at. Throwing puts it in front of
+    // one — the sync counts it as an error and carries on — where returning
+    // quietly would lose a payment.
+    throw new DomainError(
+      'CANNOT_STAGE',
+      `A ${row.source} row cannot be staged because it carries no source sheet or row number ` +
+        `to key it on. Cheque number: ${row.checkNumber ?? 'none'}; reason: ${reason}.`,
+    )
+  }
+
+  const data = {
+    reason,
+    checkNumber: row.checkNumber,
+    cvNumber: row.cvNumber,
+    apvNumbers: row.apvNumbers,
+    poNumbers: row.poNumbers,
+    checkBookCode: row.checkBookCode,
+    cashAccountCode: row.cashAccountCode,
+    companyCode: row.companyCode,
+    conflictingCompanies: [...conflictingCompanies],
+    category: row.category,
+    clearingRef: row.clearingRef,
+    checkDate: row.checkDate,
+    amount: row.amount,
+    currency: row.currency,
+    payeeName: row.payeeName,
+    // Kept so promoting the row later does not have to re-derive a status from
+    // a sheet name nobody has any more.
+    impliedStatus,
+  }
+
+  const staged = await db.stagedCheck.upsert({
+    where: { sourceSheet_sourceRow: { sourceSheet, sourceRow } },
+    create: { sourceSheet, sourceRow, ...data },
+    update: data,
+  })
+  return { outcome: 'STAGED', stagedCheckId: staged.id, reason }
+}
+
+export type CheckNumberGroup = { sheets: string[]; companies: string[] }
+
+/**
+ * Every sheet and every company a cheque number is claimed by, across the whole
+ * batch. Pure.
+ *
+ * Both facts are properties of the cheque number rather than of a row, and
+ * neither can be decided as rows stream past: the contradiction ruling needs
+ * every sheet a cheque appears on, and the ambiguity ruling needs every company
+ * it resolves to, before any row for it is written. Group first, write second.
+ */
+export function groupByCheckNumber(
+  rows: readonly NormalisedRow[],
+): Map<string, CheckNumberGroup> {
+  const sheets = new Map<string, Set<string>>()
+  const companies = new Map<string, Set<string>>()
+
+  for (const row of rows) {
+    if (row.checkNumber === null) continue
+    if (row.sourceSheet !== null) {
+      const s = sheets.get(row.checkNumber) ?? new Set<string>()
+      s.add(row.sourceSheet)
+      sheets.set(row.checkNumber, s)
+    }
+    if (row.companyCode !== null) {
+      const c = companies.get(row.checkNumber) ?? new Set<string>()
+      c.add(row.companyCode)
+      companies.set(row.checkNumber, c)
+    }
+  }
+
+  const out = new Map<string, CheckNumberGroup>()
+  for (const number of new Set([...sheets.keys(), ...companies.keys()])) {
+    out.set(number, {
+      sheets: [...(sheets.get(number) ?? [])],
+      companies: [...(companies.get(number) ?? [])],
+    })
+  }
+  return out
+}
+
+export type ImportSummary = {
+  rows: number
+  created: number
+  updated: number
+  staged: number
+  stagedByReason: Record<StagedReason, number>
+}
+
+/**
+ * The batch entry point: group the rows, then write them one at a time.
+ *
+ * `rows` must be the WHOLE import, not a page of it. Both rulings this applies
+ * are properties of a cheque number across every row that mentions it, and a
+ * batch that saw only half the register would resolve a contradiction from half
+ * the sheets and miss a company conflict entirely.
+ *
+ * Rows are written sequentially rather than in parallel because two rows of one
+ * cheque number are routine — 102 cheques appear on more than one sheet — and
+ * two concurrent transactions creating the same `(companyId, checkNumber)` is a
+ * unique-violation, not a merge.
+ *
+ * `rows === created + updated + staged` is the invariant that makes "nothing is
+ * dropped" checkable rather than asserted.
+ */
+export async function importRows(
+  db: Db,
+  args: { rows: readonly NormalisedRow[]; ownCompanyNames: readonly string[]; now: Date },
+): Promise<ImportSummary> {
+  const groups = groupByCheckNumber(args.rows)
+
+  const summary: ImportSummary = {
+    rows: args.rows.length,
+    created: 0,
+    updated: 0,
+    staged: 0,
+    stagedByReason: { NO_COMPANY: 0, NO_CHECK_NUMBER: 0, AMBIGUOUS_COMPANY: 0 },
+  }
+
+  for (const row of args.rows) {
+    const group = row.checkNumber !== null ? groups.get(row.checkNumber) : undefined
+    const result = await upsertCheck(db, {
+      row,
+      ownCompanyNames: args.ownCompanyNames,
+      now: args.now,
+      sheets: group?.sheets,
+      companies: group?.companies,
+    })
+
+    if (result.outcome === 'CREATED') summary.created++
+    else if (result.outcome === 'UPDATED') summary.updated++
+    else {
+      summary.staged++
+      summary.stagedByReason[result.reason]++
+    }
+  }
+
+  return summary
+}

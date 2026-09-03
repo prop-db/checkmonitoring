@@ -16,6 +16,10 @@ export async function resetDb() {
     await tx.notification.deleteMany()
     await tx.checkBill.deleteMany()
     await tx.check.deleteMany()
+    // Not a child of Check: a staged row exists precisely because it could not
+    // become one. Truncated here all the same, so a test's staging count is its
+    // own.
+    await tx.stagedCheck.deleteMany()
     await tx.cashAccount.deleteMany()
     await tx.checkBook.deleteMany()
     await tx.vendor.deleteMany()

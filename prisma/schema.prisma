@@ -233,6 +233,70 @@ model Check {
   @@index([availablePickupDate])
 }
 
+enum StagedReason {
+  // 2,640 register rows: neither a checkbook nor a cash account, so nothing
+  // says which company's cheque this is.
+  NO_COMPANY
+  // 66 register rows: no cheque number at all, so the row cannot be keyed.
+  NO_CHECK_NUMBER
+  // 61 register rows across 27 cheque numbers: the number resolves to MORE
+  // THAN ONE company. Finance ruling of 2026-09-03 — stage every row for such
+  // a number and import none of them. Measured: 25 of the 27 are one cheque
+  // entered twice under a different checkbook code with an identical amount and
+  // payee, and importing both rows would file one physical cheque under two
+  // companies and double-count PHP 6,779,371.05. The other 2 carry genuinely
+  // different payees and amounts under one number.
+  AMBIGUOUS_COMPANY
+}
+
+// A register row kept whole because it cannot become a `Check` without a guess.
+// `Check.companyId` is required and is half of `@@unique([companyId,
+// checkNumber])`, so a row whose company is unknown, contested, or whose cheque
+// number is missing has no key to be written under. Staging is what makes
+// "nothing is dropped" true: every one of the register's 12,227 rows is either
+// imported or sits here where Finance can see it. The Acumatica sync promotes
+// them later, by cheque number, once it supplies a company.
+model StagedCheck {
+  id              String       @id @default(cuid())
+  sourceSheet     String
+  sourceRow       Int
+  reason          StagedReason
+  checkNumber     String?
+  cvNumber        String?
+  apvNumbers      String[]
+  poNumbers       String[]
+  checkBookCode   String?
+  cashAccountCode String?
+  // What THIS row's own signals resolved to, null when they resolved nothing.
+  // Kept alongside the two code columns so a human settling an AMBIGUOUS_COMPANY
+  // group can see which signal claimed which company without reopening the
+  // workbook.
+  companyCode     String?
+  // Every company code the cheque number resolved to across the whole import.
+  // Empty unless `reason` is AMBIGUOUS_COMPANY. This is a fact about the group,
+  // not about this row, and is repeated on each row of the group deliberately:
+  // the alternative is a self-join to find out why a row was staged.
+  conflictingCompanies String[]
+  category        String?
+  clearingRef     String?
+  checkDate       DateTime?
+  amount          Decimal?     @db.Decimal(18, 2)
+  currency        String?
+  payeeName       String?
+  impliedStatus   CheckStatus
+  // Set when the Acumatica sync later supplies the company (Task 9). Left alone
+  // by the importer: a cheque number is unique only per company, so matching a
+  // staged row to a new Check on the number alone could link it to a sibling
+  // company's cheque. That is a guess about money, which is what staging exists
+  // to avoid.
+  promotedCheckId String?
+  createdAt       DateTime     @default(now())
+
+  @@unique([sourceSheet, sourceRow])   // re-running the import updates, never duplicates
+  @@index([checkNumber])               // the Acumatica sync matches on this
+  @@index([reason])
+}
+
 model CheckBill {
   id            String    @id @default(cuid())
   checkId       String

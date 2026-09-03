@@ -3,7 +3,8 @@ import { testDb, resetDb } from '../helpers/db'
 import { makeUser, makeCheck } from '../helpers/factory'
 import {
   markSigned, markReadyForRelease, revertAvailability, markReleased,
-  recordClearing, cancelCheck, applyPickupConfirmation,
+  recordClearing, cancelCheck, applyPickupConfirmation, voidCheck,
+  VOID_AFTER_RELEASE_WARNING,
 } from '@/lib/domain/actions'
 import { DomainError } from '@/lib/domain/errors'
 
@@ -363,5 +364,98 @@ describe('cancelCheck', () => {
     await markReleased(testDb, { checkId: check.id, userId: user.id, now: NOW })
     await expect(cancelCheck(testDb, { checkId: check.id, userId: user.id, reason: 'x', now: NOW }))
       .rejects.toMatchObject({ code: 'ILLEGAL_TRANSITION' })
+  })
+})
+
+describe('voidCheck', () => {
+  it('voids from a pending status and records when, with no user attached', async () => {
+    const check = await makeCheck({ status: 'SIGNATURE_PENDING' })
+    const out = await voidCheck(testDb, {
+      checkId: check.id, reason: 'Voided in Acumatica (Voided Payment, status Closed).', now: NOW,
+    })
+    expect(out.status).toBe('VOIDED')
+    expect(out.voidedAt).toEqual(NOW)
+
+    const audit = await testDb.auditLog.findFirstOrThrow({ where: { checkId: check.id } })
+    // A void is an Acumatica fact, not a Finance decision, so it is attributed
+    // to SYSTEM and there is no user to name.
+    expect(audit.actorType).toBe('SYSTEM')
+    expect(audit.userId).toBeNull()
+    expect(audit.action).toBe('voided')
+  })
+
+  it('voids a SIGNED check without disturbing who signed it', async () => {
+    const user = await makeUser()
+    const check = await makeCheck({ status: 'SIGNATURE_PENDING' })
+    await markSigned(testDb, { checkId: check.id, userId: user.id, now: NOW })
+    const out = await voidCheck(testDb, { checkId: check.id, reason: 'Voided in Acumatica.', now: NOW })
+    expect(out.status).toBe('VOIDED')
+    expect(out.signedById).toBe(user.id)
+  })
+
+  // The plan said a void applies "from any non-RELEASED status". That is
+  // superseded: `check-status.ts` permits RELEASED -> VOIDED deliberately,
+  // because a stop-payment on a cheque already handed over is a real event and
+  // Acumatica is the source of truth for it. This system showing RELEASED for a
+  // cheque the ERP says no longer exists is the worse failure.
+  it('voids a RELEASED check, because Acumatica can stop a cheque already handed over', async () => {
+    const user = await makeUser()
+    const check = await makeCheck({ status: 'SIGNED' })
+    await markReadyForRelease(testDb, { checkId: check.id, userId: user.id, availablePickupDate: PICKUP, now: NOW })
+    await markReleased(testDb, { checkId: check.id, userId: user.id, now: NOW })
+
+    const out = await voidCheck(testDb, { checkId: check.id, reason: 'Stop payment.', now: NOW })
+    expect(out.status).toBe('VOIDED')
+    // The release facts survive: they are what makes this void alarming.
+    expect(out.releasedById).toBe(user.id)
+    expect(out.releasedAt).toEqual(NOW)
+  })
+
+  // Because a released-then-voided cheque means money may already have moved,
+  // this one transition must be conspicuous in the audit trail rather than
+  // reading like any other void.
+  it('marks a void after release conspicuously, not like any other void', async () => {
+    const user = await makeUser()
+    const released = await makeCheck({ status: 'SIGNED' })
+    await markReadyForRelease(testDb, { checkId: released.id, userId: user.id, availablePickupDate: PICKUP, now: NOW })
+    await markReleased(testDb, { checkId: released.id, userId: user.id, now: NOW })
+    await voidCheck(testDb, { checkId: released.id, reason: 'Stop payment.', now: NOW })
+
+    const audit = await testDb.auditLog.findFirstOrThrow({
+      where: { checkId: released.id, action: { startsWith: 'voided' } },
+    })
+    expect(audit.action).toBe('voided_after_release')
+    expect(audit.remarks).toContain(VOID_AFTER_RELEASE_WARNING)
+    expect(audit.details).toMatchObject({ fromStatus: 'RELEASED' })
+
+    // And the contrast: an ordinary void carries neither the distinct action
+    // nor the warning, so the alarming case cannot be lost among the routine ones.
+    const pending = await makeCheck({ status: 'SIGNATURE_PENDING' })
+    await voidCheck(testDb, { checkId: pending.id, reason: 'Voided in Acumatica.', now: NOW })
+    const ordinary = await testDb.auditLog.findFirstOrThrow({ where: { checkId: pending.id } })
+    expect(ordinary.action).toBe('voided')
+    expect(ordinary.remarks).not.toContain(VOID_AFTER_RELEASE_WARNING)
+  })
+
+  it('refuses to void a cancelled check, which is a terminal Finance decision', async () => {
+    const user = await makeUser()
+    const check = await makeCheck({ status: 'SIGNED' })
+    await cancelCheck(testDb, { checkId: check.id, userId: user.id, reason: 'Spoiled check', now: NOW })
+    await expect(voidCheck(testDb, { checkId: check.id, reason: 'Voided in Acumatica.', now: NOW }))
+      .rejects.toMatchObject({ code: 'ILLEGAL_TRANSITION' })
+  })
+
+  it('refuses a blank reason, as cancelCheck does', async () => {
+    const check = await makeCheck({ status: 'SIGNATURE_PENDING' })
+    await expect(voidCheck(testDb, { checkId: check.id, reason: '   ', now: NOW }))
+      .rejects.toMatchObject({ code: 'REASON_REQUIRED' })
+  })
+
+  // Plan 2 writes no portal events at all. A void that queued one would be an
+  // import consequence reaching a supplier, which is a Plan 3 decision.
+  it('writes no portal event', async () => {
+    const check = await makeCheck({ status: 'SIGNATURE_PENDING' })
+    await voidCheck(testDb, { checkId: check.id, reason: 'Voided in Acumatica.', now: NOW })
+    expect(await testDb.portalEvent.count({ where: { checkId: check.id } })).toBe(0)
   })
 })

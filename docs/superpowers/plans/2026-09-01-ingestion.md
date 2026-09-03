@@ -1763,6 +1763,20 @@ cheque that can silently duplicate later.
 
 ### 7b. Staging
 
+> **AMENDED (2026-09-04).** `StagedReason` has a third member, `AMBIGUOUS_COMPANY`, and
+> `StagedCheck` two more columns, `companyCode` and `conflictingCompanies`. Finance ruled that where
+> one cheque number resolves to more than one company, **every** row for that number is staged and
+> none imported. Measured: 27 such numbers across 61 rows, 25 of them one cheque entered twice under
+> a different checkbook code with an identical amount and payee — importing both would file one
+> physical cheque under two companies and double-count PHP 6,779,371.05. The expected outcome below
+> becomes: imported 9,461, AMBIGUOUS_COMPANY 61, NO_COMPANY 2,639, NO_CHECK_NUMBER 66, total 12,227.
+> The ruling and its arithmetic are in `.superpowers/sdd/progress.md`.
+>
+> The decision cannot be made row by row: a cheque number's full set of companies must be known
+> before any row for it is written, so `importRows` groups first and writes second, and must be
+> given the whole register rather than a page of it. This is a conflict *across* rows and so does
+> not belong in `resolveCompany`, which only ever sees one.
+
 `companyId` is required and is half the dedup key, so a row whose company is unknown cannot become
 a `Check` without a guess. It is staged instead — kept whole, visible to Finance, and promoted
 later when the Acumatica sync (Tasks 8–9) supplies the company by cheque number.
@@ -1871,6 +1885,17 @@ const IMMUTABLE_ON_UPDATE = [
 ```
 
 The one exception: a `Voided Payment` may move a check to `VOIDED` from any non-`RELEASED` status, because Acumatica *does* know a cheque was voided. Route that through `lib/domain/actions.ts`, not through a bare update.
+
+> **SUPERSEDED (2026-09-04), the "non-`RELEASED`" part only.** `lib/domain/check-status.ts` permits
+> `RELEASED → VOIDED` deliberately: a stop-payment on a cheque already handed over is a real event
+> and Acumatica is the source of truth for it, so this system showing RELEASED for a cheque the ERP
+> says no longer exists is the worse failure. `voidCheck` honours the state machine, which means
+> `CANCELLED` — a terminal Finance decision carrying a recorded reason — is the status a void
+> cannot overwrite. Because a released-then-voided cheque means money may already have moved, that
+> transition writes a distinct audit action (`voided_after_release`) and the
+> `VOID_AFTER_RELEASE_WARNING` text rather than reading like any other void. The consequence Plan 2
+> cannot fix — such a cheque still shows AVAILABLE on the supplier portal — is recorded as a Plan 3
+> gap in `.superpowers/sdd/progress.md`.
 
 - [ ] **Step 3: Run, verify, commit**
 
