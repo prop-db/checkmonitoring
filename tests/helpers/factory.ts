@@ -14,9 +14,11 @@ export async function makeCheck(overrides: {
   availablePickupDate?: Date | null
   isCheque?: boolean
   currency?: string
-  // `null` is a distinct, meaningful value here - the register does not always
-  // record an amount - so it cannot be collapsed into the default with `??`.
+  // `null` is a distinct, meaningful value for both of these - the register
+  // does not always record an amount (397 rows) or a payee (153) - so neither
+  // can be collapsed into its default with `??`. Use `=== undefined` below.
   amount?: string | null
+  payeeName?: string | null
 } = {}) {
   const company = await testDb.company.create({
     data: { code: `C${Math.random().toString(36).slice(2, 7)}`, name: 'Starkson Packaging Inc.', legalNames: [] },
@@ -35,7 +37,7 @@ export async function makeCheck(overrides: {
       checkDate: new Date('2026-09-01'),
       amount: overrides.amount === undefined ? '197715.42' : overrides.amount,
       currency: overrides.currency ?? 'PHP',
-      payeeName: 'HENKEL PHILIPPINES INC.',
+      payeeName: overrides.payeeName === undefined ? 'HENKEL PHILIPPINES INC.' : overrides.payeeName,
       eligibility: overrides.eligibility ?? 'SUPPLIER',
       status: overrides.status ?? 'SIGNED',
       availablePickupDate: overrides.availablePickupDate === undefined ? null : overrides.availablePickupDate,
