@@ -809,15 +809,30 @@ describe('canonicalCheckBook', () => {
 })
 
 describe('excelSerialToDate', () => {
-  it('converts serials to the dates the register means', () => {
-    // 46164 is 2026-05-31 in Excel's 1900 system.
-    expect(excelSerialToDate(46164).toISOString().slice(0, 10)).toBe('2026-05-31')
-    expect(excelSerialToDate(46014).toISOString().slice(0, 10)).toBe('2026-01-01')
+  // Anchor the conversion to serials whose dates are independently known, not
+  // to values eyeballed from the register. An earlier version of this test
+  // asserted three dates that were each nine days out; the implementation was
+  // correct and the expectations were invented.
+  it('matches known Excel reference points', () => {
+    expect(excelSerialToDate(44927).toISOString().slice(0, 10)).toBe('2023-01-01')
+    expect(excelSerialToDate(45658).toISOString().slice(0, 10)).toBe('2025-01-01')
+  })
+
+  it('converts the serials the register actually carries', () => {
+    expect(excelSerialToDate(46164).toISOString().slice(0, 10)).toBe('2026-05-22')
+    expect(excelSerialToDate(46014).toISOString().slice(0, 10)).toBe('2025-12-23')
+    expect(excelSerialToDate(46259).toISOString().slice(0, 10)).toBe('2026-08-25')
   })
 
   it('truncates the time component the register sometimes carries', () => {
-    // 45882.606282141198 is a date with a time. The date is what matters.
-    expect(excelSerialToDate(45882.606282141198).toISOString().slice(0, 10)).toBe('2025-08-22')
+    // 45882.606282141198 is a date with a time. Only the date matters here.
+    expect(excelSerialToDate(45882.606282141198).toISOString().slice(0, 10)).toBe('2025-08-13')
+  })
+
+  it('is stable across a day boundary within one serial', () => {
+    // .999 must not roll into the next day: the fraction is discarded, not rounded.
+    expect(excelSerialToDate(46164.999).toISOString().slice(0, 10))
+      .toBe(excelSerialToDate(46164).toISOString().slice(0, 10))
   })
 })
 ```
@@ -866,7 +881,10 @@ export function canonicalCheckBook(code: string | null | undefined): string | nu
 
 // Excel's 1900 date system, with the well-known leap-year bug: serial 60 is a
 // day that never existed, so everything from 61 onward is offset by one. The
-// epoch below already accounts for it.
+// 1899-12-30 epoch below already accounts for it, and is therefore correct only
+// for serials above 60 — which every date in this register is, the range being
+// roughly 44000 to 48000. Verified against two independent reference points:
+// serial 44927 is 2023-01-01 and serial 45658 is 2025-01-01.
 const EXCEL_EPOCH_UTC = Date.UTC(1899, 11, 30)
 const MS_PER_DAY = 86_400_000
 
