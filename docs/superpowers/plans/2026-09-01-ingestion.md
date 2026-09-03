@@ -415,7 +415,9 @@ export const CHECK_BOOKS: readonly { code: string; bank: string; company: string
   { code: 'BPI-A-8879', bank: 'BPI',  company: 'A1PP' },
   { code: 'MBT-A-4155', bank: 'MBTC', company: 'A1+' },
   { code: 'MBT-A-9048', bank: 'MBTC', company: 'A1PP' },
-  { code: 'MBT-S-9048', bank: 'MBTC', company: 'A1PP' },
+  // NOTE: `MBT-S-9048` appears in the register but is NOT a real checkbook —
+  // Finance confirmed (2026-09-03) it is a mis-keying of MBT-A-9048. It is
+  // deliberately absent here and normalised on import; see canonicalCheckBook.
   { code: 'MBT-S-1121', bank: 'MBTC', company: 'STK' },
   { code: 'BDO-A-3838', bank: 'BDO',  company: 'A1+' },
 ]
@@ -657,7 +659,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ```ts
 import { describe, it, expect } from 'vitest'
-import { canonicalVendor, excelSerialToDate, cleanCell } from '@/lib/import/normalise'
+import { canonicalVendor, canonicalCheckBook, excelSerialToDate, cleanCell } from '@/lib/import/normalise'
 
 describe('cleanCell', () => {
   it('strips the noise the register carries', () => {
@@ -692,6 +694,25 @@ describe('canonicalVendor', () => {
     // The + in A1+ is part of the name, not punctuation.
     expect(canonicalVendor('A1+ PAPER AND PLASTIC')).toContain('A1+')
     expect(canonicalVendor('ABC Trading')).not.toBe(canonicalVendor('ABD Trading'))
+  })
+})
+
+describe('canonicalCheckBook', () => {
+  it('corrects the mis-keyed checkbook code Finance confirmed', () => {
+    // MBT-S-9048 appears in the register but is not a real checkbook.
+    expect(canonicalCheckBook('MBT-S-9048')).toBe('MBT-A-9048')
+    expect(canonicalCheckBook('  mbt-s-9048  ')).toBe('MBT-A-9048')
+  })
+
+  it('leaves genuine checkbook codes alone', () => {
+    for (const c of ['BPI-S-4636', 'BPI-A-5713', 'BPI-S-8879', 'BPI-A-8879', 'MBT-A-4155', 'MBT-A-9048', 'MBT-S-1121', 'BDO-A-3838']) {
+      expect(canonicalCheckBook(c), c).toBe(c)
+    }
+  })
+
+  it('returns null for a blank or missing code', () => {
+    expect(canonicalCheckBook(null)).toBeNull()
+    expect(canonicalCheckBook('#N/A')).toBeNull()
   })
 })
 
@@ -734,6 +755,21 @@ export function canonicalVendor(name: string): string {
     .replace(/\bINCORPORATED\b/g, 'INC')
     .replace(/\bCORPORATION\b/g, 'CORP')
     .trim()
+}
+
+// Known mis-keyings in the register, confirmed by Finance. The letter in a
+// checkbook code encodes the company — S for a Starkson entity, A for an A1+
+// one — so a wrong letter files a cheque's checkbook under a sibling company.
+// Left uncorrected, `MBT-S-9048` would also create a seventh checkbook that
+// does not exist.
+const CHECKBOOK_ALIASES: Readonly<Record<string, string>> = {
+  'MBT-S-9048': 'MBT-A-9048',   // confirmed 2026-09-03: mis-keyed A as S
+}
+
+export function canonicalCheckBook(code: string | null | undefined): string | null {
+  const c = cleanCell(code)?.toUpperCase() ?? null
+  if (!c) return null
+  return CHECKBOOK_ALIASES[c] ?? c
 }
 
 // Excel's 1900 date system, with the well-known leap-year bug: serial 60 is a
