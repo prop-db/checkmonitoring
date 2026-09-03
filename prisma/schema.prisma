@@ -353,10 +353,24 @@ model SyncRun {
   startedAt  DateTime  @default(now())
   finishedAt DateTime?
   mode       String
+  // Which Acumatica tenant this run read. The two tenants reuse branch codes for
+  // different companies, so a run that does not say which one it was is not
+  // interpretable, and a "last sync" figure pooled across both is a number about
+  // nothing. Nullable only because the column post-dates the model and nothing
+  // had ever written a SyncRun row to back-fill; `runSync` always sets it.
+  tenant     String?
+  // Where the NEXT incremental run should start: the maximum LastModifiedOn this
+  // run saw, minus the 120-minute overlap. Kept on the run that computed it
+  // rather than in one mutable setting, so a run's own record says where it left
+  // off. Null when the run took responsibility for no rows, which leaves the
+  // previous run's watermark standing.
+  watermark  DateTime?
   imported   Int       @default(0)
   updated    Int       @default(0)
   errors     Int       @default(0)
   message    String?
+
+  @@index([tenant, startedAt])
 }
 
 model Notification {
