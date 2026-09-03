@@ -2,21 +2,29 @@ import { DomainError } from './errors'
 
 export type CheckStatus =
   | 'GENERATED' | 'SIGNATURE_PENDING' | 'SIGNED'
-  | 'READY_FOR_RELEASE' | 'SCHEDULED' | 'RELEASED' | 'CANCELLED'
+  | 'READY_FOR_RELEASE' | 'SCHEDULED' | 'RELEASED' | 'CANCELLED' | 'VOIDED'
 
 export type ClearingStatus = 'NONE' | 'DEPOSITED' | 'ENCASHED' | 'CLEARED'
 
 // A check must be made available before it can be released, so SIGNED has no
 // direct edge to RELEASED. SCHEDULED is optional: suppliers do collect without
 // booking a slot in the portal.
+//
+// Acumatica can void a cheque at any point, including after Finance has
+// released it. Refusing that transition would leave this system showing
+// RELEASED for a cheque the ERP says no longer exists — the monitoring
+// system disagreeing with the source of truth is worse than recording an
+// uncomfortable fact. CANCELLED is excluded only because it is already a
+// terminal Finance decision with a recorded reason.
 const TRANSITIONS: Record<CheckStatus, readonly CheckStatus[]> = {
-  GENERATED:         ['SIGNATURE_PENDING', 'CANCELLED'],
-  SIGNATURE_PENDING: ['SIGNED', 'CANCELLED'],
-  SIGNED:            ['READY_FOR_RELEASE', 'CANCELLED'],
-  READY_FOR_RELEASE: ['SCHEDULED', 'RELEASED', 'SIGNED', 'CANCELLED'],
-  SCHEDULED:         ['RELEASED', 'SIGNED', 'CANCELLED'],
-  RELEASED:          [],
+  GENERATED:         ['SIGNATURE_PENDING', 'CANCELLED', 'VOIDED'],
+  SIGNATURE_PENDING: ['SIGNED', 'CANCELLED', 'VOIDED'],
+  SIGNED:            ['READY_FOR_RELEASE', 'CANCELLED', 'VOIDED'],
+  READY_FOR_RELEASE: ['SCHEDULED', 'RELEASED', 'SIGNED', 'CANCELLED', 'VOIDED'],
+  SCHEDULED:         ['RELEASED', 'SIGNED', 'CANCELLED', 'VOIDED'],
+  RELEASED:          ['VOIDED'],
   CANCELLED:         [],
+  VOIDED:            [],
 }
 
 export function canTransition(from: CheckStatus, to: CheckStatus): boolean {

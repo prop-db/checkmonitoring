@@ -50,6 +50,30 @@ describe('release ladder transitions', () => {
   })
 })
 
+describe('VOIDED', () => {
+  it('is reachable from every pre-terminal state, including RELEASED', () => {
+    for (const s of [
+      'GENERATED', 'SIGNATURE_PENDING', 'SIGNED',
+      'READY_FOR_RELEASE', 'SCHEDULED', 'RELEASED',
+    ] as const) {
+      expect(canTransition(s, 'VOIDED')).toBe(true)
+    }
+  })
+
+  it('is not reachable from CANCELLED', () => {
+    expect(canTransition('CANCELLED', 'VOIDED')).toBe(false)
+  })
+
+  it('is itself terminal', () => {
+    for (const s of [
+      'GENERATED', 'SIGNATURE_PENDING', 'SIGNED', 'READY_FOR_RELEASE',
+      'SCHEDULED', 'RELEASED', 'CANCELLED', 'VOIDED',
+    ] as const) {
+      expect(canTransition('VOIDED', s)).toBe(false)
+    }
+  })
+})
+
 const validReady = {
   status: 'SIGNED' as const,
   checkNumber: '6000329924',
