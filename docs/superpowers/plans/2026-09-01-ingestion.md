@@ -1173,19 +1173,27 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Test: `tests/import/reconcile.test.ts`
 
 **Interfaces:**
-- Consumes: `ParsedRow`
+- Consumes: `ParsedRow` from `lib/import/parse.ts`, `canonicalVendor` from `lib/import/normalise.ts`
 - Produces:
-  - `type Conflict = { checkNumber: string; kind: 'DUPLICATE_ACROSS_SHEETS' | 'CONTRADICTORY_STATUS' | 'AMOUNT_MISMATCH'; rows: { sheet: string; row: number }[]; detail: string }`
-  - `reconcile(rows: ParsedRow[]): { conflicts: Conflict[]; vendorMerges: { canonical: string; variants: string[] }[] }`
+  - `type ConflictKind = 'DUPLICATE_ACROSS_SHEETS' | 'CONTRADICTORY_STATUS' | 'AMOUNT_MISMATCH' | 'IMPLAUSIBLE_DATE'`
+  - `type Conflict = { checkNumber: string; kind: ConflictKind; rows: { sheet: string; row: number }[]; detail: string }`
+  - `type VendorMerge = { canonical: string; variants: string[] }`
+  - `reconcile(rows: readonly ParsedRow[], opts: { today: Date }): { conflicts: Conflict[]; vendorMerges: VendorMerge[] }`
 
-Importing 12,264 legacy rows will surface contradictions: a cheque appearing on both a RELEASED and a CANCELLED sheet, the same number with two different amounts, the nine-digit `600027346` where ten are expected. **This module reports them. It never picks a winner.**
+Importing 12,264 legacy rows surfaces contradictions. **This module reports them and never picks a winner.** Deciding that a cheque appearing on both the RELEASED and CANCELLED sheets is "really" released is a Finance judgement about money that already moved, not something an importer may infer.
+
+`today` is injected rather than read from the clock, so the module stays pure and its tests are deterministic.
 
 - [ ] **Step 1: Write the failing test**
+
+`tests/import/reconcile.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'vitest'
 import { reconcile } from '@/lib/import/reconcile'
 import type { ParsedRow } from '@/lib/import/parse'
+
+const TODAY = new Date('2026-09-03T00:00:00Z')
 
 const mk = (over: Partial<ParsedRow>): ParsedRow => ({
   sheet: 'S', row: 1, checkNumber: '6000000001', cvNumber: null, apvNumbers: [], poNumbers: [],
@@ -1193,59 +1201,298 @@ const mk = (over: Partial<ParsedRow>): ParsedRow => ({
   payee: null, unclassified: [], ...over,
 })
 
-describe('reconcile', () => {
-  it('reports the same cheque appearing on two sheets', () => {
+describe('duplicates across sheets', () => {
+  it('reports one cheque appearing on two sheets, naming both', () => {
     const { conflicts } = reconcile([
       mk({ sheet: 'BPI RELEASED', row: 5 }),
       mk({ sheet: 'CANCELLED', row: 9 }),
-    ])
-    expect(conflicts).toHaveLength(1)
-    expect(conflicts[0].kind).toBe('DUPLICATE_ACROSS_SHEETS')
-    expect(conflicts[0].rows).toEqual([
+    ], { today: TODAY })
+    const dup = conflicts.find((c) => c.kind === 'DUPLICATE_ACROSS_SHEETS')
+    expect(dup).toBeDefined()
+    expect(dup!.rows).toEqual([
       { sheet: 'BPI RELEASED', row: 5 }, { sheet: 'CANCELLED', row: 9 },
     ])
   })
 
+  it('does not treat the same cheque twice on one sheet as a cross-sheet duplicate', () => {
+    const { conflicts } = reconcile([
+      mk({ sheet: 'BPI RELEASED', row: 5 }),
+      mk({ sheet: 'BPI RELEASED', row: 6 }),
+    ], { today: TODAY })
+    expect(conflicts.filter((c) => c.kind === 'DUPLICATE_ACROSS_SHEETS')).toHaveLength(0)
+  })
+
+  it('does not report a cheque that appears once', () => {
+    expect(reconcile([mk({})], { today: TODAY }).conflicts).toHaveLength(0)
+  })
+})
+
+describe('contradictory status', () => {
+  it('reports a cheque the register says is both released and cancelled', () => {
+    const { conflicts } = reconcile([
+      mk({ sheet: 'BPI RELEASED', row: 5 }),
+      mk({ sheet: 'CANCELLED', row: 9 }),
+    ], { today: TODAY })
+    const c = conflicts.find((x) => x.kind === 'CONTRADICTORY_STATUS')
+    expect(c).toBeDefined()
+    expect(c!.detail).toContain('RELEASED')
+    expect(c!.detail).toContain('CANCELLED')
+  })
+
+  it('does not report two sheets that agree', () => {
+    const { conflicts } = reconcile([
+      mk({ sheet: 'BPI RELEASED', row: 5 }),
+      mk({ sheet: 'MBTC RELEASED', row: 9 }),
+    ], { today: TODAY })
+    expect(conflicts.filter((c) => c.kind === 'CONTRADICTORY_STATUS')).toHaveLength(0)
+  })
+})
+
+describe('amount mismatch', () => {
   it('reports the same cheque carrying two different amounts', () => {
     const { conflicts } = reconcile([
       mk({ sheet: 'A', row: 2, amount: '7950.00' }),
       mk({ sheet: 'B', row: 3, amount: '8950.00' }),
-    ])
-    expect(conflicts.some((c) => c.kind === 'AMOUNT_MISMATCH')).toBe(true)
+    ], { today: TODAY })
+    const c = conflicts.find((x) => x.kind === 'AMOUNT_MISMATCH')
+    expect(c).toBeDefined()
+    expect(c!.detail).toContain('7950.00')
+    expect(c!.detail).toContain('8950.00')
   })
 
-  it('does not report a cheque that appears once', () => {
-    expect(reconcile([mk({})]).conflicts).toHaveLength(0)
+  it('treats trailing-zero differences as the same amount', () => {
+    const { conflicts } = reconcile([
+      mk({ sheet: 'A', row: 2, amount: '7950' }),
+      mk({ sheet: 'B', row: 3, amount: '7950.00' }),
+    ], { today: TODAY })
+    expect(conflicts.filter((c) => c.kind === 'AMOUNT_MISMATCH')).toHaveLength(0)
   })
 
-  it('groups vendor spelling variants without choosing for us', () => {
+  it('ignores a missing amount rather than calling it a mismatch', () => {
+    const { conflicts } = reconcile([
+      mk({ sheet: 'A', row: 2, amount: '7950.00' }),
+      mk({ sheet: 'B', row: 3, amount: null }),
+    ], { today: TODAY })
+    expect(conflicts.filter((c) => c.kind === 'AMOUNT_MISMATCH')).toHaveLength(0)
+  })
+})
+
+describe('implausible dates', () => {
+  it('flags a cheque dated more than a year ahead', () => {
+    const { conflicts } = reconcile([
+      mk({ sheet: 'BPI RELEASED', row: 4, checkDate: new Date('2028-11-18T00:00:00Z') }),
+    ], { today: TODAY })
+    const c = conflicts.find((x) => x.kind === 'IMPLAUSIBLE_DATE')
+    expect(c).toBeDefined()
+    expect(c!.detail).toContain('2028-11-18')
+  })
+
+  it('does not flag an ordinary post-dated cheque', () => {
+    const { conflicts } = reconcile([
+      mk({ checkDate: new Date('2026-11-18T00:00:00Z') }),
+    ], { today: TODAY })
+    expect(conflicts.filter((c) => c.kind === 'IMPLAUSIBLE_DATE')).toHaveLength(0)
+  })
+
+  it('does not flag a missing date', () => {
+    expect(reconcile([mk({ checkDate: null })], { today: TODAY }).conflicts).toHaveLength(0)
+  })
+})
+
+describe('vendor merges', () => {
+  it('groups spelling variants without choosing between them', () => {
     const { vendorMerges } = reconcile([
       mk({ checkNumber: '1', payee: 'STARKSON PACKAGING INC.' }),
       mk({ checkNumber: '2', payee: 'Starkson Packaging Inc.' }),
       mk({ checkNumber: '3', payee: 'HENKEL PHILIPPINES INC.' }),
-    ])
-    const merge = vendorMerges.find((m) => m.variants.length > 1)
-    expect(merge?.variants).toHaveLength(2)
-    expect(vendorMerges.find((m) => m.variants.includes('HENKEL PHILIPPINES INC.'))?.variants).toHaveLength(1)
+    ], { today: TODAY })
+    const merged = vendorMerges.find((m) => m.variants.length > 1)
+    expect(merged!.variants.slice().sort()).toEqual(['STARKSON PACKAGING INC.', 'Starkson Packaging Inc.'])
+    expect(vendorMerges.find((m) => m.variants.includes('HENKEL PHILIPPINES INC.'))!.variants).toHaveLength(1)
   })
 
-  it('never mutates or drops its input', () => {
+  it('lists a repeated payee once', () => {
+    const { vendorMerges } = reconcile([
+      mk({ checkNumber: '1', payee: 'ACME' }),
+      mk({ checkNumber: '2', payee: 'ACME' }),
+    ], { today: TODAY })
+    expect(vendorMerges).toHaveLength(1)
+    expect(vendorMerges[0].variants).toEqual(['ACME'])
+  })
+})
+
+describe('purity', () => {
+  it('never mutates or reorders its input', () => {
     const rows = [mk({ sheet: 'A', row: 1 }), mk({ sheet: 'B', row: 2 })]
     const before = JSON.stringify(rows)
-    reconcile(rows)
+    reconcile(rows, { today: TODAY })
     expect(JSON.stringify(rows)).toBe(before)
   })
 })
 ```
 
-- [ ] **Step 2: Implement, run, commit**
+- [ ] **Step 2: Run to verify it fails**
 
-Write `lib/import/reconcile.ts` grouping by `checkNumber`, emitting a `Conflict` for any number appearing on more than one sheet or with differing non-null amounts, and grouping payees by `canonicalVendor` to produce the merge list. It must be pure — no database, and no mutation of the input array.
+Run: `npx vitest run tests/import/reconcile.test.ts`
+Expected: FAIL, "Cannot find package '@/lib/import/reconcile'".
+
+- [ ] **Step 3: Write `lib/import/reconcile.ts`**
+
+```ts
+import { canonicalVendor } from './normalise'
+import type { ParsedRow } from './parse'
+
+export type ConflictKind =
+  | 'DUPLICATE_ACROSS_SHEETS'
+  | 'CONTRADICTORY_STATUS'
+  | 'AMOUNT_MISMATCH'
+  | 'IMPLAUSIBLE_DATE'
+
+export type Conflict = {
+  checkNumber: string
+  kind: ConflictKind
+  rows: { sheet: string; row: number }[]
+  detail: string
+}
+
+export type VendorMerge = { canonical: string; variants: string[] }
+
+// Which sheet a row came from is what the register believed about that cheque.
+// Two sheets implying different things about one cheque is a contradiction only
+// a human can settle: deciding a cheque on both RELEASED and CANCELLED is
+// "really" released is a judgement about money that has already moved.
+// CANCELLED is tested first because several sheet names contain both words.
+const IMPLIED_STATUS: readonly (readonly [RegExp, string])[] = [
+  [/CANCELLED/i, 'CANCELLED'],
+  [/RELEASED/i, 'RELEASED'],
+  [/AVAIL/i, 'AVAILABLE'],
+  [/FINDING/i, 'FINDING'],
+  [/FT ?& ?MC/i, 'FT_MC'],
+]
+
+function impliedStatus(sheet: string): string | null {
+  for (const [re, status] of IMPLIED_STATUS) if (re.test(sheet)) return status
+  return null
+}
+
+// '7950' and '7950.00' are the same money written two ways. Compared on a
+// normalised decimal string, never through a float.
+function amountKey(amount: string): string {
+  const [wholeRaw, fracRaw = ''] = amount.trim().split('.')
+  const sign = wholeRaw.startsWith('-') ? '-' : ''
+  const digits = wholeRaw.replace(/^[+-]/, '').replace(/^0+(?=\d)/, '')
+  const frac = fracRaw.replace(/0+$/, '')
+  const whole = digits === '' ? '0' : digits
+  return frac ? sign + whole + '.' + frac : sign + whole
+}
+
+// A cheque dated far beyond the import is a data-entry error worth a human
+// look, not a rejection. The real register carries a 2028 date against 2026.
+const IMPLAUSIBLE_MONTHS_AHEAD = 12
+
+export function reconcile(
+  rows: readonly ParsedRow[],
+  opts: { today: Date },
+): { conflicts: Conflict[]; vendorMerges: VendorMerge[] } {
+  const byCheck = new Map<string, ParsedRow[]>()
+  for (const r of rows) {
+    const list = byCheck.get(r.checkNumber)
+    if (list) list.push(r)
+    else byCheck.set(r.checkNumber, [r])
+  }
+
+  const conflicts: Conflict[] = []
+  const horizon = new Date(opts.today.getTime())
+  horizon.setUTCMonth(horizon.getUTCMonth() + IMPLAUSIBLE_MONTHS_AHEAD)
+
+  for (const [checkNumber, group] of byCheck) {
+    const where = group.map((r) => ({ sheet: r.sheet, row: r.row }))
+
+    const sheets = [...new Set(group.map((r) => r.sheet))]
+    if (sheets.length > 1) {
+      conflicts.push({
+        checkNumber,
+        kind: 'DUPLICATE_ACROSS_SHEETS',
+        rows: where,
+        detail: 'appears on ' + sheets.length + ' sheets: ' + sheets.join(', '),
+      })
+
+      const statuses = [...new Set(
+        sheets.map(impliedStatus).filter((s): s is string => s !== null),
+      )]
+      if (statuses.length > 1) {
+        conflicts.push({
+          checkNumber,
+          kind: 'CONTRADICTORY_STATUS',
+          rows: where,
+          detail: 'the register implies ' + statuses.join(' and ') + ' for the same cheque',
+        })
+      }
+    }
+
+    const present = group.map((r) => r.amount).filter((a): a is string => a !== null)
+    const distinct = [...new Set(present.map(amountKey))]
+    if (distinct.length > 1) {
+      conflicts.push({
+        checkNumber,
+        kind: 'AMOUNT_MISMATCH',
+        rows: where,
+        detail: 'carries ' + distinct.length + ' different amounts: ' + [...new Set(present)].join(', '),
+      })
+    }
+
+    for (const r of group) {
+      if (r.checkDate && r.checkDate.getTime() > horizon.getTime()) {
+        conflicts.push({
+          checkNumber,
+          kind: 'IMPLAUSIBLE_DATE',
+          rows: [{ sheet: r.sheet, row: r.row }],
+          detail: 'dated ' + r.checkDate.toISOString().slice(0, 10) +
+            ', more than ' + IMPLAUSIBLE_MONTHS_AHEAD + ' months ahead',
+        })
+      }
+    }
+  }
+
+  // Payee spellings that fold to one canonical form. Reported, never applied:
+  // the merge list is presented for confirmation before any import runs.
+  const byCanonical = new Map<string, Set<string>>()
+  for (const r of rows) {
+    if (!r.payee) continue
+    const key = canonicalVendor(r.payee)
+    const set = byCanonical.get(key)
+    if (set) set.add(r.payee)
+    else byCanonical.set(key, new Set([r.payee]))
+  }
+  const vendorMerges: VendorMerge[] = [...byCanonical].map(([canonical, variants]) => ({
+    canonical,
+    variants: [...variants],
+  }))
+
+  return { conflicts, vendorMerges }
+}
+```
+
+- [ ] **Step 4: Run to verify it passes**
+
+Run: `npx vitest run tests/import/reconcile.test.ts`
+Expected: PASS.
+
+- [ ] **Step 5: Run the full suite, then commit**
 
 ```bash
-npx vitest run tests/import/reconcile.test.ts
+npm test && npx tsc --noEmit
+```
+
+```bash
 git add lib/import/reconcile.ts tests/import/reconcile.test.ts
 git commit -m "feat: report register contradictions without picking a winner
+
+A cheque on both the RELEASED and CANCELLED sheets is a Finance judgement about
+money that already moved, not something an importer may infer. Reports
+cross-sheet duplicates, contradictory implied status, differing amounts for one
+cheque, and dates more than a year ahead - the real register carries a 2028 date
+against a 2026 import.
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
