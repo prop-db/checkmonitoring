@@ -134,6 +134,16 @@ export function mapPayment(row: unknown, tenant: AcumaticaTenant): NormalisedRow
     checkBookCode: null,
     category: null,
 
+    // Nor these. The payments inquiry is one row per payment and carries no
+    // bill breakdown, so the APV and PO references a workbook row supplies
+    // simply are not available here. Empty rather than absent: the upsert must
+    // be able to tell "this source has no bill references" from "this source
+    // forgot to set the field", and it must not clear references the workbook
+    // already established for the same cheque.
+    apvNumbers: [],
+    poNumbers: [],
+    clearingRef: null,
+
     isCheque: !(branch && NON_CHEQUE_BRANCHES.has(branch.toUpperCase())),
 
     // A voided cheque is TWO rows under one reference: the original (Type

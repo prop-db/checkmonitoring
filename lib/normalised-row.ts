@@ -55,6 +55,27 @@ export type NormalisedRow = {
   category: string | null
 
   /**
+   * The bill and order references carried on the cheque itself. Arrays because
+   * one cheque routinely settles several bills — the register puts every APV on
+   * the one row, and `ParsedRow` already collects them.
+   *
+   * The payments generic inquiry publishes neither, so an Acumatica row arrives
+   * with empty arrays. That is the "a field only one source can fill" case the
+   * note above permits, not drift.
+   *
+   * These are *references*, not bills. The per-bill amount, due date, terms and
+   * GL account live on `CheckBill` and come from the approval-for-release
+   * workbook, whose grain is one row per bill. Do not grow this into a bill
+   * shape — a cheque-level reference list and a bill ledger are different
+   * things, and conflating them is how one bill's amount ends up standing in
+   * for the cheque's.
+   */
+  apvNumbers: string[]
+  poNumbers: string[]
+  /** The bank's clearing reference where the register records one ("CR 12345"). */
+  clearingRef: string | null
+
+  /**
    * Not every payment is a cheque. The China offices pay by transfer and their
    * reference is an AP document number, so there is no physical document to
    * sign or hand over. Such a payment is imported for visibility and blocked

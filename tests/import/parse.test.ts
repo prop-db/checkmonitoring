@@ -207,3 +207,26 @@ describe('parseRows — the amount column', () => {
     expect(r.unclassified).not.toContain('7950')
   })
 })
+
+describe('parseRows — the mis-keyed checkbook', () => {
+  // Finance confirmed (2026-09-03) that MBT-S-9048 is a mis-keying of
+  // MBT-A-9048. It is deliberately absent from prisma/reference-data.ts, so a
+  // parser that passed the typo through would either fail to resolve the
+  // checkbook or — if someone "helpfully" re-added it to the reference data —
+  // seed a second CheckBook row for one physical book and split its cheques.
+  // Both codes map to A1PP, so no cheque would land under the wrong company:
+  // the fault would be invisible, which is why it is pinned here.
+  it('corrects the mis-keyed checkbook code on the way in', () => {
+    const [r] = parseRows([row('MBTC RELEASED', 4, [
+      'PAID', null, '1791379605', null, 'ACME INC.', null, 'MBT-S-9048',
+    ])]).parsed
+    expect(r.checkBook).toBe('MBT-A-9048')
+  })
+
+  it('leaves a genuine checkbook code alone', () => {
+    const [r] = parseRows([row('BPI RELEASED', 5, [
+      'PAID', null, '6000308584', null, 'ACME INC.', null, 'BPI-S-4636',
+    ])]).parsed
+    expect(r.checkBook).toBe('BPI-S-4636')
+  })
+})

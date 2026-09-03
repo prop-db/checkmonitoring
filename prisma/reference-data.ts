@@ -50,7 +50,14 @@ export const CHECK_BOOKS: readonly { code: string; bank: string; company: string
   { code: 'BPI-A-8879', bank: 'BPI',  company: 'A1PP' },
   { code: 'MBT-A-4155', bank: 'MBTC', company: 'A1+' },
   { code: 'MBT-A-9048', bank: 'MBTC', company: 'A1PP' },
-  { code: 'MBT-S-9048', bank: 'MBTC', company: 'A1PP' },
+  // NOTE: `MBT-S-9048` appears once in the register but is NOT a real
+  // checkbook — Finance confirmed (2026-09-03) it is a mis-keying of
+  // MBT-A-9048. It is deliberately absent here and corrected on import by
+  // `canonicalCheckBook`. Do not "restore" it: listing it would seed a
+  // CheckBook row for a book that does not exist and split one physical
+  // book's cheques across two records. Both codes happen to map to A1PP, so
+  // the symptom is not a wrong company — which is exactly why this would
+  // survive unnoticed if it were re-added.
   { code: 'MBT-S-1121', bank: 'MBTC', company: 'STK' },
   { code: 'BDO-A-3838', bank: 'BDO',  company: 'A1+' },
 ]

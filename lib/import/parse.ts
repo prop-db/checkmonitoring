@@ -1,5 +1,5 @@
 import { sniff } from './field-sniffer'
-import { cleanCell, excelSerialToDate } from './normalise'
+import { canonicalCheckBook, cleanCell, excelSerialToDate } from './normalise'
 import type { RawRow } from './workbook'
 
 export type ParsedRow = {
@@ -111,7 +111,11 @@ export function parseRows(rows: RawRow[]): { parsed: ParsedRow[]; review: Review
         case 'APV': if (text) r.apvNumbers.push(text.toUpperCase()); break
         case 'CV': r.cvNumber ??= text?.toUpperCase() ?? null; break
         case 'PO': if (text) r.poNumbers.push(text.toUpperCase()); break
-        case 'CHECKBOOK': r.checkBook ??= text?.toUpperCase() ?? null; break
+        // canonicalCheckBook corrects MBT-S-9048, which Finance confirmed is a
+        // mis-keying of MBT-A-9048 and is deliberately not in the reference data.
+        // Correcting here rather than at lookup means the typo never reaches the
+        // database at all.
+        case 'CHECKBOOK': r.checkBook ??= canonicalCheckBook(text); break
         case 'CHECK_NUMBER': r.checkNumber ??= text; break
         case 'DATE_SERIAL': r.checkDate ??= excelSerialToDate(Number(cell)); break
         case 'CATEGORY': r.category ??= text?.toUpperCase() ?? null; break
