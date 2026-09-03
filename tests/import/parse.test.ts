@@ -53,6 +53,21 @@ describe('parseRows', () => {
     expect(r.payee).toBe('STARKSON PACKAGING INC.')
   })
 
+  it('never takes a number as the payee when a name is present', () => {
+    // The real register gave 8,254 rows a numeric payee before this rule; in
+    // 8,253 of them the correct payee was in the same row, beaten on length.
+    const [r] = parseRows([row('BPI RELEASED', 8, [
+      '6000308584', 7950, 'HENKEL PHILIPPINES INC.',
+      'PO-ST-027363 SOME LONGER DESCRIPTION OF THE PURCHASE',
+    ])]).parsed
+    expect(r.payee).toBe('HENKEL PHILIPPINES INC.')
+  })
+
+  it('leaves the payee null rather than using a number when no name is present', () => {
+    const [r] = parseRows([row('BPI RELEASED', 9, ['6000308584', 7950, 299.81])]).parsed
+    expect(r.payee).toBeNull()
+  })
+
   it('takes the longest unclassified string as the payee', () => {
     // Payee and description are both free text; the description is longer.
     const [r] = parseRows([row('BPI RELEASED', 6, [

@@ -20,7 +20,13 @@ const APV = /^(AP-[A-Z0-9]{2,3}\d+|(?:STPP|A1PP)-AP-\d+)$/
 const CV = /^(CV-[A-Z0-9]{2,3}\d+|(?:STPP|A1PP)-CV-\d+)$/
 const PO = /^(P[OR]-[A-Z0-9]{1,4}-?\d+|(?:STPP|A1PP)-PO-\d+)$/
 const CHECKBOOK = /^(BPI|MBT|BDO)-[SA]-\d+$/
-const CHECK_NUMBER = /^\d{6,10}$/
+// Cheque numbers in this register are exactly 6 digits (BDO) or 10 (BPI, MBTC).
+// A looser \d{6,10} also matched round-number amounts — 4200000, 20000000 —
+// which then won the `??=` race by appearing earlier in the row and became the
+// cheque number. Verified against the real register: constraining to 6 or 10
+// leaves 337 six-digit and 11,828 ten-digit cheques and sends 44 ambiguous rows
+// to review, which is where a 9- or 11-digit value belongs.
+const CHECK_NUMBER = /^\d{6}$|^\d{10}$/
 const CLEARING_REF = /^CR\s?\d+$/
 // A text-formatted amount. Without this such a cell falls through to UNKNOWN
 // and competes to be the payee — the real register produced vendors named
@@ -48,7 +54,10 @@ export function sniff(value: unknown): FieldKind {
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) return 'UNKNOWN'
     if (value >= SERIAL_MIN && value <= SERIAL_MAX) return 'DATE_SERIAL'
-    if (Number.isInteger(value) && String(value).length >= 6) return 'CHECK_NUMBER'
+    // Same 6-or-10 rule as the string form. A 7- or 8-digit integer in this
+    // register is an amount, not a cheque number.
+    const digits = String(value).length
+    if (Number.isInteger(value) && (digits === 6 || digits === 10)) return 'CHECK_NUMBER'
     return 'UNKNOWN'
   }
 

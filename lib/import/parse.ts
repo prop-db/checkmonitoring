@@ -93,9 +93,16 @@ export function parseRows(rows: RawRow[]): { parsed: ParsedRow[]; review: Review
       r.unclassified[i] = m[2].trim()   // the description survives as free text
     }
 
-    // Payee and description are both free text. The description is reliably the
-    // longer of the two in this register, so the shorter one is the payee.
-    const candidates = [...r.unclassified].sort((a, b) => a.length - b.length)
+    // A payee is a name, so it must contain a letter. Without this rule the
+    // shortest-string heuristic picked amounts: numeric cells sniff as UNKNOWN
+    // and land in `unclassified` as text, where "7950" beats a company name on
+    // length. Against the real register that gave 8,254 rows a number as their
+    // payee, and in 8,253 of them the correct payee was sitting in the same row.
+    // Among the remaining candidates the description is reliably the longer, so
+    // the shorter one is the payee.
+    const candidates = r.unclassified
+      .filter((u) => /[A-Za-z]/.test(u))
+      .sort((a, b) => a.length - b.length)
     r.payee = candidates[0] ?? null
 
     // The one narrowing point: past the guard above, the cheque number is known

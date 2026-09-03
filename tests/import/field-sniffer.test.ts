@@ -26,10 +26,23 @@ describe('sniff', () => {
     }
   })
 
-  it('identifies check numbers', () => {
-    for (const v of ['6000329924', '1791379619', '174602', '600027346']) {
+  it('identifies check numbers at their two real lengths', () => {
+    // BDO cheques are 6 digits, BPI and MBTC are 10. Those are the only two
+    // lengths in the register.
+    for (const v of ['6000329924', '1791379619', '174602', '326350']) {
       expect(sniff(v), v).toBe('CHECK_NUMBER')
     }
+  })
+
+  it('does not mistake a round-number amount for a cheque number', () => {
+    // The register carries 4200000 and 20000000 as amounts. A \d{6,10} rule
+    // matched them, and appearing earlier in the row they became the cheque
+    // number. 600089528 is a truncated BPI number and belongs in review.
+    for (const v of ['4200000', '20000000', '600089528', '60003162116']) {
+      expect(sniff(v), v).not.toBe('CHECK_NUMBER')
+    }
+    expect(sniff(4200000)).not.toBe('CHECK_NUMBER')
+    expect(sniff(20000000)).not.toBe('CHECK_NUMBER')
   })
 
   it('identifies Excel date serials in the plausible range', () => {
