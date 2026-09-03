@@ -570,8 +570,13 @@ export type FieldKind =
 // contains digits, and DATE_SERIAL is bounded because an unbounded numeric rule
 // would swallow six-digit BDO cheque numbers.
 
-const APV = /^(AP-[A-Z]{2}\d+|(?:STPP|A1PP)-AP-\d+)$/
-const CV = /^(CV-[A-Z]{2}\d+|(?:STPP|A1PP)-CV-\d+)$/
+// The entity code after AP-/CV- is not always two letters. The register carries
+// AP-ST (2 letters), AP-A1 (letter+digit), and AP-IND (3 letters), so a
+// [A-Z]{2} class silently rejects every A1+ and Starkson Industries document —
+// they would fall through to UNKNOWN and land in the review queue rather than
+// on the cheque.
+const APV = /^(AP-[A-Z0-9]{2,3}\d+|(?:STPP|A1PP)-AP-\d+)$/
+const CV = /^(CV-[A-Z0-9]{2,3}\d+|(?:STPP|A1PP)-CV-\d+)$/
 const PO = /^(P[OR]-[A-Z0-9]{1,4}-?\d+|(?:STPP|A1PP)-PO-\d+)$/
 const CHECKBOOK = /^(BPI|MBT|BDO)-[SA]-\d+$/
 const CHECK_NUMBER = /^\d{6,10}$/
