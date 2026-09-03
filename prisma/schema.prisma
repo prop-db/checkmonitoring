@@ -24,6 +24,12 @@ enum CheckStatus {
   SCHEDULED
   RELEASED
   CANCELLED
+  VOIDED
+}
+
+enum AcumaticaTenant {
+  GOLIVE
+  MANUFACTURING
 }
 
 enum ClearingStatus {
@@ -62,14 +68,18 @@ enum PortalDirection {
 }
 
 model Company {
-  id           String        @id @default(cuid())
-  code         String        @unique   // STK, A1+, P&P
+  id           String           @id @default(cuid())
+  code         String           @unique   // STK, A1+, P&P
   name         String
-  legalNames   String[]                // used by eligibility to detect inter-company
+  tenant       AcumaticaTenant?
+  branch       String?
+  legalNames   String[]                   // used by eligibility to detect inter-company
   cashAccounts CashAccount[]
   checkBooks   CheckBook[]
   checks       Check[]
-  createdAt    DateTime      @default(now())
+  createdAt    DateTime         @default(now())
+
+  @@unique([tenant, branch])
 }
 
 model Bank {
@@ -173,6 +183,13 @@ model Check {
   sourceSheet        String?
   sourceRow          Int?
   isStale            Boolean          @default(false)
+
+  acumaticaDocType   String?
+  acumaticaStatus    String?
+  acumaticaBranch    String?
+  acumaticaTenant    AcumaticaTenant?
+  lastModifiedOn     DateTime?
+  voidedAt           DateTime?
 
   company            Company          @relation(fields: [companyId], references: [id])
   cashAccount        CashAccount?     @relation(fields: [cashAccountId], references: [id])
