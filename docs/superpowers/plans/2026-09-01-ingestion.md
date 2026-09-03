@@ -1933,6 +1933,30 @@ Paging is not optional: the AP feed runs to roughly 37,000 rows and some inquiri
 
 ## Task 9: The Sync Service
 
+### Live validation of Task 8, 2026-09-04
+
+The client and mapper were built entirely against injected fetches. Before building the sync on
+those assumptions, one **read-only** call was made against the real instance — 400 rows from
+`AP-Checks and Payments`, `$top=400`, no writes. Results, which Task 9 may rely on:
+
+- **All 15 documented fields exist and are returned.** Nothing asked for was missing; nothing extra
+  came back. `PaymentAmount`, `PaymentDate` and `LastModifiedOn` arrive as **strings**.
+- **`Branch` is space-padded — `"A1+       "`.** `companyForBranch` looks up by exact key, so an
+  untrimmed branch would have resolved **every Acumatica payment to no company** and staged the
+  entire feed. `orNull` trims, so this is handled — but it is the single most likely thing to break
+  if anyone "simplifies" that helper. Measured: **0 of 320 mapped rows had a null `companyCode`.**
+- Mapping outcome over the 400: 320 mapped, 80 `Debit Adj.` correctly skipped, **0 unparsed amounts,
+  0 unparsed dates**.
+- `isCheque: false` on exactly 17 rows — the 9 `DG` and 8 `SH` China rows, matching the branch
+  counts precisely.
+- `voided: true` on exactly 5 — 3 `Type: Voided Payment` plus 2 `Status: Voided`. **This vindicates
+  Task 8's deliberate strengthening**: doc type alone would have flagged only the 3 reversals and
+  left the 2 surviving originals — the rows a human actually reads — unmarked.
+- **Multi-currency is real and substantial: PHP 316, CNY 61, USD 23 in 400 rows.** Roughly a fifth
+  is not pesos, which is why `getSummary` groups by currency and no code path sums across them.
+- Branches seen: `A1+` 120, `ST` 250, `HAMFI(HO)` 7, `STINDUSTRY` 6, `DG` 9, `SH` 8 — all six are in
+  the reference table. Statuses seen: `Balanced`, `Open`, `Closed`, `Voided`.
+
 **Files:**
 - Create: `lib/sync/run.ts`
 - Test: `tests/sync/run.test.ts`
