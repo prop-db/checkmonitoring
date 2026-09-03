@@ -14,6 +14,7 @@ export type ParsedRow = {
   apvNumbers: string[]
   poNumbers: string[]
   checkBook: string | null
+  cashAccountLabel: string | null
   category: string | null
   clearingRef: string | null
   checkDate: Date | null
@@ -40,7 +41,7 @@ export function parseRows(rows: RawRow[]): { parsed: ParsedRow[]; review: Review
     const r: Draft = {
       sheet: raw.sheet, row: raw.row,
       checkNumber: null, cvNumber: null, apvNumbers: [], poNumbers: [],
-      checkBook: null, category: null, clearingRef: null,
+      checkBook: null, cashAccountLabel: null, category: null, clearingRef: null,
       checkDate: null, amount: null, payee: null, unclassified: [],
     }
 
@@ -68,6 +69,7 @@ export function parseRows(rows: RawRow[]): { parsed: ParsedRow[]; review: Review
         case 'AMOUNT': r.amount ??= text?.replace(/,/g, '') ?? null; break
         // A status word is neither a field nor free text; dropping it keeps it
         // out of the payee candidates.
+        case 'CASH_ACCOUNT': r.cashAccountLabel ??= text?.toUpperCase() ?? null; break
         case 'STATUS_WORD': break
         default: if (text) r.unclassified.push(text)
       }

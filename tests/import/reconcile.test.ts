@@ -6,7 +6,7 @@ const TODAY = new Date('2026-09-03T00:00:00Z')
 
 const mk = (over: Partial<ParsedRow>): ParsedRow => ({
   sheet: 'S', row: 1, checkNumber: '6000000001', cvNumber: null, apvNumbers: [], poNumbers: [],
-  checkBook: null, category: null, clearingRef: null, checkDate: null, amount: null,
+  checkBook: null, cashAccountLabel: null, category: null, clearingRef: null, checkDate: null, amount: null,
   payee: null, unclassified: [], ...over,
 })
 

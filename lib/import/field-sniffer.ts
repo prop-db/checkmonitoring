@@ -1,6 +1,7 @@
 export type FieldKind =
   | 'APV' | 'CV' | 'PO' | 'CHECKBOOK' | 'CHECK_NUMBER'
-  | 'DATE_SERIAL' | 'CATEGORY' | 'CLEARING_REF' | 'AMOUNT' | 'STATUS_WORD' | 'UNKNOWN'
+  | 'DATE_SERIAL' | 'CATEGORY' | 'CLEARING_REF' | 'AMOUNT' | 'STATUS_WORD'
+  | 'CASH_ACCOUNT' | 'UNKNOWN'
 
 // The client's monitoring workbook has fifteen sheets whose columns do not line
 // up: the APV is column H on one sheet, F on another, B and D on a third, and
@@ -41,6 +42,15 @@ const CATEGORIES = new Set([
 
 // Excel serials: 44000 is 2020-06, 48000 is 2031-05. A bare number outside that
 // band is a cheque number or an amount, never a date in this data.
+// The register's 'bank' column holds these account labels. They contain
+// letters and are short, so without this rule they beat real company names to
+// the payee slot - 1,264 rows in the real register. Matched as an exact set
+// rather than a bank-name prefix, because 'BDO Unibank, Inc' is a genuine payee
+// the group pays as a vendor.
+const CASH_ACCOUNT_LABELS = new Set([
+  'BPI STK', 'BPI P&P', 'BPI A1', 'MBTC A1+', 'MBTC P&P', 'BDO A1',
+])
+
 const STATUS_WORDS = new Set([
   'PAID', 'YES', 'CANCELLED', 'DEPOSITED', 'ENCASHMENT', 'CLEARED', 'RELEASED', 'AVAILABLE',
 ])
@@ -77,6 +87,7 @@ export function sniff(value: unknown): FieldKind {
   // Status words the register puts in various columns. They are not payees, and
   // without this "CANCELLED" became a vendor name.
   if (STATUS_WORDS.has(s)) return 'STATUS_WORD'
+  if (CASH_ACCOUNT_LABELS.has(s)) return 'CASH_ACCOUNT'
 
   return 'UNKNOWN'
 }

@@ -89,6 +89,19 @@ describe('sniff', () => {
     expect(sniff('174602')).toBe('CHECK_NUMBER')
   })
 
+  it('identifies the cash-account labels the register uses', () => {
+    for (const v of ['BPI STK', 'BPI P&P', 'MBTC A1+', 'MBTC P&P']) {
+      expect(sniff(v), v).toBe('CASH_ACCOUNT')
+    }
+  })
+
+  it('does not mistake a bank that is a genuine payee for an account label', () => {
+    // The group pays BDO Unibank as a vendor; eight cheques in the register go
+    // to it. Matching on a bank-name prefix would have swallowed them.
+    expect(sniff('BDO Unibank, Inc')).toBe('UNKNOWN')
+    expect(sniff('BDO Unibank, Inc Credit Card')).toBe('UNKNOWN')
+  })
+
   it('identifies status words the register scatters across columns', () => {
     // "CANCELLED" became a vendor name before this rule existed.
     for (const v of ['PAID', 'YES', 'CANCELLED', 'DEPOSITED', 'CLEARED', 'RELEASED']) {
