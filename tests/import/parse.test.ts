@@ -78,4 +78,15 @@ describe('parseRows', () => {
     const { parsed, review } = parseRows(rows)
     expect(parsed.length + review.length).toBe(rows.length)
   })
+
+  it('ignores an Invalid Date cell instead of passing it to Prisma', () => {
+    // ExcelJS yields an Invalid Date object for a malformed date cell on the
+    // real register (CANCELLED sheet, cheques 6000329057, 6000290450,
+    // 174150). It satisfies `instanceof Date`, so without a guard it becomes
+    // checkDate and Prisma throws on write. The row must still import — just
+    // with no check date, never a substitute one.
+    const [r] = parseRows([row('CANCELLED', 517, ['6000329057', new Date('not a date')])]).parsed
+    expect(r.checkNumber).toBe('6000329057')
+    expect(r.checkDate).toBeNull()
+  })
 })
