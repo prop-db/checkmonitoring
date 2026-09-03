@@ -12,13 +12,28 @@ export type CheckFilters = {
   to?: Date
 }
 
+export type CurrencyTotal = { currency: string; total: string; count: number }
+
 export async function getSummary(db: Db) {
-  const [grouped, valueAgg, total] = await Promise.all([
+  const [grouped, currencyAgg, total] = await Promise.all([
     db.check.groupBy({ by: ['status'], _count: { _all: true } }),
-    db.check.aggregate({ _sum: { amount: true }, where: { status: { not: 'CANCELLED' } } }),
+    // Grouped by currency, never summed across them: adding a PHP amount to a
+    // CNY amount produces a number with no meaning, so there is no code path
+    // here that could do it — each currency gets its own row.
+    db.check.groupBy({
+      by: ['currency'],
+      _sum: { amount: true },
+      _count: { _all: true },
+      where: { status: { not: 'CANCELLED' } },
+    }),
     db.check.count(),
   ])
   const count = (s: CheckStatus) => grouped.find((g) => g.status === s)?._count._all ?? 0
+  const totalsByCurrency: CurrencyTotal[] = currencyAgg.map((g) => ({
+    currency: g.currency,
+    total: (g._sum.amount ?? 0).toString(),
+    count: g._count._all,
+  }))
   return {
     total,
     pendingSignature: count('GENERATED') + count('SIGNATURE_PENDING'),
@@ -26,7 +41,7 @@ export async function getSummary(db: Db) {
     readyForRelease: count('READY_FOR_RELEASE'),
     scheduled: count('SCHEDULED'),
     released: count('RELEASED'),
-    totalValue: (valueAgg._sum.amount ?? 0).toString(),
+    totalsByCurrency,
   }
 }
 

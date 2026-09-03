@@ -25,6 +25,12 @@ export const COMPANIES: readonly CompanyRef[] = [
     legalNames: ['HAPPY ALLIANCE MONO FILM INC', 'HAPPY ALLIANCE MONO FILM INC.'] },
   { code: 'IND',   name: 'Starkson Industries Inc.',           tenant: 'GOLIVE',        branch: 'STINDUSTRY',
     legalNames: ['STARKSON INDUSTRIES', 'STARKSON INDUSTRIES INC'] },
+  // China offices pay by bank transfer in CNY, not by cheque. They still need a
+  // company row so their payments can be tracked (`isCheque = false`).
+  { code: 'DG',    name: 'Dongguan Office',                    tenant: 'GOLIVE',        branch: 'DG',
+    legalNames: ['DONGGUAN OFFICE'] },
+  { code: 'SH',    name: 'Shanghai Office',                    tenant: 'GOLIVE',        branch: 'SH',
+    legalNames: ['SHANGHAI OFFICE'] },
 ]
 
 // Bank + company. Codes are exactly as they appear in the client's register.

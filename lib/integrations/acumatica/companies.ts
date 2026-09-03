@@ -14,6 +14,8 @@ const GOLIVE: Readonly<Record<string, string>> = {
   'A1+': 'A1+',
   'HAMFI(HO)': 'HAMFI',
   STINDUSTRY: 'IND',
+  DG: 'DG',
+  SH: 'SH',
 }
 
 const MANUFACTURING: Readonly<Record<string, string>> = {

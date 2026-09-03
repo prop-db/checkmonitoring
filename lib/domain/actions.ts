@@ -3,7 +3,7 @@ import { writeAudit } from '@/lib/audit'
 import { DomainError } from './errors'
 import { portalRoute, type Eligibility } from './eligibility'
 import {
-  assertTransition, assertClearing, checkReadyForRelease,
+  assertTransition, assertClearing, assertReleasable, checkReadyForRelease,
   type CheckStatus, type ClearingStatus,
 } from './check-status'
 
@@ -33,6 +33,7 @@ export async function markSigned(
 ): Promise<Check> {
   return inTx(db, async (tx) => {
     const check = await load(tx, args.checkId)
+    assertReleasable({ isCheque: check.isCheque })
     assertTransition(check.status as CheckStatus, 'SIGNED')
     const updated = await tx.check.update({
       where: { id: check.id },
@@ -61,6 +62,7 @@ export async function markReadyForRelease(
       checkDate: check.checkDate,
       cashAccountCode: check.cashAccount?.code ?? null,
       availablePickupDate: args.availablePickupDate,
+      isCheque: check.isCheque,
     })
     if (!guard.ok) throw new DomainError(guard.code, guard.message)
 
@@ -193,6 +195,7 @@ export async function markReleased(
 ): Promise<Check> {
   return inTx(db, async (tx) => {
     const check = await load(tx, args.checkId)
+    assertReleasable({ isCheque: check.isCheque })
     assertTransition(check.status as CheckStatus, 'RELEASED')
 
     const route = portalRoute(check.eligibility as Eligibility)

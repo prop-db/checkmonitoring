@@ -36,4 +36,9 @@ describe('branch routing is per tenant', () => {
     expect(companyForBranch('GOLIVE', '  ST  ')).toBe('STK')
     expect(companyForBranch('MANUFACTURING', 'hamfi(ho)')).toBe('HAMFI')
   })
+
+  it('routes the China offices', () => {
+    expect(companyForBranch('GOLIVE', 'DG')).toBe('DG')
+    expect(companyForBranch('GOLIVE', 'SH')).toBe('SH')
+  })
 })

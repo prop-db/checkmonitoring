@@ -45,6 +45,7 @@ export type ReadyGuardInput = {
   checkDate: Date | null
   cashAccountCode: string | null
   availablePickupDate: Date | null
+  isCheque: boolean
 }
 
 export type GuardResult = { ok: true } | { ok: false; code: string; message: string }
@@ -64,10 +65,28 @@ function isBlank(value: unknown): boolean {
   return false
 }
 
-// Order matters: ALREADY_RELEASED is reported before missing fields, because a
-// released check is a terminal fact and telling the user to fill in a field
-// would send them down a dead end.
+const NOT_A_CHEQUE_MESSAGE =
+  'This payment is not a cheque, so it cannot be signed or released. It is tracked here for visibility only.'
+
+// A non-cheque payment (an Acumatica transfer with no physical document) can
+// never enter the release ladder. Thrown from markSigned and markReleased,
+// which have no other guard function to route through.
+export function assertReleasable(input: { isCheque: boolean }): void {
+  if (!input.isCheque) {
+    throw new DomainError('NOT_A_CHEQUE', NOT_A_CHEQUE_MESSAGE)
+  }
+}
+
+// Order matters: NOT_A_CHEQUE is reported ahead of every other guard, because
+// it is a structural fact about the payment, not a transient status one — no
+// status change ever makes it releasable. ALREADY_RELEASED then comes before
+// missing fields, because a released check is a terminal fact and telling the
+// user to fill in a field would send them down a dead end.
 export function checkReadyForRelease(input: ReadyGuardInput): GuardResult {
+  if (!input.isCheque) {
+    return { ok: false, code: 'NOT_A_CHEQUE', message: NOT_A_CHEQUE_MESSAGE }
+  }
+
   if (input.status === 'RELEASED') {
     return {
       ok: false,

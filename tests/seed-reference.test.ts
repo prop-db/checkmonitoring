@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest'
 import { COMPANIES } from '@/prisma/reference-data'
 
 describe('company reference data', () => {
-  it('has six companies, not three', () => {
-    expect(COMPANIES).toHaveLength(6)
+  it('has eight companies, not three', () => {
+    // Six Philippine legal entities plus the two China offices (Dongguan,
+    // Shanghai), which pay by transfer, not by cheque.
+    expect(COMPANIES).toHaveLength(8)
   })
 
   it('keeps Starkson and A1+ Paper and Plastic separate', () => {

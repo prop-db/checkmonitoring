@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { requireUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
-import { formatPhp } from '@/lib/money'
+import { formatMoney } from '@/lib/money'
 import { StatusPill } from '@/components/StatusPill'
 import { AuditTrail } from '@/components/AuditTrail'
 import { ReadyForReleaseForm } from '@/components/ReadyForReleaseForm'
@@ -70,7 +70,7 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
           <Field label="PAYEE" value={check.payeeName} />
           <Field label="COMPANY" value={check.company.code} />
           <Field label="CHECK DATE" value={fmtDate(check.checkDate)} />
-          <Field label="AMOUNT" value={formatPhp(check.amount)} />
+          <Field label="AMOUNT" value={formatMoney(check.amount, check.currency)} />
           <Field label="CASH ACCOUNT" value={check.cashAccount?.code ?? '—'} />
           <Field label="CHECK BOOK" value={check.checkBook?.code ?? '—'} />
           <Field label="CURRENCY" value={check.currency} />

@@ -136,6 +136,11 @@ model Check {
   amount             Decimal          @db.Decimal(18, 2)
   currency           String           @default("PHP")
 
+  // Not every Acumatica payment is a cheque. The China offices pay by transfer,
+  // and their PaymentRef carries an AP reference rather than a cheque number.
+  // Such a payment is tracked but has no physical document to sign or hand over.
+  isCheque           Boolean          @default(true)
+
   companyId          String
   cashAccountId      String?
   checkBookId        String?

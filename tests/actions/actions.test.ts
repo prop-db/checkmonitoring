@@ -30,6 +30,17 @@ describe('markSigned', () => {
     expect(audit.action).toBe('marked_signed')
     expect(audit.userId).toBe(user.id)
   })
+
+  it('refuses a non-cheque payment and leaves it untouched', async () => {
+    const user = await makeUser()
+    const check = await makeCheck({ status: 'SIGNATURE_PENDING', isCheque: false })
+    await expect(markSigned(testDb, { checkId: check.id, userId: user.id, now: NOW }))
+      .rejects.toMatchObject({ code: 'NOT_A_CHEQUE' })
+    const after = await testDb.check.findUniqueOrThrow({ where: { id: check.id } })
+    expect(after.status).toBe('SIGNATURE_PENDING')
+    expect(after.signedById).toBeNull()
+    expect(await testDb.auditLog.count({ where: { checkId: check.id } })).toBe(0)
+  })
 })
 
 describe('markReadyForRelease', () => {
@@ -85,6 +96,17 @@ describe('markReadyForRelease', () => {
     await expect(markReadyForRelease(testDb, {
       checkId: check.id, userId: user.id, availablePickupDate: null, now: NOW,
     })).rejects.toMatchObject({ code: 'MISSING_FIELDS' })
+  })
+
+  it('refuses a non-cheque payment and leaves it untouched', async () => {
+    const user = await makeUser()
+    const check = await makeCheck({ status: 'SIGNED', isCheque: false })
+    await expect(markReadyForRelease(testDb, {
+      checkId: check.id, userId: user.id, availablePickupDate: PICKUP, now: NOW,
+    })).rejects.toMatchObject({ code: 'NOT_A_CHEQUE' })
+    const after = await testDb.check.findUniqueOrThrow({ where: { id: check.id } })
+    expect(after.status).toBe('SIGNED')
+    expect(await testDb.auditLog.count({ where: { checkId: check.id } })).toBe(0)
   })
 })
 
@@ -225,6 +247,21 @@ describe('markReleased', () => {
     const check = await makeCheck({ status: 'SIGNED' })
     await expect(markReleased(testDb, { checkId: check.id, userId: user.id, now: NOW }))
       .rejects.toMatchObject({ code: 'ILLEGAL_TRANSITION' })
+  })
+
+  it('refuses a non-cheque payment and leaves it untouched', async () => {
+    // A non-cheque check can never reach READY_FOR_RELEASE through the normal
+    // ladder (markSigned and markReadyForRelease both refuse it), so this
+    // reproduces the state directly to prove markReleased is its own,
+    // independent guard rather than relying on an earlier step to have caught it.
+    const user = await makeUser()
+    const check = await makeCheck({ status: 'READY_FOR_RELEASE', isCheque: false })
+    await expect(markReleased(testDb, { checkId: check.id, userId: user.id, now: NOW }))
+      .rejects.toMatchObject({ code: 'NOT_A_CHEQUE' })
+    const after = await testDb.check.findUniqueOrThrow({ where: { id: check.id } })
+    expect(after.status).toBe('READY_FOR_RELEASE')
+    expect(after.releasedById).toBeNull()
+    expect(await testDb.auditLog.count({ where: { checkId: check.id } })).toBe(0)
   })
 
   it('queues a RELEASED portal event for a SUPPLIER check', async () => {

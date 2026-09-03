@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   canTransition, assertTransition, checkReadyForRelease,
-  canSetClearing, assertClearing,
+  canSetClearing, assertClearing, assertReleasable,
 } from '@/lib/domain/check-status'
 import { DomainError } from '@/lib/domain/errors'
 
@@ -82,6 +82,7 @@ const validReady = {
   checkDate: new Date('2026-09-01'),
   cashAccountCode: 'BPI STK',
   availablePickupDate: new Date('2026-09-03'),
+  isCheque: true,
 }
 
 describe('READY FOR RELEASE guards', () => {
@@ -130,6 +131,34 @@ describe('READY FOR RELEASE guards', () => {
     expect(r.ok).toBe(false)
     if (r.ok) return
     expect(r.code).toBe('ALREADY_RELEASED')
+  })
+
+  it('blocks a non-cheque payment, ahead of every other guard', () => {
+    const r = checkReadyForRelease({
+      ...validReady, isCheque: false, status: 'RELEASED', checkNumber: null,
+    })
+    expect(r).toEqual({
+      ok: false,
+      code: 'NOT_A_CHEQUE',
+      message:
+        'This payment is not a cheque, so it cannot be signed or released. It is tracked here for visibility only.',
+    })
+  })
+})
+
+describe('assertReleasable', () => {
+  it('passes silently for a cheque', () => {
+    expect(() => assertReleasable({ isCheque: true })).not.toThrow()
+  })
+
+  it('throws a coded DomainError for a non-cheque payment', () => {
+    expect(() => assertReleasable({ isCheque: false })).toThrow(DomainError)
+    try { assertReleasable({ isCheque: false }) }
+    catch (e) {
+      expect((e as DomainError).code).toBe('NOT_A_CHEQUE')
+      expect((e as DomainError).message).toBe(
+        'This payment is not a cheque, so it cannot be signed or released. It is tracked here for visibility only.')
+    }
   })
 })
 

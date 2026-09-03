@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { formatPhp } from '@/lib/money'
+import { formatMoney } from '@/lib/money'
 import { StatusPill } from './StatusPill'
 import type { CheckRow } from '@/lib/queries'
 
@@ -47,7 +47,7 @@ export function CheckTable({ rows }: { rows: CheckRow[] }) {
               </td>
               <td className="px-4 py-3 text-slate-600">{r.company.code}</td>
               <td className="px-4 py-3 text-slate-600">{fmtDate(r.checkDate)}</td>
-              <td className="px-4 py-3 text-right tabular-nums">{formatPhp(r.amount)}</td>
+              <td className="px-4 py-3 text-right tabular-nums">{formatMoney(r.amount, r.currency)}</td>
               <td className="px-4 py-3"><StatusPill status={r.status} /></td>
               <td className="px-4 py-3 text-slate-600">{fmtDate(r.availablePickupDate)}</td>
               <td className="px-4 py-3 text-slate-600">{fmtDate(r.scheduledPickupDate)}</td>

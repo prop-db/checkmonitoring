@@ -6,7 +6,7 @@ import { getSummary, listChecks } from '@/lib/queries'
 beforeEach(resetDb)
 
 describe('getSummary', () => {
-  it('counts each status and totals the value of non-cancelled checks', async () => {
+  it('counts each status and totals by currency for non-cancelled checks', async () => {
     await makeCheck({ status: 'SIGNATURE_PENDING' })
     await makeCheck({ status: 'SIGNED' })
     await makeCheck({ status: 'READY_FOR_RELEASE' })
@@ -21,8 +21,29 @@ describe('getSummary', () => {
     expect(s.scheduled).toBe(1)
     expect(s.released).toBe(1)
     expect(s.total).toBe(6)
-    // 5 non-cancelled checks at 197715.42 each
-    expect(s.totalValue).toBe('988577.1')
+    // 5 non-cancelled checks (the CANCELLED one excluded) at 197715.42 each, all PHP.
+    expect(s.totalsByCurrency).toEqual([{ currency: 'PHP', total: '988577.1', count: 5 }])
+  })
+
+  // The whole point of this step: a dataset spanning multiple currencies must
+  // never collapse into one number. Two currencies in means two totals out.
+  it('never adds two different currencies together', async () => {
+    await makeCheck({ currency: 'PHP', amount: '1000.00' })
+    await makeCheck({ currency: 'PHP', amount: '500.50' })
+    await makeCheck({ currency: 'CNY', amount: '2000.25' })
+
+    const s = await getSummary(testDb)
+    expect(s.totalsByCurrency).toHaveLength(2)
+    expect(s.totalsByCurrency).toEqual(expect.arrayContaining([
+      { currency: 'PHP', total: '1500.5', count: 2 },
+      { currency: 'CNY', total: '2000.25', count: 1 },
+    ]))
+  })
+
+  it('excludes CANCELLED checks from every currency total', async () => {
+    await makeCheck({ currency: 'CNY', amount: '999.00', status: 'CANCELLED' })
+    const s = await getSummary(testDb)
+    expect(s.totalsByCurrency).toEqual([])
   })
 })
 

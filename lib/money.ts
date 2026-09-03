@@ -16,7 +16,13 @@ function incrementDigits(s: string): string {
   return '1' + d.join('')
 }
 
-export function formatPhp(value: string | Prisma.Decimal): string {
+const SYMBOLS: Readonly<Record<string, string>> = { PHP: '₱', CNY: '¥', USD: '$' }
+
+// An unknown currency renders its ISO code rather than guessing a symbol: a
+// wrong symbol on a financial figure is worse than an unfamiliar one.
+export function formatMoney(value: string | number | Prisma.Decimal, currency: string): string {
+  const symbol = SYMBOLS[currency?.toUpperCase()] ?? `${currency} `
+
   const asString = typeof value === 'string' ? value : value.toString()
   const negative = asString.startsWith('-')
   const abs = negative ? asString.slice(1) : asString
@@ -35,5 +41,5 @@ export function formatPhp(value: string | Prisma.Decimal): string {
   }
 
   const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
-  return `${negative ? '-' : ''}₱${grouped}.${cents}`
+  return `${negative ? '-' : ''}${symbol}${grouped}.${cents}`
 }

@@ -12,6 +12,9 @@ export async function makeCheck(overrides: {
   eligibility?: Eligibility
   checkNumber?: string
   availablePickupDate?: Date | null
+  isCheque?: boolean
+  currency?: string
+  amount?: string
 } = {}) {
   const company = await testDb.company.create({
     data: { code: `C${Math.random().toString(36).slice(2, 7)}`, name: 'Starkson Packaging Inc.', legalNames: [] },
@@ -28,11 +31,13 @@ export async function makeCheck(overrides: {
       cashAccountId: cashAccount.id,
       checkNumber: overrides.checkNumber ?? `600${Math.floor(Math.random() * 10_000_000)}`,
       checkDate: new Date('2026-09-01'),
-      amount: '197715.42',
+      amount: overrides.amount ?? '197715.42',
+      currency: overrides.currency ?? 'PHP',
       payeeName: 'HENKEL PHILIPPINES INC.',
       eligibility: overrides.eligibility ?? 'SUPPLIER',
       status: overrides.status ?? 'SIGNED',
       availablePickupDate: overrides.availablePickupDate === undefined ? null : overrides.availablePickupDate,
+      isCheque: overrides.isCheque ?? true,
     },
   })
 }
