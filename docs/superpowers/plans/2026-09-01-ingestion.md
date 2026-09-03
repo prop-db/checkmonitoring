@@ -998,7 +998,8 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Produces:
   - `type RawRow = { sheet: string; row: number; cells: unknown[] }`
   - `readWorkbook(buffer: Buffer): Promise<RawRow[]>` — I/O only, no interpretation
-  - `type ParsedRow = { sheet: string; row: number; checkNumber: string | null; cvNumber: string | null; apvNumbers: string[]; poNumbers: string[]; checkBook: string | null; category: string | null; clearingRef: string | null; checkDate: Date | null; amount: string | null; payee: string | null; unclassified: string[] }`
+  - `type ParsedRow = { sheet: string; row: number; checkNumber: string; cvNumber: string | null; apvNumbers: string[]; poNumbers: string[]; checkBook: string | null; cashAccountLabel: string | null; category: string | null; clearingRef: string | null; checkDate: Date | null; amount: string | null; payee: string | null; unclassified: string[] }`
+    — `checkNumber` is non-nullable: a row without one goes to the review queue and never reaches `parsed`.
   - `parseRows(rows: RawRow[]): { parsed: ParsedRow[]; review: ReviewItem[] }`
 
 - [ ] **Step 1: Install exceljs**
