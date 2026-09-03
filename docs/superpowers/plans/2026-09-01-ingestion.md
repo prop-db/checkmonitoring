@@ -594,10 +594,23 @@ describe('sniff', () => {
     }
   })
 
-  it('identifies check numbers', () => {
-    for (const v of ['6000329924', '1791379619', '174602', '600027346']) {
+  it('identifies check numbers at their two real lengths', () => {
+    // BDO cheques are 6 digits, BPI and MBTC are 10. Those are the only two
+    // lengths in the register.
+    for (const v of ['6000329924', '1791379619', '174602', '326350']) {
       expect(sniff(v), v).toBe('CHECK_NUMBER')
     }
+  })
+
+  it('does not mistake a round-number amount for a cheque number', () => {
+    // The register carries 4200000 and 20000000 as amounts. A \d{6,10} rule
+    // matched them, and appearing earlier in the row they became the cheque
+    // number. 600089528 is a truncated BPI number and belongs in review.
+    for (const v of ['4200000', '20000000', '600089528', '60003162116']) {
+      expect(sniff(v), v).not.toBe('CHECK_NUMBER')
+    }
+    expect(sniff(4200000)).not.toBe('CHECK_NUMBER')
+    expect(sniff(20000000)).not.toBe('CHECK_NUMBER')
   })
 
   it('identifies Excel date serials in the plausible range', () => {
@@ -694,7 +707,13 @@ const APV = /^(AP-[A-Z0-9]{2,3}\d+|(?:STPP|A1PP)-AP-\d+)$/
 const CV = /^(CV-[A-Z0-9]{2,3}\d+|(?:STPP|A1PP)-CV-\d+)$/
 const PO = /^(P[OR]-[A-Z0-9]{1,4}-?\d+|(?:STPP|A1PP)-PO-\d+)$/
 const CHECKBOOK = /^(BPI|MBT|BDO)-[SA]-\d+$/
-const CHECK_NUMBER = /^\d{6,10}$/
+// Cheque numbers in this register are exactly 6 digits (BDO) or 10 (BPI, MBTC).
+// A looser \d{6,10} also matched round-number amounts — 4200000, 20000000 —
+// which then won the `??=` race by appearing earlier in the row and became the
+// cheque number. Verified against the real register: constraining to 6 or 10
+// leaves 337 six-digit and 11,828 ten-digit cheques and sends 44 ambiguous rows
+// to review, which is where a 9- or 11-digit value belongs.
+const CHECK_NUMBER = /^\d{6}$|^\d{10}$/
 const CLEARING_REF = /^CR\s?\d+$/
 // A text-formatted amount. Without this such a cell falls through to UNKNOWN
 // and competes to be the payee — the real register produced vendors named
@@ -722,7 +741,10 @@ export function sniff(value: unknown): FieldKind {
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) return 'UNKNOWN'
     if (value >= SERIAL_MIN && value <= SERIAL_MAX) return 'DATE_SERIAL'
-    if (Number.isInteger(value) && String(value).length >= 6) return 'CHECK_NUMBER'
+    // Same 6-or-10 rule as the string form. A 7- or 8-digit integer in this
+    // register is an amount, not a cheque number.
+    const digits = String(value).length
+    if (Number.isInteger(value) && (digits === 6 || digits === 10)) return 'CHECK_NUMBER'
     return 'UNKNOWN'
   }
 
@@ -1021,6 +1043,21 @@ describe('parseRows', () => {
     expect(r.payee).toBe('STARKSON PACKAGING INC.')
   })
 
+  it('never takes a number as the payee when a name is present', () => {
+    // The real register gave 8,254 rows a numeric payee before this rule; in
+    // 8,253 of them the correct payee was in the same row, beaten on length.
+    const [r] = parseRows([row('BPI RELEASED', 8, [
+      '6000308584', 7950, 'HENKEL PHILIPPINES INC.',
+      'PO-ST-027363 SOME LONGER DESCRIPTION OF THE PURCHASE',
+    ])]).parsed
+    expect(r.payee).toBe('HENKEL PHILIPPINES INC.')
+  })
+
+  it('leaves the payee null rather than using a number when no name is present', () => {
+    const [r] = parseRows([row('BPI RELEASED', 9, ['6000308584', 7950, 299.81])]).parsed
+    expect(r.payee).toBeNull()
+  })
+
   it('takes the longest unclassified string as the payee', () => {
     // Payee and description are both free text; the description is longer.
     const [r] = parseRows([row('BPI RELEASED', 6, [
@@ -1190,9 +1227,16 @@ export function parseRows(rows: RawRow[]): { parsed: ParsedRow[]; review: Review
       r.unclassified[i] = m[2].trim()   // the description survives as free text
     }
 
-    // Payee and description are both free text. The description is reliably the
-    // longer of the two in this register, so the shorter one is the payee.
-    const candidates = [...r.unclassified].sort((a, b) => a.length - b.length)
+    // A payee is a name, so it must contain a letter. Without this rule the
+    // shortest-string heuristic picked amounts: numeric cells sniff as UNKNOWN
+    // and land in `unclassified` as text, where "7950" beats a company name on
+    // length. Against the real register that gave 8,254 rows a number as their
+    // payee, and in 8,253 of them the correct payee was sitting in the same row.
+    // Among the remaining candidates the description is reliably the longer, so
+    // the shorter one is the payee.
+    const candidates = r.unclassified
+      .filter((u) => /[A-Za-z]/.test(u))
+      .sort((a, b) => a.length - b.length)
     r.payee = candidates[0] ?? null
 
     // The one narrowing point: past the guard above, the cheque number is known
