@@ -61,7 +61,23 @@ The client's existing Supplier Portal already reads this Acumatica instance. Its
 
 ## The shared shape both ingestion paths produce
 
-Defined once in `lib/import/types.ts`, and created in Task 3 before anything consumes it. The workbook parser and the Acumatica mapper both emit this; `upsertCheck` is the only thing that reads it. Keeping one shape is what lets the two sources share a single write path, and therefore a single place where duplicate prevention lives.
+> **SUPERSEDED (2026-09-03).** This section describes `lib/import/types.ts`, which was never
+> created. The shape actually built is **`lib/normalised-row.ts`**, written in Task 8 — read that
+> file, not this block. It is the authority; the sketch below is kept only to explain the changes.
+>
+> What differs, and why:
+>
+> | This sketch | As built | Why |
+> | --- | --- | --- |
+> | `checkNumber: string` | `string \| null` | Acumatica's China rows carry an AP reference, not a cheque number, and 66 register rows have none at all. Non-nullable here would have forced an invented value at the boundary. |
+> | `isVoided`, `tenant`, `sheet`, `rowNumber` | `voided`, `acumaticaTenant`, `sourceSheet`, `sourceRow` | Named to match the `Check` columns they feed, so the upsert is a copy rather than a translation. |
+> | — | `acumaticaPaymentId`, `isCheque`, `acumaticaBranch` | `isCheque` is needed because not every payment is one; the other two are provenance the sketch omitted. |
+> | `bills: {apvNumber, poNumber, amount}[]` | `apvNumbers: string[]`, `poNumbers: string[]`, `clearingRef` | The payments generic inquiry is **one row per payment and publishes no bill breakdown**, so no `amount` per bill is available from Acumatica at all. Bill-level detail — amount, due date, terms, GL account — comes from the approval-for-release workbook into `CheckBill` (Task 11), whose grain is one row per bill. A cheque-level reference list and a bill ledger are different things. |
+>
+> One consequence worth stating plainly: **`acumaticaPaymentId` is identical to `cvNumber` for
+> every Acumatica row.** The inquiry has no separate document key, and the Supplier Portal's
+> `ap_payment.ref` is unique on exactly `ReferenceNbr`. They are kept as two fields because one is
+> provenance and the other a business identifier a workbook row can also carry. Do not collapse them.
 
 ```ts
 export type IngestSource = 'WORKBOOK' | 'ACUMATICA'
@@ -1964,3 +1980,70 @@ Upload → parse → **show the reconciliation report and the vendor merge list*
 | Plan 3 | `PortalClient`, the outbox worker, pickup-confirmation polling, the unmatched-APV queue, batch release, reports and exports, notifications, user administration |
 
 Before Plan 3 begins, `PortalEvent` needs a status enum, a `nextAttemptAt`, and a claim column — it cannot back a concurrent worker as currently shaped.
+
+---
+
+## Task 11: Bill Detail from the Approval-for-Release Workbook
+
+**Files:**
+- Create: `lib/import/bills.ts`
+- Test: `tests/import/bills.test.ts`
+
+**Interfaces:**
+- Produces: `parseBillRows(rows: RawRow[]): { bills: ParsedBill[]; review: BillReviewItem[] }`
+
+**Added 2026-09-03.** `CheckBill` exists in the schema, the check detail page is built to render
+bills, and **nothing in Plan 2 populates it**. This task closes that gap. It was missed because the
+plan treated "the workbook" as one thing; there are two, and only the register was specified.
+
+### The source is a different workbook with a different grain
+
+`APPROVAL FOR RELEASE 9.4.2026.xlsx` is not a cheque register. Measured:
+
+| | |
+| --- | --- |
+| sheets | `LIST` (85 data rows) and `PIVOT` (derived — **ignore it**, it is a pivot table over `LIST`) |
+| grain | **one row per bill**, not per cheque |
+| all 85 rows | `Type = Bill`, `FINANCE REMARKS = AVAILABLE` |
+| cheque linkage | `check No.` (col 20), populated on all 85; 85 distinct values, so one bill per cheque *in this snapshot* |
+
+Columns, which map to `CheckBill` almost field for field:
+
+| Workbook column | Field |
+| --- | --- |
+| `Reference Nbr.` | `apvNumber` (e.g. `AP-A1033419`) |
+| `Vendor Ref.` | `poNumber` (e.g. `PO-A1-025543`) |
+| `Description` | `description` |
+| `GL Account` | `glAccount` |
+| `Due Date` | `dueDate` |
+| `Terms Code` | `termsCode` |
+| `Detail Total` | `amount` |
+| `Created By` | `createdByName` |
+| `check No.` | links to `Check.checkNumber` |
+| `bank` | the **cash-account label** — a company signal the register lacks |
+
+**One bill per cheque here is a property of this snapshot, not of the domain.** The register carries
+rows with several APVs on one cheque, and `CheckBill` is correctly modelled one-to-many. Do not add
+a unique constraint on `checkId`, and do not let a test that happens to see 85 one-to-one rows
+harden into an assumption.
+
+### Rules
+
+- This is a **current snapshot**, not history — it is the approval-for-release working list as of
+  4 September 2026. It says nothing about cheques outside it, so it must never be treated as
+  authoritative about a cheque's absence.
+- Its `bank` column supplies a cash account for 85 cheques. That is a legitimate company signal and
+  should feed `resolveCompany` on the same footing as the register's own cash-account column —
+  which may promote a small number of Task 7 `NO_COMPANY` staged rows.
+- `FINANCE REMARKS = AVAILABLE` on every row corroborates `READY_FOR_RELEASE`, but **this task must
+  not set status**. Import never changes release status (decision D4); the remark is evidence for a
+  human, not an instruction.
+- A bill whose `check No.` matches no imported cheque goes to review. It is not an error — the
+  cheque may be staged for want of a company, or simply not in the register — and it must not be
+  dropped.
+- Re-running must be idempotent. Key on `(checkId, apvNumber)`.
+
+- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 2: Implement `lib/import/bills.ts`**
+- [ ] **Step 3: Wire into the import flow and the reconciliation report**
+- [ ] **Step 4: Run, verify against the real workbook, commit**
