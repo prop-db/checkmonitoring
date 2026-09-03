@@ -556,7 +556,7 @@ The seeded data is all PHP, so add a temporary CNY check to the **test** databas
 **Interfaces:**
 - Consumes: nothing (pure)
 - Produces:
-  - `type FieldKind = 'APV' | 'CV' | 'PO' | 'CHECKBOOK' | 'CHECK_NUMBER' | 'DATE_SERIAL' | 'CATEGORY' | 'CLEARING_REF' | 'AMOUNT' | 'UNKNOWN'`
+  - `type FieldKind = 'APV' | 'CV' | 'PO' | 'CHECKBOOK' | 'CHECK_NUMBER' | 'DATE_SERIAL' | 'CATEGORY' | 'CLEARING_REF' | 'AMOUNT' | 'STATUS_WORD' | 'UNKNOWN'`
   - `sniff(value: unknown): FieldKind`
 
 The client's monitoring workbook has fifteen sheets whose columns do not line up. The APV sits in column H on one sheet, F on another, and both B and D on a third. Column E holds a payee on one sheet and a description on the next. Positional parsing is therefore impossible; every cell must be identified by what it contains.
@@ -630,8 +630,29 @@ describe('sniff', () => {
     expect(sniff(174602)).toBe('CHECK_NUMBER')
   })
 
+  it('identifies text-formatted amounts', () => {
+    // Running the parser over the real register produced vendors named
+    // "17187.5" and "3746.25": decimal text fell through to UNKNOWN and won the
+    // payee slot. A decimal point is required, so cheque numbers are unaffected.
+    for (const v of ['17187.5', '1718.75', '3746.25', '197715.42', '1,234.56']) {
+      expect(sniff(v), v).toBe('AMOUNT')
+    }
+  })
+
+  it('does not mistake a whole-number cheque number for an amount', () => {
+    expect(sniff('6000329924')).toBe('CHECK_NUMBER')
+    expect(sniff('174602')).toBe('CHECK_NUMBER')
+  })
+
+  it('identifies status words the register scatters across columns', () => {
+    // "CANCELLED" became a vendor name before this rule existed.
+    for (const v of ['PAID', 'YES', 'CANCELLED', 'DEPOSITED', 'CLEARED', 'RELEASED']) {
+      expect(sniff(v), v).toBe('STATUS_WORD')
+    }
+  })
+
   it('returns UNKNOWN rather than guessing', () => {
-    for (const v of ['', '   ', '#N/A', null, undefined, 'DEPOSITED', 'Some free text description']) {
+    for (const v of ['', '   ', '#N/A', null, undefined, 'Some free text description']) {
       expect(sniff(v as unknown), String(v)).toBe('UNKNOWN')
     }
   })
@@ -653,7 +674,7 @@ Expected: FAIL, module not found.
 ```ts
 export type FieldKind =
   | 'APV' | 'CV' | 'PO' | 'CHECKBOOK' | 'CHECK_NUMBER'
-  | 'DATE_SERIAL' | 'CATEGORY' | 'CLEARING_REF' | 'AMOUNT' | 'UNKNOWN'
+  | 'DATE_SERIAL' | 'CATEGORY' | 'CLEARING_REF' | 'AMOUNT' | 'STATUS_WORD' | 'UNKNOWN'
 
 // The client's monitoring workbook has fifteen sheets whose columns do not line
 // up: the APV is column H on one sheet, F on another, B and D on a third, and
@@ -675,6 +696,11 @@ const PO = /^(P[OR]-[A-Z0-9]{1,4}-?\d+|(?:STPP|A1PP)-PO-\d+)$/
 const CHECKBOOK = /^(BPI|MBT|BDO)-[SA]-\d+$/
 const CHECK_NUMBER = /^\d{6,10}$/
 const CLEARING_REF = /^CR\s?\d+$/
+// A text-formatted amount. Without this such a cell falls through to UNKNOWN
+// and competes to be the payee — the real register produced vendors named
+// "17187.5" and "3746.25" before this rule existed. Requires a decimal point,
+// so it cannot swallow a whole-number cheque number.
+const AMOUNT = /^-?\d{1,3}(,\d{3})*\.\d+$|^-?\d+\.\d+$/
 
 const CATEGORIES = new Set([
   'LOCAL SUPPLIER', 'PAYROLL', 'UTILITIES', 'TAX', 'FUND TRANSFER',
@@ -683,6 +709,10 @@ const CATEGORIES = new Set([
 
 // Excel serials: 44000 is 2020-06, 48000 is 2031-05. A bare number outside that
 // band is a cheque number or an amount, never a date in this data.
+const STATUS_WORDS = new Set([
+  'PAID', 'YES', 'CANCELLED', 'DEPOSITED', 'ENCASHMENT', 'CLEARED', 'RELEASED', 'AVAILABLE',
+])
+
 const SERIAL_MIN = 44000
 const SERIAL_MAX = 48000
 
@@ -708,6 +738,10 @@ export function sniff(value: unknown): FieldKind {
   if (CLEARING_REF.test(s)) return 'CLEARING_REF'
   if (CATEGORIES.has(s)) return 'CATEGORY'
   if (CHECK_NUMBER.test(s)) return 'CHECK_NUMBER'
+  if (AMOUNT.test(s.replace(/,/g, ''))) return 'AMOUNT'
+  // Status words the register puts in various columns. They are not payees, and
+  // without this "CANCELLED" became a vendor name.
+  if (STATUS_WORDS.has(s)) return 'STATUS_WORD'
 
   return 'UNKNOWN'
 }
@@ -1128,6 +1162,10 @@ export function parseRows(rows: RawRow[]): { parsed: ParsedRow[]; review: Review
         case 'DATE_SERIAL': r.checkDate ??= excelSerialToDate(Number(cell)); break
         case 'CATEGORY': r.category ??= text?.toUpperCase() ?? null; break
         case 'CLEARING_REF': r.clearingRef ??= text?.toUpperCase() ?? null; break
+        case 'AMOUNT': r.amount ??= text?.replace(/,/g, '') ?? null; break
+        // A status word is neither a field nor free text; dropping it keeps it
+        // out of the payee candidates.
+        case 'STATUS_WORD': break
         default: if (text) r.unclassified.push(text)
       }
     }
