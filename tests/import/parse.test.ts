@@ -120,3 +120,90 @@ describe('parseRows', () => {
     expect(parsed.length + review.length).toBe(rows.length)
   })
 })
+
+// The amount lives in column J (index 9) on all fifteen sheets, headed either
+// "CHECK AMOUNT" or "AMOUNT" — the same kind of structural fact as the payee in
+// column E. Measured across the real register's 12,227 data rows: 11,827
+// numbers, 260 empty, 135 the word "CANCELLED", 2 dates, 2 with a currency
+// prefix, 1 a stray newline.
+//
+// Before this, amounts were captured for *no* row at all. `sniff` returns
+// UNKNOWN for a plain numeric cell — it is neither a date serial nor a 6/10
+// digit cheque number — so every amount fell through to free text, and the
+// AMOUNT rule that fed `r.amount` only ever fired for comma-formatted decimal
+// *strings*, of which the register has none in that column.
+describe('parseRows — the amount column', () => {
+  const atNine = (v: unknown) =>
+    ['PAID', 'W-RDHOT', '6000308584', 'CV-ST011550', 'ACME INC.', null, null, null, 46014, v]
+
+  it('reads the amount from column J', () => {
+    const [r] = parseRows([row('BPI RELEASED', 2, atNine(7950))]).parsed
+    expect(r.amount).toBe('7950')
+  })
+
+  it('keeps centavos exactly as written', () => {
+    // Not reformatted, not rounded, not passed through a float dance. The
+    // column is Decimal(18,2); the parser's job is to hand over the digits.
+    const [r] = parseRows([row('BPI RELEASED', 3, atNine(80552.41))]).parsed
+    expect(r.amount).toBe('80552.41')
+  })
+
+  it('keeps a negative amount rather than dropping or flipping it', () => {
+    // 16 real rows are negative — reversals on BPI A1 RELEASED and CANCELLED.
+    // A reversal that imports as a positive amount would overstate the ledger.
+    const [r] = parseRows([row('CANCELLED', 245, atNine(-2982))]).parsed
+    expect(r.amount).toBe('-2982')
+  })
+
+  it('records the currency when the cell states one', () => {
+    // FT & MC:8 holds "USD 300000". Read as 300000 PHP it would understate the
+    // cheque by roughly the exchange rate.
+    const [r] = parseRows([row('FT & MC', 8, atNine('USD 300000'))]).parsed
+    expect(r.amount).toBe('300000')
+    expect(r.currency).toBe('USD')
+  })
+
+  it('leaves the currency unstated when the cell is a bare number', () => {
+    // The parser reports what the register says. Defaulting to PHP is a
+    // decision for the upsert, made once and visibly, not invented here.
+    const [r] = parseRows([row('BPI RELEASED', 2, atNine(7950))]).parsed
+    expect(r.currency).toBeNull()
+  })
+
+  it('reads a text-formatted amount', () => {
+    const [r] = parseRows([row('BPI RELEASED', 4, atNine('1,254,000.00'))]).parsed
+    expect(r.amount).toBe('1254000.00')
+  })
+
+  it('has no amount when the column holds a status word', () => {
+    // 135 rows on the CANCELLED sheet carry "CANCELLED" here.
+    const [r] = parseRows([row('CANCELLED', 20, atNine('CANCELLED'))]).parsed
+    expect(r.amount).toBeNull()
+  })
+
+  it('has no amount when the column holds a date', () => {
+    // 2 real rows are shifted and put a date here. The row still imports.
+    const [r] = parseRows([row('BPI RELEASED', 3698, atNine(new Date('2026-05-25')))]).parsed
+    expect(r.amount).toBeNull()
+    expect(r.checkNumber).toBe('6000308584')
+  })
+
+  it('has no amount when the column is empty', () => {
+    expect(parseRows([row('BPI RELEASED', 5, atNine(null))]).parsed[0].amount).toBeNull()
+    expect(parseRows([row('MBTC AVAIL.', 53, atNine('\n'))]).parsed[0].amount).toBeNull()
+  })
+
+  it('does not take an amount from any other column', () => {
+    // The old behaviour let any amount-shaped cell anywhere in the row win the
+    // `??=` race. Column J is the amount; a figure in REMARKS is not.
+    const cells = atNine(null)
+    cells[11] = '235714.29'
+    const [r] = parseRows([row('STK P&P RELEASED', 6, cells)]).parsed
+    expect(r.amount).toBeNull()
+  })
+
+  it('keeps the amount cell out of the free-text pool', () => {
+    const [r] = parseRows([row('BPI RELEASED', 2, atNine(7950))]).parsed
+    expect(r.unclassified).not.toContain('7950')
+  })
+})

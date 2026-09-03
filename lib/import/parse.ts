@@ -19,11 +19,51 @@ export type ParsedRow = {
   clearingRef: string | null
   checkDate: Date | null
   amount: string | null
+  // Only set when the register states it inline, as "USD 300000". A bare
+  // number leaves this null; choosing a default is the upsert's decision, made
+  // once and visibly, rather than invented here.
+  currency: string | null
   payee: string | null
   unclassified: string[]
 }
 
 export type ReviewItem = { sheet: string; row: number; reason: 'NO_CHECK_NUMBER'; cells: unknown[] }
+
+// The amount is column J on every sheet, headed "CHECK AMOUNT" or "AMOUNT".
+// Measured over the register's 12,227 data rows: 11,827 numbers, 260 empty,
+// 135 the word "CANCELLED", 2 dates on shifted rows, 2 with a currency prefix,
+// 1 a stray newline. As with the payee in column E, this is read positionally
+// because it is knowable — letting any amount-shaped cell in the row win a
+// `??=` race is what produced the wrong-payee classes this parser already
+// documents, and REMARKS on STK P&P RELEASED holds six figures that are not
+// the cheque amount.
+const AMOUNT_COLUMN = 9
+
+// A money value the register actually states, or nothing. Never a guess.
+function readAmount(cell: unknown): { amount: string; currency: string | null } | null {
+  if (typeof cell === 'number') {
+    const s = String(cell)
+    // Rejects exponent forms (>=1e21, <1e-6). Nothing in that range is a
+    // cheque amount, and expanding one risks inventing digits. Verified: no
+    // row in the register renders in exponent form, and none carries more than
+    // two decimal places, so nothing here is silently reshaped.
+    return Number.isFinite(cell) && /^-?\d+(\.\d+)?$/.test(s) ? { amount: s, currency: null } : null
+  }
+  if (typeof cell !== 'string') return null   // Date on a shifted row, or nothing
+
+  const s = cell.trim().replace(/\s+/g, ' ').toUpperCase()
+  if (s === '') return null
+
+  // "USD 300000" — FT & MC records two cheques this way. Read as a bare number
+  // they would import as pesos and understate the cheque by the exchange rate.
+  const withCurrency = /^([A-Z]{3}) (-?[\d,]+(?:\.\d+)?)$/.exec(s)
+  if (withCurrency) return { amount: withCurrency[2].replace(/,/g, ''), currency: withCurrency[1] }
+
+  const bare = s.replace(/,/g, '')
+  if (/^-?\d+(\.\d+)?$/.test(bare)) return { amount: bare, currency: null }
+
+  return null   // "CANCELLED", "\n", anything else the column happens to hold
+}
 
 // While a row is being assembled its cheque number may still be absent. The
 // draft carries that possibility; `ParsedRow` does not, and the narrowing
@@ -42,10 +82,20 @@ export function parseRows(rows: RawRow[]): { parsed: ParsedRow[]; review: Review
       sheet: raw.sheet, row: raw.row,
       checkNumber: null, cvNumber: null, apvNumbers: [], poNumbers: [],
       checkBook: null, cashAccountLabel: null, category: null, clearingRef: null,
-      checkDate: null, amount: null, payee: null, unclassified: [],
+      checkDate: null, amount: null, currency: null, payee: null, unclassified: [],
     }
 
-    for (const cell of raw.cells) {
+    const money = readAmount(raw.cells[AMOUNT_COLUMN])
+    r.amount = money?.amount ?? null
+    r.currency = money?.currency ?? null
+
+    for (let idx = 0; idx < raw.cells.length; idx++) {
+      // The amount cell has already been read. Skipping it keeps 11,827 figures
+      // out of the free-text pool — but only when it *was* an amount, so the
+      // two shifted rows whose column J holds a date still offer it to the
+      // date rule below rather than losing it.
+      if (idx === AMOUNT_COLUMN && money) continue
+      const cell = raw.cells[idx]
       if (cell instanceof Date) {
         // ExcelJS yields an Invalid Date for a malformed date cell. It passes
         // `instanceof Date`, so without this guard it reaches Prisma, which
@@ -66,7 +116,9 @@ export function parseRows(rows: RawRow[]): { parsed: ParsedRow[]; review: Review
         case 'DATE_SERIAL': r.checkDate ??= excelSerialToDate(Number(cell)); break
         case 'CATEGORY': r.category ??= text?.toUpperCase() ?? null; break
         case 'CLEARING_REF': r.clearingRef ??= text?.toUpperCase() ?? null; break
-        case 'AMOUNT': r.amount ??= text?.replace(/,/g, '') ?? null; break
+        // Classified so it cannot compete to be free text or a payee, but not
+        // assigned: the amount comes from column J and nowhere else.
+        case 'AMOUNT': break
         // A status word is neither a field nor free text; dropping it keeps it
         // out of the payee candidates.
         case 'CASH_ACCOUNT': r.cashAccountLabel ??= text?.toUpperCase() ?? null; break

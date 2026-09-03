@@ -10,3 +10,6 @@ node_modules/
 
 # TypeScript incremental build cache
 tsconfig.tsbuildinfo
+
+# local measurement scripts against the real register - never committed
+probe-*.mjs
