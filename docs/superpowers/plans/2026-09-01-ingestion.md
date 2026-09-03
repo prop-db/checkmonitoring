@@ -824,6 +824,20 @@ describe('parseRows', () => {
     expect(r.apvNumbers).toEqual(['AP-ST036371', 'AP-ST036372'])
   })
 
+  it('recovers a PO number embedded ahead of its description', () => {
+    // 1,508 cells in the register have this shape. Without this the PO is lost
+    // and the whole string competes to be the payee.
+    const [r] = parseRows([row('BPI RELEASED', 7, [
+      '6000308584',
+      'PO-ST-027363 WEEKLY DIRECT (DISNEY) D2, D5, D7, D6 RESTDAY HOLIDAY FTP NOV. 30, 2025 (11 PAX)',
+      'STARKSON PACKAGING INC.',
+    ])]).parsed
+    expect(r.poNumbers).toContain('PO-ST-027363')
+    expect(r.unclassified.some((u) => u.startsWith('WEEKLY DIRECT'))).toBe(true)
+    expect(r.unclassified.some((u) => u.startsWith('PO-ST-027363'))).toBe(false)
+    expect(r.payee).toBe('STARKSON PACKAGING INC.')
+  })
+
   it('takes the longest unclassified string as the payee', () => {
     // Payee and description are both free text; the description is longer.
     const [r] = parseRows([row('BPI RELEASED', 6, [
@@ -947,6 +961,20 @@ export function parseRows(rows: RawRow[]): { parsed: ParsedRow[]; review: Review
     if (!r.checkNumber) {
       review.push({ sheet: raw.sheet, row: raw.row, reason: 'NO_CHECK_NUMBER', cells: raw.cells })
       continue
+    }
+
+    // 1,508 distinct cells in the register hold a PO number followed by its
+    // description in one cell:
+    //   "PO-ST-027363 WEEKLY DIRECT (DISNEY) D2, D5, D7 ... (11 PAX)"
+    // `sniff` correctly returns UNKNOWN for these — the cell is not *just* a PO —
+    // so the parser recovers both halves rather than losing the PO number.
+    // Verified count: running `sniff` over the register's 47,356 distinct strings
+    // left exactly 1,508 document-shaped cells unclassified, all of this form.
+    for (let i = r.unclassified.length - 1; i >= 0; i--) {
+      const m = /^(P[OR]-[A-Z0-9]{1,4}-?\d+)\s+(.+)$/.exec(r.unclassified[i])
+      if (!m) continue
+      r.poNumbers.push(m[1].toUpperCase())
+      r.unclassified[i] = m[2].trim()   // the description survives as free text
     }
 
     // Payee and description are both free text. The description is reliably the
