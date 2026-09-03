@@ -1649,28 +1649,193 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-## Task 7: The Upsert Path
+## Task 6c: Fields the Register Does Not Always Know
 
 **Files:**
-- Create: `lib/import/upsert.ts`
-- Test: `tests/import/upsert.test.ts`
+- Modify: `prisma/schema.prisma`, `lib/money.ts`, `lib/domain/eligibility.ts`,
+  `app/checks/[id]/page.tsx`, `components/CheckTable.tsx`
+- Create: a migration making `Check.amount` and `Check.payeeName` nullable
+- Test: `tests/money.test.ts`, `tests/domain/eligibility.test.ts`, `tests/schema.test.ts`
+
+`Check.amount` and `Check.payeeName` are currently `NOT NULL`. The real register does not always
+know them: **397 of 12,161 rows have no amount** (260 blank, 135 where the amount column literally
+holds the word "CANCELLED", 2 shifted rows holding a date) and **153 have no payee**.
+
+The domain layer already models both as nullable and has done since Plan 1 — `ReadyGuardInput`
+types them `string | null`, `REQUIRED_FIELDS` lists `AMOUNT` and `PAYEE` among the fields that
+must be present before a cheque can be released, and `lib/domain/actions.ts` already writes
+`check.amount?.toString() ?? null`. Only the Prisma schema disagrees. This task makes the storage
+match the domain rather than the other way round.
+
+**Why not store zero or an empty string.** A cheque recorded at ₱0.00 is indistinguishable from a
+real zero-value cheque and silently understates every total it appears in; an empty payee reads as
+a cheque payable to nobody. NULL says the one true thing: the register does not record it.
+
+**The consequence is deliberate and desirable.** `assertReleasable` already refuses to release a
+cheque with a blank amount or payee, so these 397 and 153 cheques import, are visible, and are
+**blocked from release until someone fills the gap in** — which is the correct behaviour for a
+cheque whose amount nobody knows. A blank payee also classifies as `INTERNAL`, so such a cheque can
+never be pushed to the supplier portal.
+
+- [ ] **Step 1: Write the failing tests**
+
+- `formatMoney(null, 'PHP')` renders an em dash, not `₱0.00` and not a crash
+- `formatMoney` still formats `0` as `₱0.00` — a genuine zero is not the same as unknown
+- `classifyEligibility({ payeeName: null, ... })` returns `INTERNAL` (the same safe answer it
+  already gives for `''` and `'   '`), and `portalRoute` of it is `null`
+- a `Check` row can be created with `amount: null` and `payeeName: null`
+- `checkReadyForRelease` on such a row reports the existing exact string, naming both missing
+  fields: `This check cannot be released because required information is missing: PAYEE, AMOUNT.`
+- `listChecks`' per-currency totals ignore rows with a null amount rather than treating them as
+  zero, and the dashboard count still includes them
+
+- [ ] **Step 2: Implement**
+
+`formatMoney(value: string | number | Prisma.Decimal | null, currency: string)`. Widen
+`classifyEligibility`'s input to `payeeName: string | null`; `norm` already collapses blanks, so
+this is a widening of an existing safe path, not a new branch. Check the two render sites.
+
+- [ ] **Step 3: Run, verify, commit**
+
+---
+
+## Task 7: Company Resolution, Staging, and the Upsert Path
+
+**Files:**
+- Create: `lib/import/company.ts`, `lib/import/implied-status.ts`, `lib/import/upsert.ts`
+- Modify: `prisma/schema.prisma` (add `StagedCheck`)
+- Test: `tests/import/company.test.ts`, `tests/import/implied-status.test.ts`,
+  `tests/import/upsert.test.ts`
 
 **Interfaces:**
-- Consumes: `lib/db.ts`, `lib/audit.ts`, `lib/domain/eligibility.ts`
-- Produces: `upsertCheck(db, { source, row, actorType }): Promise<{ created: boolean; checkId: string }>`
+- Consumes: `lib/db.ts`, `lib/audit.ts`, `lib/domain/eligibility.ts`, `lib/domain/actions.ts`
+- Produces: `resolveCompany(...)`, `impliedStatus(...)`, `upsertCheck(...)`, `stageRow(...)`
 
-The single write path for both the workbook importer and the Acumatica sync. Duplicate prevention lives here and nowhere else.
+### 7a. Company resolution
+
+Measured against the real register with the actual reference table (every one of the 9 checkbook
+codes and 6 cash-account codes in the workbook is already mapped in `prisma/reference-data.ts` —
+none is unknown):
+
+| | rows | |
+| --- | ---: | --- |
+| resolved from checkbook and/or cash account | **9,521** | 78.3% |
+| → both signals present, agreeing | 897 | |
+| → both present, **conflicting** | **17** | |
+| → checkbook only | 8,245 | |
+| → cash account only | 362 | |
+| **unresolved — neither present** | **2,640** | 21.7% |
+
+```ts
+export type CompanyResolution =
+  | { ok: true; companyCode: string; from: 'CASH_ACCOUNT' | 'CHECK_BOOK'; conflictedWith: string | null }
+  | { ok: false }
+```
+
+**The cash account wins a conflict** (Finance ruling, 2026-09-03). It names the bank account the
+money actually leaves, and in all 17 cases it agrees with the sheet the cheque sits on while the
+checkbook cell holds an implausible value — including two Metrobank book codes recorded on a BPI
+sheet. The losing signal is carried in `conflictedWith` and every one of the 17 is listed on the
+reconciliation report so Finance can correct the register. It is **reported, never silently
+preferred**.
+
+**Do not infer the company from the sheet name.** Measured: the RELEASED sheets are 97–100% one
+company, but `CANCELLED` splits 59/41 between Starkson and A1+ and `CHECK FINDING` 63/37 — those
+sheets collect cheques from every company. Inferring would put roughly 213 cheques under the wrong
+company, and since `@@unique([companyId, checkNumber])` is the dedup key, a wrong company is a
+cheque that can silently duplicate later.
+
+### 7b. Staging
+
+`companyId` is required and is half the dedup key, so a row whose company is unknown cannot become
+a `Check` without a guess. It is staged instead — kept whole, visible to Finance, and promoted
+later when the Acumatica sync (Tasks 8–9) supplies the company by cheque number.
+
+```prisma
+enum StagedReason {
+  NO_COMPANY        // 2,640 - no checkbook and no cash account in the register
+  NO_CHECK_NUMBER   //    66 - cannot be keyed at all
+}
+
+model StagedCheck {
+  id              String       @id @default(cuid())
+  sourceSheet     String
+  sourceRow       Int
+  reason          StagedReason
+  checkNumber     String?
+  cvNumber        String?
+  apvNumbers      String[]
+  poNumbers       String[]
+  checkBookCode   String?
+  cashAccountCode String?
+  category        String?
+  clearingRef     String?
+  checkDate       DateTime?
+  amount          Decimal?     @db.Decimal(18, 2)
+  currency        String?
+  payeeName       String?
+  impliedStatus   CheckStatus
+  promotedCheckId String?      // set when Acumatica later supplies the company
+  createdAt       DateTime     @default(now())
+
+  @@unique([sourceSheet, sourceRow])   // re-running the import updates, never duplicates
+  @@index([checkNumber])               // the Acumatica sync matches on this
+  @@index([reason])
+}
+```
+
+Expected import outcome — every one of the 12,227 rows accounted for, nothing dropped:
+
+```
+imported            9,521
+staged NO_COMPANY   2,640
+staged NO_CHECK_NUMBER 66
+--------------------------
+total rows         12,227
+```
+
+### 7c. Implied status and the contradiction ruling
+
+`impliedStatus(sheetName)` maps a sheet to the status it asserts. Where one cheque appears on two
+sheets with different implied statuses, apply the Finance ruling of 2026-09-03 recorded in
+`.superpowers/sdd/progress.md`:
+
+| Sheets imply | Count | Resolves to |
+| --- | ---: | --- |
+| CANCELLED + FINDING | 48 | CANCELLED |
+| RELEASED + CANCELLED | 25 | **RELEASED** |
+| RELEASED + FINDING | 25 | RELEASED |
+| RELEASED + CANCELLED + FINDING | 1 | **CANCELLED** |
+| RELEASED + AVAILABLE | 1 | RELEASED |
+| AVAILABLE + CANCELLED | 1 | CANCELLED |
+| AVAILABLE + FINDING | 1 | AVAILABLE |
+
+Two things a future reader must not "tidy": RELEASED+CANCELLED resolves to RELEASED, but adding
+FINDING flips it to CANCELLED — deliberate, affecting exactly one cheque (`6000319079`); and the
+heterogeneous cases resolve to the **later state**, not to CANCELLED, because two of them have no
+CANCELLED entry on any sheet and marking a released cheque cancelled would invent a status the
+register never records.
+
+Each resolution writes a `SYSTEM` audit row naming the clashing sheets, the implied statuses, the
+chosen one, and the ruling as its basis. **Applied at scale, traceable one by one.**
+
+### 7d. The upsert
+
+The single write path for both the workbook importer and the Acumatica sync. Duplicate prevention
+lives here and nowhere else.
 
 - [ ] **Step 1: Write the failing test**
 
 Cover, at minimum:
-- creating a check that does not exist, at status `SIGNATURE_PENDING`
+- creating a check that does not exist, at the status the sheet implies
 - re-importing the same `(company, checkNumber)` **updates** rather than duplicating
 - **a re-import never changes `status`** — a check a Finance user has already marked `SIGNED` stays `SIGNED`
 - **a re-import never changes `signedById`, `readyById`, `releasedById` or any timestamp Finance set**
 - eligibility is computed via `classifyEligibility`, and an INTERNAL check gets `portalDomain = null`, `portalSyncStatus = 'NOT_APPLICABLE'` (the CHECK constraint enforces this; a test proving the constraint rejects the alternative is worth having)
 - every create and update writes a `SYSTEM`-actor audit row
 - a `Voided Payment` row sets status `VOIDED` and records `voidedAt`
+- a row with no resolvable company is staged, not written as a check, and **not** dropped
+- re-running the whole import is idempotent: same counts, no duplicate checks, no duplicate staged rows
 
 - [ ] **Step 2: Implement `lib/import/upsert.ts`**
 
