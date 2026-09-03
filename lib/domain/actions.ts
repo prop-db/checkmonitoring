@@ -86,6 +86,25 @@ export async function markReadyForRelease(
     })
 
     if (pushes) {
+      // Both fields are in REQUIRED_FIELDS, so the guard 30 lines above has
+      // already proved them non-blank and this cannot fire. It is asserted
+      // rather than defaulted because the alternative — `?? null`, as used at
+      // the guard call site where a null is a legitimate input — would make a
+      // portal event announcing a cheque with no amount, payable to nobody,
+      // *representable*. If that guard were ever weakened, such a payload
+      // would be published to a supplier instead of stopping here.
+      //
+      // Do not "simplify" this to `??`. This payload leaves the system, and a
+      // financial figure on its way to an outside party is the wrong place to
+      // be forgiving. Failing loudly here costs one blocked release; the
+      // permissive version costs a supplier being told a cheque is ready and
+      // being shown nothing where the amount should be.
+      if (check.amount === null || check.payeeName === null) {
+        throw new DomainError(
+          'INCOMPLETE_PORTAL_PAYLOAD',
+          'This check cannot be published to the supplier portal because its amount or payee is missing.',
+        )
+      }
       await tx.portalEvent.create({
         data: {
           checkId: check.id,

@@ -14,7 +14,9 @@ export async function makeCheck(overrides: {
   availablePickupDate?: Date | null
   isCheque?: boolean
   currency?: string
-  amount?: string
+  // `null` is a distinct, meaningful value here - the register does not always
+  // record an amount - so it cannot be collapsed into the default with `??`.
+  amount?: string | null
 } = {}) {
   const company = await testDb.company.create({
     data: { code: `C${Math.random().toString(36).slice(2, 7)}`, name: 'Starkson Packaging Inc.', legalNames: [] },
@@ -31,7 +33,7 @@ export async function makeCheck(overrides: {
       cashAccountId: cashAccount.id,
       checkNumber: overrides.checkNumber ?? `600${Math.floor(Math.random() * 10_000_000)}`,
       checkDate: new Date('2026-09-01'),
-      amount: overrides.amount ?? '197715.42',
+      amount: overrides.amount === undefined ? '197715.42' : overrides.amount,
       currency: overrides.currency ?? 'PHP',
       payeeName: 'HENKEL PHILIPPINES INC.',
       eligibility: overrides.eligibility ?? 'SUPPLIER',

@@ -64,6 +64,26 @@ describe('internal classification', () => {
     expect(classify('', null).eligibility).toBe('INTERNAL')
     expect(classify('   ', 'LOCAL SUPPLIER').eligibility).toBe('INTERNAL')
   })
+
+  // 153 of the register's rows record no payee at all, and Check.payeeName is
+  // nullable so those store the unknown as an unknown rather than as a cheque
+  // payable to the empty string. This is the safety property that makes storing
+  // it acceptable: an unknown payee classifies INTERNAL, and INTERNAL never
+  // routes to the portal.
+  //
+  // Asserted through classifyEligibility rather than the `classify` helper on
+  // purpose - the helper types payeeName as `string`, and the point here is that
+  // the public input type admits null. esbuild erases types, so this fails only
+  // under `tsc --noEmit`; do not "tidy" it onto the helper, which would delete
+  // the check without changing a single runtime assertion.
+  it('treats a null payee exactly as it treats a blank one, and never routes it', () => {
+    const r = classifyEligibility({
+      payeeName: null, category: 'LOCAL SUPPLIER', sourceSheet: null, ownCompanyNames: OWN,
+    })
+    expect(r.eligibility).toBe('INTERNAL')
+    expect(r.reason).toBe('UNKNOWN PAYEE')
+    expect(portalRoute(r.eligibility)).toBeNull()
+  })
 })
 
 describe('reason codes', () => {

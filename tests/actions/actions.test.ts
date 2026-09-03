@@ -68,6 +68,32 @@ describe('markReadyForRelease', () => {
     expect(updated.portalSyncStatus).toBe('PENDING')
   })
 
+  // 397 register rows carry no amount and 153 no payee, so these are real
+  // cheques, not hypotheticals. A SUPPLIER cheque missing either must not reach
+  // the portal: telling a supplier a cheque is ready and showing them a blank
+  // where the amount belongs is worse than telling them nothing.
+  //
+  // Note this is the OUTER protection — checkReadyForRelease refuses the whole
+  // action, so nothing is written at all. The assertion guarding the payload
+  // inside markReadyForRelease is defence in depth behind this, and is
+  // deliberately unreachable while this guard stands.
+  it.each([
+    ['amount', { amount: null }],
+    ['payee', { payeeName: null }],
+  ])('refuses to publish a SUPPLIER check with no %s, and writes nothing', async (_field, missing) => {
+    const user = await makeUser()
+    const check = await makeCheck({ status: 'SIGNED', eligibility: 'SUPPLIER', ...missing })
+
+    await expect(markReadyForRelease(testDb, {
+      checkId: check.id, userId: user.id, availablePickupDate: PICKUP, now: NOW,
+    })).rejects.toBeInstanceOf(DomainError)
+
+    const after = await testDb.check.findUniqueOrThrow({ where: { id: check.id } })
+    expect(after.status).toBe('SIGNED')                 // the transaction rolled back
+    expect(after.portalSyncStatus).toBe('NOT_APPLICABLE')
+    expect(await testDb.portalEvent.count({ where: { checkId: check.id } })).toBe(0)
+  })
+
   it('queues NO portal event for an INTERNAL check but still changes status', async () => {
     const user = await makeUser()
     const check = await makeCheck({ status: 'SIGNED', eligibility: 'INTERNAL' })

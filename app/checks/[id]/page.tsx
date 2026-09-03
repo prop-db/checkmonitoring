@@ -47,7 +47,10 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold tracking-wide">CHECK {check.checkNumber}</h1>
-          <p className="text-sm text-slate-500">{check.payeeName}</p>
+          {/* An em dash rather than the empty string React renders for null:
+              the register does not always record a payee, and a blank line under
+              the cheque number reads as a rendering fault, not as a fact. */}
+          <p className="text-sm text-slate-500">{check.payeeName ?? '—'}</p>
         </div>
         <StatusPill status={check.status} />
       </header>
@@ -67,7 +70,7 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
           {/* Every bill, matching the dashboard table: a multi-bill check must not
               display one arbitrary APV as though it were the only one. */}
           <Field label="APV NUMBER" value={check.bills.length ? check.bills.map((b) => b.apvNumber).join(', ') : '—'} />
-          <Field label="PAYEE" value={check.payeeName} />
+          <Field label="PAYEE" value={check.payeeName ?? '—'} />
           <Field label="COMPANY" value={check.company.code} />
           <Field label="CHECK DATE" value={fmtDate(check.checkDate)} />
           <Field label="AMOUNT" value={formatMoney(check.amount, check.currency)} />

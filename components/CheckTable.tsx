@@ -38,7 +38,11 @@ export function CheckTable({ rows }: { rows: CheckRow[] }) {
                 {r.bills.length ? r.bills.map((b) => b.apvNumber).join(', ') : '—'}
               </td>
               <td className="px-4 py-3">
-                {r.payeeName}
+                {/* An em dash, not the bare null React would render as nothing:
+                    153 register rows have no payee, and an empty cell reads as a
+                    rendering bug rather than as a fact about the cheque. Matches
+                    fmtDate and the APV column above. */}
+                {r.payeeName ?? '—'}
                 {r.eligibility === 'INTERNAL' && (
                   <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] tracking-wide text-slate-600">
                     INTERNAL

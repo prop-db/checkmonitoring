@@ -1,6 +1,11 @@
 import { formatMoney } from '@/lib/money'
+import type { CurrencyTotal } from '@/lib/queries'
 
-type CurrencyTotal = { currency: string; total: string; count: number }
+// `CurrencyTotal` is imported rather than restated. It was declared twice —
+// here and in lib/queries.ts — and the two had already drifted apart on
+// `total`'s nullability, which is precisely the drift a duplicated type
+// invites: the query started returning null and this file went on promising a
+// string.
 
 type Summary = {
   total: number; pendingSignature: number; signed: number

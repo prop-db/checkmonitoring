@@ -133,7 +133,19 @@ model Check {
   checkNumber        String
   cvNumber           String?
   checkDate          DateTime?
-  amount             Decimal          @db.Decimal(18, 2)
+  // Nullable because the register genuinely does not always know them: of its
+  // 12,161 parsed rows, 397 carry no amount (260 blank, 135 where the amount
+  // column holds the word "CANCELLED", 2 shifted rows holding a date) and 153
+  // carry no payee. NULL means "not recorded" - it is not a synonym for 0.00 or
+  // for ''. Storing 0.00 would understate every per-currency total the cheque
+  // appears in and would be indistinguishable from a real zero-value cheque;
+  // storing '' would read as a cheque payable to nobody. The domain has modelled
+  // both as nullable since Plan 1 (ReadyGuardInput, REQUIRED_FIELDS), so
+  // checkReadyForRelease already blocks release until someone fills the gap in,
+  // and classifyEligibility already answers INTERNAL for an absent payee - which
+  // is what keeps such a cheque off the supplier portal. Do not "tidy" these
+  // back to NOT NULL with a default.
+  amount             Decimal?         @db.Decimal(18, 2)
   currency           String           @default("PHP")
 
   // Not every Acumatica payment is a cheque. The China offices pay by transfer,
@@ -145,7 +157,7 @@ model Check {
   cashAccountId      String?
   checkBookId        String?
   vendorId           String?
-  payeeName          String
+  payeeName          String?          // see the note on `amount` above
 
   category           String?
   eligibility        Eligibility

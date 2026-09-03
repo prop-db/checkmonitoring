@@ -12,7 +12,9 @@ export type CheckFilters = {
   to?: Date
 }
 
-export type CurrencyTotal = { currency: string; total: string; count: number }
+// `total` is null when nothing in the group is known — see getSummary. It is
+// not the same fact as a total of zero, and must not be rendered as one.
+export type CurrencyTotal = { currency: string; total: string | null; count: number }
 
 export async function getSummary(db: Db) {
   const [grouped, currencyAgg, total] = await Promise.all([
@@ -29,9 +31,25 @@ export async function getSummary(db: Db) {
     db.check.count(),
   ])
   const count = (s: CheckStatus) => grouped.find((g) => g.status === s)?._count._all ?? 0
+  // `amount` is nullable and 397 register rows have no amount. Verified against
+  // the test database: SQL SUM() skips those rows rather than reading them as 0,
+  // while COUNT(*) still counts them — so a currency's total is the sum of the
+  // amounts that are actually known, over a count that includes the ones that
+  // are not. That is the intended reading, not a defect: absorbing 397 unknowns
+  // as zeroes would produce a total that understates reality while looking
+  // authoritative.
+  //
+  // In the degenerate case where every row in a currency group has a null
+  // amount, Postgres returns SUM() = NULL for the whole group. That is carried
+  // through as null, NOT collapsed to zero: "no amount is known for any of
+  // these cheques" and "these cheques are worth nothing" are different facts,
+  // and a financial figure that reads ₱0.00 while meaning the former is a lie
+  // the reader has no way to detect. `formatMoney` renders null as an em dash.
+  // The group still appears, with its count, because hiding it would hide the
+  // cheques.
   const totalsByCurrency: CurrencyTotal[] = currencyAgg.map((g) => ({
     currency: g.currency,
-    total: (g._sum.amount ?? 0).toString(),
+    total: g._sum.amount?.toString() ?? null,
     count: g._count._all,
   }))
   return {

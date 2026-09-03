@@ -1,7 +1,13 @@
 export type Eligibility = 'SUPPLIER' | 'BROKER' | 'INTERNAL'
 
 export type EligibilityInput = {
-  payeeName: string
+  // Nullable because `Check.payeeName` is: 153 register rows record no payee.
+  // This is a widening of an existing safe path, not a new branch — `norm`
+  // already collapses null, undefined and whitespace to '', which the first
+  // guard in classifyEligibility answers INTERNAL. That answer is what stops a
+  // cheque with an unknown payee reaching the supplier portal, since
+  // portalRoute('INTERNAL') is null. Do not narrow this back to `string`.
+  payeeName: string | null
   category: string | null
   sourceSheet?: string | null
   ownCompanyNames: readonly string[]

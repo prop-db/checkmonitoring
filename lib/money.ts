@@ -18,9 +18,23 @@ function incrementDigits(s: string): string {
 
 const SYMBOLS: Readonly<Record<string, string>> = { PHP: '₱', CNY: '¥', USD: '$' }
 
+// Rendered for an amount the register does not record. `Check.amount` is
+// nullable — 397 of the client's 12,161 register rows have no amount — and an
+// em dash is the one rendering that cannot be misread as a figure.
+const UNKNOWN = '—'
+
 // An unknown currency renders its ISO code rather than guessing a symbol: a
 // wrong symbol on a financial figure is worse than an unfamiliar one.
-export function formatMoney(value: string | number | Prisma.Decimal, currency: string): string {
+export function formatMoney(
+  value: string | number | Prisma.Decimal | null,
+  currency: string,
+): string {
+  // Unknown is not zero. A null amount must never render as ₱0.00: that reads
+  // as a cheque genuinely drawn for nothing, and there is no way for a reader
+  // to tell it apart from the real thing. Both cases are pinned by test; do
+  // not fold this into a `?? 0` on the way in.
+  if (value === null) return UNKNOWN
+
   const symbol = SYMBOLS[currency?.toUpperCase()] ?? `${currency} `
 
   const asString = typeof value === 'string' ? value : value.toString()
