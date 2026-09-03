@@ -1,40 +1,14 @@
 import { PrismaClient } from '@prisma/client'
 import { hashPassword } from '../lib/password'
 import { classifyEligibility } from '../lib/domain/eligibility'
+import { COMPANIES, CASH_ACCOUNTS, CHECK_BOOKS } from './reference-data'
 
 const prisma = new PrismaClient()
-
-const COMPANIES = [
-  { code: 'STK', name: 'Starkson Packaging Inc.', legalNames: ['STARKSON PACKAGING INC.', 'STARKSON INDUSTRIES'] },
-  { code: 'A1+', name: 'A1+ Multinational Packaging Inc.', legalNames: ['A1+ MULTINATIONAL PACKAGING INC.'] },
-  { code: 'P&P', name: 'Paper and Plastic', legalNames: [] },
-]
 
 const BANKS = [
   { code: 'BPI', name: 'Bank of the Philippine Islands' },
   { code: 'MBTC', name: 'Metropolitan Bank and Trust Company' },
   { code: 'BDO', name: 'BDO Unibank' },
-]
-
-const CASH_ACCOUNTS = [
-  { code: 'BPI STK', bank: 'BPI', company: 'STK' },
-  { code: 'BPI P&P', bank: 'BPI', company: 'P&P' },
-  { code: 'BPI A1', bank: 'BPI', company: 'A1+' },
-  { code: 'MBTC A1+', bank: 'MBTC', company: 'A1+' },
-  { code: 'MBTC P&P', bank: 'MBTC', company: 'P&P' },
-  { code: 'BDO A1', bank: 'BDO', company: 'A1+' },
-]
-
-const CHECK_BOOKS = [
-  { code: 'BPI-S-4636', bank: 'BPI', company: 'STK' },
-  { code: 'BPI-A-5713', bank: 'BPI', company: 'A1+' },
-  { code: 'BPI-S-8879', bank: 'BPI', company: 'P&P' },
-  { code: 'BPI-A-8879', bank: 'BPI', company: 'P&P' },
-  { code: 'MBT-A-4155', bank: 'MBTC', company: 'A1+' },
-  { code: 'MBT-A-9048', bank: 'MBTC', company: 'P&P' },
-  { code: 'MBT-S-9048', bank: 'MBTC', company: 'P&P' },
-  { code: 'MBT-S-1121', bank: 'MBTC', company: 'STK' },
-  { code: 'BDO-A-3838', bank: 'BDO', company: 'A1+' },
 ]
 
 // Twelve fixture checks covering every status so the dashboard has something
