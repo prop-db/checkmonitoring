@@ -1077,37 +1077,32 @@ describe('parseRows', () => {
     expect(r.payee).toBe('STARKSON PACKAGING INC.')
   })
 
-  it('falls back to the heuristic when column E is empty', () => {
+  it('leaves the payee null when column E is empty, rather than guessing', () => {
+    // No fallback by design. Guessing from the rest of the row produced four
+    // classes of wrong payee across ~10,000 rows of the real register. A blank
+    // payee also fails safe: classifyEligibility treats it as INTERNAL, so an
+    // unknown payee is never pushed to the supplier portal.
     const [r] = parseRows([row('BPI RELEASED', 3, [
-      'PAID', 'W-RDHOT', '6000308584', 'CV-ST011550', null, 'HENKEL PHILIPPINES INC.',
+      'PAID', 'W-RDHOT', '6000308584', 'CV-ST011550', null, 'SOME LONG DESCRIPTION OF THE PURCHASE',
     ])]).parsed
-    expect(r.payee).toBe('HENKEL PHILIPPINES INC.')
-  })
-
-  it('never takes a number as the payee when a name is present', () => {
-    // The real register gave 8,254 rows a numeric payee before this rule; in
-    // 8,253 of them the correct payee was in the same row, beaten on length.
-    const [r] = parseRows([row('BPI RELEASED', 8, [
-      '6000308584', 7950, 'HENKEL PHILIPPINES INC.',
-      'PO-ST-027363 SOME LONGER DESCRIPTION OF THE PURCHASE',
-    ])]).parsed
-    expect(r.payee).toBe('HENKEL PHILIPPINES INC.')
-  })
-
-  it('leaves the payee null rather than using a number when no name is present', () => {
-    const [r] = parseRows([row('BPI RELEASED', 9, ['6000308584', 7950, 299.81])]).parsed
+    expect(r.checkNumber).toBe('6000308584')
     expect(r.payee).toBeNull()
   })
 
-  it('takes the longest unclassified string as the payee', () => {
-    // Payee and description are both free text; the description is longer.
-    const [r] = parseRows([row('BPI RELEASED', 6, [
-      '6000308622', 'Starkson Packaging Inc.',
-      'PO-ST-027402 THRU PCF DISNEY - LABOR FEE FOR EXTENDED HOURS - DISNEY 7 R&D FTP DEC. 07, 2025 (1 PAX)',
+  it('does not take a number from column E as the payee', () => {
+    const [r] = parseRows([row('BPI RELEASED', 4, [
+      'PAID', 'W-RDHOT', '6000308584', 'CV-ST011550', 7950,
     ])]).parsed
-    expect(r.payee).toBe('Starkson Packaging Inc.')
+    expect(r.payee).toBeNull()
   })
 
+  it('does not take a cash-account label from column E as the payee', () => {
+    const [r] = parseRows([row('BPI RELEASED', 5, [
+      'PAID', 'W-RDHOT', '6000308584', 'CV-ST011550', 'BPI STK',
+    ])]).parsed
+    expect(r.payee).toBeNull()
+    expect(r.cashAccountLabel).toBe('BPI STK')
+  })
   it('reports a row with no check number for review rather than dropping it', () => {
     const { parsed, review } = parseRows([row('BPI RELEASED', 9, ['PAID', 'DEPOSITED'])])
     expect(parsed).toHaveLength(0)
@@ -1282,16 +1277,22 @@ export function parseRows(rows: RawRow[]): { parsed: ParsedRow[]; review: Review
     // labels (1,264), and point-person names (~400). Reading the column is both
     // simpler and correct.
     //
-    // The heuristic survives only as a fallback for a row whose column E is
-    // empty or holds something recognisable as another field.
+    // When column E is empty the payee is null. There is deliberately **no
+    // fallback**: guessing from the rest of the row is exactly what produced
+    // those four classes of wrong payee, and a missing payee is better than an
+    // invented one.
+    //
+    // It is also the safe direction. `classifyEligibility` treats a blank payee
+    // as INTERNAL, so a cheque whose payee we do not know is never pushed to the
+    // supplier portal — whereas a guessed payee could be classified SUPPLIER and
+    // published. Rows without a payee still import; they simply have none, and
+    // the reconciliation report surfaces them.
     const PAYEE_COLUMN = 4
     const atColumn = raw.cells[PAYEE_COLUMN]
     const fromColumn =
       atColumn instanceof Date || sniff(atColumn) !== 'UNKNOWN' ? null : cleanCell(atColumn)
 
-    r.payee = fromColumn && /[A-Za-z]/.test(fromColumn)
-      ? fromColumn
-      : (r.unclassified.filter((u) => /[A-Za-z]/.test(u)).sort((a, b) => a.length - b.length)[0] ?? null)
+    r.payee = fromColumn && /[A-Za-z]/.test(fromColumn) ? fromColumn : null
 
     // The one narrowing point: past the guard above, the cheque number is known
     // to exist, so the row satisfies ParsedRow rather than Draft.
