@@ -948,7 +948,10 @@ describe('parseRows', () => {
     expect(r.cvNumber).toBe('CV-ST011550')
     expect(r.apvNumbers).toEqual(['AP-ST036198'])
     expect(r.checkBook).toBe('BPI-S-4636')
-    expect(r.checkDate?.toISOString().slice(0, 10)).toBe('2026-01-01')
+    // Serial 46014. Computed, not eyeballed — an earlier version of this file
+    // asserted 2026-01-01 here, which is serial 46023 and appears nowhere in
+    // the fixture. The parser takes the first date serial in the row.
+    expect(r.checkDate?.toISOString().slice(0, 10)).toBe('2025-12-23')
   })
 
   it('finds the same fields when the columns are in a different order', () => {
