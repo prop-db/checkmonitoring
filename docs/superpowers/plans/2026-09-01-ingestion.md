@@ -556,7 +556,7 @@ The seeded data is all PHP, so add a temporary CNY check to the **test** databas
 **Interfaces:**
 - Consumes: nothing (pure)
 - Produces:
-  - `type FieldKind = 'APV' | 'CV' | 'PO' | 'CHECKBOOK' | 'CHECK_NUMBER' | 'DATE_SERIAL' | 'CATEGORY' | 'CLEARING_REF' | 'AMOUNT' | 'STATUS_WORD' | 'UNKNOWN'`
+  - `type FieldKind = 'APV' | 'CV' | 'PO' | 'CHECKBOOK' | 'CHECK_NUMBER' | 'DATE_SERIAL' | 'CATEGORY' | 'CLEARING_REF' | 'AMOUNT' | 'STATUS_WORD' | 'CASH_ACCOUNT' | 'UNKNOWN'`
   - `sniff(value: unknown): FieldKind`
 
 The client's monitoring workbook has fifteen sheets whose columns do not line up. The APV sits in column H on one sheet, F on another, and both B and D on a third. Column E holds a payee on one sheet and a description on the next. Positional parsing is therefore impossible; every cell must be identified by what it contains.
@@ -657,6 +657,19 @@ describe('sniff', () => {
     expect(sniff('174602')).toBe('CHECK_NUMBER')
   })
 
+  it('identifies the cash-account labels the register uses', () => {
+    for (const v of ['BPI STK', 'BPI P&P', 'MBTC A1+', 'MBTC P&P']) {
+      expect(sniff(v), v).toBe('CASH_ACCOUNT')
+    }
+  })
+
+  it('does not mistake a bank that is a genuine payee for an account label', () => {
+    // The group pays BDO Unibank as a vendor; eight cheques in the register go
+    // to it. Matching on a bank-name prefix would have swallowed them.
+    expect(sniff('BDO Unibank, Inc')).toBe('UNKNOWN')
+    expect(sniff('BDO Unibank, Inc Credit Card')).toBe('UNKNOWN')
+  })
+
   it('identifies status words the register scatters across columns', () => {
     // "CANCELLED" became a vendor name before this rule existed.
     for (const v of ['PAID', 'YES', 'CANCELLED', 'DEPOSITED', 'CLEARED', 'RELEASED']) {
@@ -687,7 +700,8 @@ Expected: FAIL, module not found.
 ```ts
 export type FieldKind =
   | 'APV' | 'CV' | 'PO' | 'CHECKBOOK' | 'CHECK_NUMBER'
-  | 'DATE_SERIAL' | 'CATEGORY' | 'CLEARING_REF' | 'AMOUNT' | 'STATUS_WORD' | 'UNKNOWN'
+  | 'DATE_SERIAL' | 'CATEGORY' | 'CLEARING_REF' | 'AMOUNT' | 'STATUS_WORD'
+  | 'CASH_ACCOUNT' | 'UNKNOWN'
 
 // The client's monitoring workbook has fifteen sheets whose columns do not line
 // up: the APV is column H on one sheet, F on another, B and D on a third, and
@@ -728,6 +742,15 @@ const CATEGORIES = new Set([
 
 // Excel serials: 44000 is 2020-06, 48000 is 2031-05. A bare number outside that
 // band is a cheque number or an amount, never a date in this data.
+// The register's 'bank' column holds these account labels. They contain
+// letters and are short, so without this rule they beat real company names to
+// the payee slot - 1,264 rows in the real register. Matched as an exact set
+// rather than a bank-name prefix, because 'BDO Unibank, Inc' is a genuine payee
+// the group pays as a vendor.
+const CASH_ACCOUNT_LABELS = new Set([
+  'BPI STK', 'BPI P&P', 'BPI A1', 'MBTC A1+', 'MBTC P&P', 'BDO A1',
+])
+
 const STATUS_WORDS = new Set([
   'PAID', 'YES', 'CANCELLED', 'DEPOSITED', 'ENCASHMENT', 'CLEARED', 'RELEASED', 'AVAILABLE',
 ])
@@ -764,6 +787,7 @@ export function sniff(value: unknown): FieldKind {
   // Status words the register puts in various columns. They are not payees, and
   // without this "CANCELLED" became a vendor name.
   if (STATUS_WORDS.has(s)) return 'STATUS_WORD'
+  if (CASH_ACCOUNT_LABELS.has(s)) return 'CASH_ACCOUNT'
 
   return 'UNKNOWN'
 }
@@ -1148,6 +1172,7 @@ export type ParsedRow = {
   apvNumbers: string[]
   poNumbers: string[]
   checkBook: string | null
+  cashAccountLabel: string | null
   category: string | null
   clearingRef: string | null
   checkDate: Date | null
@@ -1174,7 +1199,7 @@ export function parseRows(rows: RawRow[]): { parsed: ParsedRow[]; review: Review
     const r: Draft = {
       sheet: raw.sheet, row: raw.row,
       checkNumber: null, cvNumber: null, apvNumbers: [], poNumbers: [],
-      checkBook: null, category: null, clearingRef: null,
+      checkBook: null, cashAccountLabel: null, category: null, clearingRef: null,
       checkDate: null, amount: null, payee: null, unclassified: [],
     }
 
@@ -1202,6 +1227,7 @@ export function parseRows(rows: RawRow[]): { parsed: ParsedRow[]; review: Review
         case 'AMOUNT': r.amount ??= text?.replace(/,/g, '') ?? null; break
         // A status word is neither a field nor free text; dropping it keeps it
         // out of the payee candidates.
+        case 'CASH_ACCOUNT': r.cashAccountLabel ??= text?.toUpperCase() ?? null; break
         case 'STATUS_WORD': break
         default: if (text) r.unclassified.push(text)
       }
@@ -1291,7 +1317,7 @@ const TODAY = new Date('2026-09-03T00:00:00Z')
 
 const mk = (over: Partial<ParsedRow>): ParsedRow => ({
   sheet: 'S', row: 1, checkNumber: '6000000001', cvNumber: null, apvNumbers: [], poNumbers: [],
-  checkBook: null, category: null, clearingRef: null, checkDate: null, amount: null,
+  checkBook: null, cashAccountLabel: null, category: null, clearingRef: null, checkDate: null, amount: null,
   payee: null, unclassified: [], ...over,
 })
 
