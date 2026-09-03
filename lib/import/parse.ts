@@ -95,17 +95,34 @@ export function parseRows(rows: RawRow[]): { parsed: ParsedRow[]; review: Review
       r.unclassified[i] = m[2].trim()   // the description survives as free text
     }
 
-    // A payee is a name, so it must contain a letter. Without this rule the
-    // shortest-string heuristic picked amounts: numeric cells sniff as UNKNOWN
-    // and land in `unclassified` as text, where "7950" beats a company name on
-    // length. Against the real register that gave 8,254 rows a number as their
-    // payee, and in 8,253 of them the correct payee was sitting in the same row.
-    // Among the remaining candidates the description is reliably the longer, so
-    // the shorter one is the payee.
-    const candidates = r.unclassified
-      .filter((u) => /[A-Za-z]/.test(u))
-      .sort((a, b) => a.length - b.length)
-    r.payee = candidates[0] ?? null
+    // The payee is column E on every sheet. Measured across all fifteen: 88-100%
+    // of rows carry a company name there, and the samples are unambiguous
+    // (STARKSON PACKAGING INC., Easytrip Services Corporation, RACNET
+    // INFORMATION TECHNOLOGY). The columns that drift between sheets are the
+    // APV, CV and PO — not this one.
+    //
+    // The earlier heuristic — shortest lettered unclassified string — was
+    // guessing at something knowable, and produced four separate classes of
+    // wrong payee against the real register: amounts (8,254 rows), cash-account
+    // labels (1,264), and point-person names (~400). Reading the column is both
+    // simpler and correct.
+    //
+    // When column E is empty the payee is null. There is deliberately **no
+    // fallback**: guessing from the rest of the row is exactly what produced
+    // those four classes of wrong payee, and a missing payee is better than an
+    // invented one.
+    //
+    // It is also the safe direction. `classifyEligibility` treats a blank payee
+    // as INTERNAL, so a cheque whose payee we do not know is never pushed to the
+    // supplier portal — whereas a guessed payee could be classified SUPPLIER and
+    // published. Rows without a payee still import; they simply have none, and
+    // the reconciliation report surfaces them.
+    const PAYEE_COLUMN = 4
+    const atColumn = raw.cells[PAYEE_COLUMN]
+    const fromColumn =
+      atColumn instanceof Date || sniff(atColumn) !== 'UNKNOWN' ? null : cleanCell(atColumn)
+
+    r.payee = fromColumn && /[A-Za-z]/.test(fromColumn) ? fromColumn : null
 
     // The one narrowing point: past the guard above, the cheque number is known
     // to exist, so the row satisfies ParsedRow rather than Draft.

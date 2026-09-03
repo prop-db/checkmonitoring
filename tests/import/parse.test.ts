@@ -41,11 +41,17 @@ describe('parseRows', () => {
 
   it('recovers a PO number embedded ahead of its description', () => {
     // 1,508 cells in the register have this shape. Without this the PO is lost
-    // and the whole string competes to be the payee.
+    // and the whole string competes to be free text.
+    //
+    // NOTE: the payee is placed in column E (index 4) here, not left where an
+    // earlier version of this fixture put it (index 2). That earlier layout
+    // only passed because the now-removed shortest-lettered-string heuristic
+    // happened to guess correctly; it encoded the old guessing behaviour
+    // rather than the column-E read this task introduces. See
+    // p2-task-6-report.md for the RED this produced.
     const [r] = parseRows([row('BPI RELEASED', 7, [
-      '6000308584',
+      '6000308584', null, null, null, 'STARKSON PACKAGING INC.',
       'PO-ST-027363 WEEKLY DIRECT (DISNEY) D2, D5, D7, D6 RESTDAY HOLIDAY FTP NOV. 30, 2025 (11 PAX)',
-      'STARKSON PACKAGING INC.',
     ])]).parsed
     expect(r.poNumbers).toContain('PO-ST-027363')
     expect(r.unclassified.some((u) => u.startsWith('WEEKLY DIRECT'))).toBe(true)
@@ -53,30 +59,42 @@ describe('parseRows', () => {
     expect(r.payee).toBe('STARKSON PACKAGING INC.')
   })
 
-  it('never takes a number as the payee when a name is present', () => {
-    // The real register gave 8,254 rows a numeric payee before this rule; in
-    // 8,253 of them the correct payee was in the same row, beaten on length.
-    const [r] = parseRows([row('BPI RELEASED', 8, [
-      '6000308584', 7950, 'HENKEL PHILIPPINES INC.',
-      'PO-ST-027363 SOME LONGER DESCRIPTION OF THE PURCHASE',
+  it('reads the payee from column E', () => {
+    // Column index 4. Measured across all fifteen sheets of the real register:
+    // 88-100% of rows carry the company name there.
+    const [r] = parseRows([row('BPI RELEASED', 2, [
+      'PAID', 'W-RDHOT', '6000308584', 'CV-ST011550', 'STARKSON PACKAGING INC.',
+      'PO-ST-027363 A MUCH LONGER DESCRIPTION OF THE PURCHASE', 'BPI-S-4636',
     ])]).parsed
-    expect(r.payee).toBe('HENKEL PHILIPPINES INC.')
+    expect(r.payee).toBe('STARKSON PACKAGING INC.')
   })
 
-  it('leaves the payee null rather than using a number when no name is present', () => {
-    const [r] = parseRows([row('BPI RELEASED', 9, ['6000308584', 7950, 299.81])]).parsed
+  it('leaves the payee null when column E is empty, rather than guessing', () => {
+    // No fallback by design. Guessing from the rest of the row produced four
+    // classes of wrong payee across ~10,000 rows of the real register. A blank
+    // payee also fails safe: classifyEligibility treats it as INTERNAL, so an
+    // unknown payee is never pushed to the supplier portal.
+    const [r] = parseRows([row('BPI RELEASED', 3, [
+      'PAID', 'W-RDHOT', '6000308584', 'CV-ST011550', null, 'SOME LONG DESCRIPTION OF THE PURCHASE',
+    ])]).parsed
+    expect(r.checkNumber).toBe('6000308584')
     expect(r.payee).toBeNull()
   })
 
-  it('takes the longest unclassified string as the payee', () => {
-    // Payee and description are both free text; the description is longer.
-    const [r] = parseRows([row('BPI RELEASED', 6, [
-      '6000308622', 'Starkson Packaging Inc.',
-      'PO-ST-027402 THRU PCF DISNEY - LABOR FEE FOR EXTENDED HOURS - DISNEY 7 R&D FTP DEC. 07, 2025 (1 PAX)',
+  it('does not take a number from column E as the payee', () => {
+    const [r] = parseRows([row('BPI RELEASED', 4, [
+      'PAID', 'W-RDHOT', '6000308584', 'CV-ST011550', 7950,
     ])]).parsed
-    expect(r.payee).toBe('Starkson Packaging Inc.')
+    expect(r.payee).toBeNull()
   })
 
+  it('does not take a cash-account label from column E as the payee', () => {
+    const [r] = parseRows([row('BPI RELEASED', 5, [
+      'PAID', 'W-RDHOT', '6000308584', 'CV-ST011550', 'BPI STK',
+    ])]).parsed
+    expect(r.payee).toBeNull()
+    expect(r.cashAccountLabel).toBe('BPI STK')
+  })
   it('reports a row with no check number for review rather than dropping it', () => {
     const { parsed, review } = parseRows([row('BPI RELEASED', 9, ['PAID', 'DEPOSITED'])])
     expect(parsed).toHaveLength(0)
