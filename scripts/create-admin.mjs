@@ -12,6 +12,14 @@
 // hash. Nobody — including whoever runs this — can read it back afterwards.
 //
 // Usage:  node scripts/create-admin.mjs
+//         node scripts/create-admin.mjs --reset you@example.com
+//
+// --reset sets a new password on an existing account. It exists because the
+// bootstrap admin can lock themselves out and there is no way back in through
+// /admin/users, which is admin-gated, and no password-reset email (this system
+// has no mail path). It is not a backdoor: it needs the database credentials,
+// and anyone holding those already has complete control. It clears that
+// account's failed-login record too, so a lockout does not outlive the reset.
 
 import { createInterface } from 'node:readline'
 import { stdin, stdout } from 'node:process'
@@ -51,7 +59,34 @@ rl.output.write = function (chunk, ...rest) {
 
 const db = new PrismaClient()
 
+const resetIdx = process.argv.indexOf('--reset')
+const resetEmail = resetIdx !== -1 ? (process.argv[resetIdx + 1] ?? '').trim().toLowerCase() : null
+
 try {
+  if (resetEmail) {
+    const user = await db.user.findUnique({ where: { email: resetEmail } })
+    if (!user) throw new Error(`No account with the address ${resetEmail}.`)
+
+    console.log(`\nResetting the password for ${user.email} (${user.role}).\n`)
+    const pw = await askHidden('New password     : ')
+    const again2 = await askHidden('Confirm password : ')
+    if (pw !== again2) throw new Error('The two passwords do not match.')
+    const s = validatePasswordStrength(pw)
+    if (!s.ok) throw new Error(s.message)
+
+    await db.user.update({ where: { id: user.id }, data: { passwordHash: await hashPassword(pw) } })
+
+    // Clear the throttle for this address. A reset that left the account locked
+    // would send someone straight back to a generic "invalid credentials"
+    // message with a password they had just set, which is indistinguishable
+    // from getting it wrong again.
+    const cleared = await db.loginAttempt.deleteMany({ where: { email: resetEmail } })
+
+    console.log(`\nPassword updated. Cleared ${cleared.count} recorded login attempt(s).`)
+    console.log('The password is not recoverable — nobody, including this script, can read it back.\n')
+    process.exit(0)
+  }
+
   const existingAdmins = await db.user.count({ where: { role: 'FINANCE_ADMIN', active: true } })
   if (existingAdmins > 0) {
     // Refusing here is the point. Once an admin exists, accounts belong on
