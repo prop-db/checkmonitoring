@@ -1,3 +1,4 @@
+import { canonicalCheckNumber, isBareCheckNumber } from '@/lib/import/normalise'
 import type { NormalisedRow } from '@/lib/normalised-row'
 import { companyForBranch, type AcumaticaTenant } from './companies'
 
@@ -48,6 +49,29 @@ const VOIDED_STATUS = 'Voided'
 // stays numeric. A wrong answer here either blocks a real cheque from release
 // or offers a release button for money that has already moved by wire.
 const NON_CHEQUE_BRANCHES: ReadonlySet<string> = new Set(['DG', 'SH'])
+
+/**
+ * The feed's own word for a payment made by cheque, and the second half of the
+ * `isCheque` rule (Finance ruling of 2026-09-04). Measured over the live feed:
+ *
+ *     1785  CHK        bank-prefixed cheque no.
+ *       82  CHK        bare cheque no.
+ *       80  CHK        free text
+ *       35  DEBIT ADV  free text
+ *        5  CASH
+ *
+ * The 40 non-`CHK` payments still import and stay visible — they are real money
+ * that moved — but they never had a physical document, so the `NOT_A_CHEQUE`
+ * guard must block signing and releasing them. Offering Finance a SIGN button
+ * for a debit advice is the failure this rule exists to prevent.
+ *
+ * This is IN ADDITION TO the branch rule above, never instead of it: the two
+ * answer different questions, and a DG payment stays a non-cheque whatever its
+ * PaymentMethod one day says. A method the feed does not state is treated as
+ * not a cheque, which is the only safe direction — it withholds a button rather
+ * than offering one over money with no document behind it.
+ */
+const CHEQUE_PAYMENT_METHOD = 'CHK'
 
 /**
  * A decimal string, or null. Never a JS number and never a round trip through
@@ -111,11 +135,37 @@ export function mapPayment(row: unknown, tenant: AcumaticaTenant): NormalisedRow
   const status = str(r.Status)
   const branch = orNull(r.Branch)
 
+  const isCheque =
+    orNull(r.PaymentMethod)?.toUpperCase() === CHEQUE_PAYMENT_METHOD &&
+    !(branch !== null && NON_CHEQUE_BRANCHES.has(branch.toUpperCase()))
+
+  // What the feed printed, and what it means as a key. They differ on 90.8% of
+  // rows, where Acumatica writes `BPI 6000240287` for the cheque the register
+  // writes `6000240287`; canonicalising is what stops one physical cheque being
+  // stored twice, once per source. See `canonicalCheckNumber`.
+  const statedCheckRef = orNull(r[CHECK_NUMBER_FIELD])
+  const canonical = canonicalCheckNumber(statedCheckRef)
+
+  // 80 live rows are CHK — genuinely cheques — but carry a memo here ("Oct
+  // interest", "pay 12 25 2nd"). Nothing in them can key (company,
+  // checkNumber), so the row is left unkeyable on purpose: `upsertCheck` stages
+  // it as NO_CHECK_NUMBER, exactly as it already stages the register's 66
+  // numberless rows, and a human supplies the real number from `statedCheckRef`
+  // (Finance ruling of 2026-09-04). Inventing a number from the digits in a
+  // memo would be inventing a fact about money.
+  //
+  // Applied only to CHEQUES. A non-cheque payment's reference is not a cheque
+  // number and never was — the China rows' `AP-DG001931` is the only identifier
+  // those payments have, and discarding it would make them unkeyable and lose
+  // a payment that really happened. Do not "tidy" this into one rule for both.
+  const checkNumber = isCheque && !isBareCheckNumber(canonical) ? null : canonical
+
   return {
     source: 'ACUMATICA',
     acumaticaPaymentId: orNull(r[CV_NUMBER_FIELD]),
 
-    checkNumber: orNull(r[CHECK_NUMBER_FIELD]),
+    checkNumber,
+    statedCheckRef,
     cvNumber: orNull(r[CV_NUMBER_FIELD]),
 
     checkDate: naiveDate(r.PaymentDate, { dayOnly: true }),
@@ -144,7 +194,7 @@ export function mapPayment(row: unknown, tenant: AcumaticaTenant): NormalisedRow
     poNumbers: [],
     clearingRef: null,
 
-    isCheque: !(branch && NON_CHEQUE_BRANCHES.has(branch.toUpperCase())),
+    isCheque,
 
     // A voided cheque is TWO rows under one reference: the original (Type
     // "Payment", positive, Status "Voided") and its reversal (Type "Voided
@@ -164,4 +214,75 @@ export function mapPayment(row: unknown, tenant: AcumaticaTenant): NormalisedRow
     sourceSheet: null,
     sourceRow: null,
   }
+}
+
+/**
+ * Collapses each voided cheque's two feed rows into the one row that describes
+ * what happened.
+ *
+ * A void is TWO rows under one `PaymentRef`: the original (`Type: Payment`,
+ * positive, `Status: Voided`) and its reversal (`Type: Voided Payment`,
+ * negative). Both map to the same `(company, checkNumber)`. Measured read-only
+ * over 2,000 live rows on 2026-09-04: **67 such pairs among 1,836 keyable
+ * cheques (3.6%), and 62 of the 67 carry an IDENTICAL `LastModifiedOn` on both
+ * halves**. For those 62 there is nothing to order the two rows by at all —
+ * whichever reached `upsertCheck` last won, arbitrarily — and for the other 5
+ * the reversal is simply the later row. Either way a cheque could end up
+ * storing its own negative reversal as its amount.
+ *
+ * The ORIGINAL survives, flagged voided. It is the row a human reads off a
+ * cheque register, and it is the row the Supplier Portal's own `dedupePayments`
+ * deliberately keeps against this same instance.
+ *
+ * **This is a PAIRING decision, not a sign flip.** Nothing here negates a value
+ * or takes a magnitude, and `mapPayment` above still does no sign manipulation
+ * of any kind. A reversal that arrives with no original in the batch is passed
+ * through exactly as the feed sent it — inventing the cheque's amount from the
+ * negation of its reversal would be inventing a fact about money. In practice
+ * that cannot happen within a run, because the two rows share a timestamp and
+ * so always fall in the same incremental window.
+ *
+ * Called BEFORE `upsertCheck`, the way `groupByCheckNumber` already collapses
+ * the register's ambiguity groups before any row of one is written. Duplicate
+ * PREVENTION stays solely the unique key inside `upsertCheck`; this is not a
+ * second one, and must not grow into one.
+ *
+ * Pure, and stable: rows come back in the order the feed gave them.
+ */
+export function collapseVoidPairs(rows: readonly NormalisedRow[]): NormalisedRow[] {
+  // The key `upsertCheck` actually writes on. Pairing on the cheque number
+  // alone would collapse two companies' same-numbered cheques into one — a
+  // cheque number is unique only per company. A row with no cheque number is in
+  // no group at all: it cannot be keyed, so it cannot be paired, and grouping
+  // the unkeyable rows together would silently discard payments.
+  //
+  // Joined on a character no company code or cheque number can contain, so no
+  // pair of values can spell another pair's key. A space would do today —
+  // `A1+`, `HAMFI(HO)`, `STINDUSTRY` — but a company code is reference data
+  // somebody edits, and a key that is only safe by luck is not a key.
+  const key = (row: NormalisedRow): string | null =>
+    row.checkNumber === null ? null : `${row.companyCode ?? ''}\u0000${row.checkNumber}`
+
+  const reversed = new Set<string>()
+  const originals = new Set<string>()
+  for (const row of rows) {
+    const k = key(row)
+    if (k === null) continue
+    if (row.acumaticaDocType === VOIDED_PAYMENT) reversed.add(k)
+    else originals.add(k)
+  }
+
+  const out: NormalisedRow[] = []
+  for (const row of rows) {
+    const k = key(row)
+    if (k === null || !reversed.has(k) || !originals.has(k)) {
+      out.push(row)
+      continue
+    }
+    // A complete pair. Drop the reversal; keep the original, stating the void
+    // rather than relying on `Status` alone having been set on it.
+    if (row.acumaticaDocType === VOIDED_PAYMENT) continue
+    out.push(row.voided ? row : { ...row, voided: true })
+  }
+  return out
 }

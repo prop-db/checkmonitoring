@@ -86,7 +86,11 @@ function feedRow(overrides: Partial<Record<PaymentField, unknown>> = {}): Acumat
     Balance: '0.00',
     Currency: 'PHP',
     CashAccount: 'BPI STK',
-    PaymentMethod: 'CHECK',
+    // CHK, not CHECK. Measured 2026-09-04 over 1,987 live rows: CHK 1947,
+    // DEBIT ADV 35, CASH 5. The fixture said CHECK for as long as `isCheque`
+    // ignored the field; now that PaymentMethod decides whether Finance is
+    // offered a SIGN button, the literal is load-bearing.
+    PaymentMethod: 'CHK',
     Branch: 'ST        ',
     LastModifiedOn: '2026-09-04T10:00:00',
     ...overrides,
@@ -187,18 +191,28 @@ describe('runSync — the run record', () => {
       feedRow({ PaymentRef: '6000319080', ReferenceNbr: 'CV-ST-004113' }),
       // Not a cheque document. Skipped, not an error.
       feedRow({ Type: 'Debit Adj.', PaymentRef: '6000319081' }),
-      // No cheque number at all: unwritable and unstageable, because an
-      // Acumatica row carries no sheet or row number to key a staged row on.
-      feedRow({ PaymentRef: '' }),
+      // CHANGED 2026-09-04: a payment with no usable cheque number is now
+      // STAGED, not counted as an error. It used to be unstageable — a feed row
+      // has no sheet or row number, which was the only key `StagedCheck` had —
+      // so 80 real cheques a run at a time were reported as failures and left
+      // nowhere. Finance ruled they are staged like the register's numberless
+      // rows so a human can supply the number.
+      feedRow({ PaymentRef: '', ReferenceNbr: 'CV-ST-004114' }),
     ]).result
 
     expect(result.fetched).toBe(4)
     expect(result.skipped).toBe(1)
     expect(result.imported).toBe(2)
     expect(result.updated).toBe(0)
-    expect(result.errors).toBe(1)
-    // The invariant that makes "nothing is silently dropped" checkable.
-    expect(result.skipped + result.imported + result.updated + result.errors).toBe(result.fetched)
+    expect(result.staged).toBe(1)
+    expect(result.errors).toBe(0)
+    // The invariant that makes "nothing is silently dropped" checkable. It now
+    // includes `collapsed` — the reversal half of a voided pair, which is
+    // deliberately not written — so a row can still never simply vanish.
+    expect(
+      result.skipped + result.collapsed + result.imported +
+      result.updated + result.staged + result.errors,
+    ).toBe(result.fetched)
   })
 })
 
@@ -291,14 +305,20 @@ describe('runSync — one bad row must not cost a 37,000-row sync', () => {
     await seedBothTenantsST()
     const result = await sync([
       feedRow({ PaymentRef: '6000319079' }),
-      // Unstageable: no cheque number, and no sheet or row to stage it under.
-      feedRow({ PaymentRef: '   ' }),
-      // An unrecognised branch resolves no company, and is equally unstageable.
+      // CHANGED 2026-09-04: these two used to be errors because nothing could
+      // key a staged Acumatica row. They are now kept whole and staged — a
+      // memo where the cheque number belongs, and a branch that resolves no
+      // company. A seeding fault is still an error, because a code no Company
+      // row carries is a configuration problem, not a fact about the cheque.
+      feedRow({ PaymentRef: '   ', ReferenceNbr: 'CV-2' }),
       feedRow({ PaymentRef: '6000319081', ReferenceNbr: 'CV-3', Branch: 'NOT-A-BRANCH' }),
+      // HAMFI(HO) resolves to HAMFI, which is deliberately not seeded here.
+      feedRow({ PaymentRef: '6000319083', ReferenceNbr: 'CV-5', Branch: 'HAMFI(HO)' }),
       feedRow({ PaymentRef: '6000319082', ReferenceNbr: 'CV-4' }),
     ]).result
 
-    expect(result.errors).toBe(2)
+    expect(result.errors).toBe(1)
+    expect(result.staged).toBe(2)
     expect(result.imported).toBe(2)
     // The rows AFTER the bad ones are what matters: an abort would lose them.
     expect(await testDb.check.findFirst({ where: { checkNumber: '6000319082' } })).not.toBeNull()
@@ -306,7 +326,8 @@ describe('runSync — one bad row must not cost a 37,000-row sync', () => {
 
   it('records a run with errors as finished, and says what went wrong without naming a payee', async () => {
     await seedBothTenantsST()
-    const result = await sync([feedRow({ PaymentRef: '' })]).result
+    // HAMFI is not seeded: a company code no Company row carries.
+    const result = await sync([feedRow({ Branch: 'HAMFI(HO)' })]).result
 
     const run = await testDb.syncRun.findUniqueOrThrow({ where: { id: result.syncRunId } })
     expect(run.errors).toBe(1)
@@ -391,6 +412,9 @@ describe('runSync — promoting staged rows', () => {
   }) {
     return testDb.stagedCheck.create({
       data: {
+        // Register rows, which is what promotion is for: Acumatica supplying a
+        // company says which company the cheque belongs to.
+        source: 'WORKBOOK',
         sourceSheet: 'BPI RELEASED',
         sourceRow: overrides.sourceRow,
         reason: overrides.reason,
@@ -503,5 +527,200 @@ describe('runSync — promoting staged rows', () => {
     expect(audit.details).toMatchObject({
       stagedCheckId: staged.id, sourceSheet: 'BPI RELEASED', sourceRow: 412, reason: 'NO_COMPANY',
     })
+  })
+})
+
+describe('runSync — a voided cheque must never store its own reversal', () => {
+  // A void is TWO feed rows under one PaymentRef: the original (Type Payment,
+  // positive, Status Voided) and the reversal (Type Voided Payment, negative).
+  // Both map to the same (company, checkNumber), and BOTH carry an identical
+  // LastModifiedOn on 62 of the 67 such pairs among 1,836 keyable live cheques — so
+  // which one survived a last-write-wins upsert was arbitrary. A cheque could
+  // end up holding its own negative reversal as its amount.
+  const VOIDED_AT = '2026-09-04T10:00:00'
+  const originalRow = (o: Record<string, unknown> = {}) => feedRow({
+    Type: 'Payment', Status: 'Voided', PaymentAmount: '88426.95',
+    PaymentRef: '6000319079', ReferenceNbr: 'CV-ORIG', LastModifiedOn: VOIDED_AT, ...o,
+  })
+  const reversalRow = (o: Record<string, unknown> = {}) => feedRow({
+    Type: 'Voided Payment', Status: 'Closed', PaymentAmount: '-88426.95',
+    PaymentRef: '6000319079', ReferenceNbr: 'CV-REV', LastModifiedOn: VOIDED_AT, ...o,
+  })
+
+  it('stores the ORIGINAL positive amount, whichever order the pair arrives in', async () => {
+    for (const rows of [[originalRow(), reversalRow()], [reversalRow(), originalRow()]]) {
+      await resetDb()
+      await seedBothTenantsST()
+      const result = await sync(rows).result
+
+      const check = await testDb.check.findFirstOrThrow()
+      expect(check.amount?.toString()).toBe('88426.95')
+      expect(check.status).toBe('VOIDED')
+      // One physical cheque, one row.
+      expect(await testDb.check.count()).toBe(1)
+      // The reversal is accounted for rather than silently dropped.
+      expect(result.collapsed).toBe(1)
+      expect(result.imported).toBe(1)
+      expect(result.fetched).toBe(2)
+    }
+  })
+
+  it('reads the amount off the original rather than negating the reversal', async () => {
+    await seedBothTenantsST()
+    // Deliberately not each other's negation. Nothing may derive one from the
+    // other; the original states the cheque's amount and is the row kept.
+    await sync([
+      originalRow({ PaymentAmount: '88426.95' }),
+      reversalRow({ PaymentAmount: '-99999.99' }),
+    ]).result
+
+    const check = await testDb.check.findFirstOrThrow()
+    expect(check.amount?.toString()).toBe('88426.95')
+  })
+
+  it('leaves a lone reversal exactly as the feed sent it', async () => {
+    // No pair to collapse, so nothing is inferred. In practice this cannot
+    // happen within a run — both rows carry the same LastModifiedOn and so fall
+    // in the same incremental window — but inventing the cheque's amount from
+    // the negation of its reversal would be inventing a fact about money.
+    await seedBothTenantsST()
+    const result = await sync([reversalRow()]).result
+
+    expect(result.collapsed).toBe(0)
+    expect(result.imported).toBe(1)
+    const check = await testDb.check.findFirstOrThrow()
+    expect(check.amount?.toString()).toBe('-88426.95')
+    expect(check.status).toBe('VOIDED')
+  })
+
+  it('collapses the pair without touching an unrelated cheque of the same number', async () => {
+    await seedBothTenantsST()
+    const result = await sync([
+      originalRow(),
+      reversalRow(),
+      feedRow({ PaymentRef: '6000319080', ReferenceNbr: 'CV-OTHER', PaymentAmount: '5.00' }),
+    ]).result
+
+    expect(result.imported).toBe(2)
+    expect(result.collapsed).toBe(1)
+    const other = await testDb.check.findFirstOrThrow({ where: { checkNumber: '6000319080' } })
+    expect(other.status).not.toBe('VOIDED')
+  })
+
+  it('still advances the watermark past the reversal it did not write', async () => {
+    // The reversal is a row the feed returned. Excluding its timestamp from the
+    // maximum would leave the watermark short and re-read it forever.
+    await seedBothTenantsST()
+    const result = await sync([
+      originalRow({ LastModifiedOn: '2026-09-04T09:00:00' }),
+      reversalRow({ LastModifiedOn: VOIDED_AT }),
+    ]).result
+    expect(result.watermark).toEqual(new Date('2026-09-04T08:00:00Z'))
+  })
+})
+
+describe('runSync — the two sources must key one cheque one way', () => {
+  it('imports a bank-prefixed PaymentRef under the register’s bare cheque number', async () => {
+    // 90.0% of live rows are bank-prefixed. The register writes the same cheque
+    // bare, and the dedup key is (companyId, checkNumber) — so until these
+    // matched, one physical cheque was stored twice, once per source.
+    await seedBothTenantsST()
+    await sync([feedRow({ PaymentRef: 'BPI 6000319079' })]).result
+
+    const check = await testDb.check.findFirstOrThrow()
+    expect(check.checkNumber).toBe('6000319079')
+  })
+
+  it('does not create a second cheque for the prefixed and bare forms', async () => {
+    await seedBothTenantsST()
+    await sync([feedRow({ PaymentRef: '6000319079' })]).result
+    const second = await sync([feedRow({ PaymentRef: 'BPI 6000319079' })]).result
+
+    expect(second.imported).toBe(0)
+    expect(second.updated).toBe(1)
+    expect(await testDb.check.count()).toBe(1)
+  })
+
+  it('promotes a staged register row whose bare number the feed writes prefixed', async () => {
+    // The consequence that made this critical: a staged row could NEVER be
+    // promoted, because the number the sync resolved a company for never
+    // matched the number the register had staged.
+    await seedBothTenantsST()
+    const staged = await testDb.stagedCheck.create({
+      data: {
+        source: 'WORKBOOK', sourceSheet: 'BPI RELEASED', sourceRow: 412,
+        reason: 'NO_COMPANY', checkNumber: '6000319079', conflictingCompanies: [],
+        impliedStatus: 'RELEASED',
+      },
+    })
+
+    const result = await sync([feedRow({ PaymentRef: 'MBTC 6000319079' })]).result
+    expect(result.promoted).toBe(1)
+    expect((await testDb.stagedCheck.findUniqueOrThrow({ where: { id: staged.id } })).promotedCheckId)
+      .not.toBeNull()
+  })
+})
+
+describe('runSync — a cheque whose reference is a memo', () => {
+  const memoRow = (o: Record<string, unknown> = {}) => feedRow({
+    PaymentMethod: 'CHK', PaymentRef: 'Oct interest', ReferenceNbr: 'CV-MEMO', ...o,
+  })
+
+  it('stages it whole instead of failing the row', async () => {
+    await seedBothTenantsST()
+    const result = await sync([memoRow()]).result
+
+    expect(result.staged).toBe(1)
+    expect(result.errors).toBe(0)
+    expect(await testDb.check.count()).toBe(0)
+
+    const staged = await testDb.stagedCheck.findFirstOrThrow()
+    expect(staged.reason).toBe('NO_CHECK_NUMBER')
+    expect(staged.source).toBe('ACUMATICA')
+    expect(staged.acumaticaRef).toBe('CV-MEMO')
+    expect(staged.acumaticaTenant).toBe('GOLIVE')
+    expect(staged.statedCheckRef).toBe('Oct interest')
+    expect(staged.checkNumber).toBeNull()
+    expect(staged.payeeName).toBe('HENKEL PHILIPPINES INC.')
+    expect(staged.amount?.toString()).toBe('197715.42')
+  })
+
+  it('re-running the sync updates the staged row rather than duplicating it', async () => {
+    await seedBothTenantsST()
+    await sync([memoRow()]).result
+    await sync([memoRow({ PaymentAmount: '200000.00' })]).result
+
+    expect(await testDb.stagedCheck.count()).toBe(1)
+    expect((await testDb.stagedCheck.findFirstOrThrow()).amount?.toString()).toBe('200000')
+  })
+
+  it('records the staged count on the run, so nobody has to notice it is missing', async () => {
+    await seedBothTenantsST()
+    const result = await sync([memoRow()]).result
+    const run = await testDb.syncRun.findUniqueOrThrow({ where: { id: result.syncRunId } })
+    expect(run.staged).toBe(1)
+    expect(run.errors).toBe(0)
+  })
+
+  it('imports a non-cheque payment normally, memo reference and all', async () => {
+    // The 40 DEBIT ADV and CASH payments are not held to a cheque number's
+    // shape: their reference is the only identifier they have. They import and
+    // stay visible, and `isCheque` false is what blocks the release ladder.
+    await seedBothTenantsST()
+    const result = await sync([
+      feedRow({ PaymentMethod: 'DEBIT ADV', PaymentRef: 'Oct interest', ReferenceNbr: 'CV-DA' }),
+    ]).result
+
+    expect(result.imported).toBe(1)
+    expect(result.staged).toBe(0)
+    const check = await testDb.check.findFirstOrThrow()
+    expect(check.isCheque).toBe(false)
+    expect(check.checkNumber).toBe('Oct interest')
+  })
+
+  it('marks an ordinary CHK payment as a cheque', async () => {
+    await seedBothTenantsST()
+    await sync([feedRow()]).result
+    expect((await testDb.check.findFirstOrThrow()).isCheque).toBe(true)
   })
 })

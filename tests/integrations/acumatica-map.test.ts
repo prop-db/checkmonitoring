@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { mapPayment } from '@/lib/integrations/acumatica/map'
+import { mapPayment, collapseVoidPairs } from '@/lib/integrations/acumatica/map'
+import { mapParsedRow } from '@/lib/import/map-row'
+import type { ParsedRow } from '@/lib/import/parse'
+import type { CompanyReferenceData } from '@/lib/import/company'
+import type { NormalisedRow } from '@/lib/normalised-row'
 
 // The exact field names the `AP-Checks and Payments` generic inquiry exposes.
 // Taken from the Supplier Portal's working reader, not guessed.
@@ -16,7 +20,12 @@ const paymentRow = {
   Balance: 0,
   Currency: 'PHP',
   CashAccount: 'BPI STK',
-  PaymentMethod: 'CHECK',
+  // The live instance says CHK, not CHECK. Measured 2026-09-04 over 1,987 rows:
+  // CHK 1947, DEBIT ADV 35, CASH 5 — nothing anywhere spells it CHECK. The
+  // fixture said CHECK while `isCheque` ignored the field entirely, so nothing
+  // caught it; now that the method decides whether a SIGN button is offered,
+  // the wrong literal here would make every fixture row a non-cheque.
+  PaymentMethod: 'CHK',
   Branch: 'ST',
   LastModifiedOn: '2025-12-24T09:15:00',
 }
@@ -236,5 +245,235 @@ describe('mapPayment: the rest of the shared row contract', () => {
     expect(r.vendorCode).toBeNull()
     expect(r.cashAccountCode).toBeNull()
     expect(r.checkNumber).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Defect 1: the two sources wrote the same physical cheque under two keys.
+// ---------------------------------------------------------------------------
+
+// The tiny injected table the workbook mapper's own tests use.
+const REF: CompanyReferenceData = {
+  cashAccounts: [{ code: 'BPI STK', company: 'STK' }],
+  checkBooks: [{ code: 'BPI-S-4636', company: 'STK' }],
+}
+
+function registerRow(overrides: Partial<ParsedRow> = {}): ParsedRow {
+  return {
+    sheet: 'BPI RELEASED',
+    row: 412,
+    checkNumber: '6000240287',
+    cvNumber: 'CV-ST011550',
+    apvNumbers: [],
+    poNumbers: [],
+    checkBook: 'BPI-S-4636',
+    cashAccountLabel: null,
+    category: null,
+    clearingRef: null,
+    checkDate: new Date('2025-12-23T00:00:00Z'),
+    amount: '7950.00',
+    currency: null,
+    payee: 'HENKEL PHILIPPINES INC.',
+    unclassified: [],
+    ...overrides,
+  }
+}
+
+describe('mapPayment: the cheque number both sources must agree on', () => {
+  it('keys an Acumatica payment the SAME as the register row for the same cheque', () => {
+    // The register writes a cheque number bare; Acumatica prefixes it with the
+    // bank on 90.0% of rows. The dedup key is (companyId, checkNumber), so
+    // until this matched, one physical cheque was stored twice — once per
+    // source — no staged row could ever be promoted, and every cheque present
+    // in both sources double-counted in the dashboard totals.
+    const acumatica = mapPayment({ ...paymentRow, PaymentRef: 'BPI 6000240287' }, 'GOLIVE')!
+    const register = mapParsedRow(registerRow({ checkNumber: '6000240287' }), REF)
+
+    expect(acumatica.checkNumber).toBe('6000240287')
+    expect(acumatica.checkNumber).toBe(register.checkNumber)
+    expect(acumatica.companyCode).toBe(register.companyCode)
+  })
+
+  it('strips each of the three bank prefixes the live feed actually carries', () => {
+    // MBTC 1059, BPI 729, BDO 1 across 2,000 measured rows.
+    for (const bank of ['MBTC', 'BPI', 'BDO']) {
+      const r = mapPayment({ ...paymentRow, PaymentRef: bank + ' 6000240287' }, 'GOLIVE')!
+      expect(r.checkNumber, bank).toBe('6000240287')
+    }
+  })
+
+  it('keeps the reference the feed actually printed, so the raw value is not lost', () => {
+    const r = mapPayment({ ...paymentRow, PaymentRef: 'BPI 6000240287' }, 'GOLIVE')!
+    expect(r.statedCheckRef).toBe('BPI 6000240287')
+    // Stripping never invents: the canonical key and the stated reference are
+    // both kept, so a human can always get back to what Acumatica said.
+    expect(r.checkNumber).not.toBe(r.statedCheckRef)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Defect 3: PaymentMethod says what is actually a cheque, and it was ignored.
+// ---------------------------------------------------------------------------
+
+describe('mapPayment: PaymentMethod decides whether there is a physical document', () => {
+  it('treats only CHK as a cheque', () => {
+    // Finance ruling of 2026-09-04. Measured across the live feed: CHK 1947,
+    // DEBIT ADV 35, CASH 5. Those 40 non-CHK payments have no physical document
+    // to sign or hand over, so Finance must never be offered a SIGN or RELEASE
+    // button for them — the NOT_A_CHEQUE guard does that, off this flag.
+    expect(mapPayment(paymentRow, 'GOLIVE')!.isCheque).toBe(true)
+    expect(mapPayment({ ...paymentRow, PaymentMethod: 'chk' }, 'GOLIVE')!.isCheque).toBe(true)
+
+    for (const method of ['DEBIT ADV', 'CASH', 'TT', '']) {
+      const r = mapPayment({ ...paymentRow, PaymentMethod: method }, 'GOLIVE')!
+      expect(r.isCheque, method || '(blank)').toBe(false)
+    }
+  })
+
+  it('keeps the China-branch rule as WELL as the method rule, not instead of it', () => {
+    // Dongguan and Shanghai pay by wire. Even if their PaymentMethod ever said
+    // CHK, there is still no physical document — the branch rule is a stated
+    // fact about how those offices pay and must not be replaced.
+    for (const branch of ['DG', 'SH']) {
+      const r = mapPayment({ ...paymentRow, Branch: branch, PaymentMethod: 'CHK' }, 'GOLIVE')!
+      expect(r.isCheque, branch).toBe(false)
+    }
+  })
+
+  it('imports a non-cheque payment rather than dropping it', () => {
+    // The 40 still import and stay visible; they are simply blocked from the
+    // release ladder. Losing them would hide money that actually moved.
+    const r = mapPayment({ ...paymentRow, PaymentMethod: 'DEBIT ADV', PaymentRef: 'Oct interest' }, 'GOLIVE')!
+    expect(r).not.toBeNull()
+    expect(r.amount).toBe('7950')
+    expect(r.payeeName).toBe('HENKEL PHILIPPINES INC.')
+    // Not a cheque, so its reference is not held to a cheque number's shape.
+    expect(r.checkNumber).toBe('Oct interest')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Defect 4: 80 real cheques carry a memo instead of a cheque number.
+// ---------------------------------------------------------------------------
+
+describe('mapPayment: a memo where the cheque number belongs', () => {
+  it('refuses to key a CHK payment whose PaymentRef is free text', () => {
+    // 80 live rows. They are genuinely cheques, but nothing in them can key
+    // (company, checkNumber). Finance ruled on 2026-09-04 that they are staged
+    // for a human to supply the real number.
+    for (const memo of ['Oct interest', 'pay 12 25 2nd', 'MBTC 1791 to 1795']) {
+      const r = mapPayment({ ...paymentRow, PaymentRef: memo }, 'GOLIVE')!
+      expect(r.checkNumber, memo).toBeNull()
+      // The payment is kept whole so the staged row can be corrected.
+      expect(r.statedCheckRef, memo).toBe(memo)
+      expect(r.amount, memo).toBe('7950')
+      expect(r.payeeName, memo).toBe('HENKEL PHILIPPINES INC.')
+      expect(r.checkDate, memo).not.toBeNull()
+      expect(r.isCheque, memo).toBe(true)
+    }
+  })
+
+  it('never invents a cheque number out of the digits in a memo', () => {
+    const r = mapPayment({ ...paymentRow, PaymentRef: 'pay 12 25 2nd' }, 'GOLIVE')!
+    expect(r.checkNumber).toBeNull()
+    expect(r.checkNumber).not.toBe('12252')
+  })
+
+  it('leaves a non-cheque payment reference alone — it is the only identifier it has', () => {
+    // The China rows' AP reference is not a cheque number and never was. It
+    // still keys the payment, because dropping it would make the row unkeyable
+    // and lose a payment that really happened.
+    const dg = mapPayment({
+      ...paymentRow, Branch: 'DG', PaymentRef: 'AP-DG001931', PaymentMethod: 'TT',
+    }, 'GOLIVE')!
+    expect(dg.checkNumber).toBe('AP-DG001931')
+    expect(dg.isCheque).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Defect 2: a voided cheque could land holding its own negative reversal.
+// ---------------------------------------------------------------------------
+
+describe('collapseVoidPairs', () => {
+  const original = (o: Record<string, unknown> = {}) =>
+    mapPayment({ ...paymentRow, Type: 'Payment', Status: 'Voided', PaymentAmount: '88426.95', ...o }, 'GOLIVE')!
+  const reversal = (o: Record<string, unknown> = {}) =>
+    mapPayment({ ...paymentRow, Type: 'Voided Payment', Status: 'Closed', PaymentAmount: '-88426.95', ...o }, 'GOLIVE')!
+
+  it('keeps the ORIGINAL of a voided pair and drops the reversal', () => {
+    // A void is TWO feed rows under one PaymentRef, and BOTH carry an identical
+    // LastModifiedOn on 62 of the 67 such pairs among 1,836 keyable live cheques — so
+    // which one survived a last-write-wins upsert was arbitrary. A cheque could
+    // therefore store its own negative reversal as its amount. The original is
+    // the row a human reads, which is what the Supplier Portal's dedupePayments
+    // deliberately keeps too.
+    const out = collapseVoidPairs([original(), reversal()])
+
+    expect(out).toHaveLength(1)
+    expect(out[0].acumaticaDocType).toBe('Payment')
+    expect(out[0].amount).toBe('88426.95')
+    expect(out[0].voided).toBe(true)
+  })
+
+  it('collapses the pair whichever order the feed returns it in', () => {
+    const out = collapseVoidPairs([reversal(), original()])
+    expect(out).toHaveLength(1)
+    expect(out[0].amount).toBe('88426.95')
+  })
+
+  it('flips no signs and takes no magnitudes — it is a PAIRING decision', () => {
+    // map.ts states outright that it does no sign manipulation, and that stays
+    // true. A lone reversal is passed through exactly as the feed sent it.
+    const out = collapseVoidPairs([reversal()])
+    expect(out).toHaveLength(1)
+    expect(out[0].amount).toBe('-88426.95')
+    expect(out[0].acumaticaDocType).toBe('Voided Payment')
+  })
+
+  it('pairs on (company, cheque number) — the key the upsert actually writes on', () => {
+    // Two different cheques, each with its own reversal. Pairing on the cheque
+    // number alone would be wrong the moment two companies share a number.
+    const out = collapseVoidPairs([
+      original({ PaymentRef: '6000240287' }),
+      reversal({ PaymentRef: '6000240287' }),
+      original({ PaymentRef: '6000240288', PaymentAmount: '100.00' }),
+      reversal({ PaymentRef: '6000240288', PaymentAmount: '-100.00' }),
+    ])
+    expect(out.map((r) => r.checkNumber)).toEqual(['6000240287', '6000240288'])
+    expect(out.map((r) => r.amount)).toEqual(['88426.95', '100.00'])
+  })
+
+  it('does not pair a reversal with a same-numbered cheque of ANOTHER company', () => {
+    const golive = original({ PaymentRef: '6000240287', Branch: 'ST' })
+    const other = mapPayment({
+      ...paymentRow, Type: 'Voided Payment', Status: 'Closed',
+      PaymentAmount: '-88426.95', PaymentRef: '6000240287', Branch: 'A1+',
+    }, 'GOLIVE')!
+    expect(golive.companyCode).not.toBe(other.companyCode)
+
+    const out = collapseVoidPairs([golive, other])
+    expect(out).toHaveLength(2)
+  })
+
+  it('leaves rows it has nothing to pair alone, in the order the feed gave them', () => {
+    const rows: NormalisedRow[] = [
+      mapPayment({ ...paymentRow, PaymentRef: '6000240287' }, 'GOLIVE')!,
+      mapPayment({ ...paymentRow, PaymentRef: '6000240288' }, 'GOLIVE')!,
+      // Unkeyable: a memo, so it is in no group at all and must survive.
+      mapPayment({ ...paymentRow, PaymentRef: 'Oct interest' }, 'GOLIVE')!,
+    ]
+    const out = collapseVoidPairs(rows)
+    expect(out).toEqual(rows)
+  })
+
+  it('never drops two unkeyable rows into one another', () => {
+    // Both have a null cheque number. Grouping them together would silently
+    // discard a payment.
+    const out = collapseVoidPairs([
+      mapPayment({ ...paymentRow, PaymentRef: 'Oct interest' }, 'GOLIVE')!,
+      mapPayment({ ...paymentRow, PaymentRef: 'pay 12 25 2nd' }, 'GOLIVE')!,
+    ])
+    expect(out).toHaveLength(2)
   })
 })

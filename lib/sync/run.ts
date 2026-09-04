@@ -1,6 +1,5 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { writeAudit } from '@/lib/audit'
-import { DomainError } from '@/lib/domain/errors'
 import { upsertCheck } from '@/lib/import/upsert'
 import {
   PAYMENTS_FEED,
@@ -9,7 +8,8 @@ import {
   type AcumaticaRow,
 } from '@/lib/integrations/acumatica/client'
 import type { AcumaticaTenant } from '@/lib/integrations/acumatica/companies'
-import { mapPayment } from '@/lib/integrations/acumatica/map'
+import { collapseVoidPairs, mapPayment } from '@/lib/integrations/acumatica/map'
+import type { NormalisedRow } from '@/lib/normalised-row'
 
 type Db = PrismaClient | Prisma.TransactionClient
 
@@ -73,8 +73,24 @@ export type SyncRunResult = {
   fetched: number
   /** Rows `mapPayment` declined: Prepayment, Debit Adj., Refund. Not errors. */
   skipped: number
+  /**
+   * Reversal rows folded into the original of a voided pair by
+   * `collapseVoidPairs`. Counted rather than left implicit so that
+   * `fetched === skipped + collapsed + imported + updated + staged + errors`
+   * still holds — the invariant that makes "nothing is silently dropped"
+   * checkable rather than asserted.
+   */
+  collapsed: number
   imported: number
   updated: number
+  /**
+   * Payments kept whole because they could not be written: since 2026-09-04 an
+   * Acumatica row CAN be staged, and 80 live cheques carrying a memo instead of
+   * a cheque number land here every run. They were previously counted as
+   * errors, which is why the count is reported and recorded rather than left to
+   * be inferred from a shortfall.
+   */
+  staged: number
   errors: number
   /** Staged register rows this run linked to a cheque. */
   promoted: number
@@ -140,8 +156,10 @@ export async function runSync(db: Db, args: SyncArgs): Promise<SyncRunResult> {
 
   let fetched = 0
   let skipped = 0
+  let collapsed = 0
   let imported = 0
   let updated = 0
+  let staged = 0
   let errors = 0
   let promoted = 0
   const problems: string[] = []
@@ -153,6 +171,7 @@ export async function runSync(db: Db, args: SyncArgs): Promise<SyncRunResult> {
         finishedAt: now,
         imported,
         updated,
+        staged,
         errors,
         watermark,
         message: problems.length ? summarise(problems, errors) : null,
@@ -193,6 +212,7 @@ export async function runSync(db: Db, args: SyncArgs): Promise<SyncRunResult> {
 
   let maxSeen: Date | null = null
 
+  const mapped: NormalisedRow[] = []
   for (const raw of rows) {
     // Null is "not our business" — a Prepayment, Debit Adj. or Refund — not an
     // error. 80 of 400 live rows were Debit Adj.; counting those as failures
@@ -208,24 +228,39 @@ export async function runSync(db: Db, args: SyncArgs): Promise<SyncRunResult> {
     // import could carry the watermark over a Payment committed just behind it.
     // Conservative in the only direction that is safe — re-reading costs a
     // no-op update, missing a row costs a cheque.
+    //
+    // Taken BEFORE the collapse below, over every row the feed returned. The
+    // reversal half of a voided pair is a row we did read, and leaving its
+    // timestamp out would hold the watermark back and re-read it forever.
     if (row.lastModifiedOn && (maxSeen === null || row.lastModifiedOn > maxSeen)) {
       maxSeen = row.lastModifiedOn
     }
 
+    mapped.push(row)
+  }
+
+  // A void is two rows under one PaymentRef, both carrying an IDENTICAL
+  // LastModifiedOn, so there is nothing for a last-write-wins upsert to order
+  // them by and a cheque could store its own negative reversal as its amount.
+  // Collapsed here, before anything is written — the way `groupByCheckNumber`
+  // collapses the register's ambiguity groups before any row of one is written.
+  // This is not a second duplicate-prevention path: prevention remains solely
+  // the unique key inside `upsertCheck`, and must stay there.
+  const toWrite = collapseVoidPairs(mapped)
+  collapsed = mapped.length - toWrite.length
+
+  for (const row of toWrite) {
     try {
       const result = await upsertCheck(db, { row, ownCompanyNames, now })
 
       if (result.outcome === 'STAGED') {
-        // Unreachable by construction: staging is keyed on `(sourceSheet,
-        // sourceRow)` and an Acumatica row carries neither, so `upsertCheck`
-        // throws CANNOT_STAGE rather than returning this. Kept as a loud
-        // failure instead of a silent fall-through, because reaching it would
-        // mean a row was neither written nor counted.
-        throw new DomainError(
-          'UNEXPECTED_STAGING',
-          `An ACUMATICA row was staged (${result.reason}), which cannot happen: ` +
-            'a feed row has no sheet or row number to key a staged row on.',
-        )
+        // Reachable since 2026-09-04: an Acumatica row is keyed on its own
+        // ReferenceNbr, so a payment that cannot become a `Check` — 80 live
+        // cheques carrying a memo where the number belongs — is kept whole
+        // instead of thrown away as an error. It still needs a human, which is
+        // what the recorded count is for.
+        staged++
+        continue
       }
 
       if (result.outcome === 'CREATED') imported++
@@ -253,7 +288,10 @@ export async function runSync(db: Db, args: SyncArgs): Promise<SyncRunResult> {
 
   await finish(watermark)
 
-  return { syncRunId: run.id, tenant, mode, fetched, skipped, imported, updated, errors, promoted, watermark }
+  return {
+    syncRunId: run.id, tenant, mode,
+    fetched, skipped, collapsed, imported, updated, staged, errors, promoted, watermark,
+  }
 }
 
 /**
@@ -295,11 +333,17 @@ async function promoteStagedRows(
 
   const staged = await db.stagedCheck.findMany({
     where: { reason: 'NO_COMPANY', checkNumber, promotedCheckId: null },
-    select: { id: true, sourceSheet: true, sourceRow: true },
+    select: { id: true, source: true, sourceSheet: true, sourceRow: true, acumaticaRef: true },
   })
   if (staged.length === 0) return 0
 
   for (const s of staged) {
+    // A staged row is no longer necessarily a register row, so the audit says
+    // which one it is rather than calling every one of them a register row.
+    const where = s.source === 'WORKBOOK'
+      ? `Register row ${s.sourceSheet} ${s.sourceRow}`
+      : `Acumatica payment ${s.acumaticaRef}`
+
     await inTx(db, async (tx) => {
       await tx.stagedCheck.update({ where: { id: s.id }, data: { promotedCheckId: checkId } })
       await writeAudit(tx, {
@@ -308,16 +352,18 @@ async function promoteStagedRows(
         action: 'staged_row_promoted',
         details: {
           stagedCheckId: s.id,
+          source: s.source,
           sourceSheet: s.sourceSheet,
           sourceRow: s.sourceRow,
+          acumaticaRef: s.acumaticaRef,
           reason: 'NO_COMPANY',
           checkNumber,
           companyCode,
         },
         remarks:
-          `Register row ${s.sourceSheet} ${s.sourceRow} was staged because nothing said which ` +
-          `company cheque ${checkNumber} belonged to. Acumatica states ${companyCode}, so it is ` +
-          'linked to this cheque. The staged row is kept as the record of why it was held.',
+          `${where} was staged because nothing said which company cheque ${checkNumber} ` +
+          `belonged to. Acumatica states ${companyCode}, so it is linked to this cheque. ` +
+          'The staged row is kept as the record of why it was held.',
       })
     })
   }

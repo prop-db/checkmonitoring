@@ -44,6 +44,7 @@ function row(overrides: Partial<NormalisedRow> = {}): NormalisedRow {
     source: 'WORKBOOK',
     acumaticaPaymentId: null,
     checkNumber: '6000319079',
+    statedCheckRef: '6000319079',
     cvNumber: 'CV-ST-004112',
     checkDate: new Date('2026-01-19T00:00:00Z'),
     amount: '197715.42',
@@ -396,12 +397,25 @@ describe('upsertCheck — staging', () => {
   })
 
   it('refuses to drop a row it cannot stage for want of provenance', async () => {
-    // An Acumatica row carries no sheet or row number, so there is nowhere to
-    // stage it. Throwing puts it in front of a human — the sync counts it as an
-    // error — where silently returning would lose a payment.
+    // CHANGED 2026-09-04. This used to assert that EVERY Acumatica row was
+    // unstageable, because `StagedCheck` could only be keyed on a sheet and a
+    // row number. That was the schema obstacle behind defect 4, and it is gone:
+    // an Acumatica row is now keyed on its own ReferenceNbr. What survives is
+    // the real rule — a row with NO identity of either kind is thrown rather
+    // than silently returned, because silently returning loses a payment.
     await seedCompany()
     await expect(upsert(row({
-      source: 'ACUMATICA', companyCode: null, sourceSheet: null, sourceRow: null,
+      source: 'ACUMATICA', companyCode: null,
+      sourceSheet: null, sourceRow: null,
+      acumaticaPaymentId: null, acumaticaTenant: 'GOLIVE',
+    }))).rejects.toMatchObject({ code: 'CANNOT_STAGE' })
+
+    // Nor a tenant-less one: `ST` is a different company in each tenant, so a
+    // staged row that does not say which tenant it came from is not keyable.
+    await expect(upsert(row({
+      source: 'ACUMATICA', companyCode: null,
+      sourceSheet: null, sourceRow: null,
+      acumaticaPaymentId: 'CV-ST-004112', acumaticaTenant: null,
     }))).rejects.toMatchObject({ code: 'CANNOT_STAGE' })
   })
 
@@ -668,5 +682,117 @@ describe('importRows — running the whole import', () => {
     // recorded once, on the create.
     expect((await testDb.check.findFirstOrThrow()).status).toBe('RELEASED')
     expect(await testDb.auditLog.count({ where: { action: 'implied_status_resolved' } })).toBe(1)
+  })
+})
+
+describe('upsertCheck — staging a payment that came from Acumatica', () => {
+  // 80 live rows are PaymentMethod CHK — genuinely cheques — whose PaymentRef
+  // is free text ("Oct interest"). They cannot be keyed on (company,
+  // checkNumber), and Finance ruled on 2026-09-04 that they are staged like the
+  // register's 66 numberless rows rather than dropped or given an invented
+  // number. `StagedCheck` could only be keyed on (sourceSheet, sourceRow) until
+  // then, which an Acumatica row has neither of.
+  const feedRow = (overrides: Partial<NormalisedRow> = {}): NormalisedRow => row({
+    source: 'ACUMATICA',
+    checkNumber: null,
+    statedCheckRef: 'Oct interest',
+    acumaticaPaymentId: 'CV-ST011550',
+    cvNumber: 'CV-ST011550',
+    acumaticaTenant: 'GOLIVE',
+    acumaticaDocType: 'Payment',
+    acumaticaStatus: 'Closed',
+    acumaticaBranch: 'ST',
+    checkBookCode: null,
+    apvNumbers: [],
+    poNumbers: [],
+    clearingRef: null,
+    sourceSheet: null,
+    sourceRow: null,
+    ...overrides,
+  })
+
+  it('stages a cheque whose reference is a memo instead of a number', async () => {
+    await seedCompany()
+    const out = await upsert(feedRow())
+    expect(out).toMatchObject({ outcome: 'STAGED', reason: 'NO_CHECK_NUMBER' })
+    expect(await testDb.check.count()).toBe(0)
+
+    const staged = await testDb.stagedCheck.findFirstOrThrow()
+    expect(staged.source).toBe('ACUMATICA')
+    expect(staged.checkNumber).toBeNull()
+    // The memo is preserved so a human can supply the real cheque number. It is
+    // NEVER written to checkNumber — that would be a made-up key.
+    expect(staged.statedCheckRef).toBe('Oct interest')
+  })
+
+  it('keys the staged row on the payment’s own ReferenceNbr, not an invented sheet', async () => {
+    await seedCompany()
+    await upsert(feedRow())
+
+    const staged = await testDb.stagedCheck.findFirstOrThrow()
+    expect(staged.acumaticaRef).toBe('CV-ST011550')
+    expect(staged.acumaticaTenant).toBe('GOLIVE')
+    // No fake sheet name to squeeze into the register's key. A row that never
+    // came from a workbook has no cell to point a human at, and pretending
+    // otherwise would put 'ACUMATICA' in a column a reconciliation report reads
+    // as a sheet.
+    expect(staged.sourceSheet).toBeNull()
+    expect(staged.sourceRow).toBeNull()
+  })
+
+  it('preserves the payment whole, so nothing has to be looked up again', async () => {
+    await seedCompany()
+    await upsert(feedRow())
+    const staged = await testDb.stagedCheck.findFirstOrThrow()
+
+    expect(staged.payeeName).toBe('HENKEL PHILIPPINES INC.')
+    expect(staged.amount?.toString()).toBe('197715.42')
+    expect(staged.currency).toBe('PHP')
+    expect(staged.checkDate).toEqual(new Date('2026-01-19T00:00:00Z'))
+    expect(staged.cvNumber).toBe('CV-ST011550')
+    expect(staged.companyCode).toBe('STK')
+    expect(staged.promotedCheckId).toBeNull()
+  })
+
+  it('re-running the sync over the same payment updates rather than duplicating', async () => {
+    await seedCompany()
+    await upsert(feedRow({ amount: '1.00' }))
+    await upsert(feedRow({ amount: '2.00' }))
+
+    expect(await testDb.stagedCheck.count()).toBe(1)
+    expect((await testDb.stagedCheck.findFirstOrThrow()).amount?.toString()).toBe('2')
+  })
+
+  it('keeps the two tenants apart, because ReferenceNbr repeats across them', async () => {
+    // Go-Live ST is Starkson Packaging and MANUFACTURING ST is Starkson Paper
+    // and Plastic, and both tenants number their vouchers CV-ST…. One key on
+    // the reference alone would collapse two different payments into one.
+    await seedCompany('STK')
+    await seedCompany('STPP', 'Starkson Paper and Plastic Inc.')
+    await upsert(feedRow({ acumaticaTenant: 'GOLIVE', companyCode: 'STK' }))
+    await upsert(feedRow({ acumaticaTenant: 'MANUFACTURING', companyCode: 'STPP' }))
+
+    expect(await testDb.stagedCheck.count()).toBe(2)
+  })
+
+  it('does not collide with a register row staged under the same cheque number', async () => {
+    await seedCompany()
+    await upsert(row({ companyCode: null, sourceSheet: 'BPI RELEASED', sourceRow: 77 }))
+    await upsert(feedRow({ checkNumber: null }))
+    expect(await testDb.stagedCheck.count()).toBe(2)
+
+    const rows = await testDb.stagedCheck.findMany()
+    expect(rows.map((s) => s.source).sort()).toEqual(['ACUMATICA', 'WORKBOOK'])
+  })
+
+  it('stages an Acumatica row whose branch resolves no company, rather than losing it', async () => {
+    // Not the defect-4 case, but the same obstacle: before the source
+    // discriminator existed this threw and the payment was counted as an error
+    // and left nowhere. 0 of 320 measured live rows resolved no company, so
+    // this is rare — which is exactly why it must not be a silent loss.
+    await seedCompany()
+    const out = await upsert(feedRow({ checkNumber: '6000319079', companyCode: null }))
+    expect(out).toMatchObject({ outcome: 'STAGED', reason: 'NO_COMPANY' })
+    expect((await testDb.stagedCheck.findFirstOrThrow()).source).toBe('ACUMATICA')
   })
 })

@@ -1,5 +1,6 @@
 import type { NormalisedRow } from '@/lib/normalised-row'
 import { resolveCompany, type CompanyReferenceData } from './company'
+import { canonicalCheckNumber } from './normalise'
 import type { ParsedRow } from './parse'
 
 // One row of the client's check register -> the shared normalised row. The
@@ -40,7 +41,19 @@ export function mapParsedRow(parsed: ParsedRow, ref: CompanyReferenceData): Norm
     // The register knows nothing about Acumatica document keys.
     acumaticaPaymentId: null,
 
-    checkNumber: parsed.checkNumber,
+    // Canonicalised through the SAME rule the Acumatica mapper uses, which is
+    // what makes a register row and its feed counterpart resolve to one
+    // `(companyId, checkNumber)` instead of two rows for one physical cheque.
+    // A no-op on essentially every register row — the register already writes
+    // cheque numbers bare — and that is the point: the rule lives in one place,
+    // not one place per source.
+    //
+    // Note what is deliberately NOT applied here: the feed's free-text rule.
+    // The 80 memo-instead-of-a-number rows are an Acumatica fact, and holding
+    // this column to a numeric shape would stage register rows on a question
+    // nobody has ruled on.
+    checkNumber: canonicalCheckNumber(parsed.checkNumber),
+    statedCheckRef: parsed.checkNumber,
     cvNumber: parsed.cvNumber,
 
     checkDate: parsed.checkDate,

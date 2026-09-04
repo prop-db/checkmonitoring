@@ -30,8 +30,24 @@ export type NormalisedRow = {
 
   // Identity. `checkNumber` plus a resolved company is the duplicate key.
   // From Acumatica this is `PaymentRef`, NOT `ReferenceNbr` — see map.ts.
+  //
+  // CANONICAL, not raw: `canonicalCheckNumber` has stripped the bank prefix
+  // Acumatica puts on 90.0% of its refs, so the register's `6000308584` and the
+  // feed's `BPI 6000308584` are one key rather than two rows for one cheque.
   checkNumber: string | null
   cvNumber: string | null
+
+  /**
+   * What the source actually printed where a cheque number belongs, verbatim.
+   *
+   * Kept alongside `checkNumber` for the two cases where they differ: a
+   * bank-prefixed Acumatica ref, and the 80 live `CHK` payments whose ref is a
+   * memo ("Oct interest") rather than a number at all. The second sets
+   * `checkNumber` to null — the row cannot be keyed — and this is what a human
+   * needs in order to supply the real number, so it must survive onto the
+   * staged row. Never write it to `Check.checkNumber`.
+   */
+  statedCheckRef: string | null
 
   checkDate: Date | null
   /**

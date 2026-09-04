@@ -233,11 +233,23 @@ model Check {
   @@index([availablePickupDate])
 }
 
+// Which ingestion path a row came in on. The same enum `NormalisedRow.source`
+// carries, so a staged row says outright where it is from instead of leaving a
+// reader to infer it from which provenance columns happen to be filled.
+enum IngestSource {
+  WORKBOOK
+  ACUMATICA
+}
+
 enum StagedReason {
   // 2,640 register rows: neither a checkbook nor a cash account, so nothing
   // says which company's cheque this is.
   NO_COMPANY
   // 66 register rows: no cheque number at all, so the row cannot be keyed.
+  // Since 2026-09-04 also 80 Acumatica payments: PaymentMethod CHK — genuinely
+  // cheques — whose PaymentRef is a memo ("Oct interest", "pay 12 25 2nd")
+  // rather than a number. Finance ruled they get exactly this treatment, so a
+  // human can supply the real number from `statedCheckRef`.
   NO_CHECK_NUMBER
   // 61 register rows across 27 cheque numbers: the number resolves to MORE
   // THAN ONE company. Finance ruling of 2026-09-03 — stage every row for such
@@ -258,10 +270,31 @@ enum StagedReason {
 // them later, by cheque number, once it supplies a company.
 model StagedCheck {
   id              String       @id @default(cuid())
-  sourceSheet     String
-  sourceRow       Int
+  // Which path staged this row, and therefore which identity columns below are
+  // filled. NOT NULL and no default: a staged row that does not say where it
+  // came from cannot be keyed, and a default would quietly make Acumatica rows
+  // look like workbook ones.
+  source          IngestSource
+  // The register's identity: the cell a human can be pointed at. Null for an
+  // Acumatica row, which has no sheet and no row number — do NOT fake a sheet
+  // name like 'ACUMATICA' to squeeze one into this key. A reconciliation report
+  // reads this column as a sheet.
+  sourceSheet     String?
+  sourceRow       Int?
+  // The Acumatica identity: the payment document's own ReferenceNbr, plus the
+  // tenant, because the two tenants number their vouchers alike (both write
+  // CV-ST…) while `ST` means a different company in each. Null for a workbook
+  // row. Together these are what makes a re-run of the sync update a staged row
+  // instead of adding another.
+  acumaticaRef    String?
+  acumaticaTenant AcumaticaTenant?
   reason          StagedReason
   checkNumber     String?
+  // What the source printed where a cheque number belongs, verbatim. The whole
+  // point of a NO_CHECK_NUMBER row from Acumatica: `checkNumber` is null
+  // because the memo cannot key a cheque, and this is what a human reads in
+  // order to supply the real number. Never promote it into `checkNumber`.
+  statedCheckRef  String?
   cvNumber        String?
   apvNumbers      String[]
   poNumbers       String[]
@@ -292,9 +325,19 @@ model StagedCheck {
   promotedCheckId String?
   createdAt       DateTime     @default(now())
 
-  @@unique([sourceSheet, sourceRow])   // re-running the import updates, never duplicates
+  // One unique key per origin, so re-running either ingestion path updates a
+  // staged row and never duplicates it. Postgres treats NULLs as distinct, so
+  // each key constrains only the rows that actually carry it — which is why
+  // `stageRow` refuses outright to stage a row whose own identity columns are
+  // null rather than letting it slip past a key that cannot see it. The
+  // `staged_check_one_source_identity` CHECK constraint added in
+  // `20260904190000_staged_check_source` enforces that a row fills exactly one
+  // of the two.
+  @@unique([sourceSheet, sourceRow])
+  @@unique([acumaticaTenant, acumaticaRef])
   @@index([checkNumber])               // the Acumatica sync matches on this
   @@index([reason])
+  @@index([source])
 }
 
 model CheckBill {
@@ -367,6 +410,11 @@ model SyncRun {
   watermark  DateTime?
   imported   Int       @default(0)
   updated    Int       @default(0)
+  // Payments this run could not write and kept whole instead — since 2026-09-04
+  // an Acumatica row CAN be staged. Recorded because these were previously
+  // counted as errors, and a run that quietly stages 80 payments nobody is told
+  // about is worse than one that reports them as failures.
+  staged     Int       @default(0)
   errors     Int       @default(0)
   message    String?
 

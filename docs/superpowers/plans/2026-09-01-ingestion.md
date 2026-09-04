@@ -1975,6 +1975,126 @@ Cover:
 
 - [ ] **Step 2: Implement, run, verify, commit**
 
+
+---
+
+## Task 9b: Four defects the live feed exposed, 2026-09-04
+
+Tasks 8 and 9 were built entirely against injected fetches. A second **read-only**
+read of the real Go-Live instance — 2,000 rows of `AP-Checks and Payments`, no
+writes — found four defects that injected fixtures could not have shown, because
+each one is a fact about the data rather than about the code. All figures below
+are measured over those 2,000 rows (1,987 of which map to a `Payment` or a
+`Voided Payment`), re-confirmed after the fix.
+
+### D-1. The two sources keyed one physical cheque two ways *(critical)*
+
+The register writes a cheque number bare (`6000308584`). Acumatica's `PaymentRef`
+is **bank-prefixed** (`BPI 6000240287`) on **1,789 of 1,987 rows (90.0%)** and
+bare on only **82 (4.1%)**. The dedup key is `@@unique([companyId, checkNumber])`,
+so one cheque was stored **twice**, once per source: a staged register row could
+never be promoted, and every cheque present in both sources double-counted in the
+dashboard totals.
+
+**Fixed** by `canonicalCheckNumber` in `lib/import/normalise.ts`, which both
+mappers call — the single place the rule lives. It strips only
+`<known bank code><whitespace><6 or 10 digits>`, anchored. The prefixes are
+exactly three banks (`MBTC` 1059, `BPI` 729, `BDO` 1), and stripping merges
+**zero** distinct original refs onto one key. A blind `replace(/\D/g, '')` would
+have mangled the free text in D-4 into plausible cheque numbers.
+
+### D-2. A voided cheque could store its own negative reversal
+
+A void is **two feed rows under one `PaymentRef`**: the original (`Type: Payment`,
+positive, `Status: Voided`) and the reversal (`Type: Voided Payment`, negative).
+Both map to the same `(company, checkNumber)`. Measured: **67 such pairs among
+1,836 keyable cheques (3.6%)**, and on **62 of the 67 both rows carry an
+identical `LastModifiedOn`** — so which one survived a last-write-wins upsert was
+arbitrary.
+
+**Fixed** by `collapseVoidPairs`, called in `runSync` before anything is written,
+the way `groupByCheckNumber` already collapses the register's ambiguity groups.
+The **original** survives with its positive amount, flagged `voided: true` — the
+row a human reads, and the one the Supplier Portal's `dedupePayments` keeps. This
+is a **pairing** decision: no sign is flipped, no magnitude taken, `map.ts` still
+does no sign manipulation, and a lone reversal passes through untouched. Duplicate
+*prevention* remains solely the unique key inside `upsertCheck`.
+
+### D-3. `PaymentMethod` says what is actually a cheque, and it was ignored
+
+`isCheque` was branch-based only (`DG`, `SH`). Measured `PaymentMethod`:
+
+```
+1785  CHK        bank-prefixed cheque no.
+  82  CHK        bare cheque no.
+  80  CHK        free text
+  35  DEBIT ADV  free text
+   5  CASH
+```
+
+**Finance ruling, 2026-09-04:** anything not `CHK` is `isCheque = false`, **in
+addition to** the China-branch rule. The 40 non-`CHK` payments still import and
+stay visible; the existing `NOT_A_CHEQUE` guard blocks signing and releasing them,
+which is the point — Finance must not be offered a SIGN or RELEASE button for
+money that never had a physical document. A `PaymentMethod` the feed does not
+state is treated as not a cheque: that withholds a button rather than offering
+one.
+
+### D-4. 80 real cheques carry a memo instead of a cheque number
+
+80 rows are `PaymentMethod: CHK` — genuinely cheques — whose `PaymentRef` is free
+text (`"Oct interest"`, `"pay 12 25 2nd"`, `"MBTC 1791…"` variants). They cannot
+be keyed on `(company, checkNumber)`.
+
+**Finance ruling, 2026-09-04:** stage them as `NO_CHECK_NUMBER`, the treatment the
+register's 66 unkeyable rows already get. The payment is preserved whole —
+vendor, amount, date, and the original `PaymentRef` in the new
+`StagedCheck.statedCheckRef` — so a human supplies the real number. No cheque
+number is invented and the memo never reaches `checkNumber`.
+
+**The schema obstacle, solved rather than worked around.** `StagedCheck` could
+only be keyed on `@@unique([sourceSheet, sourceRow])`, both NOT NULL, which an
+Acumatica row has neither of. Migration `20260904190000_staged_check_source` adds
+a real discriminator and a second identity:
+
+| Column | Why |
+| --- | --- |
+| `source IngestSource` | NOT NULL, no default. Says which path staged the row, and therefore which identity below is filled. |
+| `sourceSheet`, `sourceRow` | Now nullable. Still the register's key and still the cell a human is pointed at. |
+| `acumaticaRef`, `acumaticaTenant` | The payment document's own `ReferenceNbr`, plus the tenant — both tenants number vouchers `CV-ST…` while `ST` is a different company in each. `@@unique([acumaticaTenant, acumaticaRef])`, so a re-run updates and never duplicates. |
+| `statedCheckRef` | What the source printed where a cheque number belongs, verbatim. |
+
+No sheet name is faked: `'ACUMATICA'` in `sourceSheet` would put a non-sheet into
+a column the reconciliation report reads as a sheet. Postgres treats NULLs in a
+unique index as distinct, so neither key constrains rows that do not carry it —
+the CHECK constraint `staged_check_one_source_identity` requires a row to fill
+**exactly one** of the two, and `stageRow` throws `CANNOT_STAGE` rather than
+letting an identity-less row slip past both keys.
+
+One consequence beyond D-4: an Acumatica row whose branch resolves no company is
+now staged too, rather than counted as an error and left nowhere. `SyncRun` gains
+a `staged` column and `SyncRunResult` gains `staged` and `collapsed`, so the
+accounting invariant still holds:
+
+```
+fetched === skipped + collapsed + imported + updated + staged + errors
+```
+
+### Tests deliberately changed
+
+Three existing tests encoded behaviour these fixes correct, and were changed
+rather than weakened:
+
+- `tests/integrations/acumatica-map.test.ts` and `tests/sync/run.test.ts` fixtures
+  said `PaymentMethod: 'CHECK'`. The live feed says `CHK` and nothing anywhere
+  says `CHECK`; the literal was harmless only while `isCheque` ignored the field.
+- `runSync — accounts for every row the feed returned` counted a payment with no
+  usable cheque number as an **error**. It is now **staged**.
+- `runSync — counts a row it cannot write as an error and carries on` counted a
+  memo reference and an unresolved branch as errors. Both are now staged; a
+  company code no `Company` row carries is still an error, because that is a
+  seeding fault rather than a fact about the cheque.
+
 ---
 
 ## Task 10: Admin Screens

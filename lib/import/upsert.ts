@@ -356,9 +356,20 @@ async function applyVoid(
 }
 
 /**
- * A row kept whole rather than written or dropped. Keyed on `(sourceSheet,
- * sourceRow)`, so re-running the import updates a staged row instead of
- * producing a second one.
+ * A row kept whole rather than written or dropped.
+ *
+ * Keyed on whichever identity its source actually has, so re-running either
+ * ingestion path updates a staged row instead of producing a second one: the
+ * register's `(sourceSheet, sourceRow)` — the cell a human can be pointed at —
+ * and Acumatica's `(acumaticaTenant, acumaticaRef)`, the payment document's own
+ * ReferenceNbr. The tenant is part of the second key because both tenants
+ * number their vouchers `CV-ST…` while `ST` is a different company in each.
+ *
+ * **Neither key is faked to accommodate the other.** Writing a sheet name of
+ * 'ACUMATICA' would squeeze a feed row into the register's key at the cost of
+ * putting a non-sheet into a column the reconciliation report reads as a sheet.
+ * A row with no identity of either kind still throws, because silently
+ * returning would lose a payment.
  *
  * No audit row: `AuditLog` is check-scoped, a staged row is not a check, and
  * 2,700 rows with a null `checkId` would bury the trail that matters. The
@@ -371,22 +382,21 @@ async function stageRow(
   reason: StagedReason,
   conflictingCompanies: readonly string[],
 ): Promise<UpsertResult> {
-  const { sourceSheet, sourceRow } = row
-  if (sourceSheet === null || sourceRow === null) {
-    // An Acumatica row carries no sheet or row number, so there is nowhere to
-    // stage it and no cell to point a human at. Throwing puts it in front of
-    // one — the sync counts it as an error and carries on — where returning
-    // quietly would lose a payment.
-    throw new DomainError(
+  const cannotStage = (missing: string): DomainError =>
+    new DomainError(
       'CANNOT_STAGE',
-      `A ${row.source} row cannot be staged because it carries no source sheet or row number ` +
-        `to key it on. Cheque number: ${row.checkNumber ?? 'none'}; reason: ${reason}.`,
+      `A ${row.source} row cannot be staged because it carries no ${missing} to key it on. ` +
+        `Cheque number: ${row.checkNumber ?? 'none'}; reason: ${reason}.`,
     )
-  }
 
   const data = {
+    source: row.source,
     reason,
     checkNumber: row.checkNumber,
+    // The memo an unkeyable Acumatica cheque carried where its number belongs,
+    // or the register cell as typed. This is what a human replaces with the
+    // real number; it must never be promoted into `checkNumber`.
+    statedCheckRef: row.statedCheckRef,
     cvNumber: row.cvNumber,
     apvNumbers: row.apvNumbers,
     poNumbers: row.poNumbers,
@@ -405,11 +415,35 @@ async function stageRow(
     impliedStatus,
   }
 
-  const staged = await db.stagedCheck.upsert({
-    where: { sourceSheet_sourceRow: { sourceSheet, sourceRow } },
-    create: { sourceSheet, sourceRow, ...data },
-    update: data,
-  })
+  // Exactly one identity is filled, which is also what the
+  // `staged_check_one_source_identity` CHECK constraint enforces in the
+  // database. Postgres treats NULLs in a unique index as distinct, so a row
+  // that filled neither would slip past both keys and duplicate on every run —
+  // hence the throws rather than a best effort.
+  const staged = await (async () => {
+    if (row.source === 'WORKBOOK') {
+      const { sourceSheet, sourceRow } = row
+      if (sourceSheet === null || sourceRow === null) throw cannotStage('source sheet or row number')
+      return db.stagedCheck.upsert({
+        where: { sourceSheet_sourceRow: { sourceSheet, sourceRow } },
+        create: { sourceSheet, sourceRow, ...data },
+        update: data,
+      })
+    }
+
+    // `acumaticaPaymentId` is the ReferenceNbr — the payment document's unique
+    // key in this feed, and the natural identity of a staged Acumatica row.
+    const acumaticaRef = row.acumaticaPaymentId
+    const acumaticaTenant = row.acumaticaTenant
+    if (acumaticaRef === null) throw cannotStage('payment reference')
+    if (acumaticaTenant === null) throw cannotStage('tenant')
+    return db.stagedCheck.upsert({
+      where: { acumaticaTenant_acumaticaRef: { acumaticaTenant, acumaticaRef } },
+      create: { acumaticaRef, acumaticaTenant, ...data },
+      update: data,
+    })
+  })()
+
   return { outcome: 'STAGED', stagedCheckId: staged.id, reason }
 }
 

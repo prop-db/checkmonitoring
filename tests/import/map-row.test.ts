@@ -123,3 +123,36 @@ describe('mapParsedRow', () => {
     })
   })
 })
+
+describe('mapParsedRow: the cheque number is canonicalised here too', () => {
+  it('leaves the register’s bare cheque number exactly as written', () => {
+    // The register is already canonical on essentially every row; running the
+    // rule here is what makes "one place the rule lives" true rather than
+    // "one place per source", and it is a no-op on 12,161 rows.
+    expect(mapParsedRow(parsed({ checkNumber: '6000319079' }), REF).checkNumber).toBe('6000319079')
+  })
+
+  it('strips a bank prefix if a register row ever carries one', () => {
+    const row = mapParsedRow(parsed({ checkNumber: 'BPI 6000319079' }), REF)
+    expect(row.checkNumber).toBe('6000319079')
+    // The cell as typed survives, so a human can see what the register said.
+    expect(row.statedCheckRef).toBe('BPI 6000319079')
+  })
+
+  it('keeps a register row whose cheque number is register noise unkeyable', () => {
+    // `ParsedRow.checkNumber` is non-nullable by construction — the 66 rows
+    // with no number at all never reach here, they go to the review queue. What
+    // can still arrive is the register's own noise, and nothing here invents a
+    // number to replace it.
+    const row = mapParsedRow(parsed({ checkNumber: '#N/A' }), REF)
+    expect(row.checkNumber).toBeNull()
+  })
+
+  it('does NOT apply the Acumatica feed’s free-text rule to the register', () => {
+    // The 80 free-text refs are an Acumatica fact. The register's cheque number
+    // column is a cheque number column, and holding it to a numeric shape here
+    // would stage rows nobody has ruled on.
+    expect(mapParsedRow(parsed({ checkNumber: 'MBTC 1791 to 1795' }), REF).checkNumber)
+      .toBe('MBTC 1791 to 1795')
+  })
+})
