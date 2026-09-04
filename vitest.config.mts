@@ -22,5 +22,17 @@ export default defineConfig({
     // suite grew large enough for the windows to overlap). Files still run
     // in one process; only cross-file concurrency is disabled.
     fileParallelism: false,
+    // Vitest's 5s default is a local-database figure. Every test here talks to
+    // Neon over the network from Manila, and a test that inserts a fixture,
+    // runs an action and reads three tables back can spend most of that budget
+    // on round trips alone. The suite failed roughly one run in three on a
+    // different test each time — always a timeout, never an assertion.
+    //
+    // This is NOT papering over a slow test. A flaky suite is worse than a slow
+    // one: it teaches everyone to re-run instead of read, and the real failure
+    // that eventually appears gets waved through as "just the flake". Raised
+    // until a genuinely hung test is distinguishable from a slow network.
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
   },
 })
