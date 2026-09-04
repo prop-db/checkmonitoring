@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest'
 import {
   canTransition, assertTransition, checkReadyForRelease,
   canSetClearing, assertClearing, assertReleasable,
+  isLiveStatus, LIVE_STATUSES, CLOSED_STATUSES,
 } from '@/lib/domain/check-status'
+import type { CheckStatus } from '@/lib/domain/check-status'
 import { DomainError } from '@/lib/domain/errors'
 
 describe('release ladder transitions', () => {
@@ -184,5 +186,31 @@ describe('clearing axis', () => {
     expect(() => assertClearing('SIGNED', 'NONE', 'DEPOSITED')).toThrow(DomainError)
     try { assertClearing('SIGNED', 'NONE', 'DEPOSITED') }
     catch (e) { expect((e as DomainError).code).toBe('ILLEGAL_CLEARING') }
+  })
+})
+
+describe('live and closed statuses', () => {
+  // The staged queue is built on this partition, and a status belonging to
+  // neither list would silently vanish from every scope of it.
+  const ALL: CheckStatus[] = [
+    'GENERATED', 'SIGNATURE_PENDING', 'SIGNED', 'READY_FOR_RELEASE',
+    'SCHEDULED', 'RELEASED', 'CANCELLED', 'VOIDED',
+  ]
+
+  it('partitions every status into exactly one of the two lists', () => {
+    expect([...LIVE_STATUSES, ...CLOSED_STATUSES].sort()).toEqual([...ALL].sort())
+    for (const s of ALL) {
+      const live = (LIVE_STATUSES as readonly CheckStatus[]).includes(s)
+      const closed = (CLOSED_STATUSES as readonly CheckStatus[]).includes(s)
+      expect(live).not.toBe(closed)
+    }
+  })
+
+  it('counts a released cheque as closed even though it can still be voided', () => {
+    // RELEASED keeps an outgoing edge to VOIDED, so a terminality test derived
+    // from TRANSITIONS would read it as live. It is not: the money has moved.
+    expect(canTransition('RELEASED', 'VOIDED')).toBe(true)
+    expect(isLiveStatus('RELEASED')).toBe(false)
+    expect(isLiveStatus('READY_FOR_RELEASE')).toBe(true)
   })
 })

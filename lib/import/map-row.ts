@@ -1,7 +1,7 @@
 import type { NormalisedRow } from '@/lib/normalised-row'
 import { resolveCompany, type CompanyReferenceData } from './company'
 import { canonicalCheckNumber } from './normalise'
-import type { ParsedRow } from './parse'
+import type { ParsedRow, UnkeyedRow } from './parse'
 
 // One row of the client's check register -> the shared normalised row. The
 // workbook counterpart of `lib/integrations/acumatica/map.ts`, and pure for the
@@ -28,7 +28,17 @@ import type { ParsedRow } from './parse'
  */
 export const REGISTER_CURRENCY = 'PHP'
 
-export function mapParsedRow(parsed: ParsedRow, ref: CompanyReferenceData): NormalisedRow {
+/**
+ * `UnkeyedRow` is accepted alongside `ParsedRow` so the 66 register rows that
+ * carry no cheque number travel the SAME path as the other 12,161: one mapper,
+ * one company resolution, one currency default. `canonicalCheckNumber(null)` is
+ * null, so such a row arrives at `upsertCheck` with a null `checkNumber` and is
+ * staged NO_CHECK_NUMBER — which is what makes "every one of the register's
+ * 12,227 rows is either imported or sits in StagedCheck" true rather than
+ * aspirational. A separate mapper for them would be a second place for the
+ * payee rename and the PHP default to drift.
+ */
+export function mapParsedRow(parsed: ParsedRow | UnkeyedRow, ref: CompanyReferenceData): NormalisedRow {
   // `ParsedRow` structurally satisfies `CompanySignals`, so the two modules
   // wire together without either knowing about the other. The reconciliation
   // report calls `resolveCompany` again for `conflictedWith` — it is pure, so

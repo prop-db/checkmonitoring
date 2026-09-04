@@ -57,7 +57,21 @@ function amountKey(amount: string): string {
 }
 
 // A cheque dated far beyond the import is a data-entry error worth a human
-// look, not a rejection. The real register carries a 2028 date against 2026.
+// look, not a rejection.
+//
+// **It flags nothing on the 9.1.2026 register.** Re-measured 2026-09-04: no
+// parsed cheque date falls beyond 2026 at all (6 in 2024, 1,175 in 2025, 10,878
+// in 2026, 102 with no date). An earlier note here claimed the register carried
+// a 2028 date against 2026. It does not, and that is worth recording as wrong
+// rather than quietly deleting: all 83 cells in the workbook that read as a
+// far-future Excel serial sit in column J, and they are peso amounts — 46,400
+// to 48,000 is both an ordinary cheque amount and the serial range for
+// 2027-2031. Before `parseRows` began reading column J positionally as money,
+// one of those amounts could win the row's check date. Since it does, none can.
+// The 2028 date was a symptom of the old parser, not a fact about the register.
+//
+// The rule stays. Zero examples today is not a reason to stop looking for a
+// cheque dated 2031, and it costs one comparison per row.
 const IMPLAUSIBLE_MONTHS_AHEAD = 12
 
 export function reconcile(

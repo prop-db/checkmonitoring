@@ -5,6 +5,7 @@ import { canTransition, type CheckStatus } from '@/lib/domain/check-status'
 import { classifyEligibility, portalRoute } from '@/lib/domain/eligibility'
 import { DomainError } from '@/lib/domain/errors'
 import type { NormalisedRow } from '@/lib/normalised-row'
+import { classifyImportOutcome } from './classify'
 import { resolveImpliedStatus } from './implied-status'
 
 type Db = PrismaClient | Prisma.TransactionClient
@@ -118,20 +119,17 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
   // to avoid.
   const implied = resolveImpliedStatus(sheets)
 
-  const companies = [...new Set(args.companies ?? (row.companyCode ? [row.companyCode] : []))]
+  // The staging decision itself lives in `classifyImportOutcome`, which the
+  // import PREVIEW also calls. Keeping it there rather than here is what makes
+  // the preview's "2,766 of these will not import" a promise instead of an
+  // estimate. See that module for why the three tests are in the order they are.
+  const outcome = classifyImportOutcome(row, args.companies)
+  if (!outcome.write) {
+    return stageRow(db, row, implied.status, outcome.reason, outcome.conflictingCompanies)
+  }
+  const { checkNumber, companyCode } = outcome
 
-  // Staging order is the order in which a defect makes the row unwritable.
-  // A row with no cheque number cannot be keyed at all, so it is not in any
-  // group. AMBIGUOUS_COMPANY comes before NO_COMPANY so that every row of a
-  // contested cheque number lands in one bucket — including a row that resolves
-  // no company of its own, because splitting one cheque's evidence across two
-  // reasons is precisely what a human settling it must not have to notice.
-  const checkNumber = row.checkNumber
-  if (checkNumber === null) return stageRow(db, row, implied.status, 'NO_CHECK_NUMBER', [])
-  if (companies.length > 1) return stageRow(db, row, implied.status, 'AMBIGUOUS_COMPANY', companies)
-  if (row.companyCode === null) return stageRow(db, row, implied.status, 'NO_COMPANY', [])
-
-  const company = await db.company.findUnique({ where: { code: row.companyCode } })
+  const company = await db.company.findUnique({ where: { code: companyCode } })
   if (!company) {
     // A code the row states but no Company row carries is a seeding fault, not
     // a fact about the cheque. Staging it would bury a configuration error

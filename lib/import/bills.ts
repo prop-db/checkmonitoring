@@ -239,6 +239,83 @@ export type BillImportSummary = {
 }
 
 /**
+ * Which cheque each bill belongs to, or why it belongs to none. Reads; writes
+ * nothing.
+ *
+ * Extracted so the import PREVIEW can tell an operator how many of the 85 bills
+ * will find their cheque *before* anything is written, using the same matching
+ * the write path uses. A preview with its own lookup would be a second place
+ * for the "two matches is a review item, not a coin toss" rule to live.
+ */
+export async function matchBills(
+  db: Db,
+  bills: readonly ParsedBill[],
+): Promise<{ matched: { bill: ParsedBill; checkId: string }[]; unmatched: UnmatchedBill[] }> {
+  const matched: { bill: ParsedBill; checkId: string }[] = []
+  const unmatched: UnmatchedBill[] = []
+
+  for (const bill of bills) {
+    // Looked up on the cheque number alone rather than on
+    // `(companyId, checkNumber)`. The `bank` column would resolve a company for
+    // all 85 rows, but using it to *choose* between two cheques that share a
+    // number would be this module deciding which company a bill belongs to,
+    // which is exactly the ambiguity a human is meant to settle. Two matches is
+    // a review item, not a coin toss.
+    const matches = await db.check.findMany({
+      where: { checkNumber: bill.checkNumber },
+      select: { id: true, company: { select: { code: true } } },
+    })
+
+    if (matches.length === 1) {
+      matched.push({ bill, checkId: matches[0].id })
+      continue
+    }
+
+    // Not an error. A bill whose cheque is missing is expected: the cheque may
+    // be staged for want of a company, or simply absent from the register. The
+    // bill is kept whole and put in front of somebody rather than dropped.
+    unmatched.push({
+      sheet: bill.sheet,
+      row: bill.row,
+      checkNumber: bill.checkNumber,
+      apvNumber: bill.apvNumber,
+      reason: matches.length === 0 ? 'NO_MATCHING_CHECK' : 'AMBIGUOUS_CHECK',
+      companies: matches.map((m) => m.company.code),
+    })
+  }
+
+  return { matched, unmatched }
+}
+
+export type BillPreview = {
+  /** Every row on the `LIST` sheet: `bills + review` accounts for all of them. */
+  totalRows: number
+  bills: number
+  review: BillReviewItem[]
+  willImport: number
+  unmatched: UnmatchedBill[]
+}
+
+/**
+ * What importing this file would do, without doing it. Same shape of honesty
+ * the register preview owes: the rows that will NOT land are reported beside
+ * the ones that will, not inferred from a shortfall.
+ */
+export async function previewBillImport(
+  db: Db,
+  args: { bills: readonly ParsedBill[]; review: readonly BillReviewItem[] },
+): Promise<BillPreview> {
+  const { matched, unmatched } = await matchBills(db, args.bills)
+  return {
+    totalRows: args.bills.length + args.review.length,
+    bills: args.bills.length,
+    review: [...args.review],
+    willImport: matched.length,
+    unmatched,
+  }
+}
+
+/**
  * Hang parsed bill detail on the cheques that already exist. Writes `CheckBill`
  * rows and nothing else.
  *
@@ -257,36 +334,12 @@ export async function importBills(
   db: Db,
   args: { bills: readonly ParsedBill[]; now: Date },
 ): Promise<BillImportSummary> {
-  const summary: BillImportSummary = { bills: args.bills.length, created: 0, updated: 0, unmatched: [] }
+  const { matched, unmatched } = await matchBills(db, args.bills)
+  const summary: BillImportSummary = {
+    bills: args.bills.length, created: 0, updated: 0, unmatched,
+  }
 
-  for (const bill of args.bills) {
-    // Looked up on the cheque number alone rather than on
-    // `(companyId, checkNumber)`. The `bank` column would resolve a company for
-    // all 85 rows, but using it to *choose* between two cheques that share a
-    // number would be this module deciding which company a bill belongs to,
-    // which is exactly the ambiguity a human is meant to settle. Two matches is
-    // a review item, not a coin toss.
-    const matches = await db.check.findMany({
-      where: { checkNumber: bill.checkNumber },
-      select: { id: true, company: { select: { code: true } } },
-    })
-
-    if (matches.length !== 1) {
-      // Not an error. A bill whose cheque is missing is expected: the cheque may
-      // be staged for want of a company, or simply absent from the register.
-      // The bill is kept whole and put in front of somebody rather than dropped.
-      summary.unmatched.push({
-        sheet: bill.sheet,
-        row: bill.row,
-        checkNumber: bill.checkNumber,
-        apvNumber: bill.apvNumber,
-        reason: matches.length === 0 ? 'NO_MATCHING_CHECK' : 'AMBIGUOUS_CHECK',
-        companies: matches.map((m) => m.company.code),
-      })
-      continue
-    }
-
-    const checkId = matches[0].id
+  for (const { bill, checkId } of matched) {
     const data = {
       poNumber: bill.poNumber,
       description: bill.description,

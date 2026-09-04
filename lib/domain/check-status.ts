@@ -31,6 +31,50 @@ export function canTransition(from: CheckStatus, to: CheckStatus): boolean {
   return TRANSITIONS[from].includes(to)
 }
 
+/**
+ * The statuses at which a cheque has left the release workflow: the money has
+ * moved, or it never will.
+ *
+ * Stated explicitly rather than derived from `TRANSITIONS`, because RELEASED
+ * still has an outgoing edge (Acumatica can void a released cheque) and would
+ * therefore read as "live" under a terminality test. Nor is it derived from the
+ * enum's declaration order — Prisma will happily sort by that, and a future
+ * reordering of the enum would silently re-rank every queue built on it.
+ *
+ * This is what makes the staged queue usable. Measured 2026-09-04: of the
+ * register's 2,766 staged rows, 2,467 are RELEASED and 214 CANCELLED, leaving
+ * about 28 that are actually live work. A queue that does not separate the two
+ * buries the handful somebody has to do under two and a half thousand that
+ * nobody does.
+ */
+export const CLOSED_STATUSES = ['RELEASED', 'CANCELLED', 'VOIDED'] as const satisfies readonly CheckStatus[]
+
+export const LIVE_STATUSES = (
+  ['GENERATED', 'SIGNATURE_PENDING', 'SIGNED', 'READY_FOR_RELEASE', 'SCHEDULED'] as const
+) satisfies readonly CheckStatus[]
+
+export function isLiveStatus(status: CheckStatus): boolean {
+  return !(CLOSED_STATUSES as readonly CheckStatus[]).includes(status)
+}
+
+// Compile-time proof that the two lists above partition `CheckStatus` with
+// nothing left over. The runtime test in check-status.test.ts checks the same
+// thing, but against a hand-written `ALL` array that a ninth status would not
+// automatically join — so it would keep passing while the partition silently
+// developed a hole, and the staged queue would drop that status from every
+// scope of itself.
+//
+// Type-only: erased entirely at build, costs nothing at runtime, and keeps this
+// module free of imports. Same idiom as lib/status-bridge.ts. Adding a status
+// to the union without adding it to one of the lists fails here with TS2344.
+type AssertNever<T extends never> = T
+export type _EveryStatusIsLiveOrClosed = AssertNever<
+  Exclude<CheckStatus, (typeof LIVE_STATUSES)[number] | (typeof CLOSED_STATUSES)[number]>
+>
+export type _NoStatusIsBoth = AssertNever<
+  Extract<(typeof LIVE_STATUSES)[number], (typeof CLOSED_STATUSES)[number]>
+>
+
 export function assertTransition(from: CheckStatus, to: CheckStatus): void {
   if (!canTransition(from, to)) {
     throw new DomainError('ILLEGAL_TRANSITION', `Cannot move a check from ${from} to ${to}.`)

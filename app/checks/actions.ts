@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/db'
 import { requireUser } from '@/lib/auth'
 import { DomainError } from '@/lib/domain/errors'
+import { isNextControlFlowError } from '@/lib/next-errors'
 import {
   markSigned, markReadyForRelease, revertAvailability,
   markReleased, recordClearing, cancelCheck,
@@ -33,11 +34,7 @@ async function run(checkId: string, fn: () => Promise<unknown>): Promise<ActionR
   } catch (e) {
     if (e instanceof DomainError) return { ok: false, message: e.message }
     // Next implements redirect()/notFound() by throwing; these must propagate.
-    if (e && typeof e === 'object' && 'digest' in e && typeof (e as { digest: unknown }).digest === 'string'
-        && ((e as { digest: string }).digest.startsWith('NEXT_REDIRECT')
-            || (e as { digest: string }).digest === 'NEXT_NOT_FOUND')) {
-      throw e
-    }
+    if (isNextControlFlowError(e)) throw e
     console.error(e)
     return { ok: false, message: 'Something went wrong. Please try again.' }
   }

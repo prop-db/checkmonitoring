@@ -27,7 +27,32 @@ export type ParsedRow = {
   unclassified: string[]
 }
 
-export type ReviewItem = { sheet: string; row: number; reason: 'NO_CHECK_NUMBER'; cells: unknown[] }
+/**
+ * A row as far as it parsed, with no cheque number. `checkNumber` is `null` by
+ * construction rather than optional: this is the shape of a row that failed the
+ * one narrowing test in `parseRows`, not a half-built one.
+ */
+export type UnkeyedRow = Omit<ParsedRow, 'checkNumber'> & { checkNumber: null }
+
+export type ReviewItem = {
+  sheet: string
+  row: number
+  reason: 'NO_CHECK_NUMBER'
+  cells: unknown[]
+  /**
+   * Everything the row DID say — payee, amount, date, category, APVs.
+   *
+   * Carried so the 66 register rows that cannot be keyed reach `StagedCheck`
+   * as legible cheques rather than as a sheet name and a row number. They are
+   * staged, not discarded (see `StagedReason.NO_CHECK_NUMBER`), and a staged
+   * row a human cannot recognise is only nominally better than a dropped one.
+   *
+   * Re-deriving these from `cells` at the staging site would mean a second copy
+   * of the payee and amount column rules, which is how the two ends of this
+   * importer drift apart.
+   */
+  unkeyed: UnkeyedRow
+}
 
 // The amount is column J on every sheet, headed "CHECK AMOUNT" or "AMOUNT".
 // Measured over the register's 12,227 data rows: 11,827 numbers, 260 empty,
@@ -138,12 +163,6 @@ export function parseRows(rows: RawRow[]): { parsed: ParsedRow[]; review: Review
       }
     }
 
-    const checkNumber = r.checkNumber
-    if (!checkNumber) {
-      review.push({ sheet: raw.sheet, row: raw.row, reason: 'NO_CHECK_NUMBER', cells: raw.cells })
-      continue
-    }
-
     // 1,508 distinct cells in the register hold a PO number followed by its
     // description in one cell:
     //   "PO-ST-027363 WEEKLY DIRECT (DISNEY) D2, D5, D7 ... (11 PAX)"
@@ -186,6 +205,21 @@ export function parseRows(rows: RawRow[]): { parsed: ParsedRow[]; review: Review
       atColumn instanceof Date || sniff(atColumn) !== 'UNKNOWN' ? null : cleanCell(atColumn)
 
     r.payee = fromColumn && /[A-Za-z]/.test(fromColumn) ? fromColumn : null
+
+    // The cheque-number test comes AFTER the payee and PO recovery above, not
+    // before it. Both are pure functions of the cells and of nothing else, so
+    // moving them ahead of the test changes no parsed row — and it means a row
+    // that cannot be keyed still carries its payee, amount and PO into the
+    // review queue, and from there onto the `StagedCheck` row a human has to
+    // recognise. Do not "tidy" the guard back above them.
+    const checkNumber = r.checkNumber
+    if (!checkNumber) {
+      review.push({
+        sheet: raw.sheet, row: raw.row, reason: 'NO_CHECK_NUMBER', cells: raw.cells,
+        unkeyed: { ...r, checkNumber: null },
+      })
+      continue
+    }
 
     // The one narrowing point: past the guard above, the cheque number is known
     // to exist, so the row satisfies ParsedRow rather than Draft.

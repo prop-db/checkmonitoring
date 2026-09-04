@@ -1,0 +1,236 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import ExcelJS from 'exceljs'
+import { testDb, resetDb } from '../helpers/db'
+
+// A mutable session, so one file can exercise both roles. Both admin actions
+// must refuse a FINANCE_USER by RETURNING a result, never by redirecting:
+// `requireAdmin` redirects, and a redirect thrown inside an action is caught by
+// its own error handling and reported as "something went wrong".
+const currentUser: { id: string; email: string; name: string; role: 'FINANCE_USER' | 'FINANCE_ADMIN' } = {
+  id: '', email: 'admin@rcl.test', name: 'Finance Admin', role: 'FINANCE_ADMIN',
+}
+
+vi.mock('@/lib/auth', () => ({
+  requireUser: async () => currentUser,
+  requireAdmin: async () => currentUser,
+}))
+vi.mock('@/lib/db', async () => {
+  const { testDb } = await import('../helpers/db')
+  return { prisma: testDb }
+})
+vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
+
+// The feed is injected rather than reached: no admin test may depend on the
+// network, and the credentials this module reads must never be needed to run
+// the suite.
+const feed: { rows: unknown[]; fail: Error | null } = { rows: [], fail: null }
+vi.mock('@/lib/integrations/acumatica/from-env', () => ({
+  createClientForTenant: () => ({
+    fetchPage: async () => [],
+    fetchAll: async () => {
+      if (feed.fail) throw feed.fail
+      return feed.rows
+    },
+  }),
+}))
+
+beforeEach(async () => {
+  await resetDb()
+  feed.rows = []
+  feed.fail = null
+  currentUser.role = 'FINANCE_ADMIN'
+
+  const user = await testDb.user.create({
+    data: { email: `a${Math.random().toString(36).slice(2)}@rcl.test`, name: 'Finance Admin', passwordHash: 'x', role: 'FINANCE_ADMIN' },
+  })
+  currentUser.id = user.id
+
+  const company = await testDb.company.create({
+    data: { code: 'STK', name: 'Starkson Packaging Inc.', legalNames: ['STARKSON PACKAGING INC.'] },
+  })
+  const bank = await testDb.bank.create({ data: { code: 'BPI', name: 'BPI' } })
+  await testDb.cashAccount.create({ data: { code: 'BPI STK', bankId: bank.id, companyId: company.id } })
+  await testDb.checkBook.create({ data: { code: 'BPI-S-4636', bankId: bank.id, companyId: company.id } })
+})
+
+const fd = (entries: Record<string, string | File>) => {
+  const f = new FormData()
+  for (const [k, v] of Object.entries(entries)) f.append(k, v)
+  return f
+}
+
+async function xlsx(sheets: Record<string, unknown[][]>): Promise<File> {
+  const wb = new ExcelJS.Workbook()
+  for (const [name, rows] of Object.entries(sheets)) {
+    const sheet = wb.addWorksheet(name)
+    for (const r of rows) sheet.addRow(r)
+  }
+  const buffer = await wb.xlsx.writeBuffer()
+  return new File([buffer], 'workbook.xlsx')
+}
+
+// Column positions that matter to the register parser: E (index 4) is the
+// payee and J (index 9) is the amount, both read positionally.
+const HEADER = ['CHECK NO.', '', '', '', 'PAYEE', '', '', '', '', 'AMOUNT', '', 'CHECK BOOK']
+const registerRow = (
+  checkNumber: string, payee: string, amount: number, checkBook: string | null,
+) => [checkNumber, '', '', '', payee, '', '', '', '', amount, '', checkBook]
+
+const registerFile = () =>
+  xlsx({
+    'BPI RELEASED': [
+      HEADER,
+      registerRow('6000000001', 'HENKEL PHILIPPINES INC.', 100.5, 'BPI-S-4636'),
+      // No checkbook and no cash account: nothing says which company's cheque
+      // this is, so it stages rather than importing.
+      registerRow('6000000002', 'GDSM MARKETING', 200, null),
+      // No cheque number at all: cannot be keyed.
+      ['', '', '', '', 'AJZ PAINT CENTER', '', '', '', '', 300, '', null],
+    ],
+  })
+
+describe('syncNowAction', () => {
+  it('refuses a Finance user with a result rather than a redirect', async () => {
+    const { syncNowAction } = await import('@/app/admin/actions')
+    currentUser.role = 'FINANCE_USER'
+    const result = await syncNowAction(fd({ tenant: 'GOLIVE' }))
+    expect(result.ok).toBe(false)
+    expect(result.ok === false && result.message).toMatch(/Finance Admin/)
+    expect(await testDb.syncRun.count()).toBe(0)
+  })
+
+  it('refuses a tenant it does not recognise', async () => {
+    const { syncNowAction } = await import('@/app/admin/actions')
+    // The two tenants reuse branch codes for different companies. A run that
+    // guessed would file cheques under the wrong legal entity.
+    const result = await syncNowAction(fd({ tenant: 'PRODUCTION' }))
+    expect(result.ok).toBe(false)
+    expect(await testDb.syncRun.count()).toBe(0)
+  })
+
+  it('records the run against the tenant it read', async () => {
+    const { syncNowAction } = await import('@/app/admin/actions')
+    const result = await syncNowAction(fd({ tenant: 'MANUFACTURING' }))
+    expect(result.ok).toBe(true)
+    const run = await testDb.syncRun.findFirstOrThrow()
+    expect(run.tenant).toBe('MANUFACTURING')
+  })
+
+  it('reports a failed feed without putting its text in front of the user', async () => {
+    const { syncNowAction } = await import('@/app/admin/actions')
+    feed.fail = new Error('OData request to https://erp.example/odata?token=SECRET failed')
+    const result = await syncNowAction(fd({ tenant: 'GOLIVE' }))
+    expect(result.ok).toBe(false)
+    expect(result.ok === false && result.message).not.toMatch(/SECRET/)
+    // The run itself is still recorded, with its error count, so the failure is
+    // not invisible.
+    const run = await testDb.syncRun.findFirstOrThrow()
+    expect(run.errors).toBe(1)
+  })
+})
+
+describe('importWorkbookAction', () => {
+  it('refuses a Finance user with a result rather than a redirect', async () => {
+    const { importWorkbookAction } = await import('@/app/admin/actions')
+    currentUser.role = 'FINANCE_USER'
+    const result = await importWorkbookAction(fd({ workbook: await registerFile() }))
+    expect(result.ok).toBe(false)
+    expect(result.ok === false && result.message).toMatch(/Finance Admin/)
+  })
+
+  it('asks for a file rather than throwing when none was chosen', async () => {
+    const { importWorkbookAction } = await import('@/app/admin/actions')
+    const result = await importWorkbookAction(fd({}))
+    expect(result.ok).toBe(false)
+  })
+
+  it('previews the register and writes absolutely nothing', async () => {
+    const { importWorkbookAction } = await import('@/app/admin/actions')
+    const result = await importWorkbookAction(fd({ workbook: await registerFile() }))
+    expect(result.ok).toBe(true)
+    if (!result.ok || result.kind !== 'REGISTER') throw new Error('expected a register preview')
+    expect(result.stage).toBe('PREVIEW')
+    expect(await testDb.check.count()).toBe(0)
+    expect(await testDb.stagedCheck.count()).toBe(0)
+  })
+
+  it('shows what will not be imported next to what will', async () => {
+    const { importWorkbookAction } = await import('@/app/admin/actions')
+    const result = await importWorkbookAction(fd({ workbook: await registerFile() }))
+    if (!result.ok || result.kind !== 'REGISTER') throw new Error('expected a register preview')
+    expect(result.preview.totalRows).toBe(3)
+    expect(result.preview.willImport).toBe(1)
+    expect(result.preview.willStage).toBe(2)
+    expect(result.preview.stagedByReason).toEqual({
+      NO_COMPANY: 1, NO_CHECK_NUMBER: 1, AMBIGUOUS_COMPANY: 0,
+    })
+    // Openable: each staged row is carried, not just counted.
+    expect(result.preview.stagedRows.map((r) => r.reason).sort()).toEqual(['NO_CHECK_NUMBER', 'NO_COMPANY'])
+  })
+
+  it('imports only once the merge list and the accounting have been confirmed', async () => {
+    const { importWorkbookAction } = await import('@/app/admin/actions')
+    const file = await registerFile()
+    const result = await importWorkbookAction(fd({ workbook: file, confirm: 'true' }))
+    expect(result.ok).toBe(true)
+    if (!result.ok || result.kind !== 'REGISTER' || result.stage !== 'IMPORTED') {
+      throw new Error('expected a completed register import')
+    }
+    expect(result.summary).toMatchObject({ rows: 3, created: 1, updated: 0, staged: 2 })
+    expect(await testDb.check.count()).toBe(1)
+    // Both unwritable rows are held, not dropped.
+    expect(await testDb.stagedCheck.count()).toBe(2)
+  })
+
+  it('creates nothing new when the same workbook is imported again', async () => {
+    const { importWorkbookAction } = await import('@/app/admin/actions')
+    await importWorkbookAction(fd({ workbook: await registerFile(), confirm: 'true' }))
+    const second = await importWorkbookAction(fd({ workbook: await registerFile(), confirm: 'true' }))
+    if (!second.ok || second.kind !== 'REGISTER' || second.stage !== 'IMPORTED') {
+      throw new Error('expected a completed register import')
+    }
+    expect(second.summary).toMatchObject({ created: 0, updated: 1, staged: 2 })
+    expect(await testDb.check.count()).toBe(1)
+    expect(await testDb.stagedCheck.count()).toBe(2)
+  })
+
+  it('recognises the approval-for-release workbook without being told', async () => {
+    const { importWorkbookAction } = await import('@/app/admin/actions')
+    const cells: unknown[] = new Array(22).fill(null)
+    cells[2] = 'AP-ST040284'
+    cells[6] = 'FREIGHT'
+    cells[9] = 1234.56
+    cells[20] = 6000000001
+    cells[21] = 'BPI STK'
+    const file = await xlsx({ LIST: [new Array(22).fill('H'), cells], PIVOT: [['H'], ['x']] })
+
+    const result = await importWorkbookAction(fd({ workbook: file }))
+    expect(result.ok).toBe(true)
+    if (!result.ok || result.kind !== 'BILLS') throw new Error('expected a bill preview')
+    expect(result.preview.bills).toBe(1)
+    // No cheque exists yet, so the bill goes to review rather than being dropped.
+    expect(result.preview.unmatched).toHaveLength(1)
+  })
+
+  it('refuses the whole workbook when one cheque carries a clash nobody has ruled on', async () => {
+    const { importWorkbookAction } = await import('@/app/admin/actions')
+    // RELEASED + FT_MC is not in the 2026-09-03 ruling table.
+    // `resolveImpliedStatus` throws on it by design; the preview catches that so
+    // the operator still sees the accounting, and the import refuses outright
+    // rather than writing nine thousand rows and stopping on the next one.
+    const file = await xlsx({
+      'BPI RELEASED': [HEADER, registerRow('6000000001', 'HENKEL PHILIPPINES INC.', 100.5, 'BPI-S-4636')],
+      'FT & MC': [HEADER, registerRow('6000000001', 'HENKEL PHILIPPINES INC.', 100.5, 'BPI-S-4636')],
+    })
+    const result = await importWorkbookAction(fd({ workbook: file, confirm: 'true' }))
+    expect(result.ok).toBe(false)
+    expect(await testDb.check.count()).toBe(0)
+  })
+
+  it('refuses a file that is neither workbook rather than parsing it as one', async () => {
+    const { importWorkbookAction } = await import('@/app/admin/actions')
+    const file = await xlsx({ Sheet1: [['a'], ['b']] })
+    const result = await importWorkbookAction(fd({ workbook: file }))
+    expect(result.ok).toBe(false)
+  })
+})

@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { requireUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { getSummary, listChecks, countChecks } from '@/lib/queries'
@@ -36,7 +37,15 @@ export default async function DashboardPage({
     <main className="mx-auto max-w-[1600px] space-y-6 p-8">
       <header className="flex items-baseline justify-between">
         <h1 className="text-xl font-semibold tracking-wide">CHECK RELEASE MONITORING</h1>
-        <p className="text-sm text-slate-500">{user.name} · {user.role.replace(/_/g, ' ')}</p>
+        <p className="flex items-baseline gap-4 text-sm text-slate-500">
+          {/* Shown only to an admin. The route is guarded server-side either
+              way (app/admin/layout.tsx); hiding the link keeps a Finance user
+              from being offered a page that would bounce them back here. */}
+          {user.role === 'FINANCE_ADMIN' && (
+            <Link href="/admin/sync" className="underline underline-offset-2">ADMINISTRATION</Link>
+          )}
+          <span>{user.name} · {user.role.replace(/_/g, ' ')}</span>
+        </p>
       </header>
 
       <SummaryCards summary={summary} />

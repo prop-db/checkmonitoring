@@ -2157,6 +2157,30 @@ Finance. **Measured by implied status, that was wrong:**
 reconciles those in the Supplier Portal's payment module or directly in Acumatica — this system is
 not their system of record and does not need to be.
 
+**Re-measured 2026-09-04 during Task 10, with the 66 assigned a status too.** The table above is
+correct, and is a breakdown of the **2,700 keyed** staged rows with the 66 unkeyable ones held
+apart. Task 10 stages those 66 as well rather than leaving them in a parse-review queue, and
+`StagedCheck.impliedStatus` is NOT NULL — so each of them now carries the status its own sheet
+implies. That changes neither the 2,766 total nor the ruling; it moves rows out of the fourth line
+above and into the first three:
+
+| implied status | keyed staged rows (2,700) | the 66 unkeyable | all 2,766 |
+| --- | ---: | ---: | ---: |
+| RELEASED | 2,467 | 11 | 2,478 |
+| CANCELLED | 214 | 19 | 233 |
+| SIGNATURE_PENDING | 19 | 33 | 52 |
+| READY_FOR_RELEASE | 0 | 3 | 3 |
+| **live** | **19** | **36** | **55** |
+
+**So the staged queue's default LIVE scope shows 55 rows, not 19.** Quote that figure carefully.
+27 of the 36 additions are FT & MC rows, and `implied-status.ts` maps FT_MC to SIGNATURE_PENDING
+because that sheet asserts nothing about signing or release — not because a fund transfer is
+waiting for a signature. The count of staged cheques that are genuinely somebody's work is nearer
+the original 19 than 55. Either way it is not a cleanup project, and the ruling below stands.
+
+The "about 28" above is not reproducible from any of these measurements. The measured live counts
+are **19** keyed and **55** including the unkeyable rows; prefer those.
+
 Consequences for this plan and for Plan 3:
 
 - **Do not build a bulk staged-row correction workflow.** It would serve ~28 rows. The staged queue
