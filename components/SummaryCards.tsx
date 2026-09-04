@@ -65,13 +65,30 @@ function CurrencyBreakdown({ totalsByCurrency }: { totalsByCurrency: CurrencyTot
 // daily Finance activity and leads the row.
 export function SummaryCards({ summary }: { summary: Summary }) {
   return (
-    <section className="grid grid-cols-2 gap-4 lg:grid-cols-4 xl:grid-cols-8">
-      <Card label="READY FOR RELEASE" value={String(summary.readyForRelease)} accent />
-      <Card label="SCHEDULED" value={String(summary.scheduled)} />
-      <Card label="PENDING SIGNATURE" value={String(summary.pendingSignature)} />
-      <Card label="RELEASED" value={String(summary.released)} />
-      <Card label="SIGNED" value={String(summary.signed)} />
-      <Card label="TOTAL CHECKS" value={String(summary.total)} />
+    <section className="grid grid-cols-2 gap-4 lg:grid-cols-4 xl:grid-cols-7">
+      {/* Every card filters the table below it. A number a user cannot act on
+          invites them to hunt for the rows by hand, which is what the search
+          box was being used for.
+
+          SCHEDULED has no card of its own. To Finance the two are one state —
+          the cheque is available and waiting to be handed over — and a card
+          reading 0 forever is furniture. The STATUS is NOT removed: a portal
+          pickup confirmation moves READY_FOR_RELEASE -> SCHEDULED and must
+          still have somewhere to land, so the count is folded in here rather
+          than dropped, and the link matches both. */}
+      <Card
+        label="READY FOR RELEASE"
+        value={String(summary.readyForRelease + summary.scheduled)}
+        accent
+        href="/?status=READY_FOR_RELEASE"
+      />
+      <Card label="PENDING SIGNATURE" value={String(summary.pendingSignature)} href="/?status=SIGNATURE_PENDING" />
+      <Card label="SIGNED" value={String(summary.signed)} href="/?status=SIGNED" />
+      <Card label="RELEASED" value={String(summary.released)} href="/?status=RELEASED&scope=all" />
+      {/* `scope=all` because the live-status default would otherwise hide every
+          row this card counts, and a card that opens an empty table reads as a
+          bug in the count rather than a filter doing its job. */}
+      <Card label="TOTAL CHECKS" value={String(summary.total)} href="/?scope=all" />
       {/* 129 cheques in production whose amount the register never recorded.
           They are NOT part of the value beside them and never were — SQL SUM()
           skips a null — so the two cards sit next to each other deliberately:
@@ -80,7 +97,7 @@ export function SummaryCards({ summary }: { summary: Summary }) {
         label="INCOMPLETE (NO AMOUNT)"
         value={String(summary.incomplete)}
         tone={summary.incomplete > 0 ? 'warn' : 'plain'}
-        href="/?incomplete=1"
+        href="/?incomplete=1&scope=all"
       />
       <Card label="TOTAL CHECK VALUE" value={<CurrencyBreakdown totalsByCurrency={summary.totalsByCurrency} />} />
     </section>

@@ -9,9 +9,17 @@ describe('impliedStatus', () => {
     expect(impliedStatus('STK P&P RELEASED')).toBe('RELEASED')
   })
 
-  it('maps an AVAIL. sheet to READY_FOR_RELEASE, not to a status of its own', () => {
-    // The register's word is AVAILABLE; the ladder's rung is READY_FOR_RELEASE.
-    expect(impliedStatus('MBTC AVAIL.')).toBe('READY_FOR_RELEASE')
+  it('maps an AVAIL. sheet to SIGNED, because available is not approved', () => {
+    // Was READY_FOR_RELEASE until 2026-09-04, when Finance saw 396 cheques on
+    // the dashboard where they expected 85: "checks available are signed checks
+    // but not yet ready to release". The AVAIL. sheets hold cheques that have
+    // been signed and are physically in hand; approving one for release is a
+    // separate act, recorded in the APPROVAL FOR RELEASE workbook.
+    //
+    // Do not restore the old mapping. It offered 311 cheques to Finance as
+    // ready to hand over when they had not been approved, and it did so
+    // silently — each was a real cheque at a real rung, one rung too high.
+    expect(impliedStatus('MBTC AVAIL.')).toBe('SIGNED')
   })
 
   it('maps CANCELLED', () => {
@@ -112,7 +120,7 @@ describe('resolveImpliedStatus', () => {
   it('resolves AVAILABLE + FINDING to AVAILABLE', () => {
     // 1 cheque, and the reason FINDING is not a rung: it does not pull the
     // cheque back down the ladder.
-    expect(resolveImpliedStatus(['MBTC AVAIL.', 'CHECK FINDING']).status).toBe('READY_FOR_RELEASE')
+    expect(resolveImpliedStatus(['MBTC AVAIL.', 'CHECK FINDING']).status).toBe('SIGNED')
     expect(resolveImpliedStatus(['MBTC AVAIL.', 'CHECK FINDING']).resolvedFrom).toBe('AVAILABLE')
   })
 

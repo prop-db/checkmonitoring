@@ -5,8 +5,19 @@ import { IMPLIED_STATUS, registerStatus, type RegisterStatus } from './reconcile
 // The register's vocabulary is not the release ladder's, and the gap is not
 // cosmetic:
 //
-//   AVAILABLE — the register's word for the rung this system calls
-//               READY_FOR_RELEASE.
+//   AVAILABLE — NOT this system's READY_FOR_RELEASE. Corrected 2026-09-04
+//               after Finance saw 396 cheques on the dashboard where they
+//               expected 85: "checks available are signed checks but not yet
+//               ready to release". The AVAIL. sheets are the cheques that have
+//               been signed and are physically in hand; approving one for
+//               release is a separate act, recorded in a separate workbook
+//               (APPROVAL FOR RELEASE), and it is that list — 85 rows — that
+//               feeds READY_FOR_RELEASE.
+//
+//               Reading it as READY_FOR_RELEASE put 396 cheques in front of
+//               Finance as ready to hand over when only 85 had been approved.
+//               The failure was silent: every one of them was a real cheque at
+//               a real rung, just one rung too high.
 //   FINDING   — not a rung at all. A finding is a query raised against a
 //               cheque, so the cheque stays where it sat, at SIGNATURE_PENDING,
 //               and the caller records a remark saying why. Mapping it to a
@@ -19,7 +30,7 @@ import { IMPLIED_STATUS, registerStatus, type RegisterStatus } from './reconcile
 // the same cheque.
 const TO_CHECK_STATUS: Readonly<Record<RegisterStatus, CheckStatus>> = {
   RELEASED: 'RELEASED',
-  AVAILABLE: 'READY_FOR_RELEASE',
+  AVAILABLE: 'SIGNED',
   CANCELLED: 'CANCELLED',
   FINDING: 'SIGNATURE_PENDING',
   FT_MC: 'SIGNATURE_PENDING',

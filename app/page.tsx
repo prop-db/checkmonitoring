@@ -45,13 +45,30 @@ export default async function DashboardPage({
    * the filtered subset would read as a total while meaning something else.
    */
   const showAll = params.scope === 'all'
+
+  /**
+   * READY FOR RELEASE means both rungs.
+   *
+   * To Finance the cheque is available and waiting to be handed over; whether a
+   * supplier has booked a pickup slot in the portal is a detail, not a separate
+   * queue, so the dashboard shows one card counting both. The filter has to
+   * agree with the card — a card reading 406 that opens a table of 396 is a bug
+   * report waiting to happen.
+   *
+   * The SCHEDULED status itself is untouched: a portal pickup confirmation
+   * still moves READY_FOR_RELEASE -> SCHEDULED, and `applyPickupConfirmation`
+   * still refuses every other transition.
+   */
+  const AVAILABLE: readonly CheckStatus[] = ['READY_FOR_RELEASE', 'SCHEDULED']
+  const foldsScheduled = status === 'READY_FOR_RELEASE'
+
   const filters = {
     q: params.q,
-    status,
+    status: foldsScheduled ? undefined : status,
     incomplete,
     // An explicit status from the dropdown wins over the scope — including
     // RELEASED, which the live list excludes.
-    statusIn: status || showAll ? undefined : LIVE_STATUSES,
+    statusIn: foldsScheduled ? AVAILABLE : status || showAll ? undefined : LIVE_STATUSES,
   }
 
   const [summary, rows, matching] = await Promise.all([
