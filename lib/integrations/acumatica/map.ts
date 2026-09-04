@@ -139,7 +139,7 @@ export function mapPayment(row: unknown, tenant: AcumaticaTenant): NormalisedRow
     orNull(r.PaymentMethod)?.toUpperCase() === CHEQUE_PAYMENT_METHOD &&
     !(branch !== null && NON_CHEQUE_BRANCHES.has(branch.toUpperCase()))
 
-  // What the feed printed, and what it means as a key. They differ on 90.8% of
+  // What the feed printed, and what it means as a key. They differ on 90.0% of
   // rows, where Acumatica writes `BPI 6000240287` for the cheque the register
   // writes `6000240287`; canonicalising is what stops one physical cheque being
   // stored twice, once per source. See `canonicalCheckNumber`.
