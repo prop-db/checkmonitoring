@@ -1,5 +1,23 @@
 export type Eligibility = 'SUPPLIER' | 'BROKER' | 'INTERNAL'
 
+/**
+ * Every eligibility, in the order the dashboard's dropdown offers them.
+ *
+ * Declared here rather than restated in the UI so a fourth classification
+ * cannot appear in the domain while the filter bar goes on offering three — the
+ * same drift `LIVE_STATUSES` exists to prevent for statuses. The `AssertNever`
+ * below is the compile-time proof that the list is complete: adding a value to
+ * the union without adding it here fails with TS2344.
+ *
+ * Type-only, erased at build, and costs nothing at runtime.
+ */
+export const ELIGIBILITIES = ['SUPPLIER', 'BROKER', 'INTERNAL'] as const satisfies readonly Eligibility[]
+
+type AssertNever<T extends never> = T
+export type _EveryEligibilityIsListed = AssertNever<
+  Exclude<Eligibility, (typeof ELIGIBILITIES)[number]>
+>
+
 export type EligibilityInput = {
   // Nullable because `Check.payeeName` is: 153 register rows record no payee.
   // This is a widening of an existing safe path, not a new branch — `norm`

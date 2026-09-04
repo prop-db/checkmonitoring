@@ -12,6 +12,11 @@ export async function makeCheck(overrides: {
   status?: CheckStatus
   eligibility?: Eligibility
   checkNumber?: string
+  // `null` is meaningful and cannot be collapsed into the default with `??`:
+  // 38 live cheques carry no check date, and the dashboard's default sort has
+  // to put those last rather than first. Uses `=== undefined` below, for the
+  // same reason `amount` and `payeeName` do.
+  checkDate?: Date | null
   availablePickupDate?: Date | null
   isCheque?: boolean
   currency?: string
@@ -36,7 +41,7 @@ export async function makeCheck(overrides: {
       companyId: company.id,
       cashAccountId: cashAccount.id,
       checkNumber: overrides.checkNumber ?? `600${Math.floor(Math.random() * 10_000_000)}`,
-      checkDate: new Date('2026-09-01'),
+      checkDate: overrides.checkDate === undefined ? new Date('2026-09-01') : overrides.checkDate,
       amount,
       // Derived here for the same reason `upsertCheck` derives it: a fixture
       // whose flag disagrees with its own amount is a fixture that would let a

@@ -1,4 +1,6 @@
 import type { Prisma, PrismaClient, CheckStatus, Eligibility } from '@prisma/client'
+import { LIVE_STATUSES, CLOSED_STATUSES } from './domain/check-status'
+import { ELIGIBILITIES } from './domain/eligibility'
 
 type Db = PrismaClient | Prisma.TransactionClient
 
@@ -138,8 +140,24 @@ export async function listChecks(db: Db, filters: CheckFilters, limit = 200) {
     // All bills, not just the first: search matches APV/PO across every bill on
     // a check, so showing only `bills[0]` would display a different APV than the
     // one the user searched for — indistinguishable from a false positive.
-    include: { company: true, cashAccount: true, bills: { orderBy: { apvNumber: 'asc' } } },
-    orderBy: [{ checkDate: 'desc' }, { checkNumber: 'asc' }],
+    //
+    // `cashAccount.bank` feeds the BANK column. One nested include, not a
+    // second query per row.
+    include: {
+      company: true,
+      cashAccount: { include: { bank: true } },
+      bills: { orderBy: { apvNumber: 'asc' } },
+    },
+    /**
+     * `nulls: 'last'`, and it is not cosmetic.
+     *
+     * Postgres sorts NULLs FIRST on a descending sort. `checkDate` is nullable
+     * — 38 live cheques carry no date — so a plain `{ checkDate: 'desc' }` put
+     * every one of them at the top and the dashboard opened on a first screen
+     * of nothing but em dashes, with the cheques Finance actually has to act on
+     * pushed below the fold. Pinned by test in tests/queries.test.ts.
+     */
+    orderBy: [{ checkDate: { sort: 'desc', nulls: 'last' } }, { checkNumber: 'asc' }],
     take: limit,
   })
 }
@@ -149,6 +167,80 @@ export async function listChecks(db: Db, filters: CheckFilters, limit = 200) {
 // than silently truncating under a summary card reporting the full count.
 export async function countChecks(db: Db, filters: CheckFilters): Promise<number> {
   return db.check.count({ where: buildWhere(filters) })
+}
+
+/**
+ * The values the filter bar's dropdowns offer, read from the database.
+ *
+ * Loaded, never hardcoded: a ninth company or a seventh cash account has to
+ * appear on the filter bar without a code change, and a hardcoded list would
+ * quietly stop offering whatever was added last.
+ *
+ * The shape is plain strings only — this is rendered by a server component but
+ * is also the set an id is validated against, and keeping it serialisable means
+ * it can cross to the browser unchanged if the filter bar ever becomes
+ * interactive.
+ */
+export type CompanyOption = { id: string; code: string; name: string }
+export type CashAccountOption = { id: string; code: string; bankCode: string }
+export type FilterOptions = { companies: CompanyOption[]; cashAccounts: CashAccountOption[] }
+
+export async function getFilterOptions(db: Db): Promise<FilterOptions> {
+  const [companies, cashAccounts] = await Promise.all([
+    db.company.findMany({ orderBy: { code: 'asc' }, select: { id: true, code: true, name: true } }),
+    db.cashAccount.findMany({
+      orderBy: { code: 'asc' },
+      select: { id: true, code: true, bank: { select: { code: true } } },
+    }),
+  ])
+  return {
+    companies,
+    cashAccounts: cashAccounts.map((a) => ({ id: a.id, code: a.code, bankCode: a.bank.code })),
+  }
+}
+
+/**
+ * Every status on the ladder, assembled from the two lists that already
+ * partition it rather than restated. `lib/domain/check-status.ts` carries a
+ * compile-time proof that LIVE and CLOSED cover `CheckStatus` exactly once
+ * each, so this can neither miss a status nor offer one twice.
+ */
+export const ALL_STATUSES: readonly CheckStatus[] = [...LIVE_STATUSES, ...CLOSED_STATUSES]
+
+export { ELIGIBILITIES }
+
+/**
+ * The URL parameter validators.
+ *
+ * Every one of these answers `undefined` for a value it does not recognise,
+ * which `buildWhere` reads as "do not filter on this". That is deliberate and
+ * is the behaviour `status` already had: a hand-edited or stale bookmarked link
+ * must open the dashboard unfiltered rather than hand Prisma an invalid enum
+ * value and 500 the page. Never widen these to a cast.
+ */
+export function parseStatusParam(value: string | undefined): CheckStatus | undefined {
+  return value && (ALL_STATUSES as readonly string[]).includes(value)
+    ? (value as CheckStatus)
+    : undefined
+}
+
+export function parseEligibilityParam(value: string | undefined): Eligibility | undefined {
+  return value && (ELIGIBILITIES as readonly string[]).includes(value)
+    ? (value as Eligibility)
+    : undefined
+}
+
+/**
+ * A company or cash account id, checked against the rows actually loaded from
+ * the database. Unlike a status this could not crash Prisma — any string is a
+ * legal id — but an unrecognised one returns a silently empty table that reads
+ * as "there are no cheques" rather than "that filter no longer exists".
+ */
+export function parseOptionId(
+  value: string | undefined,
+  options: readonly { id: string }[],
+): string | undefined {
+  return value && options.some((o) => o.id === value) ? value : undefined
 }
 
 export type CheckRow = Awaited<ReturnType<typeof listChecks>>[number]
@@ -176,6 +268,16 @@ export type CheckTableRow = {
   apvNumbers: string[]
   payeeName: string | null
   companyCode: string
+  /**
+   * The BANK column. `cashAccountCode` is the label Finance uses out loud
+   * ("BPI STK"); `bankCode` is the institution behind it. Both are plain
+   * strings or null — NOT the `CashAccount` or `Bank` model instance, which is
+   * a class and would throw at the server/client boundary. Null because
+   * `Check.cashAccountId` is nullable, and an empty string would read as an
+   * account whose code is blank.
+   */
+  cashAccountCode: string | null
+  bankCode: string | null
   checkDate: Date | null
   amount: string | null
   currency: string
@@ -196,6 +298,11 @@ export function toTableRow(r: CheckRow): CheckTableRow {
     apvNumbers: r.bills.map((b) => b.apvNumber),
     payeeName: r.payeeName,
     companyCode: r.company.code,
+    // `?? null`, so a cheque with no cash account says so rather than crossing
+    // the boundary as `undefined` and rendering as a gap indistinguishable from
+    // a rendering fault.
+    cashAccountCode: r.cashAccount?.code ?? null,
+    bankCode: r.cashAccount?.bank.code ?? null,
     checkDate: r.checkDate,
     // `?.toString() ?? null`, never `Number(...)`: null is "no amount was
     // recorded" — 129 cheques in production — and it is not zero.

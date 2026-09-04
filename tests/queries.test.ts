@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { testDb, resetDb } from './helpers/db'
 import { makeCheck } from './helpers/factory'
-import { getSummary, listChecks, countChecks, toTableRow } from '@/lib/queries'
+import {
+  getSummary, listChecks, countChecks, toTableRow, getFilterOptions,
+  parseStatusParam, parseEligibilityParam, parseOptionId,
+} from '@/lib/queries'
 import { formatMoney } from '@/lib/money'
 import { LIVE_STATUSES, isLiveStatus } from '@/lib/domain/check-status'
 
@@ -261,5 +264,226 @@ describe('toTableRow', () => {
     })
     const [row] = await listChecks(testDb, {})
     expect(toTableRow(row).apvNumbers).toEqual(['APV-1', 'APV-2'])
+  })
+})
+
+// Postgres sorts NULLs FIRST on a descending sort. `checkDate` is nullable —
+// 38 live cheques carry no date — so the dashboard's default ordering opened on
+// a screen of nothing but em dashes with every dated cheque pushed below them.
+// The fix is `nulls: 'last'`, and this is what stops it coming back: a plain
+// `{ checkDate: 'desc' }` fails the first test here.
+describe('listChecks ordering', () => {
+  it('puts a cheque with no date after every dated one, newest dated first', async () => {
+    await makeCheck({ checkNumber: '6000000901', checkDate: null })
+    await makeCheck({ checkNumber: '6000000902', checkDate: new Date('2026-01-15') })
+    await makeCheck({ checkNumber: '6000000903', checkDate: new Date('2026-08-20') })
+
+    const rows = await listChecks(testDb, {})
+
+    expect(rows.map((r) => r.checkNumber)).toEqual(['6000000903', '6000000902', '6000000901'])
+  })
+
+  it('still breaks a tie on the check number, ascending', async () => {
+    await makeCheck({ checkNumber: '6000000905', checkDate: new Date('2026-03-01') })
+    await makeCheck({ checkNumber: '6000000904', checkDate: new Date('2026-03-01') })
+
+    const rows = await listChecks(testDb, {})
+
+    expect(rows.map((r) => r.checkNumber)).toEqual(['6000000904', '6000000905'])
+  })
+
+  it('orders a table made entirely of dateless cheques rather than dropping them', async () => {
+    await makeCheck({ checkNumber: '6000000907', checkDate: null })
+    await makeCheck({ checkNumber: '6000000906', checkDate: null })
+
+    const rows = await listChecks(testDb, {})
+
+    expect(rows.map((r) => r.checkNumber)).toEqual(['6000000906', '6000000907'])
+  })
+})
+
+// The BANK column. `Check.cashAccountId` -> `CashAccount` (the code Finance
+// actually says out loud, "BPI STK") -> `Bank`. Both cross to the browser as
+// plain strings: a Prisma model instance on `CheckTableRow` would throw at the
+// server/client boundary, which has happened on this table before.
+describe('toTableRow bank columns', () => {
+  it('carries the cash account code and its bank code as plain strings', async () => {
+    const check = await makeCheck({})
+    const account = await testDb.cashAccount.findUniqueOrThrow({
+      where: { id: check.cashAccountId! },
+      include: { bank: true },
+    })
+
+    const [row] = await listChecks(testDb, {})
+    const table = toTableRow(row)
+
+    expect(table.cashAccountCode).toBe(account.code)
+    expect(table.bankCode).toBe(account.bank.code)
+    expect(typeof table.cashAccountCode).toBe('string')
+    expect(typeof table.bankCode).toBe('string')
+  })
+
+  it('reports null, not an empty string, for a cheque with no cash account', async () => {
+    const check = await makeCheck({})
+    await testDb.check.update({ where: { id: check.id }, data: { cashAccountId: null } })
+
+    const [row] = await listChecks(testDb, {})
+    const table = toTableRow(row)
+
+    expect(table.cashAccountCode).toBeNull()
+    expect(table.bankCode).toBeNull()
+  })
+
+  it('stays JSON-serialisable with the bank columns on it', async () => {
+    await makeCheck({})
+    const [row] = await listChecks(testDb, {})
+
+    for (const value of Object.values(toTableRow(row))) {
+      const plain = value === null
+        || ['string', 'number', 'boolean'].includes(typeof value)
+        || value instanceof Date
+        || (Array.isArray(value) && value.every((v) => typeof v === 'string'))
+      expect(plain).toBe(true)
+    }
+  })
+})
+
+// The dropdown options come from the database, so a new company or cash account
+// appears on the filter bar without a code change.
+describe('getFilterOptions', () => {
+  it('lists every company and cash account, ordered by code', async () => {
+    const bank = await testDb.bank.create({ data: { code: 'ZBPI', name: 'Bank of the Philippine Islands' } })
+    const a = await testDb.company.create({ data: { code: 'ZSTK', name: 'Company A', legalNames: [] } })
+    const b = await testDb.company.create({ data: { code: 'ZA1', name: 'Company B', legalNames: [] } })
+    await testDb.cashAccount.create({ data: { code: 'ZBPI STK', bankId: bank.id, companyId: a.id } })
+    await testDb.cashAccount.create({ data: { code: 'ZBPI A1', bankId: bank.id, companyId: b.id } })
+
+    const options = await getFilterOptions(testDb)
+
+    expect(options.companies.map((c) => c.code)).toEqual(['ZA1', 'ZSTK'])
+    expect(options.cashAccounts.map((c) => c.code)).toEqual(['ZBPI A1', 'ZBPI STK'])
+    expect(options.cashAccounts.every((c) => c.bankCode === 'ZBPI')).toBe(true)
+  })
+
+  it('returns empty lists rather than throwing on an empty database', async () => {
+    expect(await getFilterOptions(testDb)).toEqual({ companies: [], cashAccounts: [] })
+  })
+
+  it('is JSON-serialisable, so the filter bar can be rendered from it', async () => {
+    const bank = await testDb.bank.create({ data: { code: 'ZMBTC', name: 'Metrobank' } })
+    const company = await testDb.company.create({ data: { code: 'ZPP', name: 'Company C', legalNames: [] } })
+    await testDb.cashAccount.create({ data: { code: 'ZMBTC PP', bankId: bank.id, companyId: company.id } })
+
+    const options = await getFilterOptions(testDb)
+
+    for (const record of [...options.companies, ...options.cashAccounts]) {
+      for (const value of Object.values(record)) {
+        expect(typeof value).toBe('string')
+      }
+    }
+  })
+})
+
+// Every URL parameter is validated before it reaches Prisma. An unrecognised
+// value is not an error page and not a guess — it is IGNORED, exactly as
+// `status` already behaved, because a stale bookmark must open the dashboard
+// rather than 500 it.
+describe('URL parameter validation', () => {
+  it('accepts every status on the ladder, including the closed ones', () => {
+    for (const s of ['GENERATED', 'SIGNATURE_PENDING', 'SIGNED', 'READY_FOR_RELEASE',
+      'SCHEDULED', 'RELEASED', 'CANCELLED', 'VOIDED']) {
+      expect(parseStatusParam(s)).toBe(s)
+    }
+  })
+
+  it('ignores an unrecognised, empty or absent status rather than passing it to Prisma', () => {
+    expect(parseStatusParam('DROP TABLE')).toBeUndefined()
+    // Case matters: the enum is upper case and Prisma would reject 'released'.
+    expect(parseStatusParam('released')).toBeUndefined()
+    expect(parseStatusParam('')).toBeUndefined()
+    expect(parseStatusParam(undefined)).toBeUndefined()
+  })
+
+  it('accepts the three eligibilities and ignores anything else', () => {
+    expect(parseEligibilityParam('SUPPLIER')).toBe('SUPPLIER')
+    expect(parseEligibilityParam('BROKER')).toBe('BROKER')
+    expect(parseEligibilityParam('INTERNAL')).toBe('INTERNAL')
+    expect(parseEligibilityParam('SUPPLIERS')).toBeUndefined()
+    expect(parseEligibilityParam('')).toBeUndefined()
+    expect(parseEligibilityParam(undefined)).toBeUndefined()
+  })
+
+  // A company or account id is checked against the rows actually loaded from
+  // the database. A hand-typed id, or one for a record since removed, drops the
+  // filter rather than returning a silently empty table.
+  it('accepts an id present in the loaded options and ignores one that is not', () => {
+    const options = [{ id: 'cmp_1' }, { id: 'cmp_2' }]
+    expect(parseOptionId('cmp_2', options)).toBe('cmp_2')
+    expect(parseOptionId('cmp_9', options)).toBeUndefined()
+    expect(parseOptionId('', options)).toBeUndefined()
+    expect(parseOptionId(undefined, options)).toBeUndefined()
+    expect(parseOptionId('cmp_1', [])).toBeUndefined()
+  })
+})
+
+// The four dropdowns are not four separate queries. `buildWhere` already ANDs
+// them, and they must go on narrowing each other, the search box, the
+// incomplete checkbox and the NEEDS ACTION scope all at once.
+describe('filters compose', () => {
+  it('narrows by company, cash account, eligibility, search, scope and incompleteness together', async () => {
+    const wanted = await makeCheck({
+      checkNumber: '6000000910', status: 'SIGNED', eligibility: 'SUPPLIER',
+      amount: null, payeeName: 'HENKEL PHILIPPINES INC.',
+    })
+    // Same company and account, but released — excluded by the NEEDS ACTION scope.
+    await testDb.check.create({
+      data: {
+        companyId: wanted.companyId, cashAccountId: wanted.cashAccountId,
+        checkNumber: '6000000911', status: 'RELEASED', eligibility: 'SUPPLIER',
+        payeeName: 'HENKEL PHILIPPINES INC.', isIncomplete: true, checkDate: new Date('2026-09-01'),
+      },
+    })
+    // Same company and account and live, but INTERNAL.
+    await testDb.check.create({
+      data: {
+        companyId: wanted.companyId, cashAccountId: wanted.cashAccountId,
+        checkNumber: '6000000912', status: 'SIGNED', eligibility: 'INTERNAL',
+        payeeName: 'HENKEL PHILIPPINES INC.', isIncomplete: true, checkDate: new Date('2026-09-01'),
+      },
+    })
+    // A different company entirely.
+    await makeCheck({ checkNumber: '6000000913', amount: null, status: 'SIGNED' })
+
+    const filters = {
+      q: 'henkel',
+      companyId: wanted.companyId,
+      cashAccountId: wanted.cashAccountId ?? undefined,
+      eligibility: 'SUPPLIER' as const,
+      incomplete: true,
+      statusIn: LIVE_STATUSES,
+    }
+
+    const rows = await listChecks(testDb, filters)
+
+    expect(rows.map((r) => r.checkNumber)).toEqual(['6000000910'])
+    expect(await countChecks(testDb, filters)).toBe(1)
+  })
+
+  it('filters by cash account on its own', async () => {
+    const one = await makeCheck({ checkNumber: '6000000920' })
+    await makeCheck({ checkNumber: '6000000921' })
+
+    const rows = await listChecks(testDb, { cashAccountId: one.cashAccountId ?? undefined })
+
+    expect(rows.map((r) => r.checkNumber)).toEqual(['6000000920'])
+  })
+
+  it('filters by company on its own', async () => {
+    const one = await makeCheck({ checkNumber: '6000000930' })
+    await makeCheck({ checkNumber: '6000000931' })
+
+    const rows = await listChecks(testDb, { companyId: one.companyId })
+
+    expect(rows.map((r) => r.checkNumber)).toEqual(['6000000930'])
   })
 })
