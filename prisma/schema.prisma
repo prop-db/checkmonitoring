@@ -515,3 +515,47 @@ model Setting {
   key   String @id
   value String
 }
+
+/// Every attempt to sign in, successful or not. The counter that
+/// `lib/login-throttle.ts` throttles on, and the only record anyone will ever
+/// have that an attack happened.
+///
+/// **This lives in Postgres and must stay there.** The deployment target is
+/// Vercel, which is serverless: an in-memory `Map` keyed on email or IP is
+/// per-lambda, every cold start begins at zero, and an attacker's requests
+/// spread across instances by design. A counter like that reads as a control
+/// and is not one. Neon is already the source of truth for everything else
+/// here; it is the source of truth for this too. Do not "optimise" this into
+/// process memory, and do not add Redis for it.
+///
+/// `email` is deliberately NOT a relation to `User`. The whole point of
+/// throttling on the address is that it works for an address no account
+/// exists under — that is what stops an attacker spreading one guess across
+/// thousands of names — and a foreign key would make exactly those rows
+/// unwritable. It stores what was typed, after the same lowercase/trim
+/// `authorize` applies, so the row keys on what the lookup keyed on.
+model LoginAttempt {
+  id String @id @default(cuid())
+
+  email String
+  // The client address as `clientIp()` derived it, or the literal 'unknown'
+  // when no proxy header was present. Never null: a null would need a
+  // three-way comparison at every read, and a shared 'unknown' bucket
+  // over-throttles rather than under-throttles, which is the right way for
+  // this to be wrong.
+  ip String
+  /// Did this attempt produce a signed-in session? A correct password refused
+  /// by the lockout records `false`, because no session was issued and the
+  /// evidence should show the full volume of an attack rather than hide the
+  /// throttled part of it.
+  success Boolean
+
+  createdAt DateTime @default(now())
+
+  // The two throttle reads are `(email, createdAt)` and `(ip, createdAt)`;
+  // `createdAt` alone serves the retention prune, which runs on every write
+  // and must never degrade into a sequential scan of an attack's worth of rows.
+  @@index([email, createdAt])
+  @@index([ip, createdAt])
+  @@index([createdAt])
+}

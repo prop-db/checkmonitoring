@@ -26,6 +26,11 @@ export async function resetDb() {
     await tx.company.deleteMany()
     await tx.bank.deleteMany()
     await tx.user.deleteMany()
+    // Not a child of User and deliberately so — the throttle counts attempts
+    // against addresses no account exists under. It is truncated here all the
+    // same: a failure count that leaked in from another file's fixtures would
+    // lock a login test out of an account it just created.
+    await tx.loginAttempt.deleteMany()
     await tx.syncRun.deleteMany()
     await tx.setting.deleteMany()
   })

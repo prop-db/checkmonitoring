@@ -3,6 +3,7 @@ import type { Role } from '@prisma/client'
 import { testDb, resetDb } from '../helpers/db'
 import { DomainError } from '@/lib/domain/errors'
 import { verifyPassword } from '@/lib/password'
+import { BACKOFF_MINUTES, EMAIL_FREE_FAILURES, loginLockout } from '@/lib/login-throttle'
 import {
   SEEDED_TEST_ACCOUNT_EMAILS,
   createUser, changeUserRole, listUsers, setUserActive, setUserPassword,
@@ -121,6 +122,71 @@ describe('listUsers', () => {
 
     const rows = await listUsers(testDb)
     expect(rows.map((r) => r.email)).toEqual(['a.here@rcl.com.ph', 'z.gone@rcl.com.ph'])
+  })
+
+  // Failed sign-ins are otherwise invisible. An admin who cannot see a count
+  // climbing has no way to know the login is being attacked, and no way to
+  // explain to a colleague why they are being refused.
+  it('reports recent failed sign-ins and the lockout for each account', async () => {
+    const now = new Date('2026-09-04T08:00:00.000Z')
+    const justNow = new Date(now.getTime() - 5_000)
+    await makeFinanceUser({ email: 'under.attack@rcl.com.ph' })
+    await makeFinanceUser({ email: 'z.quiet@rcl.com.ph' })
+
+    for (let i = 0; i < EMAIL_FREE_FAILURES + 1; i++) {
+      await testDb.loginAttempt.create({
+        data: {
+          email: 'under.attack@rcl.com.ph', ip: '203.0.113.9',
+          success: false, createdAt: justNow,
+        },
+      })
+    }
+
+    const rows = await listUsers(testDb, now)
+    const attacked = rows.find((r) => r.email === 'under.attack@rcl.com.ph')!
+    const quiet = rows.find((r) => r.email === 'z.quiet@rcl.com.ph')!
+
+    expect(attacked.recentFailedLogins).toBe(EMAIL_FREE_FAILURES + 1)
+    expect(attacked.lockedUntil).toEqual(new Date(justNow.getTime() + BACKOFF_MINUTES[0] * 60_000))
+    expect(quiet).toMatchObject({ recentFailedLogins: 0, lockedUntil: null })
+  })
+
+  // The screen must agree with the gate: telling an admin an account is fine
+  // while sign-in refuses it is worse than showing nothing at all.
+  it('agrees with the sign-in gate about who is locked', async () => {
+    const now = new Date('2026-09-04T08:00:00.000Z')
+    await makeFinanceUser({ email: 'under.attack@rcl.com.ph' })
+    for (let i = 0; i < EMAIL_FREE_FAILURES + 1; i++) {
+      await testDb.loginAttempt.create({
+        data: {
+          email: 'under.attack@rcl.com.ph', ip: '203.0.113.9',
+          success: false, createdAt: new Date(now.getTime() - 5_000),
+        },
+      })
+    }
+
+    const [row] = await listUsers(testDb, now)
+    const lockout = await loginLockout(
+      testDb, { email: 'under.attack@rcl.com.ph', ip: '198.51.100.4', now },
+    )
+    expect(row.lockedUntil).toEqual(lockout.until)
+  })
+
+  it('shows no lockout once the back-off has lapsed', async () => {
+    const now = new Date('2026-09-04T08:00:00.000Z')
+    await makeFinanceUser({ email: 'recovered@rcl.com.ph' })
+    for (let i = 0; i < EMAIL_FREE_FAILURES + 1; i++) {
+      await testDb.loginAttempt.create({
+        data: {
+          email: 'recovered@rcl.com.ph', ip: '203.0.113.9', success: false,
+          createdAt: new Date(now.getTime() - (BACKOFF_MINUTES[0] + 1) * 60_000),
+        },
+      })
+    }
+
+    const [row] = await listUsers(testDb, now)
+    expect(row.recentFailedLogins).toBe(EMAIL_FREE_FAILURES + 1)
+    expect(row.lockedUntil).toBeNull()
   })
 })
 

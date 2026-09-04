@@ -1,6 +1,7 @@
 import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { listUsers } from '@/lib/admin/users'
+import { BACKOFF_MINUTES, EMAIL_FREE_FAILURES, WINDOW_MINUTES } from '@/lib/login-throttle'
 import { CreateUserForm } from '@/components/CreateUserForm'
 import { UserRowActions } from '@/components/UserRowActions'
 
@@ -24,6 +25,9 @@ const fmtDateTime = (d: Date | null) =>
         month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
       })
     : null
+
+const fmtTime = (d: Date) =>
+  d.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })
 
 export default async function UsersPage() {
   const me = await requireAdmin()
@@ -78,6 +82,7 @@ export default async function UsersPage() {
               <th className="px-4 py-3">ROLE</th>
               <th className="px-4 py-3">STATUS</th>
               <th className="px-4 py-3">LAST LOGIN</th>
+              <th className="px-4 py-3">FAILED SIGN-INS</th>
               <th className="px-4 py-3">ACTIONS</th>
             </tr>
           </thead>
@@ -118,6 +123,25 @@ export default async function UsersPage() {
                     signed into is a fact worth reading, and a blank reads as a
                     rendering fault. Matches CheckTable and the sync log. */}
                 <td className="px-4 py-3 text-slate-600">{fmtDateTime(u.lastLoginAt) ?? 'NEVER SIGNED IN'}</td>
+                {/* The login throttle, made visible. Without this an admin has
+                    no way to tell an attack from a colleague who has forgotten
+                    their password, and no way to explain to somebody standing
+                    at their desk why sign-in is refusing them. The count is
+                    read from the same function the gate itself uses, so the two
+                    cannot disagree. */}
+                <td className="px-4 py-3">
+                  {u.lockedUntil ? (
+                    <span className="inline-block rounded-full bg-rose-50 px-2.5 py-1 text-xs font-medium tracking-wide text-rose-800">
+                      LOCKED UNTIL {fmtTime(u.lockedUntil)} · {u.recentFailedLogins} FAILED
+                    </span>
+                  ) : u.recentFailedLogins > 0 ? (
+                    <span className="inline-block rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium tracking-wide text-amber-800">
+                      {u.recentFailedLogins} RECENT
+                    </span>
+                  ) : (
+                    <span className="text-slate-400">NONE</span>
+                  )}
+                </td>
                 <td className="px-4 py-3">
                   <UserRowActions
                     userId={u.id} name={u.name} role={u.role} active={u.active}
@@ -136,6 +160,16 @@ export default async function UsersPage() {
         that attribution out rather than fail. DEACTIVATE is removal — a deactivated account is
         refused at sign-in and keeps its history. The last active Finance Admin can be neither
         deactivated nor demoted, including by themselves.
+      </p>
+
+      <p className="max-w-4xl rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-700">
+        FAILED SIGN-INS counts wrong passwords for that address in the last {WINDOW_MINUTES}{' '}
+        minutes, and resets the moment the account signs in successfully. Past{' '}
+        {EMAIL_FREE_FAILURES} failures the login is refused for a minute, then longer, up to a
+        maximum of {BACKOFF_MINUTES[BACKOFF_MINUTES.length - 1]} minutes. A lockout releases
+        itself — there is nothing to press here, and nobody needs to be called. The same throttle
+        counts failures per client address, so an attacker cannot spread guesses across accounts
+        to avoid it.
       </p>
     </div>
   )

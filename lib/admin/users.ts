@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient, type Role } from '@prisma/client'
 import { writeAudit } from '@/lib/audit'
 import { DomainError } from '@/lib/domain/errors'
+import { loginFailureSummary, type LoginFailureState } from '@/lib/login-throttle'
 import { hashPassword, validatePasswordStrength } from '@/lib/password'
 
 /**
@@ -56,6 +57,18 @@ export type AdminUserRow = {
   createdAt: Date
   /** Seeded by `prisma/seed.ts` with a password anyone can read in git. */
   isSeededTestAccount: boolean
+  /**
+   * Failed sign-ins against this address inside the throttle's counting window,
+   * cleared by the account's own last successful sign-in. Zero for a quiet
+   * account; a number that climbs is what an attack looks like from here.
+   */
+  recentFailedLogins: number
+  /**
+   * When the login throttle will admit this address again, or null if it is
+   * not currently refusing it. Never a time in the past — see
+   * `loginFailureSummary`.
+   */
+  lockedUntil: Date | null
 }
 
 // Stated once, as a Prisma select, so no query in this module can accidentally
@@ -72,8 +85,24 @@ type SelectedUser = {
 
 const SEEDED = new Set<string>(SEEDED_TEST_ACCOUNT_EMAILS)
 
-function toRow(u: SelectedUser): AdminUserRow {
-  return { ...u, isSeededTestAccount: SEEDED.has(u.email) }
+/**
+ * The throttle state for a row that was not read alongside a listing.
+ *
+ * Every mutating function here returns the row it just wrote, and none of them
+ * touches `LoginAttempt` — creating a user or changing a role says nothing
+ * about failed sign-ins. Rather than issue a throttle query none of those call
+ * sites needs, they report the quiet state, and `listUsers` — the one that
+ * feeds the screen — is where the real counts are read.
+ */
+const NO_FAILURES: LoginFailureState = { recentFailures: 0, lockedUntil: null }
+
+function toRow(u: SelectedUser, failures: LoginFailureState = NO_FAILURES): AdminUserRow {
+  return {
+    ...u,
+    isSeededTestAccount: SEEDED.has(u.email),
+    recentFailedLogins: failures.recentFailures,
+    lockedUntil: failures.lockedUntil,
+  }
 }
 
 /**
@@ -155,12 +184,18 @@ async function loadTarget(tx: Prisma.TransactionClient, userId: string): Promise
  * reordering would silently reverse. `lib/admin/staged-queue.ts` carries the
  * same warning about `CheckStatus`.
  */
-export async function listUsers(db: PrismaClient): Promise<AdminUserRow[]> {
+export async function listUsers(
+  db: PrismaClient,
+  now: Date = new Date(),
+): Promise<AdminUserRow[]> {
   const rows = await db.user.findMany({
     select: ROW_SELECT,
     orderBy: [{ active: 'desc' }, { email: 'asc' }],
   })
-  return rows.map(toRow)
+  // `now` is a parameter so a test can pin a lockout deadline exactly rather
+  // than racing the clock across a Neon round trip. The page passes nothing.
+  const failures = await loginFailureSummary(db, { emails: rows.map((r) => r.email), now })
+  return rows.map((u) => toRow(u, failures.get(u.email)))
 }
 
 /**
