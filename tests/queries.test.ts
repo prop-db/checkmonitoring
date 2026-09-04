@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { testDb, resetDb } from './helpers/db'
 import { makeCheck } from './helpers/factory'
-import { getSummary, listChecks } from '@/lib/queries'
+import { getSummary, listChecks, countChecks } from '@/lib/queries'
 import { formatMoney } from '@/lib/money'
 
 beforeEach(resetDb)
@@ -118,5 +118,51 @@ describe('listChecks', () => {
 
   it('returns an empty list rather than throwing when nothing matches', async () => {
     expect(await listChecks(testDb, { q: 'no-such-check' })).toEqual([])
+  })
+})
+
+// 129 of production's 9,247 cheques carry no amount, and until now nothing on
+// any screen said so. `Check.isIncomplete` is the stored flag; these pin that
+// it is counted, filterable, and — crucially — that flagging them changed
+// nothing about the money.
+describe('incomplete cheques', () => {
+  it('counts the cheques flagged incomplete', async () => {
+    await makeCheck({ amount: '1000.00' })
+    await makeCheck({ amount: null })
+    await makeCheck({ amount: null })
+
+    const s = await getSummary(testDb)
+    expect(s.incomplete).toBe(2)
+    expect(s.total).toBe(3)
+  })
+
+  it('filters the table down to the incomplete records', async () => {
+    await makeCheck({ amount: '1000.00', checkNumber: '6000000101' })
+    await makeCheck({ amount: null, checkNumber: '6000000102' })
+
+    const rows = await listChecks(testDb, { incomplete: true })
+    expect(rows.map((r) => r.checkNumber)).toEqual(['6000000102'])
+  })
+
+  it('leaves the filter off entirely when it is not asked for', async () => {
+    await makeCheck({ amount: '1000.00' })
+    await makeCheck({ amount: null })
+    expect(await countChecks(testDb, {})).toBe(2)
+    expect(await countChecks(testDb, { incomplete: true })).toBe(1)
+  })
+
+  // THE ONE THAT MUST NOT BE "FIXED". Flagging a cheque as incomplete does not
+  // enrol it in any total: SQL SUM() skips a NULL amount, so the PHP total
+  // below is 1,000.00 over a count of 2. A future reader who "corrects" this by
+  // coalescing the null to zero would leave the figure looking identical while
+  // meaning something else — a total that silently absorbs 129 unknowns as
+  // zeroes and reads as authoritative. See getSummary for the full note.
+  it('keeps an incomplete cheque out of the currency total while still counting it', async () => {
+    await makeCheck({ currency: 'PHP', amount: '1000.00' })
+    await makeCheck({ currency: 'PHP', amount: null })
+
+    const s = await getSummary(testDb)
+    expect(s.incomplete).toBe(1)
+    expect(s.totalsByCurrency).toEqual([{ currency: 'PHP', total: '1000', count: 2 }])
   })
 })

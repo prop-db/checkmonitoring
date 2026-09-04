@@ -796,3 +796,44 @@ describe('upsertCheck — staging a payment that came from Acumatica', () => {
     expect((await testDb.stagedCheck.findFirstOrThrow()).source).toBe('ACUMATICA')
   })
 })
+
+// `isIncomplete` is a stored derivation of "the amount is not recorded", and a
+// stored derivation drifts unless every writer maintains it. The import is the
+// only writer of `amount`, so it is the only place that can.
+describe('upsertCheck — the incomplete flag', () => {
+  it('flags a created cheque whose row carries no amount', async () => {
+    await seedCompany()
+    await upsert(row({ amount: null }))
+    expect((await testDb.check.findFirstOrThrow()).isIncomplete).toBe(true)
+  })
+
+  it('does not flag a created cheque that has an amount', async () => {
+    await seedCompany()
+    await upsert(row())
+    expect((await testDb.check.findFirstOrThrow()).isIncomplete).toBe(false)
+  })
+
+  it('clears the flag when a later row finally supplies the amount', async () => {
+    await seedCompany()
+    await upsert(row({ amount: null }))
+    await upsert(row({ amount: '197715.42' }))
+    expect((await testDb.check.findFirstOrThrow()).isIncomplete).toBe(false)
+  })
+
+  // The counterpart of `keep()`: a null amount on an update means "this source
+  // does not carry it", never "clear what you have". The stored amount stands,
+  // so the flag must stand with it — deriving the flag from `row.amount` alone
+  // would flag a cheque whose amount the register recorded perfectly well, on
+  // the next Acumatica sync that happened not to publish one.
+  it('does not flag a cheque whose amount the other source simply does not carry', async () => {
+    await seedCompany()
+    await upsert(row())
+    await upsert(row({
+      source: 'ACUMATICA', amount: null, checkBookCode: null, cvNumber: null,
+      sourceSheet: null, sourceRow: null,
+    }))
+    const check = await testDb.check.findFirstOrThrow()
+    expect(check.amount?.toString()).toBe('197715.42')
+    expect(check.isIncomplete).toBe(false)
+  })
+})

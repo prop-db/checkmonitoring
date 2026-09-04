@@ -5,6 +5,7 @@ import type {
 import { writeAudit } from '@/lib/audit'
 import { DomainError } from './errors'
 import { portalRoute, type Eligibility } from './eligibility'
+import { checkDeletable } from './incomplete'
 import {
   assertTransition, assertClearing, assertReleasable, checkReadyForRelease,
   type CheckStatus, type ClearingStatus,
@@ -393,6 +394,162 @@ export async function voidCheck(
     })
 
     return updated
+  })
+}
+
+/**
+ * The one path that removes a `Check` row, added at Finance's request so the
+ * incomplete records can be cleared out. **Everything about it is narrow on
+ * purpose.**
+ *
+ * Measured against production on 2026-09-04: 129 of the 9,247 register-derived
+ * cheques carry no amount. 98 of them pass this guard. The other 31 — 25
+ * RELEASED and 6 READY_FOR_RELEASE — do not, and that is the answer, not a gap
+ * to be closed. See `UNDELETABLE_STATUSES`.
+ *
+ * **The audit trail survives.** `AuditLog.checkId` is ON DELETE SET NULL, so
+ * every row this cheque accumulated goes on existing, detached but otherwise
+ * byte-identical: action, details, remarks, actor and timestamp. Cascade would
+ * destroy the record of who touched money, which is the thing the append-only
+ * trigger exists to protect — and the trigger refuses it anyway. The detaching
+ * UPDATE is the trigger's one exemption, granted only when the cheque is
+ * genuinely gone; migration 20260905000100 is the record of that decision.
+ *
+ * **A final audit row is written first, in the same transaction.** Without it
+ * the surviving rows point at nothing and nobody can say what was deleted, so
+ * it carries the cheque's identity in `details` — number, company, payee,
+ * status, source sheet and row. It is written with NO `checkId`: the column
+ * would be set to null by the very delete two lines below it, and the identity
+ * has to live somewhere that survives. `lib/admin/users.ts` writes its
+ * user-administration rows the same way.
+ *
+ * There is deliberately no bulk version. 98 rows is a morning's work for one
+ * person who is looking at each one, and a loop over a filter is how 98 becomes
+ * 9,247 after somebody edits the filter.
+ */
+export async function deleteIncompleteCheck(
+  db: Db,
+  args: {
+    checkId: string
+    userId: string
+    /**
+     * The actor's role, passed in rather than read here: `lib/domain/` does not
+     * reach for a session, and the server action has already resolved one. It
+     * is still checked HERE as well as in the action, because a server action
+     * is an HTTP endpoint and the domain rule must hold whoever calls it.
+     */
+    actorRole: 'FINANCE_USER' | 'FINANCE_ADMIN'
+    reason: string
+    now: Date
+  },
+): Promise<void> {
+  // Required, like every other destructive act in this module. A deletion with
+  // no stated reason would be the only unexplained one, and the reason is the
+  // single thing a future reader of the surviving audit row cannot reconstruct
+  // from the data.
+  if (!args.reason || args.reason.trim() === '') {
+    throw new DomainError('REASON_REQUIRED', 'A reason is required to delete a cheque record.')
+  }
+
+  return inTx(db, async (tx) => {
+    const check = await tx.check.findUnique({
+      where: { id: args.checkId },
+      include: { company: true },
+    })
+    if (!check) throw new DomainError('NOT_FOUND', 'Check not found.')
+
+    const guard = checkDeletable({
+      actorRole: args.actorRole,
+      // The amount itself, never `isIncomplete`. The flag is a stored
+      // derivation the importer maintains and a stored derivation can drift.
+      amount: check.amount?.toString() ?? null,
+      status: check.status as CheckStatus,
+      releasedAt: check.releasedAt,
+    })
+    if (!guard.ok) throw new DomainError(guard.code, guard.message)
+
+    // `PortalEvent.checkId` is NOT NULL, so an event cannot be detached the way
+    // an audit row can, and the FK is ON DELETE RESTRICT — the database would
+    // refuse this anyway, with a foreign-key violation a Finance Admin cannot
+    // act on. Refused here, first, with a sentence they can. Every event
+    // counts, not only PENDING ones: a SYNCED event is the record that a
+    // supplier was told something about this cheque.
+    const events = await tx.portalEvent.count({ where: { checkId: check.id } })
+    if (events > 0) {
+      throw new DomainError(
+        'PORTAL_EVENT_QUEUED',
+        'The supplier portal outbox still holds an instruction about this cheque, so it cannot ' +
+        'be deleted. A queued event cannot be detached the way an audit row can.',
+      )
+    }
+
+    // `StagedCheck.promotedCheckId` is a plain column with no foreign key, so
+    // nothing in the database would stop this: the pointer would simply dangle
+    // and the staged queue would go on reporting the row as promoted into a
+    // cheque that no longer exists. Measured: 0 of the 129 were promoted from a
+    // staged row, so this refuses nothing today — it is here so it stays true.
+    //
+    // Deliberately NOT resolved by clearing `promotedCheckId`: that would make
+    // the staged row eligible for promotion again and the next sync would
+    // recreate the cheque, undoing the deletion with nobody told.
+    const promoted = await tx.stagedCheck.count({ where: { promotedCheckId: check.id } })
+    if (promoted > 0) {
+      throw new DomainError(
+        'PROMOTED_FROM_STAGED',
+        'A staged register row was promoted into this cheque, and deleting it would leave the ' +
+        'staging queue pointing at nothing. Settle the staged row first.',
+      )
+    }
+
+    // Counted before the delete, for the record. `CheckBill` is ON DELETE
+    // CASCADE and stays that way: a bill is a line OF the cheque and means
+    // nothing without it, unlike an audit row, which is a record of what a
+    // person did. Measured: 0 of the 129 carry a bill. `Notification.checkId`
+    // is nullable and SET NULL, so any notification detaches quietly, as it
+    // does for every other reference.
+    const [bills, auditRows] = await Promise.all([
+      tx.checkBill.count({ where: { checkId: check.id } }),
+      tx.auditLog.count({ where: { checkId: check.id } }),
+    ])
+
+    await writeAudit(tx, {
+      // No `checkId` — see the note above. The row is about a cheque that is
+      // about to stop existing, and the pointer would be nulled by the delete
+      // below before anyone could read it.
+      actorType: 'USER',
+      userId: args.userId,
+      action: 'incomplete_check_deleted',
+      details: {
+        checkId: check.id,
+        checkNumber: check.checkNumber,
+        cvNumber: check.cvNumber,
+        companyId: check.companyId,
+        companyCode: check.company.code,
+        payeeName: check.payeeName,
+        status: check.status,
+        checkDate: check.checkDate?.toISOString() ?? null,
+        currency: check.currency,
+        // Stated as null rather than omitted: "the amount was not recorded" is
+        // the fact that made this deletable, and a missing key would read as an
+        // oversight.
+        amount: null,
+        eligibility: check.eligibility,
+        sourceSheet: check.sourceSheet,
+        sourceRow: check.sourceRow,
+        deletedAt: args.now.toISOString(),
+        detachedAuditRows: auditRows,
+        deletedBills: bills,
+      },
+      remarks:
+        `Deleted incomplete cheque ${check.company.code} ${check.checkNumber} — ` +
+        `${check.payeeName ?? 'no payee recorded'} (${check.status}, no amount recorded). ` +
+        args.reason,
+    })
+
+    // The delete itself. The FK actions do the rest: audit rows detach, bills
+    // cascade, notifications detach, and a portal event would have refused
+    // above.
+    await tx.check.delete({ where: { id: check.id } })
   })
 }
 

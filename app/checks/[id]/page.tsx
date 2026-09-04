@@ -7,6 +7,8 @@ import { StatusPill } from '@/components/StatusPill'
 import { AuditTrail } from '@/components/AuditTrail'
 import { ReadyForReleaseForm } from '@/components/ReadyForReleaseForm'
 import { ActionForm } from '@/components/ActionForm'
+import { DeleteIncompleteCheckForm } from '@/components/DeleteIncompleteCheckForm'
+import { checkDeletable } from '@/lib/domain/incomplete'
 import { signAction, releaseAction } from '../actions'
 
 const fmtDate = (d: Date | null) =>
@@ -24,7 +26,7 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 export default async function CheckDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireUser()
+  const user = await requireUser()
   const { id } = await params
 
   const check = await prisma.check.findUnique({
@@ -40,6 +42,17 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
 
   const today = new Date().toISOString().slice(0, 10)
 
+  // The same guard the server action and the domain both apply, called here
+  // only to decide what to render. It is NOT the control — `deleteIncomplete
+  // Check` re-runs it on every call, because a server action is an HTTP
+  // endpoint and not rendering a button hides nothing from anybody.
+  const deletable = checkDeletable({
+    actorRole: user.role,
+    amount: check.amount?.toString() ?? null,
+    status: check.status,
+    releasedAt: check.releasedAt,
+  })
+
   return (
     <main className="mx-auto max-w-5xl space-y-6 p-8">
       <Link href="/" className="text-sm text-slate-500 underline underline-offset-2">← BACK TO DASHBOARD</Link>
@@ -54,6 +67,14 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
         </div>
         <StatusPill status={check.status} />
       </header>
+
+      {check.isIncomplete && (
+        <p className="rounded-2xl bg-amber-50 p-4 text-sm text-amber-900">
+          <strong>INCOMPLETE RECORD.</strong> No amount has been recorded for this cheque. It is
+          counted everywhere but appears in no currency total — there is no figure of its to add —
+          and it cannot be marked ready for release until somebody supplies one.
+        </p>
+      )}
 
       {check.eligibility === 'INTERNAL' && (
         <p className="rounded-2xl bg-slate-100 p-4 text-sm text-slate-700">
@@ -135,6 +156,19 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
           <p className="text-sm text-rose-700">CANCELLED — {check.cancelReason}</p>
         )}
       </section>
+
+      {/* Offered only for an incomplete record, and only to a Finance Admin the
+          guard actually permits. A FINANCE_USER, or an admin looking at one of
+          the 25 RELEASED or 6 READY_FOR_RELEASE incomplete cheques, is told why
+          instead of being shown a button that would refuse them. */}
+      {check.isIncomplete && user.role === 'FINANCE_ADMIN' && (
+        <section className="rounded-2xl bg-white p-6 ring-1 ring-slate-200">
+          <h2 className="mb-4 text-sm font-semibold tracking-wide">INCOMPLETE RECORD</h2>
+          {deletable.ok
+            ? <DeleteIncompleteCheckForm checkId={check.id} checkNumber={check.checkNumber} />
+            : <p className="text-sm text-slate-600">{deletable.message}</p>}
+        </section>
+      )}
 
       <AuditTrail rows={check.auditLogs} />
     </main>

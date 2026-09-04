@@ -1,4 +1,5 @@
 import { testDb } from './db'
+import { isCheckIncomplete } from '@/lib/domain/incomplete'
 import type { CheckStatus, Eligibility } from '@prisma/client'
 
 export async function makeUser(role: 'FINANCE_USER' | 'FINANCE_ADMIN' = 'FINANCE_USER') {
@@ -29,13 +30,20 @@ export async function makeCheck(overrides: {
   const cashAccount = await testDb.cashAccount.create({
     data: { code: `BPI STK ${Math.random().toString(36).slice(2, 7)}`, bankId: bank.id, companyId: company.id },
   })
+  const amount = overrides.amount === undefined ? '197715.42' : overrides.amount
   return testDb.check.create({
     data: {
       companyId: company.id,
       cashAccountId: cashAccount.id,
       checkNumber: overrides.checkNumber ?? `600${Math.floor(Math.random() * 10_000_000)}`,
       checkDate: new Date('2026-09-01'),
-      amount: overrides.amount === undefined ? '197715.42' : overrides.amount,
+      amount,
+      // Derived here for the same reason `upsertCheck` derives it: a fixture
+      // whose flag disagrees with its own amount is a fixture that would let a
+      // test pass over a state the application cannot produce. A test that
+      // wants the two to disagree - the backfill's drift cases - sets the flag
+      // explicitly afterwards.
+      isIncomplete: isCheckIncomplete({ amount }),
       currency: overrides.currency ?? 'PHP',
       payeeName: overrides.payeeName === undefined ? 'HENKEL PHILIPPINES INC.' : overrides.payeeName,
       eligibility: overrides.eligibility ?? 'SUPPLIER',

@@ -24,6 +24,7 @@ npm run db:migrate             # dev migrations
 npm run db:seed                # dev seed, WITH demo cheques and known-password accounts
 npm run db:seed:reference      # production seed: reference data only, no cheques, no accounts
 npm run create-admin           # bootstrap the first FINANCE_ADMIN on a fresh database
+npx tsx scripts/backfill-incomplete.ts --dry-run   # re-derive Check.isIncomplete; idempotent
 ```
 
 **On Windows, use `npx.cmd` / `npm.cmd`.** PowerShell's execution policy is `Undefined` (i.e.
@@ -49,11 +50,21 @@ These are safety properties, not preferences. Each exists because of a specific 
    relations; deleting one orphans the record of who released real money. Removal is deactivation,
    and the last active admin cannot be deactivated or demoted.
 7. **Audit rows are append-only**, enforced by a database trigger. `app.allow_audit_purge` appears
-   only in `tests/helpers/db.ts` and the trigger migration — anywhere else is a defect.
+   only in `tests/helpers/db.ts` and the trigger migration — anywhere else is a defect. The trigger
+   has exactly one exemption, added in `20260905000100_audit_log_detach_on_check_delete`: the FK's
+   `ON DELETE SET NULL` may blank `checkId` when the cheque it points at is already gone, and only
+   when every other column is unchanged. Without it no cheque with any audit history could be
+   deleted at all, because Postgres implements SET NULL as an UPDATE. Content stays unwritable.
 8. **Amounts are decimal strings end to end.** Never a JS number. The column is `Decimal(18,2)` and
    float round-trips lose centavos.
 9. **Never commit or print** the two `.xlsx` workbooks (real vendor names and amounts), `.env`, or
    any credential.
+10. **A cheque is deleted only through `deleteIncompleteCheck`**, which refuses everything except a
+   FINANCE_ADMIN removing a cheque with no amount that is not RELEASED, SCHEDULED or
+   READY_FOR_RELEASE and carries no `releasedAt`. It writes the deletion's own audit row first, in
+   the same transaction, because the detached rows would otherwise point at nothing. There is no
+   bulk version and must not be one. Measured 2026-09-04: 98 of the 129 incomplete cheques qualify;
+   the other 31 (25 RELEASED, 6 READY_FOR_RELEASE) do not, and that is the answer, not a gap.
 
 ## Things that will catch you out
 
@@ -105,6 +116,15 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
   one point, cheque numbers fabricated out of amounts.
 - Import outcome: **9,461 rows import → 9,247 distinct cheques**; 2,639 stage for no company, 61 for
   an ambiguous company, 66 for no cheque number. Every row is accounted for; nothing is dropped.
+- **129 of the 9,247 register-derived cheques carry no amount** (production, 2026-09-04; the table
+  holds 21,817 rows in all, the rest from Acumatica). The register's amount cell was blank or held
+  the word "CANCELLED". Acumatica was reconciled against all 129 and has no record of any of them —
+  16 are 6-digit BDO numbers and 39 sit on a company whose tenant holds 142 payments in total, so
+  they read as cheques never entered in the ERP rather than phantoms. 83 name a real payee. They
+  break down 50 SIGNATURE_PENDING / 48 CANCELLED / 25 RELEASED / 6 READY_FOR_RELEASE, none with a
+  `releasedAt`. `Check.isIncomplete` flags them; `scripts/backfill-incomplete.ts` re-derives it.
+  **They are excluded from every currency total rather than counted as zero** — SQL `SUM()` skips a
+  null — and `tests/queries.test.ts` pins that. Do not "fix" it.
 - **Acumatica bank-prefixes 90% of its cheque references** (`BPI 6000240287`) while the register
   writes them bare. `canonicalCheckNumber` reconciles them — without it the same cheque stores twice.
 - **`Branch` from Acumatica is space-padded** (`"A1+       "`). `orNull` trims it; an untrimmed read
@@ -117,7 +137,7 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
 
 Plans 1 and 2 complete. Plan 3 (portal automation) paused after Task 1 at the client's request —
 the portal needs an `encoder` service account that does not yet exist, and until then events simply
-queue. 586 tests across 36 files.
+queue. 628 tests across 39 files.
 
 Production is `check_monitoring_prod` on Neon — created clean, reference data only, one real admin,
 no demo cheques. The historical import was running at last handoff; it is idempotent, so if it was

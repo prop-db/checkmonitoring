@@ -9,7 +9,7 @@ import type { CheckStatus } from '@prisma/client'
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; status?: string }>
+  searchParams: Promise<{ q?: string; status?: string; incomplete?: string }>
 }) {
   const user = await requireUser()
   const params = await searchParams
@@ -25,7 +25,12 @@ export default async function DashboardPage({
     ? (params.status as CheckStatus)
     : undefined
 
-  const filters = { q: params.q, status }
+  // The checkbox submits `incomplete=1`; the summary card links to the same.
+  // Only "1" turns it on — an unrecognised value leaves the filter off rather
+  // than guessing, which is how the status parameter above behaves too.
+  const incomplete = params.incomplete === '1'
+
+  const filters = { q: params.q, status, incomplete }
 
   const [summary, rows, matching] = await Promise.all([
     getSummary(prisma),
@@ -63,10 +68,27 @@ export default async function DashboardPage({
             <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
           ))}
         </select>
+        {/* The 129 cheques whose amount the register never recorded. A
+            checkbox, not a third option on the status dropdown: incompleteness
+            cuts across every status (50 SIGNATURE_PENDING, 48 CANCELLED, 25
+            RELEASED, 6 READY_FOR_RELEASE), so it has to narrow alongside a
+            status rather than replace one. */}
+        <label className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm">
+          <input type="checkbox" name="incomplete" value="1" defaultChecked={incomplete} />
+          INCOMPLETE ONLY (NO AMOUNT)
+        </label>
         <button type="submit" className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white">
           APPLY
         </button>
       </form>
+
+      {incomplete && (
+        <p className="rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          SHOWING INCOMPLETE RECORDS ONLY — cheques whose amount the register never recorded.
+          They are counted everywhere but are absent from every currency total, because there is
+          no figure of theirs to add. <Link href="/" className="underline underline-offset-2">Clear the filter</Link>.
+        </p>
+      )}
 
       {matching > rows.length && (
         <p className="rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-900">

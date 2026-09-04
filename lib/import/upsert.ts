@@ -4,6 +4,7 @@ import { voidCheck } from '@/lib/domain/actions'
 import { canTransition, type CheckStatus } from '@/lib/domain/check-status'
 import { classifyEligibility, portalRoute } from '@/lib/domain/eligibility'
 import { DomainError } from '@/lib/domain/errors'
+import { isCheckIncomplete } from '@/lib/domain/incomplete'
 import type { NormalisedRow } from '@/lib/normalised-row'
 import { classifyImportOutcome } from './classify'
 import { resolveImpliedStatus } from './implied-status'
@@ -55,6 +56,11 @@ export const IMPORT_WRITABLE = [
   'isCheque', 'companyId', 'cashAccountId', 'checkBookId', 'payeeName', 'category',
   'eligibility', 'portalDomain', 'portalSyncStatus', 'sourceSheet', 'sourceRow',
   'acumaticaDocType', 'acumaticaStatus', 'acumaticaBranch', 'acumaticaTenant', 'lastModifiedOn',
+  // Not a fact the source states — a derivation of `amount`, which is why it is
+  // here rather than in the immutable list. It belongs to whoever writes
+  // `amount`, and that is only ever this module. `isStale` stays outside both
+  // lists: it is a different question (see the schema) and nothing writes it.
+  'isIncomplete',
 ] as const satisfies readonly (keyof Check)[]
 
 /**
@@ -176,6 +182,11 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
           cvNumber: row.cvNumber,
           checkDate: row.checkDate,
           amount: row.amount,
+          // Kept in step with `amount` at the only place `amount` is written.
+          // A stored derivation whose writer forgets it is worse than no
+          // derivation: the dashboard would report a count that is confidently
+          // wrong. `backfillIncompleteFlags` repairs drift; this prevents it.
+          isIncomplete: isCheckIncomplete({ amount: row.amount }),
           // The only place a currency is not stated outright. The workbook
           // mapper has already applied the register's PHP default, so this is
           // reachable only for an Acumatica row whose feed omitted Currency —
@@ -259,6 +270,14 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
         cvNumber: keep(row.cvNumber),
         checkDate: keep(row.checkDate),
         amount: keep(row.amount),
+        // Derived from the amount the row will END UP with, not from the
+        // incoming one. `keep()` means a null here is "this source does not
+        // carry an amount", never "clear the one you have" — so an Acumatica
+        // sync that publishes no amount must not flag a cheque whose amount the
+        // register recorded perfectly well. Pinned by test.
+        isIncomplete: isCheckIncomplete({
+          amount: (row.amount ?? existing.amount)?.toString() ?? null,
+        }),
         currency: keep(row.currency),
         isCheque: row.isCheque,
         cashAccountId: cashAccount?.id,

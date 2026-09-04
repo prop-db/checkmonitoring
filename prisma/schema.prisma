@@ -222,7 +222,29 @@ model Check {
 
   sourceSheet        String?
   sourceRow          Int?
+  // Reserved for the stale-check queue of the design's R3: 88 CHECK FINDING
+  // rows are 2025 cheques still sitting AVAILABLE, to be reviewed rather than
+  // auto-released or auto-cancelled. Nothing sets or reads it yet. It is NOT a
+  // synonym for `isIncomplete` below — a stale cheque is one that has sat too
+  // long, an incomplete one is missing a fact — and the two must not be folded
+  // together: a cheque can be either, both, or neither.
   isStale            Boolean          @default(false)
+  // "The amount is not recorded." A stored derivation of `amount IS NULL`,
+  // maintained by `upsertCheck` (the only writer of `amount`) and repairable by
+  // `scripts/backfill-incomplete.ts`. Measured against production on
+  // 2026-09-04: 129 of its 9,247 register-derived cheques carry no amount
+  // (21,817 rows in the table altogether — the rest came from Acumatica, and
+  // every one of the 129 is a register row), because the register's amount cell
+  // was blank or held the word "CANCELLED". Acumatica, reconciled against all
+  // 129, has no record of any of them. 83 name a real payee, so they are
+  // genuine records to be reviewed, not junk to be hidden.
+  //
+  // Stored rather than derived at query time so the dashboard can filter and
+  // count on an index over 21,817 rows. It is a VIEW aid and nothing more: no
+  // safety control reads it. `checkDeletable` tests `amount` itself, because a
+  // stored boolean can drift from the column it describes and a rule about
+  // deleting money records must read the fact, not the cache of it.
+  isIncomplete       Boolean          @default(false)
 
   acumaticaDocType   String?
   acumaticaStatus    String?
@@ -254,6 +276,10 @@ model Check {
   @@index([eligibility])
   @@index([checkDate])
   @@index([availablePickupDate])
+  // 129 true rows in 9,247. The dashboard filter and its count both read this
+  // column, and a sequential scan for a card rendered on every page load is the
+  // one thing that would make the feature not worth having.
+  @@index([isIncomplete])
 }
 
 // Which ingestion path a row came in on. The same enum `NormalisedRow.source`
@@ -402,7 +428,22 @@ model AuditLog {
   remarks   String?
   createdAt DateTime  @default(now())
 
-  check     Check?    @relation(fields: [checkId], references: [id])
+  // `onDelete: SetNull`, stated rather than left to Prisma's default for an
+  // optional relation — which is SetNull, so this declaration changes no SQL
+  // and exists to make the decision impossible to change by accident.
+  //
+  // It is what makes `deleteIncompleteCheck` safe: an audit row is the record
+  // of WHO TOUCHED MONEY, and it survives its cheque's deletion detached but
+  // otherwise byte-identical — action, details, remarks, actor and timestamp
+  // all intact. Cascade would destroy exactly the evidence the append-only
+  // trigger exists to protect, and the trigger would refuse it anyway. Do not
+  // "tidy" this to Cascade, and do not add one to make a delete go through.
+  //
+  // The detaching UPDATE is itself the single exemption in the append-only
+  // trigger (migration 20260905000100_audit_log_detach_on_check_delete), granted
+  // only when the referenced cheque is genuinely gone. Read that migration
+  // before changing anything here.
+  check     Check?    @relation(fields: [checkId], references: [id], onDelete: SetNull)
   user      User?     @relation(fields: [userId], references: [id])
 
   @@index([checkId, createdAt])
@@ -443,7 +484,14 @@ model PortalEvent {
   idempotencyKey String            @unique
 
   createdAt      DateTime          @default(now())
-  check          Check             @relation(fields: [checkId], references: [id])
+  // `onDelete: Restrict`, stated rather than left to Prisma's default for a
+  // required relation — which is Restrict, so this declaration changes no SQL.
+  // `checkId` is NOT NULL, so an event cannot be detached the way an audit row
+  // can, and an event is an instruction to tell a supplier something about a
+  // cheque. The database refusing the delete is the backstop;
+  // `deleteIncompleteCheck` refuses first, with a sentence a Finance Admin can
+  // act on rather than a foreign-key violation. Neither is redundant.
+  check          Check             @relation(fields: [checkId], references: [id], onDelete: Restrict)
 
   // The worker's claim query is `status = PENDING AND nextAttemptAt <= now`, so
   // the index is on those two and not on createdAt as it was before this model

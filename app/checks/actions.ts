@@ -8,7 +8,7 @@ import { DomainError } from '@/lib/domain/errors'
 import { isNextControlFlowError } from '@/lib/next-errors'
 import {
   markSigned, markReadyForRelease, revertAvailability,
-  markReleased, recordClearing, cancelCheck,
+  markReleased, recordClearing, cancelCheck, deleteIncompleteCheck,
 } from '@/lib/domain/actions'
 
 export type ActionResult = { ok: true } | { ok: false; message: string }
@@ -91,6 +91,37 @@ export async function clearingAction(formData: FormData): Promise<ActionResult> 
     crNumber: str(formData, 'crNumber') || undefined,
     clearedDate: date(formData, 'clearedDate') ?? undefined,
     now: new Date(),
+  }))
+}
+
+/**
+ * The only endpoint in this application that deletes a cheque.
+ *
+ * Like `revertAction` and `cancelAction`, it refuses a FINANCE_USER by
+ * RETURNING a result rather than redirecting: `requireAdmin` redirects, Next
+ * implements a redirect by throwing, and `run()`'s catch would swallow it and
+ * report "Something went wrong" on an action the user is not entitled to.
+ *
+ * The role is checked here AND again in `deleteIncompleteCheck`. That is not
+ * belt-and-braces for its own sake — a server action is an HTTP endpoint,
+ * reachable by anyone holding a session whether or not a button points at it,
+ * and the domain rule has to hold for every caller of the domain function too.
+ *
+ * `run()` revalidates `/checks/${checkId}` for a cheque that no longer exists,
+ * which is exactly right: the cached page must go. The screen sends the user
+ * back to the dashboard, because the page they were on is now a 404.
+ */
+export async function deleteIncompleteCheckAction(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser()
+  if (user.role !== 'FINANCE_ADMIN') {
+    // The same sentence `checkDeletable` returns for NOT_ADMIN, so a Finance
+    // user reads one wording whichever layer refused them.
+    return { ok: false, message: 'Only a Finance Admin can delete a cheque record.' }
+  }
+  const checkId = str(formData, 'checkId')
+  return run(checkId, () => deleteIncompleteCheck(prisma, {
+    checkId, userId: user.id, actorRole: user.role,
+    reason: str(formData, 'reason'), now: new Date(),
   }))
 }
 

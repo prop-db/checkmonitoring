@@ -10,6 +10,13 @@ export type CheckFilters = {
   eligibility?: Eligibility
   from?: Date
   to?: Date
+  /**
+   * Only the records with no recorded amount. `true` narrows to them; `false`
+   * and `undefined` both mean "do not filter on this", because the useful
+   * question is "show me the gaps", never "hide them" — and a tri-state that
+   * could hide 129 cheques from a search by accident is worse than no filter.
+   */
+  incomplete?: boolean
 }
 
 // `total` is null when nothing in the group is known — see getSummary. It is
@@ -17,7 +24,7 @@ export type CheckFilters = {
 export type CurrencyTotal = { currency: string; total: string | null; count: number }
 
 export async function getSummary(db: Db) {
-  const [grouped, currencyAgg, total] = await Promise.all([
+  const [grouped, currencyAgg, total, incomplete] = await Promise.all([
     db.check.groupBy({ by: ['status'], _count: { _all: true } }),
     // Grouped by currency, never summed across them: adding a PHP amount to a
     // CNY amount produces a number with no meaning, so there is no code path
@@ -29,6 +36,11 @@ export async function getSummary(db: Db) {
       where: { status: { not: 'CANCELLED' } },
     }),
     db.check.count(),
+    // Counted, never subtracted from anything. 129 cheques whose amount was
+    // never recorded are 129 real cheques: they are IN `total`, they are in
+    // their currency's `count`, and they are simply absent from its `total`
+    // because there is nothing of theirs to add. See the note below.
+    db.check.count({ where: { isIncomplete: true } }),
   ])
   const count = (s: CheckStatus) => grouped.find((g) => g.status === s)?._count._all ?? 0
   // `amount` is nullable and 397 register rows have no amount. Verified against
@@ -59,6 +71,14 @@ export async function getSummary(db: Db) {
     readyForRelease: count('READY_FOR_RELEASE'),
     scheduled: count('SCHEDULED'),
     released: count('RELEASED'),
+    /**
+     * Cheques with no recorded amount — 129 in production. This number and the
+     * currency totals above are answers to different questions and must stay
+     * that way: flagging a cheque incomplete does NOT enrol it in a total, and
+     * "fixing" the totals to count it as zero would leave every figure looking
+     * identical while quietly meaning something else.
+     */
+    incomplete,
     totalsByCurrency,
   }
 }
@@ -72,6 +92,9 @@ function buildWhere(filters: CheckFilters): Prisma.CheckWhereInput {
   if (filters.companyId) where.companyId = filters.companyId
   if (filters.cashAccountId) where.cashAccountId = filters.cashAccountId
   if (filters.eligibility) where.eligibility = filters.eligibility
+  // `=== true`, so `false` behaves like `undefined` and cannot silently hide
+  // the incomplete records from an ordinary search.
+  if (filters.incomplete === true) where.isIncomplete = true
   if (filters.from || filters.to) {
     where.checkDate = { gte: filters.from, lte: filters.to }
   }
