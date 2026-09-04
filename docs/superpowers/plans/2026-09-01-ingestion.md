@@ -2141,6 +2141,35 @@ nothing else would be read as success, and the missing 2,766 would be discovered
 someone looking for a cheque that is not there. Staged counts belong next to the imported count,
 with equal weight, and each staged group must be openable to see the rows and the reason.
 
+### Scope ruling, 2026-09-04: the staged backlog is not a cleanup project
+
+An earlier reading of the table above treated 2,766 staged rows as a data-cleanup burden on
+Finance. **Measured by implied status, that was wrong:**
+
+| staged rows | count |
+| --- | ---: |
+| RELEASED — the cheque was already handed over | **2,467** |
+| CANCELLED | 214 |
+| **still in the release workflow** | **19** |
+| no cheque number (mostly FT & MC fund transfers and already-released rows) | 66 |
+
+**Only about 28 staged cheques are live work.** The rest are closed history, and Finance already
+reconciles those in the Supplier Portal's payment module or directly in Acumatica — this system is
+not their system of record and does not need to be.
+
+Consequences for this plan and for Plan 3:
+
+- **Do not build a bulk staged-row correction workflow.** It would serve ~28 rows. The staged queue
+  needs to be *legible and filterable*, not a data-entry surface.
+- **Sort and default the staged queue by release status**, so the ~28 live rows are what a user
+  sees first and the 2,467 released ones do not bury them.
+- The historical rows still import into staging rather than being discarded. They cost nothing to
+  hold, they are what makes the reports and pickup-pattern analysis in the spec possible, and the
+  Acumatica sync may place some of them automatically. **Holding them is cheap; deleting them is
+  irreversible.**
+- The import preview must still show the full accounting. The point of that honesty is not that
+  someone must act on all 2,766 — it is that nobody should believe 9,461 was the whole register.
+
 Also surface, from `reconcile`:
 - the 102 contradictory-status cheques and how the 2026-09-03 ruling resolved each
 - the 17 rows where the cash account and the checkbook name different companies
