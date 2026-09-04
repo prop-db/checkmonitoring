@@ -67,6 +67,29 @@ enum PortalDirection {
   IN
 }
 
+enum PortalEventStatus {
+  PENDING
+  IN_FLIGHT
+  SYNCED
+  FAILED
+  // Terminal and deliberate: delivery was abandoned and a human must look.
+  // Distinct from FAILED, which is retryable.
+  PARKED
+}
+
+// What an event instructs the portal to do. Deliberately NOT the same set as
+// `PortalSyncStatus`, which is a cheque's state; this is one message about it.
+enum PortalEventKind {
+  MARK_AVAILABLE
+  REVERT
+  // The third call site. `markReleased` in lib/domain/actions.ts already queues
+  // this and a test pins it. It IS deliverable: the portal's POST /api/checks/:id
+  // accepts `status`, `orNumber` and `orDate` at encoder tier. Plan 3's first
+  // draft omitted it because it was written against two of the three
+  // portalEvent.create sites that actually exist. Do not remove it.
+  RELEASED
+}
+
 model Company {
   id           String           @id @default(cuid())
   code         String           @unique   // STK, A1+, P&P
@@ -385,19 +408,48 @@ model AuditLog {
   @@index([checkId, createdAt])
 }
 
+// The outbox. `lib/domain/actions.ts` writes one of these in the same
+// transaction as the status change it describes, so the change commits even when
+// the portal is unreachable, and a worker delivers it later.
 model PortalEvent {
-  id        String          @id @default(cuid())
-  checkId   String
-  direction PortalDirection
-  payload   Json
-  status    String          @default("PENDING")
-  attempts  Int             @default(0)
-  lastError String?
-  createdAt DateTime        @default(now())
+  id             String            @id @default(cuid())
+  checkId        String
+  direction      PortalDirection
+  kind           PortalEventKind
+  payload        Json
+  status         PortalEventStatus @default(PENDING)
+  attempts       Int               @default(0)
+  lastError      String?
 
-  check     Check           @relation(fields: [checkId], references: [id])
+  // When this event next becomes eligible for delivery. Backoff is expressed as
+  // a time rather than a sleep so the worker stays stateless and a restart does
+  // not reset every backoff to zero.
+  nextAttemptAt  DateTime          @default(now())
 
-  @@index([status, createdAt])
+  // Claim columns. A worker sets both in one conditional update, so two workers
+  // cannot deliver the same event — which for MARK_AVAILABLE would be two
+  // notifications to one supplier.
+  claimedAt      DateTime?
+  claimedBy      String?
+
+  // One instruction per (check, kind, attempt-generation), where the generation
+  // is the acting timestamp: see the key builder in lib/domain/actions.ts. The
+  // outbox must not be able to queue the same instruction twice.
+  //
+  // This is our own guarantee against duplicate WORK, not the last line of
+  // defence against double-notifying a supplier — the portal holds an
+  // application-level notify-exactly-once latch of its own (confirmed from its
+  // source, 2026-09-04). Both exist; neither is a reason to relax the other.
+  idempotencyKey String            @unique
+
+  createdAt      DateTime          @default(now())
+  check          Check             @relation(fields: [checkId], references: [id])
+
+  // The worker's claim query is `status = PENDING AND nextAttemptAt <= now`, so
+  // the index is on those two and not on createdAt as it was before this model
+  // became a queue.
+  @@index([status, nextAttemptAt])
+  @@index([checkId])
 }
 
 model SyncRun {

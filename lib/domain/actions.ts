@@ -1,4 +1,7 @@
-import type { Check, Prisma, PrismaClient, ClearingStatus as PrismaClearing } from '@prisma/client'
+import type {
+  Check, Prisma, PrismaClient, PortalEventKind,
+  ClearingStatus as PrismaClearing,
+} from '@prisma/client'
 import { writeAudit } from '@/lib/audit'
 import { DomainError } from './errors'
 import { portalRoute, type Eligibility } from './eligibility'
@@ -17,6 +20,36 @@ async function inTx<T>(db: Db, fn: (tx: Prisma.TransactionClient) => Promise<T>)
     return (db as PrismaClient).$transaction(fn)
   }
   return fn(db as Prisma.TransactionClient)
+}
+
+/**
+ * The outbox's idempotency key: one instruction per (check, kind, acting
+ * timestamp).
+ *
+ * The third segment is the action's own `now`, and that choice is the whole
+ * design. A revert genuinely retracts what the portal was told, so marking the
+ * cheque ready again afterwards is a NEW instruction the supplier has to hear
+ * about — a fresh `now` gives it a fresh key, and the outbox queues it instead
+ * of discarding it as already-sent. A repeat submit of the *same* action never
+ * reaches here at all: `TRANSITIONS` in check-status.ts has no
+ * READY_FOR_RELEASE -> READY_FOR_RELEASE edge, so it throws first. The unique
+ * key is our own guarantee that the queue holds no duplicate work; it is not the
+ * last line of defence against double-notifying a supplier, because the portal
+ * holds a notify-exactly-once latch of its own (confirmed from its source,
+ * 2026-09-04). Both exist; neither licenses relaxing the other.
+ *
+ * Do NOT take the timestamp from `check.readyAt`. `load()` snapshots the row
+ * BEFORE the update, and `revertAvailability` sets `readyAt` back to null, so at
+ * every call site it is null and a `check.readyAt ?? now` would be a branch that
+ * can never be taken — exactly the kind a future reader "tidies" into something
+ * that quietly changes the key.
+ *
+ * Deliberately not exported. The tests spell the format out as a literal, so
+ * changing it fails a test rather than being mirrored by a shared helper that
+ * would pin nothing.
+ */
+function portalEventKey(checkId: string, kind: PortalEventKind, now: Date): string {
+  return `${checkId}:${kind}:${now.toISOString()}`
 }
 
 async function load(tx: Prisma.TransactionClient, checkId: string) {
@@ -109,7 +142,9 @@ export async function markReadyForRelease(
         data: {
           checkId: check.id,
           direction: 'OUT',
+          kind: 'MARK_AVAILABLE',
           status: 'PENDING',
+          idempotencyKey: portalEventKey(check.id, 'MARK_AVAILABLE', args.now),
           payload: {
             action: 'MARK_AVAILABLE',
             checkNumber: check.checkNumber,
@@ -165,7 +200,8 @@ export async function revertAvailability(
     if (pushes) {
       await tx.portalEvent.create({
         data: {
-          checkId: check.id, direction: 'OUT', status: 'PENDING',
+          checkId: check.id, direction: 'OUT', kind: 'REVERT', status: 'PENDING',
+          idempotencyKey: portalEventKey(check.id, 'REVERT', args.now),
           payload: { action: 'REVERT', checkNumber: check.checkNumber },
         },
       })
@@ -238,7 +274,12 @@ export async function markReleased(
         data: {
           checkId: check.id,
           direction: 'OUT',
+          // The third kind. This call site pre-dates Plan 3 and its plan was
+          // drafted without it; the portal accepts it at POST /api/checks/:id,
+          // which takes `status`, `orNumber` and `orDate` at encoder tier.
+          kind: 'RELEASED',
           status: 'PENDING',
+          idempotencyKey: portalEventKey(check.id, 'RELEASED', args.now),
           payload: {
             action: 'RELEASED',
             checkNumber: check.checkNumber,

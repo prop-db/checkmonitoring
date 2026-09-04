@@ -13,6 +13,11 @@ const createdBankIds: string[] = []
 // Order matters: children before parents, and a cash account is a child of both
 // a company and a bank.
 afterAll(async () => {
+  // PortalEvent is a child of Check and the queue tests below write them
+  // directly, so it goes before the checks it references.
+  await prisma.portalEvent.deleteMany({
+    where: { check: { companyId: { in: createdCompanyIds } } },
+  })
   await prisma.check.deleteMany({ where: { companyId: { in: createdCompanyIds } } })
   await prisma.cashAccount.deleteMany({ where: { companyId: { in: createdCompanyIds } } })
   await prisma.company.deleteMany({ where: { id: { in: createdCompanyIds } } })
@@ -92,5 +97,69 @@ describe('schema', () => {
       code: 'MISSING_FIELDS',
       message: 'This check cannot be released because required information is missing: PAYEE, AMOUNT.',
     })
+  })
+})
+
+// The queue `lib/portal/outbox.ts` will work. Both properties asserted here are
+// about the same thing: a worker must never be handed the same instruction
+// twice, because a duplicate MARK_AVAILABLE is a second message to a supplier
+// about one cheque.
+//
+// Fixtures are built with this file's own client and registered for cleanup
+// rather than through `tests/helpers/factory.ts`. The factory writes through
+// `testDb` and creates a bank and a cash account this file's `afterAll` does not
+// know about, and this suite runs against a real cloud database that a leaking
+// test grows on every run.
+describe('PortalEvent as a queue', () => {
+  async function makeQueueCheck(suffix: string) {
+    const company = await prisma.company.create({
+      data: { code: `T${Date.now()}${suffix}`, name: 'Test Co', legalNames: [] },
+    })
+    createdCompanyIds.push(company.id)
+    return prisma.check.create({
+      data: {
+        companyId: company.id,
+        checkNumber: `600000${suffix}`,
+        amount: '100.00',
+        payeeName: 'ACME',
+        eligibility: 'SUPPLIER',
+      },
+    })
+  }
+
+  it('rejects a status outside the enum', async () => {
+    const check = await makeQueueCheck('Q1')
+    await expect(prisma.portalEvent.create({
+      data: {
+        checkId: check.id, direction: 'OUT', kind: 'MARK_AVAILABLE',
+        // @ts-expect-error - proving the column is an enum, not a free string
+        status: 'DEFINITELY_NOT_A_STATUS',
+        payload: {},
+        idempotencyKey: `${check.id}:MARK_AVAILABLE:enum-probe`,
+      },
+    })).rejects.toThrow()
+  })
+
+  // The other direction of the same key — that a genuinely NEW instruction gets
+  // a new key — is asserted at the domain level in tests/actions/actions.test.ts,
+  // where the timestamp that distinguishes them is actually produced.
+  //
+  // There is deliberately no domain-level version of THIS test. A second submit
+  // of the same action cannot reach the key at all: `TRANSITIONS` in
+  // lib/domain/check-status.ts has no READY_FOR_RELEASE -> READY_FOR_RELEASE
+  // edge, so `markReadyForRelease` throws ILLEGAL_TRANSITION before an event is
+  // built. The constraint is asserted here, against the database, because that
+  // is the only layer where it can be. Do not read its absence upstairs as an
+  // oversight and "fix" it by loosening the transition table.
+  it('refuses two events with the same idempotency key', async () => {
+    const check = await makeQueueCheck('Q2')
+    const data = {
+      checkId: check.id, direction: 'OUT' as const, kind: 'MARK_AVAILABLE' as const,
+      payload: {}, idempotencyKey: `${check.id}:MARK_AVAILABLE:1`,
+    }
+    await prisma.portalEvent.create({ data })
+    // The outbox must not be able to queue the same instruction twice — a
+    // double MARK_AVAILABLE is a second notification to a supplier.
+    await expect(prisma.portalEvent.create({ data })).rejects.toThrow()
   })
 })

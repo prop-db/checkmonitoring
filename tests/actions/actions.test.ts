@@ -459,3 +459,47 @@ describe('voidCheck', () => {
     expect(await testDb.portalEvent.count({ where: { checkId: check.id } })).toBe(0)
   })
 })
+
+// What makes `PortalEvent` a queue rather than a log: every event says what it
+// instructs (`kind`) and carries a key the outbox can refuse a duplicate of.
+describe('portal event identity', () => {
+  // A second ready-for-release, which is what makes this a NEW instruction
+  // rather than a repeat of the first.
+  const LATER = new Date('2026-09-02T09:15:00+08:00')
+
+  // The key's timestamp is the action's own `now`. That is the whole design:
+  // a revert genuinely retracts what the portal was told, so marking the cheque
+  // ready again is a fresh instruction the supplier must be told about, and it
+  // must not be swallowed by the unique key as though it were a double submit.
+  //
+  // The opposite direction — the same instruction refused twice — is asserted
+  // against the database in tests/schema.test.ts, because `TRANSITIONS` blocks
+  // a repeat submit before it can ever build an event. See the comment there.
+  //
+  // All three of `lib/domain/actions.ts`'s portalEvent.create sites are exercised
+  // here on purpose. The plan was drafted against two of them and `markReleased`
+  // was nearly left without a `kind`; asserting the full set is what would catch
+  // a fourth call site being added without one.
+  it('stamps a kind and a per-action key on all three call sites, and re-keys a re-ready', async () => {
+    const user = await makeUser()
+    const check = await makeCheck({ status: 'SIGNED', eligibility: 'SUPPLIER' })
+
+    await markReadyForRelease(testDb, { checkId: check.id, userId: user.id, availablePickupDate: PICKUP, now: NOW })
+    await revertAvailability(testDb, { checkId: check.id, userId: user.id, reason: 'Wrong pickup date', now: NOW })
+    await markReadyForRelease(testDb, { checkId: check.id, userId: user.id, availablePickupDate: PICKUP, now: LATER })
+    await markReleased(testDb, { checkId: check.id, userId: user.id, orNumber: 'OR-1', now: LATER })
+
+    const events = await testDb.portalEvent.findMany({ where: { checkId: check.id } })
+    // Keyed by idempotencyKey rather than compared as an ordered list: all four
+    // rows take their `createdAt` from the database clock, and asserting an
+    // order the schema does not guarantee is how a test starts flaking.
+    expect(Object.fromEntries(events.map((e) => [e.idempotencyKey, e.kind]))).toEqual({
+      [`${check.id}:MARK_AVAILABLE:${NOW.toISOString()}`]: 'MARK_AVAILABLE',
+      [`${check.id}:REVERT:${NOW.toISOString()}`]: 'REVERT',
+      // The re-ready: a different key from the first MARK_AVAILABLE, so the
+      // outbox queues it instead of discarding it as already-sent.
+      [`${check.id}:MARK_AVAILABLE:${LATER.toISOString()}`]: 'MARK_AVAILABLE',
+      [`${check.id}:RELEASED:${LATER.toISOString()}`]: 'RELEASED',
+    })
+  })
+})
