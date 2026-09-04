@@ -39,8 +39,15 @@ export type ReviewItem = { sheet: string; row: number; reason: 'NO_CHECK_NUMBER'
 // the cheque amount.
 const AMOUNT_COLUMN = 9
 
-// A money value the register actually states, or nothing. Never a guess.
-function readAmount(cell: unknown): { amount: string; currency: string | null } | null {
+/**
+ * A money value the source actually states, or nothing. Never a guess.
+ *
+ * Exported because `lib/import/bills.ts` reads the approval-for-release
+ * workbook's `Detail Total` with it. A second money reader is a second place
+ * for centavos to go missing, so there is one — the two workbooks disagree
+ * about almost everything else, but not about what a number means.
+ */
+export function readAmount(cell: unknown): { amount: string; currency: string | null } | null {
   if (typeof cell === 'number') {
     const s = String(cell)
     // Rejects exponent forms (>=1e21, <1e-6). Nothing in that range is a

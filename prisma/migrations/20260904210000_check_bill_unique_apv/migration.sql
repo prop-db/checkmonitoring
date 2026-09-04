@@ -1,0 +1,14 @@
+-- The idempotency key for the approval-for-release import.
+--
+-- `APPROVAL FOR RELEASE 9.4.2026.xlsx` is a bill ledger -- one row per bill,
+-- 85 of them -- and re-importing it must update each bill rather than add a
+-- second copy. Keyed on (checkId, apvNumber): one cheque, one bill reference.
+--
+-- Deliberately NOT unique on "checkId" alone. All 85 rows of the 4 September
+-- snapshot happen to name distinct cheques, but that is a property of one day's
+-- working list, not of the domain: the register carries cheques settling
+-- several bills and CheckBill is correctly one-to-many. Narrowing this key
+-- would make a multi-bill cheque unimportable.
+--
+-- Also gives the checkId foreign key an index, which it did not have.
+CREATE UNIQUE INDEX "CheckBill_checkId_apvNumber_key" ON "CheckBill"("checkId", "apvNumber");

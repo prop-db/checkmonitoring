@@ -356,6 +356,15 @@ model CheckBill {
 
   check         Check     @relation(fields: [checkId], references: [id], onDelete: Cascade)
 
+  // The idempotency key for the approval-for-release import: re-running it
+  // updates a bill rather than adding a second copy of it.
+  //
+  // Note what this deliberately does NOT constrain. It is `(checkId,
+  // apvNumber)`, not `checkId`: a cheque settling several bills is routine in
+  // the register, and `CheckBill` is correctly one-to-many. All 85 rows of the
+  // 4 September approval-for-release snapshot name distinct cheques, but that
+  // is a property of one day's working list. Do not narrow this to `checkId`.
+  @@unique([checkId, apvNumber])
   @@index([apvNumber])
   @@index([poNumber])
 }
