@@ -1,9 +1,29 @@
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient, type Role } from '@prisma/client'
 import { hashPassword } from '../lib/password'
 import { classifyEligibility } from '../lib/domain/eligibility'
+import { SEEDED_TEST_ACCOUNT_EMAILS, type SeededTestAccountEmail } from '../lib/admin/users'
 import { COMPANIES, CASH_ACCOUNTS, CHECK_BOOKS } from './reference-data'
 
 const prisma = new PrismaClient()
+
+/**
+ * The development accounts, keyed by the address `/admin/users` flags.
+ *
+ * `Record<SeededTestAccountEmail, …>` is doing real work: TypeScript requires
+ * an entry for every address in `SEEDED_TEST_ACCOUNT_EMAILS` and refuses any
+ * that is not in it. A third seeded account therefore cannot be added here
+ * without also appearing on the admin screen flagged as one — which is the only
+ * thing that gets these retired before go-live. Do not loosen this to a plain
+ * array; the drift it prevents is a live known-password FINANCE_ADMIN nobody
+ * was told about.
+ *
+ * The plaintexts live here and nowhere else. `lib/admin/users.ts` knows the
+ * addresses; it must never know the passwords.
+ */
+const SEED_ACCOUNTS: Record<SeededTestAccountEmail, { name: string; password: string; role: Role }> = {
+  'admin@rcl.test':   { name: 'Finance Admin', password: 'Adm1n!Passw0rd',   role: 'FINANCE_ADMIN' },
+  'finance@rcl.test': { name: 'Finance User',  password: 'F1nance!Passw0rd', role: 'FINANCE_USER' },
+}
 
 const BANKS = [
   { code: 'BPI', name: 'Bank of the Philippine Islands' },
@@ -54,9 +74,13 @@ async function main() {
   }
   console.warn(
     '\n  Seeding development accounts with known passwords:\n' +
-    '    admin@rcl.test / Adm1n!Passw0rd      (FINANCE_ADMIN)\n' +
-    '    finance@rcl.test / F1nance!Passw0rd  (FINANCE_USER)\n' +
-    '  These MUST be removed or rotated before any production deployment.\n',
+    SEEDED_TEST_ACCOUNT_EMAILS
+      .map((e) => `    ${e} / ${SEED_ACCOUNTS[e].password}  (${SEED_ACCOUNTS[e].role})\n`)
+      .join('') +
+    '  These MUST be retired before any production deployment. They are flagged on\n' +
+    '  /admin/users; retire each one by pressing DEACTIVATE there, once a real\n' +
+    '  Finance Admin exists. Never delete them: a user row carries the attribution\n' +
+    '  on every cheque it signed or released.\n',
   )
 
   const companies = new Map<string, string>()
@@ -91,20 +115,20 @@ async function main() {
 
   const ownNames = COMPANIES.flatMap((c) => c.legalNames)
 
-  await prisma.user.upsert({
-    where: { email: 'admin@rcl.test' }, update: {},
-    create: {
-      email: 'admin@rcl.test', name: 'Finance Admin',
-      passwordHash: await hashPassword('Adm1n!Passw0rd'), role: 'FINANCE_ADMIN',
-    },
-  })
-  await prisma.user.upsert({
-    where: { email: 'finance@rcl.test' }, update: {},
-    create: {
-      email: 'finance@rcl.test', name: 'Finance User',
-      passwordHash: await hashPassword('F1nance!Passw0rd'), role: 'FINANCE_USER',
-    },
-  })
+  for (const email of SEEDED_TEST_ACCOUNT_EMAILS) {
+    const account = SEED_ACCOUNTS[email]
+    // `update: {}` like every other upsert here, and for the same reason — but
+    // note the second consequence on this one specifically: re-seeding will NOT
+    // reactivate an account somebody has retired from /admin/users. That is
+    // deliberate. A seed run must not quietly re-open a known-password admin.
+    await prisma.user.upsert({
+      where: { email }, update: {},
+      create: {
+        email, name: account.name,
+        passwordHash: await hashPassword(account.password), role: account.role,
+      },
+    })
+  }
 
   for (const f of FIXTURES) {
     const accountCode = f.acct

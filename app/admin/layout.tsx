@@ -13,6 +13,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const user = await requireAdmin()
 
   const tabs = [
+    ['/admin/users', 'USERS'],
     ['/admin/sync', 'SYNC'],
     ['/admin/import', 'IMPORT'],
     ['/admin/staged', 'STAGED QUEUE'],
