@@ -2118,13 +2118,57 @@ Shows last successful sync, last attempt, records imported, records updated, err
 > Last Sync: September 1, 2026 — 10:45 AM
 > 24 new checks imported, 3 records updated, 0 errors
 
+The sync page must show the tenant. `SyncRun.tenant` exists precisely because the two Acumatica
+tenants reuse branch codes for different companies, so a "last sync" that pools them is wrong.
+
 - [ ] **Step 3: Build the import page**
 
 Upload → parse → **show the reconciliation report and the vendor merge list** → confirm → import. The confirmation step is not optional: the spec requires the merge list be presented before it is applied, not after.
 
+**The preview must show what will NOT be imported, not just what will.** Measured against the real
+register — these are the numbers the page has to be able to render honestly:
+
+| outcome | rows | why |
+| --- | ---: | --- |
+| imported | **9,461** | company resolved, cheque number present, unambiguous |
+| staged `NO_COMPANY` | **2,639** | no checkbook and no cash account recorded |
+| staged `AMBIGUOUS_COMPANY` | **61** | across 27 cheque numbers — one number, two companies |
+| staged `NO_CHECK_NUMBER` | **66** | cannot be keyed |
+| **total** | **12,227** | every register row accounted for |
+
+**22% of the register does not import.** A preview that reports "9,461 checks imported" and says
+nothing else would be read as success, and the missing 2,766 would be discovered weeks later by
+someone looking for a cheque that is not there. Staged counts belong next to the imported count,
+with equal weight, and each staged group must be openable to see the rows and the reason.
+
+Also surface, from `reconcile`:
+- the 102 contradictory-status cheques and how the 2026-09-03 ruling resolved each
+- the 17 rows where the cash account and the checkbook name different companies
+- duplicates across sheets, amount mismatches, implausible dates
+- the vendor merge list — presented before it is applied, never after
+
 - [ ] **Step 4: Build the CLI for the historical load**
 
-`scripts/import-workbook.ts` for the one-time 12,264-row load, with the same guard shape as the seed: refuse when the target database already holds checks that did not come from this import, unless explicitly overridden.
+`scripts/import-workbook.ts` for the one-time 12,227-row load (the plan's earlier "12,264" was
+superseded by measurement), with the same guard shape as the seed: refuse when the target database
+already holds checks that did not come from this import, unless explicitly overridden.
+
+Requirements learned the hard way elsewhere in this plan:
+
+- **Print the same full accounting the preview shows**, not just an imported count.
+- **The two workbooks are gitignored and hold real vendor data.** The CLI takes a path argument; it
+  must never hardcode one, and must never log vendor names, payees or amounts — aggregate counts
+  only.
+- It must be **re-runnable**. `upsertCheck` is idempotent and `StagedCheck` has unique keys on both
+  identities; a second run must produce identical counts and create nothing new. Prove it by
+  running twice against the test database and comparing.
+- **A dry-run mode that writes nothing** is worth more than it costs here: it lets Finance see the
+  2,766 staged rows and correct the register *before* anything lands.
+
+- [ ] **Step 4b: Wire the bill import (Task 11)**
+
+The approval-for-release workbook is a second, differently-shaped file. The import page and the CLI
+must both accept it, and a bill whose cheque is absent goes to review rather than being dropped.
 
 - [ ] **Step 5: Run the full suite, `tsc`, build, and walk both pages in a browser**
 
