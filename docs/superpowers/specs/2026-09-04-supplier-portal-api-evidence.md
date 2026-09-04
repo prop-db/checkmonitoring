@@ -21,6 +21,35 @@ All under `src/server.js`. Every one is `auth`-gated; the write paths additional
 | POST | `/api/checks/revert` | **encoder** | `{ tradeReleaseIds, brokerReleaseIds }`, max 500 each |
 | POST | `/api/checks/:id/confirm-pickup` | **supplier/broker only** | admin is refused 403 |
 | GET | `/api/checks/:id/history` | auth | per-check history |
+| POST | `/api/broker-checks/mark-available` | **encoder** | `{ transactionIds, pickupDate }` |
+
+> **Correction, same day.** An earlier version of this file said no broker endpoint existed. That
+> was wrong — it does, at `src/server.js:2626` — and the error was mine: I grepped for
+> `'/api/checks` and a broker route does not match that prefix. The design spec §7 was right all
+> along. Note the parameter is `transactionIds`, not `tradeIds`; the two stores key on different
+> tables (`trade` vs `broker_transaction`).
+
+## What `GET /api/checks` returns per row
+
+From `listCheckReleases` in `src/checks/store.js`. This is the polling surface for pickup
+confirmations, and it carries our match key:
+
+```
+id, tradeId, checkNumber, checkDate, status,
+pickupDate, pickupTime, pickupRep, confirmedAt,      <- the confirmation we poll for
+releaseDate, releaseTime, releaseLocation,
+orNumber, orDate, remarks, releasedAt, updatedAt,
+poAmount, apvNumber, poNumber, siNumber,             <- apvNumber is how we match back
+supplierName, companyName
+```
+
+Two consequences:
+
+- **`apvNumber` comes back**, so a polled row maps to our cheque through the same identifier we
+  pushed on. No portal id has to be stored for polling to work.
+- **`tradeId` also comes back.** So `Check.portalTradeId` can be *learned and cached* after the
+  first successful match rather than being a prerequisite — useful later if the direct
+  `mark-available` path is ever preferred over `import`.
 
 ## The finding that matters most: we do not need the portal's internal IDs
 
