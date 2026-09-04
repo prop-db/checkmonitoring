@@ -57,7 +57,24 @@ source. Read it before Task 2. The load-bearing facts:
 
 ---
 
-## Task 0: Answer the two blocking questions before building anything
+## Task 0: Answer the blocking questions before building anything
+
+> **STATUS 2026-09-04 — two of three answered from the portal's source; one is blocked on a person.**
+> Full detail in the evidence spec. Summary:
+>
+> 1. **The `encoder` service account does NOT exist.** `app_user` holds 7 encoder-tier admins, all
+>    people, and **0** that look like a service account. **D6 is unsatisfied and Tasks 2, 3, 5, 6 and
+>    9 cannot run against a live portal until someone with portal admin rights creates one.** They
+>    can still be *built and tested* against an injected fetch.
+> 2. **Re-import does NOT re-notify — retry is safe.** The portal holds an application-level
+>    notify-exactly-once latch, and its own comment says so: *"A re-mark after Undo transitions the
+>    row back to AVAILABLE but does NOT re-notify: the notify latch is one-way by design."* Task 5
+>    may retry; the succeed-or-park fallback is not needed. The residual risk runs the other way —
+>    the claim commits before `notify()`, so a failed notify still latches, meaning
+>    **under**-notification. Task 7's queue is where such a cheque becomes visible.
+> 3. **Session expiry behaviour is still unknown** — it needs a live call, so it stays open. Task 2
+>    must therefore treat *both* a 401 and a login redirect as expiry until observed, which is the
+>    safe direction either way.
 
 **Files:** none — this task writes no code.
 
@@ -166,6 +183,12 @@ enum PortalEventStatus {
 enum PortalEventKind {
   MARK_AVAILABLE
   REVERT
+  // The third call site. `markReleased` in lib/domain/actions.ts already
+  // queues this and a passing test pins it. It IS deliverable: the portal's
+  // POST /api/checks/:id accepts status, orNumber and orDate at encoder tier.
+  // This plan's first draft omitted it because it was written against two of
+  // the three portalEvent.create sites that actually exist. Do not remove it.
+  RELEASED
 }
 
 model PortalEvent {

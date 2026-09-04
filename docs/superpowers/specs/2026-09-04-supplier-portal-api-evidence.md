@@ -110,6 +110,71 @@ service account at `encoder` tier, so portal-side audit rows attribute actions t
 `portalRoute()` already returns `LOCAL` or `BROKER`; that split must survive into the client rather
 than being flattened.
 
+## ANSWERED 2026-09-04 — the three blocking questions
+
+### 1. The `encoder` service account does NOT exist
+
+Read-only aggregate query against the portal's `app_user` (no usernames retrieved, no personal data):
+
+| role | tier | count |
+| --- | --- | ---: |
+| admin | encoder | 7 |
+| admin | procurement | 12 |
+| admin | super | 2 |
+| admin | viewer | 4 |
+| broker | — | 3 |
+| supplier | — | 12 |
+
+**Encoder accounts whose username looks like a service account: 0.** All seven encoders are people.
+
+Design decision **D6 is therefore unsatisfied**. Someone with portal admin rights must create a
+dedicated account at `encoder` tier before any write path runs. Do not proceed by borrowing a
+person's login: every automated action would be attributed to them in the portal's audit log, which
+defeats the reason D6 exists.
+
+### 2. Re-importing an already-available cheque does NOT re-notify — retry is safe
+
+Answered from source rather than by experiment. `src/checks/store.js` carries an explicit
+application-level latch, and its own comment states the design:
+
+> "A re-mark after Undo transitions the row back to AVAILABLE but does NOT re-notify: the notify
+> latch is one-way by design (spec: Undo does not un-send). 'marked' therefore means 'transitioned',
+> not 'notified'."
+
+The latch is what "guarantees notify exactly once per check". **So Task 5's outbox may retry**, and
+the succeed-or-park fallback the plan held in reserve is not needed.
+
+**One caveat, and it runs the other way.** The same comments record that the claim commits *before*
+`notify()` runs, so a won claim followed by a failed notify latches the record as notified anyway.
+The risk is therefore **under**-notification, not spam: a supplier could be marked notified without
+receiving anything. That is portal-side and outside this system's control, but it is why the
+unmatched/failed queue in Task 7 matters — it is the only place such a cheque would become visible.
+
+Related: `markAvailable` passes `suppressEmail: true` per row and aggregates **one email per distinct
+supplier**, because a per-row email would exceed the mail provider's rate limit on a bulk import.
+In-app portal notification still fires per row.
+
+### 3. A release CAN be pushed — `POST /api/checks/:id`
+
+The plan and an earlier reading of this file both assumed no endpoint accepted a release
+instruction. **Wrong.** `POST /api/checks/:id` (encoder tier) accepts:
+
+```
+checkNumber, checkDate, status, releaseDate, releaseTime,
+releaseLocation, orNumber, orDate, remarks
+```
+
+Valid `status` values are the portal's own vocabulary, **not ours**:
+
+```
+FOR_PROCESSING, FOR_APPROVAL, FOR_CHECK_PRINTING, READY_FOR_SIGNATURE,
+AVAILABLE_FOR_RELEASE, RELEASED, REVERTED_FOR_REUPLOADING
+```
+
+It takes the portal's `check_release.id` — the `id` field `GET /api/checks` returns, distinct from
+`tradeId`. So the `RELEASED` portal event this system already queues **is deliverable**, and the
+plan's two-value `PortalEventKind` was drafted against two of the three call sites that exist.
+
 ## Open questions a live call must answer
 
 These cannot be settled from source and should be checked **read-only** before any write path is
