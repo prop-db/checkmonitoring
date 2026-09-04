@@ -102,19 +102,59 @@ export type SyncRunResult = {
 }
 
 /**
- * The `$filter` literal Acumatica accepts for this instance, measured read-only
- * against the live feed on 2026-09-04: the OData v3 `datetime'...'` form is the
- * ONLY one that works. A bare `2026-09-03T20:00:00`, the same with a trailing
- * `Z`, and `datetimeoffset'2026-09-03T20:00:00Z'` each returned **HTTP 500**.
- * A `2099` cutoff returned zero rows, so the filter genuinely excludes rather
- * than being quietly ignored.
+ * The scope boundary, and the reason a sync is now a job a web request can
+ * finish.
+ *
+ * Finance ruling, 2026-09-04: this is a cheque monitoring system for current
+ * work, not an AP ledger and not an archive. A full sync without these filters
+ * reads 41,998 rows and creates a cheque for every AP payment Acumatica has
+ * ever held — it did exactly that, importing 12,530 pre-2026 records that were
+ * never in the register before the run was killed. Those were removed by
+ * `scripts/trim-out-of-scope.ts`; these filters are what stop them walking back
+ * in on the next sync.
+ *
+ * Measured against the live feed:
+ *
+ *     no filter              41,998 rows   21s
+ *     PaymentDate >= 2026    15,542 rows    7s
+ *     2026 + CHK             11,417 rows    5s
+ *
+ * The reduction is what makes SYNC NOW usable at all — a serverless request
+ * cannot finish 42,000 rows and Vercel kills it partway.
+ *
+ * Keep this date in step with `IN_SCOPE_FROM` in `scripts/trim-out-of-scope.ts`.
+ * They are the same decision expressed twice: one trims what is there, the
+ * other refuses what would arrive.
+ */
+export const SYNC_FROM_DATE = '2026-01-01T00:00:00'
+
+/**
+ * `PaymentMethod eq 'CHK'` is applied by the FEED, not after mapping, so
+ * non-cheques are never fetched. `mapPayment` still computes `isCheque` from
+ * the same field plus the China-branch rule — that second check is not
+ * redundant, it is what protects a row arriving by any other path.
+ */
+const CHEQUES_ONLY = "PaymentMethod eq 'CHK'"
+const IN_SCOPE = `PaymentDate ge datetime'${SYNC_FROM_DATE}'`
+
+/**
+ * Only the OData v3 `datetime'...'` literal works against this instance,
+ * measured read-only on 2026-09-04: a bare `2026-09-03T20:00:00`, the same with
+ * a trailing `Z`, and `datetimeoffset'…'` each returned **HTTP 500**. A 2099
+ * cutoff returned zero rows, so the filter genuinely excludes rather than being
+ * quietly ignored.
  *
  * `toISOString().slice(0, 19)` reproduces exactly the naive string the feed
- * sent, which is what `map.ts` pins the `Z` suffix for. Do not add a zone here:
- * the feed's timestamps carry none and appending one is a 500.
+ * sent, which is what `map.ts` pins the `Z` suffix for. Do not add a zone: the
+ * feed's timestamps carry none and appending one is a 500.
  */
 export function paymentsSinceFilter(since: Date): string {
-  return `LastModifiedOn ge datetime'${since.toISOString().slice(0, 19)}'`
+  return `LastModifiedOn ge datetime'${since.toISOString().slice(0, 19)}' and ${IN_SCOPE} and ${CHEQUES_ONLY}`
+}
+
+/** The filter for a full run: in-scope cheques, with no watermark. */
+export function paymentsInScopeFilter(): string {
+  return `${IN_SCOPE} and ${CHEQUES_ONLY}`
 }
 
 /**
@@ -183,7 +223,9 @@ export async function runSync(db: Db, args: SyncArgs): Promise<SyncRunResult> {
   try {
     rows = await client.fetchAll(PAYMENTS_FEED, {
       select: PAYMENT_FIELDS,
-      filter: since ? paymentsSinceFilter(since) : undefined,
+      // A full run is filtered too: without it the feed returns 41,998 rows and
+      // imports AP history that was never in the register. See SYNC_FROM_DATE.
+      filter: since ? paymentsSinceFilter(since) : paymentsInScopeFilter(),
       // Not cosmetic. `fetchAll` pages with `$skip`, and `$skip` over an
       // unordered result set is not stable: rows can shift between pages and be
       // read twice (harmless, the upsert absorbs it) or skipped entirely (a

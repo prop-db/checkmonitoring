@@ -40,12 +40,48 @@ type FeedCall = { feed: string; opts: FetchAllOptions | undefined }
 function fakeFeed(rows: readonly AcumaticaRow[], failWith?: Error) {
   const calls: FeedCall[] = []
 
+  /**
+   * Every clause is applied, and an unrecognised one still throws.
+   *
+   * Both halves matter. Applying them is what makes the watermark tests real —
+   * narrowing the window has to hide rows, not just change a recorded number.
+   * Throwing on anything unrecognised is what caught the scope filters being
+   * added on 2026-09-04: a fake that shrugged at a filter it did not understand
+   * would have gone on passing while the real feed returned a different set.
+   *
+   * Clause order in the string is not asserted, only that each is honoured, so
+   * the production filter can be rearranged without a spurious failure here.
+   */
   function applyFilter(filter: string | undefined): AcumaticaRow[] {
     if (!filter) return [...rows]
-    const m = /^LastModifiedOn ge datetime'(.+)'$/.exec(filter)
-    if (!m) throw new Error(`the fake feed does not understand the filter ${filter}`)
-    const since = m[1]
-    return rows.filter((r) => String(r.LastModifiedOn ?? '') >= since)
+
+    let out = [...rows]
+    let rest = filter
+
+    const since = /LastModifiedOn ge datetime'([^']+)'/.exec(rest)
+    if (since) {
+      out = out.filter((r) => String(r.LastModifiedOn ?? '') >= since[1])
+      rest = rest.replace(since[0], '')
+    }
+
+    // The scope boundary: cheques dated from 2026 only. See SYNC_FROM_DATE.
+    const from = /PaymentDate ge datetime'([^']+)'/.exec(rest)
+    if (from) {
+      out = out.filter((r) => String(r.PaymentDate ?? '') >= from[1])
+      rest = rest.replace(from[0], '')
+    }
+
+    const method = /PaymentMethod eq '([^']+)'/.exec(rest)
+    if (method) {
+      out = out.filter((r) => String(r.PaymentMethod ?? '').trim() === method[1])
+      rest = rest.replace(method[0], '')
+    }
+
+    const leftover = rest.replace(/\band\b/g, '').trim()
+    if (leftover !== '') {
+      throw new Error(`the fake feed does not understand the filter clause: ${leftover}`)
+    }
+    return out
   }
 
   const client: AcumaticaClient = {
@@ -225,14 +261,27 @@ describe('runSync — the incremental window', () => {
     // Measured against the live instance, 2026-09-04: this OData v3 literal is
     // the ONLY accepted form. A bare `2026-09-03T20:00:00`, a trailing `Z` and
     // `datetimeoffset'...'` each returned HTTP 500.
-    expect(run.calls[0].opts?.filter).toBe("LastModifiedOn ge datetime'2026-09-03T20:00:00'")
+    // The watermark clause, AND the scope clauses added 2026-09-04. Asserted in
+    // full rather than by substring: a filter that silently lost the scope half
+    // would fetch 41,998 rows instead of 11,417 and re-import the AP history
+    // that was deliberately trimmed out of production.
+    expect(run.calls[0].opts?.filter).toBe(
+      "LastModifiedOn ge datetime'2026-09-03T20:00:00' and " +
+      "PaymentDate ge datetime'2026-01-01T00:00:00' and PaymentMethod eq 'CHK'",
+    )
   })
 
-  it('asks for no filter at all on a full run', async () => {
+  it('still scopes a full run — 2026 cheques only, never the whole feed', async () => {
     await seedBothTenantsST()
     const run = sync([feedRow()], { since: null })
     await run.result
-    expect(run.calls[0].opts?.filter).toBeUndefined()
+    // Was 'no filter at all' until 2026-09-04. An unfiltered full run reads
+    // 41,998 rows, creates a cheque for every AP payment Acumatica ever held,
+    // and cannot finish inside a serverless request — it did exactly that, and
+    // 12,530 out-of-scope records had to be deleted afterwards.
+    expect(run.calls[0].opts?.filter).toBe(
+      "PaymentDate ge datetime'2026-01-01T00:00:00' and PaymentMethod eq 'CHK'",
+    )
   })
 
   it('the overlap is 120 minutes', () => {
@@ -702,20 +751,26 @@ describe('runSync — a cheque whose reference is a memo', () => {
     expect(run.errors).toBe(0)
   })
 
-  it('imports a non-cheque payment normally, memo reference and all', async () => {
-    // The 40 DEBIT ADV and CASH payments are not held to a cheque number's
-    // shape: their reference is the only identifier they have. They import and
-    // stay visible, and `isCheque` false is what blocks the release ladder.
+  it('never even fetches a non-cheque payment, because the feed filter excludes it', async () => {
+    // Was 'imports a non-cheque payment normally' until 2026-09-04. DEBIT ADV
+    // and CASH payments have no physical document, so a cheque monitoring
+    // system has no use for them — Finance ruling, after a full sync imported
+    // 1,696 of them. They are now excluded by PaymentMethod eq 'CHK' in the
+    // feed query, so they are never fetched, never mapped and never written.
+    //
+    // mapPayment still computes isCheque from the same field plus the
+    // China-branch rule. That is not redundant: it is what flags a non-cheque
+    // arriving by any other path, and tests/integrations/acumatica-map.test.ts
+    // pins it.
     await seedBothTenantsST()
-    const result = await sync([
+    const run = sync([
       feedRow({ PaymentMethod: 'DEBIT ADV', PaymentRef: 'Oct interest', ReferenceNbr: 'CV-DA' }),
-    ]).result
+    ])
+    const result = await run.result
 
-    expect(result.imported).toBe(1)
-    expect(result.staged).toBe(0)
-    const check = await testDb.check.findFirstOrThrow()
-    expect(check.isCheque).toBe(false)
-    expect(check.checkNumber).toBe('Oct interest')
+    expect(result.fetched).toBe(0)
+    expect(result.imported).toBe(0)
+    expect(await testDb.check.count()).toBe(0)
   })
 
   it('marks an ordinary CHK payment as a cheque', async () => {

@@ -27,7 +27,32 @@ export type TenantSync = {
    * "not a success".
    */
   inFlight: boolean
+  /**
+   * An `inFlight` run old enough that its process is almost certainly gone.
+   *
+   * `runSync` records a failure in a `catch`, which assumes the process lives
+   * long enough to write one. A platform kill runs no catch. On 2026-09-04 the
+   * SYNC NOW button was killed by Vercel's function timeout partway through a
+   * 41,998-row first sync; the row kept `finishedAt` null, and the screen said
+   * SYNCING for 29 minutes while nothing at all was happening.
+   *
+   * So "still going" cannot be inferred from an absent `finishedAt` alone —
+   * that is a claim about a process this system cannot see. Past the threshold
+   * the screen stops asserting it and says the run is abandoned, which is the
+   * honest reading and the one that lets somebody act.
+   */
+  abandoned: boolean
 }
+
+/**
+ * How long a run may sit unfinished before the screen stops believing in it.
+ *
+ * Generous on purpose. A full first sync of GO-LIVE legitimately takes 50–60
+ * minutes from a machine, so a threshold under that would libel a healthy run
+ * as dead. Anything a serverless request could produce is dead long before
+ * this: Vercel's own ceiling is minutes.
+ */
+export const ABANDONED_AFTER_MINUTES = 90
 
 export type SyncOverview = {
   tenants: TenantSync[]
@@ -47,7 +72,7 @@ export type SyncOverview = {
 // last known-good read either, because somebody has to look at those three.
 const SUCCESS: Prisma.SyncRunWhereInput = { finishedAt: { not: null }, errors: 0 }
 
-export async function getSyncOverview(db: Db): Promise<SyncOverview> {
+export async function getSyncOverview(db: Db, now: Date = new Date()): Promise<SyncOverview> {
   const [tenants, untenantedRuns] = await Promise.all([
     Promise.all(
       SYNC_TENANTS.map(async (tenant): Promise<TenantSync> => {
@@ -55,11 +80,16 @@ export async function getSyncOverview(db: Db): Promise<SyncOverview> {
           db.syncRun.findFirst({ where: { tenant }, orderBy: { startedAt: 'desc' } }),
           db.syncRun.findFirst({ where: { tenant, ...SUCCESS }, orderBy: { startedAt: 'desc' } }),
         ])
+        const inFlight = lastAttempt !== null && lastAttempt.finishedAt === null
         return {
           tenant,
           lastAttempt,
           lastSuccess,
-          inFlight: lastAttempt !== null && lastAttempt.finishedAt === null,
+          inFlight,
+          // Measured from startedAt, not from any progress signal: runSync reports
+          // its counts only at the end, so a killed run and a working one look
+          // identical until the threshold passes.
+          abandoned: inFlight && now.getTime() - lastAttempt!.startedAt.getTime() > ABANDONED_AFTER_MINUTES * 60_000,
         }
       }),
     ),

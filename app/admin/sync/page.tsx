@@ -41,11 +41,21 @@ function TenantCard({ t }: { t: TenantSync }) {
         <h2 className="text-sm font-semibold tracking-wide">
           ACUMATICA · {TENANT_LABEL[t.tenant] ?? t.tenant}
         </h2>
-        {t.inFlight && (
+        {/* Two different facts, and conflating them is what wasted half an hour
+            on 2026-09-04: a run still working looks exactly like one whose
+            process was killed, because runSync reports its counts only at the
+            end. Past ABANDONED_AFTER_MINUTES the screen stops claiming the run
+            is alive — it cannot see the process, and "SYNCING…" over a dead job
+            is a statement this system has no basis for. */}
+        {t.abandoned ? (
+          <span className="rounded bg-rose-100 px-2 py-0.5 text-xs tracking-wide text-rose-900">
+            RUN ABANDONED
+          </span>
+        ) : t.inFlight ? (
           <span className="rounded bg-amber-100 px-2 py-0.5 text-xs tracking-wide text-amber-900">
             RUN NOT FINISHED
           </span>
-        )}
+        ) : null}
       </div>
 
       {/* A tenant that has never been read says so. An empty space here would
@@ -53,6 +63,25 @@ function TenantCard({ t }: { t: TenantSync }) {
           nothing, which is the opposite fact. */}
       {t.lastAttempt === null ? (
         <p className="text-sm text-slate-500">This tenant has never been synced.</p>
+      ) : t.abandoned ? (
+        <div className="space-y-2 rounded-xl bg-rose-50 p-4 ring-1 ring-rose-200">
+          <p className="text-sm font-medium text-rose-900">
+            A run started {t.lastAttempt.startedAt.toISOString().slice(0, 16).replace('T', ' ')} and never
+            reported finishing.
+          </p>
+          <p className="text-sm text-rose-800">
+            Its process was almost certainly killed. A first full sync reads tens of thousands of rows
+            and cannot complete inside a web request — whatever it wrote is committed and correct, but
+            it stopped partway. Finish it from a terminal, where nothing imposes a timeout:
+          </p>
+          <code className="block rounded bg-white/70 px-3 py-2 text-xs text-rose-900">
+            npx.cmd tsx scripts/sync.ts {t.tenant}
+          </code>
+          <p className="text-xs text-rose-800">
+            Re-running is safe: the sync is idempotent, so rows already written are updated rather than
+            duplicated.
+          </p>
+        </div>
       ) : (
         <div className="space-y-3">
           <div>
