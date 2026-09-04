@@ -1,0 +1,37 @@
+# What must never leave this machine.
+#
+# `vercel --prod` uploads the working DIRECTORY, not a git commit. This project
+# has no git remote, so everything here is deployed from local disk — including
+# files git has been ignoring all along. `.gitignore` is not reliably consulted
+# by the Vercel CLI, so the exclusions are restated here explicitly rather than
+# inherited by assumption.
+#
+# Do not "tidy" this by deleting entries that look redundant with .gitignore.
+# The redundancy is the point: one file governs what is committed, the other
+# governs what is uploaded, and they are different questions.
+
+# Real financial data. 12,227 cheques, ~PHP 2.9 billion, every vendor the group
+# pays, named. The application reads these through an upload form at runtime;
+# it never needs them on the server, and they must not sit in a deployment.
+*.xlsx
+~$*.xlsx
+
+# Credentials. The database URLs, the Acumatica password, and AUTH_SECRET.
+# Production values are set in the Vercel dashboard as environment variables —
+# a .env file in a deployment would both leak these and silently override them.
+.env
+.env.*
+!.env.example
+
+# Local scratch that has no business on a server.
+probe-*.mjs
+*.log
+
+# Build and test artefacts — Vercel builds from source.
+.next
+node_modules
+coverage
+tsconfig.tsbuildinfo
+
+# The working ledger and plans. Not secret, but not something to serve.
+.superpowers
