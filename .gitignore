@@ -13,3 +13,5 @@ tsconfig.tsbuildinfo
 
 # local measurement scripts against the real register - never committed
 probe-*
+
+.vercel

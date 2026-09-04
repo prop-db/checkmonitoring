@@ -11,7 +11,9 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "db:seed:reference": "tsx prisma/seed.ts --reference-only",
+    "create-admin": "tsx scripts/create-admin.mjs"
   },
   "keywords": [],
   "author": "",

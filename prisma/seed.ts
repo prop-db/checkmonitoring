@@ -54,6 +54,22 @@ const FIXTURES = [
   { n: '174602',     payee: 'A1+ MULTINATIONAL PACKAGING INC.',     amt: '16888.52',  acct: 'BDO A1',   cat: 'PAYROLL',        status: 'CANCELLED',         apv: 'AP-A1030465', po: 'PO-A1-023450' },
 ] as const
 
+// Seed the reference data ONLY — companies, banks, cash accounts, checkbooks —
+// and none of the demo cheques or known-password accounts.
+//
+// This is the mode a real production database is seeded with. The twelve
+// fixtures below carry INVENTED statuses against REAL cheque numbers, which is
+// harmless in development and actively misleading in production: `upsertCheck`
+// never changes a status on re-import (decision D4), so a fixture marked
+// READY_FOR_RELEASE keeps that status permanently even after the register says
+// otherwise — and lands at the top of the dashboard, in the panel Finance reads
+// first. Four of them also proved undeletable once they had audit history,
+// which is `AuditLog`'s missing cascade working exactly as intended.
+//
+// Bootstrap the first admin with `scripts/create-admin.mjs`, which asks for a
+// password at the terminal rather than shipping one in this file.
+const REFERENCE_ONLY = process.argv.includes('--reference-only')
+
 async function main() {
   // This seed creates known-password accounts. Guessing at "production" via
   // NODE_ENV doesn't work: `npm run db:seed` runs with NODE_ENV unset, so that
@@ -72,7 +88,7 @@ async function main() {
       'certain, and never against production.',
     )
   }
-  console.warn(
+  if (!REFERENCE_ONLY) console.warn(
     '\n  Seeding development accounts with known passwords:\n' +
     SEEDED_TEST_ACCOUNT_EMAILS
       .map((e) => `    ${e} / ${SEED_ACCOUNTS[e].password}  (${SEED_ACCOUNTS[e].role})\n`)
@@ -115,7 +131,7 @@ async function main() {
 
   const ownNames = COMPANIES.flatMap((c) => c.legalNames)
 
-  for (const email of SEEDED_TEST_ACCOUNT_EMAILS) {
+  for (const email of REFERENCE_ONLY ? [] : SEEDED_TEST_ACCOUNT_EMAILS) {
     const account = SEED_ACCOUNTS[email]
     // `update: {}` like every other upsert here, and for the same reason — but
     // note the second consequence on this one specifically: re-seeding will NOT
@@ -130,7 +146,7 @@ async function main() {
     })
   }
 
-  for (const f of FIXTURES) {
+  for (const f of REFERENCE_ONLY ? [] : FIXTURES) {
     const accountCode = f.acct
     const company = CASH_ACCOUNTS.find((a) => a.code === accountCode)!.company
     const { eligibility } = classifyEligibility({
@@ -161,7 +177,11 @@ async function main() {
     })
   }
 
-  console.log('Seeded', COMPANIES.length, 'companies,', FIXTURES.length, 'checks')
+  console.log(REFERENCE_ONLY
+    ? `Seeded reference data only: ${COMPANIES.length} companies, ${CASH_ACCOUNTS.length} cash accounts, ` +
+      `${CHECK_BOOKS.length} checkbooks.\nNo demo cheques and no accounts were created. ` +
+      `Bootstrap the first admin with:\n  node scripts/create-admin.mjs`
+    : `Seeded ${COMPANIES.length} companies, ${FIXTURES.length} checks`)
 }
 
 main().finally(() => prisma.$disconnect())
