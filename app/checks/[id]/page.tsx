@@ -1,8 +1,8 @@
 import { notFound } from 'next/navigation'
-import Link from 'next/link'
 import { requireUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { formatMoney } from '@/lib/money'
+import { AppHeader } from '@/components/AppHeader'
 import { StatusPill } from '@/components/StatusPill'
 import { AuditTrail } from '@/components/AuditTrail'
 import { ReadyForReleaseForm } from '@/components/ReadyForReleaseForm'
@@ -55,7 +55,11 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
 
   return (
     <main className="mx-auto max-w-5xl space-y-6 p-8">
-      <Link href="/" className="text-sm text-slate-500 underline underline-offset-2">← BACK TO DASHBOARD</Link>
+      <AppHeader
+        user={user}
+        title="CHECK RELEASE MONITORING"
+        back={{ href: '/', label: '← BACK TO DASHBOARD' }}
+      />
 
       <header className="flex items-center justify-between">
         <div>

@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { requireAdmin } from '@/lib/auth'
+import { AppHeader } from '@/components/AppHeader'
 
 // Every admin route is FINANCE_ADMIN only (spec §12). Enforced here so a new
 // page under /admin is gated by existing, not by its author remembering — and
@@ -21,15 +22,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   return (
     <main className="mx-auto max-w-[1600px] space-y-6 p-8">
-      <header className="flex items-baseline justify-between">
-        <div className="flex items-baseline gap-6">
-          <Link href="/" className="text-sm text-slate-500 underline underline-offset-2">
-            ← DASHBOARD
-          </Link>
-          <h1 className="text-xl font-semibold tracking-wide">ADMINISTRATION</h1>
-        </div>
-        <p className="text-sm text-slate-500">{user.name} · {user.role.replace(/_/g, ' ')}</p>
-      </header>
+      {/* `showAdminLink={false}`: these ARE the administration pages. */}
+      <AppHeader
+        user={user}
+        title="ADMINISTRATION"
+        back={{ href: '/', label: '← DASHBOARD' }}
+        showAdminLink={false}
+      />
 
       <nav className="flex gap-2">
         {tabs.map(([href, label]) => (

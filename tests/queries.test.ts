@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { testDb, resetDb } from './helpers/db'
 import { makeCheck } from './helpers/factory'
-import { getSummary, listChecks, countChecks } from '@/lib/queries'
+import { getSummary, listChecks, countChecks, toTableRow } from '@/lib/queries'
 import { formatMoney } from '@/lib/money'
+import { LIVE_STATUSES, isLiveStatus } from '@/lib/domain/check-status'
 
 beforeEach(resetDb)
 
@@ -164,5 +165,101 @@ describe('incomplete cheques', () => {
     const s = await getSummary(testDb)
     expect(s.incomplete).toBe(1)
     expect(s.totalsByCurrency).toEqual([{ currency: 'PHP', total: '1000', count: 2 }])
+  })
+})
+
+// The dashboard defaults to the cheques that still need Finance. Production
+// holds 9,287 of which 7,433 are RELEASED and 531 CANCELLED, so a default of
+// "everything" hides the ~400 that matter behind the row limit.
+describe('statusIn (the dashboard scope)', () => {
+  it('narrows to the live statuses and excludes the closed ones', async () => {
+    await makeCheck({ status: 'SIGNED' })
+    await makeCheck({ status: 'READY_FOR_RELEASE' })
+    await makeCheck({ status: 'RELEASED' })
+    await makeCheck({ status: 'CANCELLED' })
+
+    const rows = await listChecks(testDb, { statusIn: LIVE_STATUSES })
+
+    expect(rows).toHaveLength(2)
+    expect(rows.every((r) => isLiveStatus(r.status))).toBe(true)
+    expect(await countChecks(testDb, { statusIn: LIVE_STATUSES })).toBe(2)
+  })
+
+  it('lets an explicitly chosen status win, so RELEASED is still reachable', async () => {
+    await makeCheck({ status: 'SIGNED' })
+    await makeCheck({ status: 'RELEASED' })
+
+    const rows = await listChecks(testDb, { status: 'RELEASED', statusIn: LIVE_STATUSES })
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0].status).toBe('RELEASED')
+  })
+
+  it('treats an empty scope as no filter rather than as "match nothing"', async () => {
+    await makeCheck({ status: 'RELEASED' })
+    expect(await listChecks(testDb, { statusIn: [] })).toHaveLength(1)
+  })
+
+  it('narrows alongside the search rather than widening past it', async () => {
+    await makeCheck({ status: 'SIGNED', payeeName: 'HENKEL PHILIPPINES INC.' })
+    await makeCheck({ status: 'RELEASED', payeeName: 'HENKEL PHILIPPINES INC.' })
+    await makeCheck({ status: 'SIGNED', payeeName: 'OTHER SUPPLIER' })
+
+    const rows = await listChecks(testDb, { q: 'henkel', statusIn: LIVE_STATUSES })
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0].status).toBe('SIGNED')
+  })
+})
+
+// The table is a client component, and `Prisma.Decimal` cannot cross that
+// boundary — React refuses to serialise a class instance. `toTableRow` is the
+// conversion, and rule 8 decides its shape: the amount travels as a decimal
+// string, never as a JS number.
+describe('toTableRow', () => {
+  it('carries the amount as a decimal string, not a number', async () => {
+    await makeCheck({ amount: '197715.42' })
+    const [row] = await listChecks(testDb, {})
+
+    const table = toTableRow(row)
+
+    expect(table.amount).toBe('197715.42')
+    expect(typeof table.amount).toBe('string')
+  })
+
+  it('keeps a missing amount as null rather than zero', async () => {
+    await makeCheck({ amount: null })
+    const [row] = await listChecks(testDb, {})
+    expect(toTableRow(row).amount).toBeNull()
+  })
+
+  it('is JSON-serialisable, so it can be passed to a client component', async () => {
+    await makeCheck({})
+    const [row] = await listChecks(testDb, {})
+
+    const table = toTableRow(row)
+
+    // A Decimal survives JSON.stringify as a bare string and would pass a
+    // shallow check; the property that matters is that nothing here is a class
+    // instance. Every value is a primitive, a Date, or an array of strings.
+    for (const value of Object.values(table)) {
+      const plain = value === null
+        || ['string', 'number', 'boolean'].includes(typeof value)
+        || value instanceof Date
+        || (Array.isArray(value) && value.every((v) => typeof v === 'string'))
+      expect(plain).toBe(true)
+    }
+  })
+
+  it('lists every bill’s APV, not just the first', async () => {
+    const check = await makeCheck({})
+    await testDb.checkBill.createMany({
+      data: [
+        { checkId: check.id, apvNumber: 'APV-1', amount: '1.00' },
+        { checkId: check.id, apvNumber: 'APV-2', amount: '2.00' },
+      ],
+    })
+    const [row] = await listChecks(testDb, {})
+    expect(toTableRow(row).apvNumbers).toEqual(['APV-1', 'APV-2'])
   })
 })

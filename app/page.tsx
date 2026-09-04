@@ -1,7 +1,9 @@
 import Link from 'next/link'
 import { requireUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
-import { getSummary, listChecks, countChecks } from '@/lib/queries'
+import { getSummary, listChecks, countChecks, toTableRow } from '@/lib/queries'
+import { LIVE_STATUSES } from '@/lib/domain/check-status'
+import { AppHeader } from '@/components/AppHeader'
 import { SummaryCards } from '@/components/SummaryCards'
 import { CheckTable } from '@/components/CheckTable'
 import type { CheckStatus } from '@prisma/client'
@@ -9,7 +11,7 @@ import type { CheckStatus } from '@prisma/client'
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; status?: string; incomplete?: string }>
+  searchParams: Promise<{ q?: string; status?: string; incomplete?: string; scope?: string }>
 }) {
   const user = await requireUser()
   const params = await searchParams
@@ -30,7 +32,27 @@ export default async function DashboardPage({
   // than guessing, which is how the status parameter above behaves too.
   const incomplete = params.incomplete === '1'
 
-  const filters = { q: params.q, status, incomplete }
+  /**
+   * The table defaults to the cheques that still need Finance.
+   *
+   * Production holds 9,287 cheques, of which 7,433 are RELEASED and 531
+   * CANCELLED. A default of "everything" buries the ~400 that somebody has to
+   * act on today under eight thousand that nobody will ever touch again, and
+   * the row limit means the live ones may not even be on the first page.
+   *
+   * Only the TABLE is scoped. `getSummary` is called with no filter at all and
+   * goes on counting every cheque in the system: a card that quietly reported
+   * the filtered subset would read as a total while meaning something else.
+   */
+  const showAll = params.scope === 'all'
+  const filters = {
+    q: params.q,
+    status,
+    incomplete,
+    // An explicit status from the dropdown wins over the scope — including
+    // RELEASED, which the live list excludes.
+    statusIn: status || showAll ? undefined : LIVE_STATUSES,
+  }
 
   const [summary, rows, matching] = await Promise.all([
     getSummary(prisma),
@@ -38,24 +60,42 @@ export default async function DashboardPage({
     countChecks(prisma, filters),
   ])
 
+  // Every link that flips the scope keeps the filters the user has already set.
+  const scopeHref = (scope: 'live' | 'all') => {
+    const qs = new URLSearchParams()
+    if (params.q) qs.set('q', params.q)
+    if (params.status) qs.set('status', params.status)
+    if (incomplete) qs.set('incomplete', '1')
+    if (scope === 'all') qs.set('scope', 'all')
+    const s = qs.toString()
+    return s ? `/?${s}` : '/'
+  }
+
+  const scopeTab = (active: boolean) =>
+    `rounded-lg px-4 py-2 text-sm font-medium ring-1 ${
+      active ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white text-slate-700 ring-slate-200 hover:bg-slate-50'
+    }`
+
   return (
     <main className="mx-auto max-w-[1600px] space-y-6 p-8">
-      <header className="flex items-baseline justify-between">
-        <h1 className="text-xl font-semibold tracking-wide">CHECK RELEASE MONITORING</h1>
-        <p className="flex items-baseline gap-4 text-sm text-slate-500">
-          {/* Shown only to an admin. The route is guarded server-side either
-              way (app/admin/layout.tsx); hiding the link keeps a Finance user
-              from being offered a page that would bounce them back here. */}
-          {user.role === 'FINANCE_ADMIN' && (
-            <Link href="/admin/sync" className="underline underline-offset-2">ADMINISTRATION</Link>
-          )}
-          <span>{user.name} · {user.role.replace(/_/g, ' ')}</span>
-        </p>
-      </header>
+      <AppHeader user={user} title="CHECK RELEASE MONITORING" />
 
       <SummaryCards summary={summary} />
 
+      <div className="flex flex-wrap items-center gap-2">
+        <Link href={scopeHref('live')} className={scopeTab(!showAll)}>NEEDS ACTION</Link>
+        <Link href={scopeHref('all')} className={scopeTab(showAll)}>ALL CHEQUES</Link>
+        <span className="text-xs tracking-wide text-slate-500">
+          {showAll
+            ? 'SHOWING EVERY CHEQUE, INCLUDING RELEASED, CANCELLED AND VOIDED.'
+            : 'SHOWING GENERATED, SIGNATURE PENDING, SIGNED, READY FOR RELEASE AND SCHEDULED.'}
+        </span>
+      </div>
+
       <form className="flex flex-wrap gap-3" method="get">
+        {/* The scope survives a search. Without this the form would drop
+            ?scope=all and silently pull the user back to the live list. */}
+        {showAll && <input type="hidden" name="scope" value="all" />}
         <input
           name="q" defaultValue={params.q ?? ''}
           placeholder="SEARCH CHECK NO., APV, PO OR SUPPLIER"
@@ -82,6 +122,12 @@ export default async function DashboardPage({
         </button>
       </form>
 
+      {status && !showAll && (
+        <p className="rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-700">
+          FILTERED TO {status.replace(/_/g, ' ')} — a chosen status overrides the NEEDS ACTION scope.
+        </p>
+      )}
+
       {incomplete && (
         <p className="rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-900">
           SHOWING INCOMPLETE RECORDS ONLY — cheques whose amount the register never recorded.
@@ -97,7 +143,10 @@ export default async function DashboardPage({
         </p>
       )}
 
-      <CheckTable rows={rows} />
+      {/* Mapped, not passed straight through: the table is a client component
+          and a Prisma Decimal cannot be serialised across that boundary. See
+          toTableRow in lib/queries.ts. */}
+      <CheckTable rows={rows.map(toTableRow)} canRelease={user.role === 'FINANCE_ADMIN'} />
     </main>
   )
 }

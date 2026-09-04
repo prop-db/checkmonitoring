@@ -5,6 +5,17 @@ type Db = PrismaClient | Prisma.TransactionClient
 export type CheckFilters = {
   q?: string
   status?: CheckStatus
+  /**
+   * A set of statuses, for the dashboard's default view of the cheques that
+   * still need Finance. Ignored when `status` names a single one — an explicit
+   * choice from the dropdown wins over the default scope, otherwise picking
+   * RELEASED would return nothing and look like a broken filter.
+   *
+   * The list itself is never written here: `LIVE_STATUSES` in
+   * lib/domain/check-status.ts is the one place it exists, and a restatement is
+   * how a ninth status ends up live in one file and closed in another.
+   */
+  statusIn?: readonly CheckStatus[]
   companyId?: string
   cashAccountId?: string
   eligibility?: Eligibility
@@ -88,7 +99,11 @@ export async function getSummary(db: Db) {
 function buildWhere(filters: CheckFilters): Prisma.CheckWhereInput {
   const where: Prisma.CheckWhereInput = {}
 
+  // A single explicit status wins; the scope list applies only when none was
+  // chosen. An empty `statusIn` is treated as no filter rather than as "match
+  // nothing", so a miscomputed scope can never hide every cheque.
   if (filters.status) where.status = filters.status
+  else if (filters.statusIn && filters.statusIn.length > 0) where.status = { in: [...filters.statusIn] }
   if (filters.companyId) where.companyId = filters.companyId
   if (filters.cashAccountId) where.cashAccountId = filters.cashAccountId
   if (filters.eligibility) where.eligibility = filters.eligibility
@@ -137,3 +152,59 @@ export async function countChecks(db: Db, filters: CheckFilters): Promise<number
 }
 
 export type CheckRow = Awaited<ReturnType<typeof listChecks>>[number]
+
+/**
+ * The dashboard table's row, as it crosses into the browser.
+ *
+ * The table is a client component (it holds the tick-box selection), and a
+ * `CheckRow` cannot cross that boundary: `amount` is a `Prisma.Decimal`, a class
+ * instance, and React refuses to serialise one — "only plain objects can be
+ * passed to Client Components". Every bill carries a Decimal too.
+ *
+ * So the amount crosses as a DECIMAL STRING, which is what rule 8 requires
+ * anyway: never a JS number, because a float round-trip loses centavos. `Date`
+ * survives serialisation intact and is left alone.
+ *
+ * Narrow on purpose. A whole `Check` row carries fields the table never shows —
+ * cancellation reasons, portal sync state, source sheet and row — and shipping
+ * them to the browser puts them in the page source of a screen anyone in
+ * Finance can leave open on a shared machine.
+ */
+export type CheckTableRow = {
+  id: string
+  checkNumber: string
+  apvNumbers: string[]
+  payeeName: string | null
+  companyCode: string
+  checkDate: Date | null
+  amount: string | null
+  currency: string
+  status: CheckStatus
+  eligibility: Eligibility
+  isCheque: boolean
+  availablePickupDate: Date | null
+  scheduledPickupDate: Date | null
+}
+
+export function toTableRow(r: CheckRow): CheckTableRow {
+  return {
+    id: r.id,
+    checkNumber: r.checkNumber,
+    // Every bill, not just the first: search matches APV/PO across all of them,
+    // and showing one arbitrary bill would display a different APV than the one
+    // the user searched for.
+    apvNumbers: r.bills.map((b) => b.apvNumber),
+    payeeName: r.payeeName,
+    companyCode: r.company.code,
+    checkDate: r.checkDate,
+    // `?.toString() ?? null`, never `Number(...)`: null is "no amount was
+    // recorded" — 129 cheques in production — and it is not zero.
+    amount: r.amount?.toString() ?? null,
+    currency: r.currency,
+    status: r.status,
+    eligibility: r.eligibility,
+    isCheque: r.isCheque,
+    availablePickupDate: r.availablePickupDate,
+    scheduledPickupDate: r.scheduledPickupDate,
+  }
+}
