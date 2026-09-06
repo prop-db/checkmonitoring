@@ -496,9 +496,8 @@ describe('runSync — promoting staged rows', () => {
   it('links to the cheque of the company the sync supplied, never a sibling company’s same number', async () => {
     await seedBothTenantsST()
     const stpp = await testDb.company.findUniqueOrThrow({ where: { code: 'STPP' } })
-    // A cheque number is unique only PER COMPANY. Starkson Paper and Plastic
-    // already holds 6000319079; matching the staged row on the number alone
-    // would file the register's evidence against the wrong legal entity.
+    // Starkson Paper and Plastic holds 6000319079 — filed there from the
+    // register's cheque book, which is what the 1,865 duplicates were made of.
     const sibling = await testDb.check.create({
       data: { companyId: stpp.id, checkNumber: '6000319079', status: 'RELEASED', eligibility: 'SUPPLIER' },
     })
@@ -511,8 +510,24 @@ describe('runSync — promoting staged rows', () => {
       where: { companyId_checkNumber: { companyId: stk.id, checkNumber: '6000319079' } },
     })
     const after = await testDb.stagedCheck.findUniqueOrThrow({ where: { id: staged.id } })
+
+    // The property this test exists for, unchanged: the staged row links to the
+    // cheque of the company the SYNC supplied, reached through `upsertCheck`'s
+    // keyed resolution and never through a lookup on the cheque number alone.
     expect(after.promotedCheckId).toBe(goliveCheck.id)
-    expect(after.promotedCheckId).not.toBe(sibling.id)
+    expect(goliveCheck.companyId).toBe(stk.id)
+
+    // CHANGED 2026-09-06, and this half is now the stronger claim. This used to
+    // assert the staged row did NOT link to the sibling, on the premise that a
+    // sibling company could legitimately hold the same number. The client ruled
+    // that premise wrong — a cheque number belongs to one cheque book, so the
+    // STPP row and the GOLIVE payment are ONE cheque — and `upsertCheck` now
+    // refiles it under the company Acumatica's Branch names instead of storing
+    // it a second time. So there is one cheque here, not two, and it is the row
+    // that was misfiled rather than a fresh one beside it.
+    expect(await testDb.check.count({ where: { checkNumber: '6000319079' } })).toBe(1)
+    expect(goliveCheck.id).toBe(sibling.id)
+    expect(await testDb.auditLog.count({ where: { action: 'check_company_corrected' } })).toBe(1)
   })
 
   it('leaves AMBIGUOUS_COMPANY rows untouched — Finance ruled a human settles those', async () => {

@@ -43,8 +43,11 @@ export const IMMUTABLE_ON_UPDATE = [
 
 /**
  * The other half of the same decision: the columns an import owns. `companyId`
- * and `checkNumber` are here because a create writes them; an update never
- * does, since together they are the row it looked the check up by.
+ * and `checkNumber` are here because a create writes them. `checkNumber` an
+ * update never writes — it is the identity the row was found by. `companyId` an
+ * update writes in exactly one case, and only since 2026-09-06: when the
+ * fallback lookup found the cheque filed under another company. See
+ * COMPANY_RULING_BASIS.
  *
  * Note what is NOT here. `voidedAt` is written only through `voidCheck`, never
  * by a bare update. `vendorId` is left alone because vendor merges are reported
@@ -70,6 +73,21 @@ export const IMPORT_WRITABLE = [
  * `.superpowers/sdd/progress.md`.
  */
 export const FINANCE_RULING_BASIS = 'Finance ruling of 2026-09-03 on register contradictions'
+
+/**
+ * Cited on every company correction the fallback lookup makes, so a cheque that
+ * changed hands between two of our companies is traceable to the ruling that
+ * moved it rather than to "the importer decided".
+ *
+ * The register resolves a cheque's company from its cheque book
+ * (`prisma/reference-data.ts`); Acumatica resolves it from the payment's
+ * `Branch`. They disagreed on 1,865 cheques, in no consistent pattern, and the
+ * client settled it on 2026-09-06: **FOLLOW ACUMATICA SINCE IT IS ALREADY
+ * DEPOSITED.** The cheque-book table is wrong somewhere, but nobody has said
+ * where, so it is left alone and each cheque is corrected as the ERP asserts it.
+ */
+export const COMPANY_RULING_BASIS =
+  'Client ruling of 2026-09-06: Acumatica\'s Branch is authoritative for which company owns a cheque'
 
 export type UpsertArgs = {
   row: NormalisedRow
@@ -108,9 +126,11 @@ const keep = <T>(value: T | null): T | undefined => value ?? undefined
 
 /**
  * The single write path for both the workbook importer and the Acumatica sync.
- * Duplicate prevention lives here and nowhere else: one `(companyId,
- * checkNumber)` lookup, one create-or-update, and no second place for the two
- * ingestion paths to disagree about what counts as the same cheque.
+ * Duplicate prevention lives here and nowhere else: a `(companyId,
+ * checkNumber)` lookup, a fallback on the cheque number alone when that misses,
+ * one create-or-update, and no second place for the two ingestion paths to
+ * disagree about what counts as the same cheque. See the fallback block for
+ * why the composite key on its own was not enough.
  *
  * Writes no `PortalEvent`, ever. Publishing a cheque to the supplier portal is
  * a Finance action; an import is not a reason to tell a supplier anything.
@@ -161,9 +181,48 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
     : null
 
   return inTx(db, async (tx) => {
-    const existing = await tx.check.findUnique({
+    const exact = await tx.check.findUnique({
       where: { companyId_checkNumber: { companyId: company.id, checkNumber } },
     })
+
+    // THE FALLBACK, and the whole of defect 1,865-duplicates.
+    //
+    // `@@unique([companyId, checkNumber])` is the primary identity and stays
+    // the primary identity — it is what the lookup above uses and what a
+    // create writes. But it is not the only thing that makes two rows the same
+    // cheque. A BPI cheque number belongs to exactly one cheque book, so two of
+    // our companies cannot both own it; when the composite key misses and the
+    // number alone hits exactly once, the row we have IS this cheque, filed
+    // under the company the register's cheque-book table named. Before this
+    // block that miss created a second row, and 1,865 physical cheques were
+    // stored twice — one register row saying RELEASED, one Acumatica row saying
+    // SIGNATURE_PENDING, neither knowing about the other.
+    //
+    // Reached only on a miss, so the ordinary path is still one indexed lookup.
+    // Two matches is not a tie to break: it is the state this fallback exists
+    // to stop being created, and the row is staged for a human.
+    let existing: Check | null = exact
+    let misfiled: { companyId: string; companyCode: string } | null = null
+
+    if (!exact) {
+      const sameNumber = await tx.check.findMany({
+        where: { checkNumber },
+        include: { company: { select: { code: true } } },
+      })
+
+      if (sameNumber.length > 1) {
+        // Every company the number is claimed by, this row's included, so the
+        // human settling it can see the whole disagreement in the staged row.
+        const claimed = [...new Set([...sameNumber.map((c) => c.company.code), companyCode])]
+        return stageRow(tx, row, implied.status, 'AMBIGUOUS_COMPANY', claimed)
+      }
+
+      const only = sameNumber[0]
+      if (only) {
+        existing = only
+        misfiled = { companyId: only.companyId, companyCode: only.company.code }
+      }
+    }
 
     const classified = classifyEligibility({
       payeeName: row.payeeName,
@@ -263,9 +322,45 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
     // would make the override last exactly until the next sync.
     const overridden = existing.eligibilityOverriddenById !== null
 
+    // A cheque changing company is a material fact — which of our companies'
+    // money left the bank — so it is never allowed to happen silently. Written
+    // before the update rather than after, so the row that explains the move
+    // reads ahead of the move in the trail.
+    if (misfiled) {
+      await writeAudit(tx, {
+        checkId: existing.id,
+        actorType: 'SYSTEM',
+        action: 'check_company_corrected',
+        details: {
+          source: row.source,
+          checkNumber,
+          previousCompanyId: misfiled.companyId,
+          previousCompanyCode: misfiled.companyCode,
+          companyId: company.id,
+          companyCode: company.code,
+          acumaticaBranch: row.acumaticaBranch,
+          acumaticaTenant: row.acumaticaTenant,
+          sourceSheet: row.sourceSheet,
+          sourceRow: row.sourceRow,
+          basis: COMPANY_RULING_BASIS,
+        },
+        remarks:
+          `Cheque ${checkNumber} was filed under ${misfiled.companyCode} and is refiled under ` +
+          `${company.code}, asserted by ${row.source}` +
+          (row.acumaticaBranch ? ` (Branch ${row.acumaticaBranch.trim()})` : '') +
+          '. Matched on the cheque number alone, because a cheque number belongs to one cheque ' +
+          `book. Status left at ${existing.status}. ${COMPANY_RULING_BASIS}.`,
+      })
+    }
+
     await tx.check.update({
       where: { id: existing.id },
       data: {
+        // Written on an update in exactly one case: the fallback above found
+        // this cheque under another company. `undefined` otherwise, so the
+        // ordinary re-import still never touches the half of the key it looked
+        // the row up by.
+        companyId: misfiled ? company.id : undefined,
         acumaticaPaymentId: keep(row.acumaticaPaymentId),
         cvNumber: keep(row.cvNumber),
         checkDate: keep(row.checkDate),

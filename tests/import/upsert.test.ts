@@ -4,6 +4,7 @@ import { testDb, resetDb } from '../helpers/db'
 import { makeUser } from '../helpers/factory'
 import {
   upsertCheck, importRows, IMMUTABLE_ON_UPDATE, IMPORT_WRITABLE, FINANCE_RULING_BASIS,
+  COMPANY_RULING_BASIS,
 } from '@/lib/import/upsert'
 import { VOID_AFTER_RELEASE_WARNING } from '@/lib/domain/actions'
 import type { NormalisedRow } from '@/lib/normalised-row'
@@ -155,15 +156,23 @@ describe('upsertCheck — re-importing', () => {
     expect(check.sourceRow).toBe(900)
   })
 
-  it('files the same cheque number under a different company as a different cheque', async () => {
-    // `@@unique([companyId, checkNumber])` — the number alone is not the key,
-    // which is exactly why a row whose company is unknown is staged rather than
-    // guessed at.
+  // INVERTED 2026-09-06. This used to assert that the same cheque number under
+  // a different company was a DIFFERENT cheque, because `@@unique([companyId,
+  // checkNumber])` is the only key duplicate prevention had. That assumption is
+  // the defect: the register resolves a company from the cheque book and
+  // Acumatica from the payment's Branch, they disagree on 1,865 cheques, and
+  // every disagreement stored the one physical cheque twice. A BPI cheque
+  // number belongs to exactly one cheque book, so two companies cannot both own
+  // it — see the fallback block below for what happens instead now.
+  //
+  // What survives unchanged is the reason a row with NO company is staged
+  // rather than guessed at, which the staging tests still pin.
+  it('treats the same cheque number under a different company as the same cheque', async () => {
     await seedCompany('STK')
     await seedCompany('A1+', 'A1+ Multinational Packaging Inc.')
     await upsert(row({ companyCode: 'STK', cashAccountCode: 'BPI STK', checkBookCode: null }))
     await upsert(row({ companyCode: 'A1+', cashAccountCode: 'BPI A1+', checkBookCode: null }))
-    expect(await testDb.check.count()).toBe(2)
+    expect(await testDb.check.count()).toBe(1)
   })
 
   it('never changes status: a cheque a Finance user has SIGNED stays SIGNED', async () => {
@@ -611,6 +620,137 @@ describe('upsertCheck — a cheque number claimed by two companies', () => {
       ownCompanyNames: OWN_COMPANIES, now: NOW, companies: ['STK', 'A1+'],
     })
     expect(out).toMatchObject({ outcome: 'STAGED', reason: 'AMBIGUOUS_COMPANY' })
+  })
+})
+
+describe('upsertCheck — a cheque already stored under the wrong company', () => {
+  async function twoCompanies() {
+    const stk = await seedCompany('STK')
+    const a1 = await seedCompany('A1+', 'A1+ Multinational Packaging Inc.')
+    return { stk: stk.company, a1: a1.company }
+  }
+
+  // The Acumatica half of the pair, as the sync presents it: no sheet, no row
+  // number, a Branch and a tenant, and the company that Branch resolves to.
+  const feed = (overrides: Partial<NormalisedRow> = {}): NormalisedRow => row({
+    source: 'ACUMATICA',
+    companyCode: 'A1+',
+    cashAccountCode: null,
+    checkBookCode: null,
+    cvNumber: null,
+    sourceSheet: null,
+    sourceRow: null,
+    acumaticaPaymentId: 'CV-A1-004112',
+    acumaticaDocType: 'Payment',
+    acumaticaStatus: 'Closed',
+    acumaticaBranch: 'A1+',
+    acumaticaTenant: 'GOLIVE',
+    ...overrides,
+  })
+
+  it('finds the cheque under the other company and corrects it, rather than storing it twice', async () => {
+    const { a1 } = await twoCompanies()
+    const first = await upsert(row({ checkNumber: '6000308848', companyCode: 'STK' }))
+    const second = await upsert(feed({ checkNumber: '6000308848' }))
+
+    expect(second).toMatchObject({ outcome: 'UPDATED' })
+    expect(first.outcome === 'CREATED' && second.outcome === 'UPDATED'
+      && first.checkId === second.checkId).toBe(true)
+    expect(await testDb.check.count()).toBe(1)
+
+    const check = await testDb.check.findFirstOrThrow()
+    expect(check.companyId).toBe(a1.id)
+    expect(check.acumaticaBranch).toBe('A1+')
+  })
+
+  it('audits the correction, naming the company it left, the one it moved to and who said so', async () => {
+    await twoCompanies()
+    await upsert(row({ checkNumber: '6000308848', companyCode: 'STK' }))
+    await upsert(feed({ checkNumber: '6000308848' }))
+
+    const audit = await testDb.auditLog.findFirstOrThrow({
+      where: { action: 'check_company_corrected' },
+    })
+    expect(audit.actorType).toBe('SYSTEM')
+    expect(audit.userId).toBeNull()
+    expect(audit.details).toMatchObject({
+      source: 'ACUMATICA',
+      checkNumber: '6000308848',
+      previousCompanyCode: 'STK',
+      companyCode: 'A1+',
+      acumaticaBranch: 'A1+',
+      acumaticaTenant: 'GOLIVE',
+      basis: COMPANY_RULING_BASIS,
+    })
+    expect(audit.remarks).toContain('STK')
+    expect(audit.remarks).toContain('A1+')
+  })
+
+  it('leaves the status and releasedAt the register established untouched', async () => {
+    const user = await makeUser()
+    const { a1 } = await twoCompanies()
+    const created = await upsert(row({ checkNumber: '6000308848', companyCode: 'STK' }))
+    const id = created.outcome === 'CREATED' ? created.checkId : ''
+    await testDb.check.update({
+      where: { id },
+      data: {
+        status: 'RELEASED',
+        releasedById: user.id,
+        releasedAt: new Date('2026-02-06T04:00:00Z'),
+      },
+    })
+    const before = await testDb.check.findUniqueOrThrow({ where: { id } })
+
+    // Acumatica reports this one as SIGNATURE_PENDING work in progress. Only
+    // the company moves.
+    await upsert(feed({ checkNumber: '6000308848' }))
+    const after = await testDb.check.findUniqueOrThrow({ where: { id } })
+
+    for (const field of IMMUTABLE_ON_UPDATE) {
+      expect({ [field]: after[field] }).toEqual({ [field]: before[field] })
+    }
+    expect(after.status).toBe('RELEASED')
+    expect(after.releasedAt).toEqual(new Date('2026-02-06T04:00:00Z'))
+    expect(after.companyId).toBe(a1.id)
+  })
+
+  it('stages rather than guessing when two cheques already carry the number', async () => {
+    const { stk, a1 } = await twoCompanies()
+    await seedCompany('STPP', 'Starkson Paper and Plastic')
+    // The pre-existing pair this fix exists to prevent, created directly so the
+    // test states the state it is about rather than depending on how it arose.
+    for (const company of [stk, a1]) {
+      await testDb.check.create({
+        data: { companyId: company.id, checkNumber: '6000308848', eligibility: 'SUPPLIER' },
+      })
+    }
+
+    const out = await upsert(feed({ checkNumber: '6000308848', companyCode: 'STPP' }))
+    expect(out).toMatchObject({ outcome: 'STAGED', reason: 'AMBIGUOUS_COMPANY' })
+    // Nothing written, nothing chosen.
+    expect(await testDb.check.count()).toBe(2)
+
+    const staged = await testDb.stagedCheck.findFirstOrThrow()
+    expect(staged.checkNumber).toBe('6000308848')
+    expect(staged.companyCode).toBe('STPP')
+    expect([...staged.conflictingCompanies].sort()).toEqual(['A1+', 'STK', 'STPP'])
+  })
+
+  it('still creates a cheque whose number nothing carries', async () => {
+    await twoCompanies()
+    await upsert(row({ checkNumber: '6000308848', companyCode: 'STK' }))
+    const out = await upsert(feed({ checkNumber: '6000399999' }))
+
+    expect(out).toMatchObject({ outcome: 'CREATED' })
+    expect(await testDb.check.count()).toBe(2)
+    expect(await testDb.auditLog.count({ where: { action: 'check_company_corrected' } })).toBe(0)
+  })
+
+  it('does not audit a correction on an ordinary re-import of the same company', async () => {
+    await twoCompanies()
+    await upsert(row({ checkNumber: '6000308848', companyCode: 'STK' }))
+    await upsert(row({ checkNumber: '6000308848', companyCode: 'STK', amount: '200000.00' }))
+    expect(await testDb.auditLog.count({ where: { action: 'check_company_corrected' } })).toBe(0)
   })
 })
 

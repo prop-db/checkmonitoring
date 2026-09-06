@@ -272,6 +272,13 @@ model Check {
   updatedAt          DateTime         @updatedAt
 
   @@unique([companyId, checkNumber])
+  // The composite unique above cannot serve a lookup on the number alone —
+  // `companyId` is its leading column. `upsertCheck` falls back to exactly that
+  // lookup whenever the composite key misses (see COMPANY_RULING_BASIS), which
+  // is every create and every cheque Acumatica files under a different company
+  // from the register. Without this index that is a sequential scan of 21,817
+  // rows, thousands of times per import.
+  @@index([checkNumber])
   @@index([status])
   @@index([eligibility])
   @@index([checkDate])

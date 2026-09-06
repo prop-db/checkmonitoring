@@ -1,0 +1,19 @@
+-- An index on the cheque number alone.
+--
+-- `@@unique([companyId, checkNumber])` cannot serve a lookup on the number by
+-- itself: `companyId` is its leading column. That was fine while the composite
+-- key was the only identity `upsertCheck` used — and it is exactly why 1,865
+-- physical cheques ended up stored twice. The register resolves a cheque's
+-- company from its cheque book and Acumatica from the payment's `Branch`; where
+-- they disagreed the composite lookup missed and a second row was created.
+--
+-- `upsertCheck` now falls back to a lookup on `checkNumber` alone whenever the
+-- composite key misses, which is every create and every one of those
+-- disagreements. Without this index that is a sequential scan of the whole
+-- table, thousands of times per import.
+--
+-- Not UNIQUE. Two rows may legitimately share a number today (the 1,865 pairs
+-- until `scripts/merge-duplicate-cheques.ts` has run), and the fallback's
+-- answer to more than one match is to stage the row for a human, not to let the
+-- database abort a 12,000-row import.
+CREATE INDEX IF NOT EXISTS "Check_checkNumber_idx" ON "Check"("checkNumber");

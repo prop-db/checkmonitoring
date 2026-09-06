@@ -43,6 +43,24 @@ export const CASH_ACCOUNTS: readonly { code: string; bank: string; company: stri
   { code: 'BDO A1',   bank: 'BDO',  company: 'A1+' },
 ]
 
+// **Acumatica's `Branch` is authoritative for which company owns a cheque, not
+// this table.** Client ruling of 2026-09-06: "FOLLOW ACUMATICA SINCE IT IS
+// ALREADY DEPOSITED". The two disagreed on 1,865 cheques, in no consistent
+// pattern and with the same book sometimes mapping to different companies —
+// and because duplicate prevention keyed on `(companyId, checkNumber)`, every
+// disagreement stored one physical cheque twice.
+//
+// So this table is a FALLBACK, for cheques the ERP has never seen: the register
+// records a cheque book on rows Acumatica has no payment for, and without it
+// those rows resolve no company at all and are staged. Where Acumatica does
+// have the payment, its branch overrides whatever this says, cheque by cheque,
+// as `upsertCheck` syncs it.
+//
+// Some entry here is therefore wrong — but the client has not said which, and
+// guessing would move cheques the sync has not corrected. Do not "fix" an entry
+// on the strength of a disagreement: the disagreement is expected, and the
+// fallback lookup in `lib/import/upsert.ts` plus
+// `scripts/merge-duplicate-cheques.ts` are what settle it.
 export const CHECK_BOOKS: readonly { code: string; bank: string; company: string }[] = [
   { code: 'BPI-S-4636', bank: 'BPI',  company: 'STK' },
   { code: 'BPI-A-5713', bank: 'BPI',  company: 'A1+' },
