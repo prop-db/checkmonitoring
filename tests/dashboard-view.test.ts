@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   isCardSelected, cardHref, clearFiltersHref, describeView, viewStatusFilter,
   releaseConfirmHref, releaseCancelHref, TODAYS_RELEASE_ANCHOR,
+  exportHref, EXPORT_PATH,
   type DashboardSelection,
 } from '@/lib/dashboard-view'
 import { LIVE_STATUSES } from '@/lib/domain/check-status'
@@ -209,5 +210,40 @@ describe('the RELEASE ALL confirmation step', () => {
     ]) {
       expect(url).not.toContain('confirm=')
     }
+  })
+})
+
+/**
+ * EXPORT TO EXCEL points at the same view the reader is in. If these two ever
+ * disagree, the file is a copy of a table nobody was looking at.
+ */
+describe('exportHref', () => {
+  it('is the bare endpoint on an untouched dashboard', () => {
+    expect(exportHref(NOTHING)).toBe(EXPORT_PATH)
+  })
+
+  it('carries the narrowing filters', () => {
+    expect(exportHref(NARROWED)).toBe(
+      `${EXPORT_PATH}?q=ACME&company=c1&cashAccount=a1&eligibility=ELIGIBLE`,
+    )
+  })
+
+  it('carries the view and the incomplete toggle', () => {
+    expect(exportHref({ ...NOTHING, status: 'SIGNED', incomplete: true }))
+      .toBe(`${EXPORT_PATH}?status=SIGNED&incomplete=1`)
+    expect(exportHref({ ...NOTHING, showAll: true })).toBe(`${EXPORT_PATH}?scope=all`)
+  })
+
+  it('carries exactly the parameters the dashboard link carries', () => {
+    const sel: DashboardSelection = { ...NARROWED, status: 'READY_FOR_RELEASE', incomplete: true }
+    // The INCOMPLETE card's "turn it back on" link is the same view as `sel`,
+    // so the two URLs must differ only in their path.
+    const dashboard = cardHref('INCOMPLETE', { ...sel, incomplete: false })
+    expect(exportHref(sel)).toBe(dashboard.replace('/?', `${EXPORT_PATH}?`))
+  })
+
+  // A half-made release is a state of the screen, not of the data.
+  it('never carries the release confirmation', () => {
+    expect(exportHref({ ...NARROWED, status: 'READY_FOR_RELEASE' })).not.toContain('confirm=')
   })
 })

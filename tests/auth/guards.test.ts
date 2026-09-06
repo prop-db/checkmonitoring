@@ -36,3 +36,41 @@ describe('requireAdmin', () => {
     await expect(requireAdmin()).resolves.toMatchObject({ role: 'FINANCE_ADMIN' })
   })
 })
+
+/**
+ * The predicate `requireUser` and the export route both ask. It exists so a
+ * route handler — which has no perimeter in front of it, `middleware.ts` being
+ * silently unregistered — can refuse with a 401 instead of a redirect without
+ * inventing a second, weaker notion of "signed in".
+ */
+describe('getSessionUser', () => {
+  it('answers null for an anonymous visitor rather than redirecting', async () => {
+    auth.mockResolvedValue(null)
+    const { getSessionUser } = await import('@/lib/auth')
+    await expect(getSessionUser()).resolves.toBeNull()
+    expect(redirect).not.toHaveBeenCalled()
+  })
+
+  // NextAuth keeps name and email optional on its own types. A session missing
+  // either is not one this system's Credentials provider issued, and is treated
+  // as no session rather than cast into shape.
+  it('answers null for a half-formed session', async () => {
+    for (const user of [
+      { id: '', email: 'a@b.c', name: 'A', role: 'FINANCE_USER' },
+      { id: 'u1', email: '', name: 'A', role: 'FINANCE_USER' },
+      { id: 'u1', email: 'a@b.c', name: '', role: 'FINANCE_USER' },
+    ]) {
+      auth.mockResolvedValue({ user })
+      const { getSessionUser } = await import('@/lib/auth')
+      await expect(getSessionUser()).resolves.toBeNull()
+    }
+  })
+
+  it('returns the user when signed in', async () => {
+    auth.mockResolvedValue({ user: { id: 'u1', email: 'a@b.c', name: 'A', role: 'FINANCE_ADMIN' } })
+    const { getSessionUser } = await import('@/lib/auth')
+    await expect(getSessionUser()).resolves.toEqual({
+      id: 'u1', email: 'a@b.c', name: 'A', role: 'FINANCE_ADMIN',
+    })
+  })
+})

@@ -3,12 +3,11 @@ import { requireUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import {
   getSummary, getTodaysRelease, listChecks, countChecks, toTableRow, getFilterOptions,
-  parseStatusParam, parseEligibilityParam, parseOptionId,
 } from '@/lib/queries'
+import { resolveDashboardQuery } from '@/lib/dashboard-params'
 import {
-  cardHref, clearFiltersHref, describeView, viewStatusFilter,
-  releaseConfirmHref, releaseCancelHref,
-  type DashboardSelection,
+  cardHref, clearFiltersHref, describeView,
+  releaseConfirmHref, releaseCancelHref, exportHref,
 } from '@/lib/dashboard-view'
 import { AppHeader } from '@/components/AppHeader'
 import { SummaryCards } from '@/components/SummaryCards'
@@ -38,26 +37,6 @@ export default async function DashboardPage({
   const user = await requireUser()
   const params = await searchParams
 
-  /**
-   * The table defaults to the cheques that still need Finance.
-   *
-   * Production holds 9,287 cheques, of which 7,433 are RELEASED and 531
-   * CANCELLED. A default of "everything" buries the ones somebody has to act on
-   * today under eight thousand that nobody will ever touch again, and the row
-   * limit means the live ones may not even be on the first page.
-   *
-   * The NEEDS ACTION / ALL CHEQUES tabs that used to set this are gone — they
-   * duplicated the TOTAL CHECKS card, which is exactly "all cheques". The
-   * parameter stays: TOTAL CHECKS writes it, and a bookmark saved with it still
-   * opens the view it named. The default it guards is not silent — the line
-   * above the table names whichever view is active.
-   *
-   * Only the TABLE is scoped. `getSummary` is called with no filter at all and
-   * goes on counting every cheque in the system: a card that quietly reported
-   * the filtered subset would read as a total while meaning something else.
-   */
-  const showAll = params.scope === 'all'
-
   // The summary does not depend on the filters, and the dropdown options do not
   // depend on the summary — so both are fetched before the filters are known.
   //
@@ -73,67 +52,28 @@ export default async function DashboardPage({
   ])
 
   /**
-   * Every URL parameter is validated before it reaches Prisma.
+   * Every URL parameter is validated, the view is resolved and the filters are
+   * assembled — all of it in `resolveDashboardQuery`, which is the ONE place
+   * that turns a dashboard URL into a query.
    *
-   * Casting `params.status` straight to `CheckStatus` would hand Prisma an
-   * invalid enum value on a hand-edited or stale bookmarked link and crash the
-   * page with a 500; a company id nobody recognises would return an empty table
-   * that reads as "there are no cheques". Each parser answers `undefined` for
-   * anything it does not recognise, which `buildWhere` reads as no filter.
+   * It lives outside this file because `app/api/export/route.ts` runs it too.
+   * The Excel export has to hold exactly what the reader is looking at, and the
+   * only way to guarantee that is for both to run the same code: a second
+   * parser that agreed today would drift the first time a filter is added to
+   * one of them.
    *
-   * The company and cash account ids are checked against the options actually
-   * loaded above — the same list the dropdowns render, so the two cannot
-   * disagree about what is selectable.
+   * The company and cash account ids are checked against the options loaded
+   * above — the same list the dropdowns render, so the two cannot disagree
+   * about what is selectable.
+   *
+   * Only the TABLE is scoped by any of this. `getSummary` above is called with
+   * no filter at all and goes on counting every cheque in the system: a card
+   * that quietly reported the filtered subset would read as a total while
+   * meaning something else.
    */
-  const status = parseStatusParam(params.status)
-  const eligibility = parseEligibilityParam(params.eligibility)
-  const companyId = parseOptionId(params.company, options.companies)
-  const cashAccountId = parseOptionId(params.cashAccount, options.cashAccounts)
-
-  // The checkbox submits `incomplete=1`; the summary card links to the same.
-  // Only "1" turns it on — an unrecognised value leaves the filter off rather
-  // than guessing, which is how every parameter above behaves too.
-  const incomplete = params.incomplete === '1'
-
-  const q = params.q?.trim() ?? ''
-
-  /**
-   * The selected view, and the filters that narrow within it.
-   *
-   * `base` is everything a card must carry forward — the search box and the
-   * three dropdowns — built from the VALIDATED values rather than the raw
-   * parameters, so an unrecognised one is dropped everywhere at once: it does
-   * not filter the table and it does not survive into a card's link either.
-   */
-  const selection: DashboardSelection = {
-    status: status ?? null,
-    showAll,
-    incomplete,
-    base: Object.fromEntries(
-      Object.entries({
-        q,
-        company: companyId ?? '',
-        cashAccount: cashAccountId ?? '',
-        eligibility: eligibility ?? '',
-      }).filter(([, v]) => v !== ''),
-    ),
-  }
-
-  // Every filter goes into ONE object, which `buildWhere` ANDs together. The
-  // dropdowns therefore compose with each other, with the search box, with the
-  // incomplete toggle and with the view, with no extra query logic here.
-  //
-  // The view's own status filter comes from `viewStatusFilter` — the same pure
-  // function the cards are built from, so the table and the card that opened it
-  // cannot disagree about what READY FOR RELEASE means.
-  const filters = {
-    q: q || undefined,
-    companyId,
-    cashAccountId,
-    eligibility,
-    incomplete,
-    ...viewStatusFilter(selection),
-  }
+  const {
+    q, status, companyId, cashAccountId, eligibility, incomplete, showAll, selection, filters,
+  } = resolveDashboardQuery(params, options)
 
   const [rows, matching] = await Promise.all([
     listChecks(prisma, filters),
@@ -171,9 +111,27 @@ export default async function DashboardPage({
           no card selected the table still shows only the live statuses, and this
           line says so rather than leaving the reader to infer it from a row
           count. */}
-      <p className="text-xs font-medium tracking-wide text-slate-600">
-        VIEWING: {describeView(selection)}
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs font-medium tracking-wide text-slate-600">
+          VIEWING: {describeView(selection)}
+        </p>
+
+        {/* Beside the line that names the view, because that is precisely what
+            the file will contain: the same view, the same filters, the same
+            rows. A plain anchor, not a button with an onClick — the download
+            has to work on a Finance workstation whose JavaScript has failed,
+            the same reasoning as the filter bar and the sign-out form.
+
+            `download` is deliberately absent: the filename is set by the
+            route's Content-Disposition, which is the only place that knows the
+            view and the date the file was actually generated. */}
+        <a
+          href={exportHref(selection)}
+          className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium tracking-wide text-white hover:bg-emerald-800"
+        >
+          EXPORT TO EXCEL
+        </a>
+      </div>
 
       <FilterBar
         options={options}

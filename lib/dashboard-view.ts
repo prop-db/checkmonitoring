@@ -76,7 +76,7 @@ type ViewState = Pick<DashboardSelection, 'status' | 'showAll'>
  * then the view, then the toggle. An empty query string becomes `/` rather than
  * `/?`.
  */
-function href(
+function query(
   base: Readonly<Record<string, string>>,
   view: ViewState & { incomplete: boolean; confirmRelease?: boolean },
 ): string {
@@ -88,7 +88,14 @@ function href(
   // how choosing a card or clearing the filters also steps back out of a
   // half-made release rather than carrying the confirmation along.
   if (view.confirmRelease) qs.set('confirm', 'release')
-  const s = qs.toString()
+  return qs.toString()
+}
+
+function href(
+  base: Readonly<Record<string, string>>,
+  view: ViewState & { incomplete: boolean; confirmRelease?: boolean },
+): string {
+  const s = query(base, view)
   return s ? `/?${s}` : '/'
 }
 
@@ -169,6 +176,27 @@ export function releaseCancelHref(sel: DashboardSelection): string {
     status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete,
   })
   return `${url}#${TODAYS_RELEASE_ANCHOR}`
+}
+
+export const EXPORT_PATH = '/api/export'
+
+/**
+ * EXPORT TO EXCEL, as a URL.
+ *
+ * The SAME parameters the dashboard is reading, so the file holds exactly what
+ * is on screen — the view, the search, the dropdowns and the incomplete toggle.
+ * Built here rather than in the page for the reason every other link on this
+ * screen is: one function decides what a dashboard URL means, and the export
+ * cannot drift from the table it claims to be a copy of.
+ *
+ * `confirm` is deliberately not carried. A half-made release is a state of the
+ * screen, not of the data, and it has no business in a filename or a file.
+ */
+export function exportHref(sel: DashboardSelection): string {
+  const s = query(sel.base, {
+    status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete,
+  })
+  return s ? `${EXPORT_PATH}?${s}` : EXPORT_PATH
 }
 
 /**
