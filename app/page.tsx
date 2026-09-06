@@ -2,15 +2,17 @@ import Link from 'next/link'
 import { requireUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import {
-  getSummary, listChecks, countChecks, toTableRow, getFilterOptions,
+  getSummary, getTodaysRelease, listChecks, countChecks, toTableRow, getFilterOptions,
   parseStatusParam, parseEligibilityParam, parseOptionId,
 } from '@/lib/queries'
 import {
   cardHref, clearFiltersHref, describeView, viewStatusFilter,
+  releaseConfirmHref, releaseCancelHref,
   type DashboardSelection,
 } from '@/lib/dashboard-view'
 import { AppHeader } from '@/components/AppHeader'
 import { SummaryCards } from '@/components/SummaryCards'
+import { TodaysReleasePanel } from '@/components/TodaysReleasePanel'
 import { FilterBar } from '@/components/FilterBar'
 import { CheckTable } from '@/components/CheckTable'
 
@@ -25,6 +27,12 @@ export default async function DashboardPage({
     eligibility?: string
     incomplete?: string
     scope?: string
+    /**
+     * TODAY'S RELEASE's confirmation step. It lives in the URL rather than in a
+     * `confirm()` dialog so the step exists before any JavaScript does — on the
+     * one action in this system that hands money over.
+     */
+    confirm?: string
   }>
 }) {
   const user = await requireUser()
@@ -52,9 +60,16 @@ export default async function DashboardPage({
 
   // The summary does not depend on the filters, and the dropdown options do not
   // depend on the summary — so both are fetched before the filters are known.
-  const [summary, options] = await Promise.all([
+  //
+  // TODAY'S RELEASE is fetched alongside them and, like the summary, takes NO
+  // filters: it is what is ready to hand over right now, not what is ready
+  // within whatever the reader happens to have narrowed the table to. A panel
+  // offering to RELEASE ALL over a filtered subset while reading like a total
+  // is the misunderstanding worth ruling out by construction.
+  const [summary, options, todaysRelease] = await Promise.all([
     getSummary(prisma),
     getFilterOptions(prisma),
+    getTodaysRelease(prisma),
   ])
 
   /**
@@ -134,6 +149,22 @@ export default async function DashboardPage({
           not widen the table back out. `base` deliberately excludes status,
           scope and incomplete: those are the view and its toggle. */}
       <SummaryCards summary={summary} selection={selection} />
+
+      {/* Directly under the cards and above everything to do with the table:
+          this is the answer to "what do I do today", and it is shown even when
+          the count is zero so that "nothing is ready" and "the panel broke" can
+          never look the same.
+
+          `confirming` is an exact string match, like every other parameter on
+          this page — an unrecognised value leaves the panel on its first step
+          rather than guessing its way into a confirmation. */}
+      <TodaysReleasePanel
+        todays={todaysRelease}
+        canRelease={user.role === 'FINANCE_ADMIN'}
+        confirming={params.confirm === 'release'}
+        confirmHref={releaseConfirmHref(selection)}
+        cancelHref={releaseCancelHref(selection)}
+      />
 
       {/* The scope tabs used to say this. They are gone, because they set the
           same parameters the cards do, but the DEFAULT they carried is not: with

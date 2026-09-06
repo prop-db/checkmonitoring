@@ -1,6 +1,11 @@
 import type { Prisma, PrismaClient, CheckStatus, Eligibility } from '@prisma/client'
 import { LIVE_STATUSES, CLOSED_STATUSES } from './domain/check-status'
 import { ELIGIBILITIES } from './domain/eligibility'
+// Pure URL/view arithmetic, no database — imported so the READY FOR RELEASE
+// card, the table view and TODAY'S RELEASE all read one definition of which
+// statuses that view covers. `dashboard-view` does not import this module, so
+// there is no cycle.
+import { viewStatusFilter } from './dashboard-view'
 
 type Db = PrismaClient | Prisma.TransactionClient
 
@@ -94,6 +99,97 @@ export async function getSummary(db: Db) {
     incomplete,
     totalsByCurrency,
   }
+}
+
+/**
+ * The set TODAY'S RELEASE covers, as a filter.
+ *
+ * READY_FOR_RELEASE **and** SCHEDULED, and the pair is not restated here.
+ * `viewStatusFilter` is already the one place that decides what the READY FOR
+ * RELEASE card and view mean, and a panel offering to release 81 cheques above
+ * a card reading 87 is precisely the drift a second copy of the list invites.
+ *
+ * `showAll: false` is inert alongside an explicit status — `viewStatusFilter`
+ * only consults it when none was given — but it is spelled out because
+ * `ViewState` requires it and a reader should not have to check.
+ */
+export const TODAYS_RELEASE_FILTER: CheckFilters =
+  viewStatusFilter({ status: 'READY_FOR_RELEASE', showAll: false })
+
+/** What the TODAY'S RELEASE panel shows, and what RELEASE ALL would act on. */
+export type TodaysRelease = {
+  /** Every cheque in the set, including the ones carrying no amount. */
+  count: number
+  /**
+   * How many of those have no recorded amount, and are therefore counted above
+   * but absent from every figure below. Six of production's 129 incomplete
+   * cheques are READY_FOR_RELEASE, so this is a live case. The panel says so on
+   * screen: a count and a total that disagree without explanation read as a
+   * broken figure.
+   */
+  incomplete: number
+  /** Per currency, never summed across them. */
+  totalsByCurrency: CurrencyTotal[]
+}
+
+/**
+ * What is ready to hand over right now.
+ *
+ * The count is derived from the same grouping as the totals rather than counted
+ * separately, so "81 cheques" and the currency rows beneath it cannot come from
+ * two queries that saw different data.
+ */
+export async function getTodaysRelease(db: Db): Promise<TodaysRelease> {
+  const where = buildWhere(TODAYS_RELEASE_FILTER)
+
+  const [grouped, incomplete] = await Promise.all([
+    db.check.groupBy({
+      by: ['currency'],
+      _sum: { amount: true },
+      _count: { _all: true },
+      where,
+    }),
+    db.check.count({ where: { ...where, isIncomplete: true } }),
+  ])
+
+  // `?.toString() ?? null`, exactly as getSummary does it: a decimal STRING,
+  // never a JS number, and null where no amount in the group is known — which
+  // is not the same fact as a total of zero and must not render as one.
+  const totalsByCurrency: CurrencyTotal[] = grouped.map((g) => ({
+    currency: g.currency,
+    total: g._sum.amount?.toString() ?? null,
+    count: g._count._all,
+  }))
+
+  return {
+    count: grouped.reduce((n, g) => n + g._count._all, 0),
+    incomplete,
+    totalsByCurrency,
+  }
+}
+
+/**
+ * The ids RELEASE ALL acts on, oldest cheque first.
+ *
+ * Read here rather than submitted by the browser. The panel's button names a
+ * count, not a list, and a form carrying 81 ids is a form somebody can edit —
+ * the set has to be the one the server decided, from the same filter the panel
+ * counted.
+ *
+ * Ordered so the longest-waiting cheque is released first, and so the per-cheque
+ * outcome list comes back in a stable order a person can read against the pile
+ * of paper in front of them. `nulls: 'last'` for the same reason `listChecks`
+ * uses it: `checkDate` is nullable and Postgres sorts NULLs first on ascending
+ * order too when asked for `nulls: 'first'`; being explicit keeps the undated
+ * ones out of the front of the queue.
+ */
+export async function listTodaysReleaseIds(db: Db): Promise<string[]> {
+  const rows = await db.check.findMany({
+    where: buildWhere(TODAYS_RELEASE_FILTER),
+    orderBy: [{ checkDate: { sort: 'asc', nulls: 'last' } }, { checkNumber: 'asc' }],
+    select: { id: true },
+  })
+  return rows.map((r) => r.id)
 }
 
 // Shared by listChecks and countChecks so the table and its "showing N of M"

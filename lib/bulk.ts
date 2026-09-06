@@ -52,3 +52,37 @@ export function parseSelection(raw: readonly string[]): SelectionResult {
 
   return { ok: true, checkIds }
 }
+
+/**
+ * Splits a set into batches `parseSelection` will accept.
+ *
+ * For TODAY'S RELEASE, where the set is defined by a QUERY rather than by ticked
+ * boxes: 81 cheques are ready in production and the cap is 50.
+ *
+ * **Batching is correct here and raising the cap is not.** The cap guards two
+ * different things, both still true. Fifty concurrent interactive transactions
+ * against Neon deadlock (`40P01`) — batching does not touch that, because every
+ * cheque is still processed one at a time in its own transaction either way.
+ * And the cap is what stops a select-all over a filter turning "the twelve I
+ * meant" into "every cheque in the company" — which is a rule about an
+ * UNBOUNDED, user-composed selection. TODAY'S RELEASE has no such selection:
+ * the set is exactly what the panel counted, the user confirmed that count, and
+ * the action refuses if the set has grown since. Raising the cap to fit 81
+ * would loosen the tick-box path, which has neither of those protections, to
+ * solve a problem the tick-box path does not have.
+ *
+ * De-duplication happens BEFORE splitting, for the reason `parseSelection`
+ * gives: the same id twice is one cheque released, then a spurious refusal for
+ * the transition the first release just made.
+ */
+export function chunkSelection(raw: readonly string[]): string[][] {
+  const ids = [...new Set(raw.map((v) => v.trim()).filter((v) => v !== ''))]
+
+  const batches: string[][] = []
+  for (let i = 0; i < ids.length; i += MAX_BULK_SELECTION) {
+    batches.push(ids.slice(i, i + MAX_BULK_SELECTION))
+  }
+  // An empty set produces no batches at all, so a caller looping over the
+  // result does nothing rather than submitting a batch of none.
+  return batches
+}

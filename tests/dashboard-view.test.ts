@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   isCardSelected, cardHref, clearFiltersHref, describeView, viewStatusFilter,
+  releaseConfirmHref, releaseCancelHref, TODAYS_RELEASE_ANCHOR,
   type DashboardSelection,
 } from '@/lib/dashboard-view'
 import { LIVE_STATUSES } from '@/lib/domain/check-status'
@@ -168,5 +169,45 @@ describe('CLEAR FILTERS', () => {
     expect(clearFiltersHref({ ...NARROWED, status: 'SIGNED', incomplete: true })).toBe('/?status=SIGNED')
     expect(clearFiltersHref({ ...NARROWED, showAll: true })).toBe('/?scope=all')
     expect(clearFiltersHref(NARROWED)).toBe('/')
+  })
+})
+
+/**
+ * TODAY'S RELEASE puts its confirmation in the URL rather than in a `confirm()`
+ * dialog, so the step exists before any JavaScript does — on the one action in
+ * the system that hands money over.
+ */
+describe('the RELEASE ALL confirmation step', () => {
+  it('adds confirm=release and lands on the panel', () => {
+    expect(releaseConfirmHref(NOTHING)).toBe(`/?confirm=release#${TODAYS_RELEASE_ANCHOR}`)
+  })
+
+  it('carries the view and the narrowing filters, so cancelling returns you where you were', () => {
+    const sel: DashboardSelection = { ...NARROWED, status: 'SIGNED', incomplete: true }
+    expect(releaseConfirmHref(sel)).toBe(
+      '/?q=ACME&company=c1&cashAccount=a1&eligibility=ELIGIBLE&status=SIGNED&incomplete=1' +
+      `&confirm=release#${TODAYS_RELEASE_ANCHOR}`,
+    )
+    expect(releaseCancelHref(sel)).toBe(
+      '/?q=ACME&company=c1&cashAccount=a1&eligibility=ELIGIBLE&status=SIGNED&incomplete=1' +
+      `#${TODAYS_RELEASE_ANCHOR}`,
+    )
+  })
+
+  /**
+   * The confirmation must not survive a click on anything else. A `confirm=release`
+   * left in the URL by a card link would put a half-made release back on screen
+   * after the user had visibly moved on from it.
+   */
+  it('is dropped by every other control', () => {
+    const confirming: DashboardSelection = { ...NARROWED, status: 'SIGNED' }
+    for (const url of [
+      cardHref('SIGNED', confirming),
+      cardHref('TOTAL_CHECKS', confirming),
+      cardHref('INCOMPLETE', confirming),
+      clearFiltersHref(confirming),
+    ]) {
+      expect(url).not.toContain('confirm=')
+    }
   })
 })

@@ -243,3 +243,224 @@ describe('bulkReleaseAction', () => {
     expect(outcomeFor(result, notReady.id).message).toBe('Cannot move a check from SIGNED to RELEASED.')
   })
 })
+
+/**
+ * TODAY'S RELEASE — RELEASE ALL.
+ *
+ * The highest-risk action in the system (design decision D11): it is what hands
+ * a day's worth of paper over, and RELEASED leads only to VOIDED. The set is not
+ * ticked by hand; it is whatever `getTodaysRelease` counts, so these tests pin
+ * the three things standing between a misclick and that outcome — the role, the
+ * confirmation, and the count the user actually read.
+ */
+describe('releaseAllReadyAction', () => {
+  /**
+   * The panel's confirmation step, as the form submits it. `expectedCount` is
+   * the figure that was on screen when the user pressed CONFIRM.
+   */
+  const confirmed = (expectedCount: number) =>
+    fd([], { confirm: 'release', expectedCount: String(expectedCount) })
+
+  it('refuses a FINANCE_USER by returning a result, never by throwing a redirect', async () => {
+    const { releaseAllReadyAction } = await import('@/app/checks/bulk-actions')
+    const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
+
+    const result = await releaseAllReadyAction(null, confirmed(1))
+
+    expect(result).toEqual({ ok: false, message: 'Only a Finance Admin can mark a cheque RELEASED.' })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('READY_FOR_RELEASE')
+  })
+
+  // A server action is an HTTP endpoint. The confirmation is a step in the page,
+  // but it is also a field on the request, so a submit that never went through
+  // the step writes nothing.
+  it('refuses a submission that was not confirmed', async () => {
+    const { releaseAllReadyAction } = await import('@/app/checks/bulk-actions')
+    currentUser.role = 'FINANCE_ADMIN'
+    const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
+
+    const result = await releaseAllReadyAction(null, fd([], { expectedCount: '1' }))
+
+    expect(result.ok).toBe(false)
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('READY_FOR_RELEASE')
+  })
+
+  it('releases every READY_FOR_RELEASE and SCHEDULED cheque, and nothing else', async () => {
+    const { releaseAllReadyAction } = await import('@/app/checks/bulk-actions')
+    currentUser.role = 'FINANCE_ADMIN'
+    const ready = await makeCheck({ status: 'READY_FOR_RELEASE' })
+    const scheduled = await makeCheck({ status: 'SCHEDULED' })
+    const signed = await makeCheck({ status: 'SIGNED' })
+
+    const result = await releaseAllReadyAction(null, confirmed(2))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.succeeded).toBe(2)
+    expect(result.failed).toBe(0)
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: ready.id } })).status).toBe('RELEASED')
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: scheduled.id } })).status).toBe('RELEASED')
+    // Not in the set, not touched, and not reported either.
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: signed.id } })).status).toBe('SIGNED')
+    expect(result.outcomes.some((o) => o.checkId === signed.id)).toBe(false)
+  })
+
+  it('writes one audit row per cheque released', async () => {
+    const { releaseAllReadyAction } = await import('@/app/checks/bulk-actions')
+    currentUser.role = 'FINANCE_ADMIN'
+    const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
+
+    await releaseAllReadyAction(null, confirmed(1))
+
+    expect(await testDb.auditLog.count({ where: { checkId: a.id, action: 'released' } })).toBe(1)
+  })
+
+  /**
+   * The property the whole system exists to protect. Payroll, tax, fund
+   * transfers and inter-company payments are INTERNAL; they release normally and
+   * no instruction about them may ever reach the supplier portal, however the
+   * release was triggered.
+   */
+  it('an INTERNAL cheque releases normally and produces NO portal event', async () => {
+    const { releaseAllReadyAction } = await import('@/app/checks/bulk-actions')
+    currentUser.role = 'FINANCE_ADMIN'
+    const internal = await makeCheck({ status: 'READY_FOR_RELEASE', eligibility: 'INTERNAL' })
+    const supplier = await makeCheck({ status: 'READY_FOR_RELEASE', eligibility: 'SUPPLIER' })
+
+    const result = await releaseAllReadyAction(null, confirmed(2))
+
+    expect(result.ok).toBe(true)
+    const after = await testDb.check.findUniqueOrThrow({ where: { id: internal.id } })
+    expect(after.status).toBe('RELEASED')
+    expect(after.portalSyncStatus).toBe('NOT_APPLICABLE')
+    expect(await testDb.portalEvent.count({ where: { checkId: internal.id } })).toBe(0)
+    // And RELEASE ALL did not simply stop emitting portal events altogether.
+    expect(await testDb.portalEvent.count({ where: { checkId: supplier.id } })).toBe(1)
+  })
+
+  // "73 of 81 released" with no list is unusable to somebody holding a stack of
+  // paper. The refusal is the domain's own sentence, per cheque, by number.
+  it('reports each cheque that could not be released, by number and reason', async () => {
+    const { releaseAllReadyAction } = await import('@/app/checks/bulk-actions')
+    currentUser.role = 'FINANCE_ADMIN'
+    const fine = await makeCheck({ status: 'READY_FOR_RELEASE' })
+    const notACheque = await makeCheck({ status: 'READY_FOR_RELEASE', isCheque: false })
+
+    const result = await releaseAllReadyAction(null, confirmed(2))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.succeeded).toBe(1)
+    expect(result.failed).toBe(1)
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: fine.id } })).status).toBe('RELEASED')
+    const refused = outcomeFor(result, notACheque.id)
+    expect(refused.ok).toBe(false)
+    expect(refused.checkNumber).toBe(notACheque.checkNumber)
+    expect(refused.message).toBe(
+      'This payment is not a cheque, so it cannot be signed or released. It is tracked here for visibility only.',
+    )
+  })
+
+  it('says so plainly when there is nothing to release, rather than reporting a batch of none', async () => {
+    const { releaseAllReadyAction } = await import('@/app/checks/bulk-actions')
+    currentUser.role = 'FINANCE_ADMIN'
+    await makeCheck({ status: 'SIGNED' })
+
+    const result = await releaseAllReadyAction(null, confirmed(0))
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.message).toBe('No cheques are ready to release right now.')
+  })
+
+  /**
+   * The confirmation names a count and a total. If the set has GROWN since the
+   * user read them — a colleague marked twenty more ready in the meantime — then
+   * confirming 81 would release 101, and the figures the user agreed to were
+   * never the figures that moved.
+   *
+   * A set that has SHRUNK is fine: somebody else released some, and releasing
+   * the remainder is exactly what was agreed to.
+   */
+  it('refuses when more cheques are ready than the count that was confirmed', async () => {
+    const { releaseAllReadyAction } = await import('@/app/checks/bulk-actions')
+    currentUser.role = 'FINANCE_ADMIN'
+    const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
+    const b = await makeCheck({ status: 'READY_FOR_RELEASE' })
+
+    const result = await releaseAllReadyAction(null, confirmed(1))
+
+    expect(result.ok).toBe(false)
+    for (const id of [a.id, b.id]) {
+      expect((await testDb.check.findUniqueOrThrow({ where: { id } })).status).toBe('READY_FOR_RELEASE')
+    }
+  })
+
+  // `Number('')` is 0, so an absent field must be rejected on its own terms
+  // rather than sliding through as a confirmed count of nothing.
+  it('refuses a confirmation carrying no count, and writes nothing', async () => {
+    const { releaseAllReadyAction } = await import('@/app/checks/bulk-actions')
+    currentUser.role = 'FINANCE_ADMIN'
+    const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
+
+    for (const expectedCount of ['', 'lots', '1e9', '-1', '2.5']) {
+      const result = await releaseAllReadyAction(null, fd([], { confirm: 'release', expectedCount }))
+      expect(result.ok).toBe(false)
+    }
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('READY_FOR_RELEASE')
+  })
+
+  it('proceeds when fewer are ready than were confirmed', async () => {
+    const { releaseAllReadyAction } = await import('@/app/checks/bulk-actions')
+    currentUser.role = 'FINANCE_ADMIN'
+    const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
+
+    const result = await releaseAllReadyAction(null, confirmed(5))
+
+    expect(result.ok).toBe(true)
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('RELEASED')
+  })
+
+  /**
+   * 81 are ready in production and `MAX_BULK_SELECTION` is 50. The cap is not
+   * raised — it exists because concurrent interactive transactions against Neon
+   * deadlock, and the tick-box path needs it. The set is released in sequential
+   * batches instead, each cheque still in its own transaction with its own
+   * guards and its own audit row.
+   */
+  it('releases a set larger than MAX_BULK_SELECTION in sequential batches', async () => {
+    const { releaseAllReadyAction } = await import('@/app/checks/bulk-actions')
+    currentUser.role = 'FINANCE_ADMIN'
+    const total = MAX_BULK_SELECTION + 3
+
+    // One company and cash account shared by the lot: this test is about the
+    // batching, and 53 separate factory calls is 212 round trips to Neon.
+    const seed = await makeCheck({ status: 'READY_FOR_RELEASE' })
+    await testDb.check.createMany({
+      data: Array.from({ length: total - 1 }, (_, i) => ({
+        companyId: seed.companyId,
+        cashAccountId: seed.cashAccountId,
+        checkNumber: `BULK-${i}`,
+        checkDate: new Date('2026-09-01'),
+        amount: '1000.00',
+        currency: 'PHP',
+        payeeName: 'HENKEL PHILIPPINES INC.',
+        eligibility: 'SUPPLIER' as const,
+        status: 'READY_FOR_RELEASE' as const,
+        isCheque: true,
+      })),
+    })
+
+    const result = await releaseAllReadyAction(null, confirmed(total))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.succeeded).toBe(total)
+    expect(result.failed).toBe(0)
+    expect(result.outcomes).toHaveLength(total)
+    expect(await testDb.check.count({ where: { status: 'READY_FOR_RELEASE' } })).toBe(0)
+    expect(await testDb.check.count({ where: { status: 'RELEASED' } })).toBe(total)
+    // Each cheque got its own transaction, so each got its own audit row.
+    expect(await testDb.auditLog.count({ where: { action: 'released' } })).toBe(total)
+  }, 180_000)
+})

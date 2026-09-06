@@ -78,12 +78,16 @@ type ViewState = Pick<DashboardSelection, 'status' | 'showAll'>
  */
 function href(
   base: Readonly<Record<string, string>>,
-  view: ViewState & { incomplete: boolean },
+  view: ViewState & { incomplete: boolean; confirmRelease?: boolean },
 ): string {
   const qs = new URLSearchParams(base)
   if (view.status) qs.set('status', view.status)
   if (view.showAll) qs.set('scope', 'all')
   if (view.incomplete) qs.set('incomplete', '1')
+  // Only ever set by `releaseConfirmHref`. Every other caller omits it, which is
+  // how choosing a card or clearing the filters also steps back out of a
+  // half-made release rather than carrying the confirmation along.
+  if (view.confirmRelease) qs.set('confirm', 'release')
   const s = qs.toString()
   return s ? `/?${s}` : '/'
 }
@@ -134,6 +138,37 @@ export function cardHref(card: CardId, sel: DashboardSelection): string {
  */
 export function clearFiltersHref(sel: DashboardSelection): string {
   return href({}, { status: sel.status, showAll: sel.showAll, incomplete: false })
+}
+
+/**
+ * The anchor TODAY'S RELEASE is rendered under, so stepping into and out of the
+ * confirmation returns the reader to the panel rather than to the top of a page
+ * they have already scrolled past.
+ */
+export const TODAYS_RELEASE_ANCHOR = 'todays-release'
+
+/**
+ * RELEASE ALL's confirmation step, as a URL.
+ *
+ * Server-rendered, deliberately. The alternative — a `confirm()` dialog — is a
+ * control that exists only once the bundle has loaded, on the one action in the
+ * system that hands money over; and the whole page is server-rendered already.
+ * The view and the narrowing filters are carried along, so cancelling puts the
+ * reader back exactly where they were.
+ */
+export function releaseConfirmHref(sel: DashboardSelection): string {
+  const url = href(sel.base, {
+    status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete, confirmRelease: true,
+  })
+  return `${url}#${TODAYS_RELEASE_ANCHOR}`
+}
+
+/** CANCEL: the same view, with the confirmation dropped. */
+export function releaseCancelHref(sel: DashboardSelection): string {
+  const url = href(sel.base, {
+    status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete,
+  })
+  return `${url}#${TODAYS_RELEASE_ANCHOR}`
 }
 
 /**

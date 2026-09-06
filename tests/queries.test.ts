@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { testDb, resetDb } from './helpers/db'
 import { makeCheck } from './helpers/factory'
 import {
-  getSummary, listChecks, countChecks, toTableRow, getFilterOptions,
+  getSummary, getTodaysRelease, listChecks, countChecks, toTableRow, getFilterOptions,
   parseStatusParam, parseEligibilityParam, parseOptionId,
 } from '@/lib/queries'
 import { formatMoney } from '@/lib/money'
@@ -485,5 +485,87 @@ describe('filters compose', () => {
     const rows = await listChecks(testDb, { companyId: one.companyId })
 
     expect(rows.map((r) => r.checkNumber)).toEqual(['6000000930'])
+  })
+})
+
+/**
+ * TODAY'S RELEASE: the panel above the table, and the set RELEASE ALL acts on.
+ *
+ * The set is READY_FOR_RELEASE **and** SCHEDULED, exactly like the card of the
+ * same name — a panel offering to release 81 cheques above a card reading 87 is
+ * a bug report waiting to happen. The pairing is not restated here or in
+ * `getTodaysRelease`; both read `viewStatusFilter` in lib/dashboard-view.ts.
+ */
+describe('getTodaysRelease', () => {
+  it('covers READY_FOR_RELEASE and SCHEDULED together and nothing else', async () => {
+    await makeCheck({ status: 'READY_FOR_RELEASE', amount: '100.00' })
+    await makeCheck({ status: 'SCHEDULED', amount: '200.00' })
+    await makeCheck({ status: 'SIGNED', amount: '400.00' })
+    await makeCheck({ status: 'SIGNATURE_PENDING', amount: '800.00' })
+    await makeCheck({ status: 'RELEASED', amount: '1600.00' })
+    await makeCheck({ status: 'CANCELLED', amount: '3200.00' })
+
+    const t = await getTodaysRelease(testDb)
+    expect(t.count).toBe(2)
+    expect(t.totalsByCurrency).toEqual([{ currency: 'PHP', total: '300', count: 2 }])
+  })
+
+  // The same rule getSummary obeys. Production is PHP-only today; the rule is
+  // structural, not a reading of the current data.
+  it('never adds two different currencies together', async () => {
+    await makeCheck({ status: 'READY_FOR_RELEASE', currency: 'PHP', amount: '1000.00' })
+    await makeCheck({ status: 'SCHEDULED', currency: 'PHP', amount: '500.50' })
+    await makeCheck({ status: 'READY_FOR_RELEASE', currency: 'CNY', amount: '2000.25' })
+
+    const t = await getTodaysRelease(testDb)
+    expect(t.count).toBe(3)
+    expect(t.totalsByCurrency).toHaveLength(2)
+    expect(t.totalsByCurrency).toEqual(expect.arrayContaining([
+      { currency: 'PHP', total: '1500.5', count: 2 },
+      { currency: 'CNY', total: '2000.25', count: 1 },
+    ]))
+  })
+
+  // Six of the 129 incomplete cheques are READY_FOR_RELEASE in production, so
+  // this is a live case, not a hypothetical. The cheque is counted and its
+  // (absent) amount is not summed - and `incomplete` exists so the panel can
+  // SAY so, rather than leaving a reader to wonder why 81 cheques total less
+  // than they expected.
+  it('counts a cheque with no amount but leaves it out of the total, and reports how many', async () => {
+    await makeCheck({ status: 'READY_FOR_RELEASE', amount: '1000.00' })
+    await makeCheck({ status: 'SCHEDULED', amount: null })
+
+    const t = await getTodaysRelease(testDb)
+    expect(t.count).toBe(2)
+    expect(t.incomplete).toBe(1)
+    expect(t.totalsByCurrency).toEqual([{ currency: 'PHP', total: '1000', count: 2 }])
+  })
+
+  // Every amount unknown is not the same fact as a total of zero, and must not
+  // render as one. `formatMoney` shows null as an em dash.
+  it('carries a wholly unknown total through as null rather than zero', async () => {
+    await makeCheck({ status: 'READY_FOR_RELEASE', amount: null })
+
+    const t = await getTodaysRelease(testDb)
+    expect(t.totalsByCurrency).toEqual([{ currency: 'PHP', total: null, count: 1 }])
+    expect(t.incomplete).toBe(1)
+  })
+
+  // The panel is shown even when there is nothing to release, so the empty
+  // answer has to be a real one rather than a throw or a null.
+  it('answers zero when nothing is ready', async () => {
+    await makeCheck({ status: 'SIGNED' })
+    const t = await getTodaysRelease(testDb)
+    expect(t).toEqual({ count: 0, incomplete: 0, totalsByCurrency: [] })
+  })
+
+  // The amount is a decimal STRING at every boundary. A JS number here would
+  // lose centavos on a nine-figure peso total, and this is the figure a person
+  // reads before handing over the money.
+  it('reports the total as a decimal string, never a number', async () => {
+    await makeCheck({ status: 'READY_FOR_RELEASE', amount: '6315173.06' })
+    const t = await getTodaysRelease(testDb)
+    expect(typeof t.totalsByCurrency[0].total).toBe('string')
+    expect(formatMoney(t.totalsByCurrency[0].total, 'PHP')).toBe('₱6,315,173.06')
   })
 })

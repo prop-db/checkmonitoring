@@ -6,7 +6,8 @@ import { requireUser } from '@/lib/auth'
 import { DomainError } from '@/lib/domain/errors'
 import { isNextControlFlowError } from '@/lib/next-errors'
 import { markSigned, markReadyForRelease, markReleased } from '@/lib/domain/actions'
-import { parseSelection } from '@/lib/bulk'
+import { parseSelection, chunkSelection } from '@/lib/bulk'
+import { listTodaysReleaseIds } from '@/lib/queries'
 
 /**
  * The spec's §13.1 minimum-click workflow: tick several cheques, press one
@@ -160,4 +161,136 @@ export async function bulkReleaseAction(formData: FormData): Promise<BulkActionR
   const now = new Date()
   return runEach(selection.checkIds, (checkId) =>
     markReleased(prisma, { checkId, userId: user.id, now }))
+}
+
+/**
+ * TODAY'S RELEASE — release everything that is ready, in one confirmed action.
+ *
+ * The highest-risk action in the system (design decision D11) and effectively
+ * terminal: only VOIDED follows RELEASED. Three separate things stand between a
+ * misclick and every cheque Finance has prepared leaving the building at once,
+ * and none of them is the button being hard to reach.
+ *
+ *  1. **FINANCE_ADMIN only**, checked here rather than by hiding a control. A
+ *     server action is an HTTP endpoint. It RETURNS the refusal — `requireAdmin`
+ *     redirects, Next implements a redirect by throwing, and `runEach`'s catch
+ *     would swallow it and report "Something went wrong" instead.
+ *  2. **The confirmation is a field on the request**, not only a step in the
+ *     page. The panel links to `?confirm=release`, which server-renders a second
+ *     form naming the count and the total; that form is the only thing that
+ *     submits `confirm=release`. A POST that never went through it writes
+ *     nothing.
+ *  3. **The count the user read is submitted back.** If MORE cheques are ready
+ *     now than were on screen — a colleague marked twenty more ready while the
+ *     confirmation sat open — the figures agreed to were never the figures that
+ *     would move, so the action refuses and asks for a fresh look. FEWER is
+ *     fine: somebody released some, and releasing the remainder is what was
+ *     agreed to.
+ *
+ * The SET is read from the database, not from the form. The button names a
+ * count, not a list, and a form carrying 81 ids is a form somebody can edit.
+ *
+ * The release itself is `markReleased`, once per cheque, through the same
+ * `runEach` as every other bulk action: one transaction, one set of guards and
+ * one audit row each, and an INTERNAL cheque still produces no portal event
+ * because `markReleased` is where that decision lives.
+ *
+ * **The `(previousState, formData)` signature is `useActionState`'s**, and it is
+ * why the confirmation works with no JavaScript at all. Passed straight to
+ * `useActionState`, Next renders the form with a real POST target, so the
+ * confirm button submits and the release happens whether or not the bundle
+ * loaded; a client-side wrapper closure would have been a button that does
+ * nothing until React hydrates. The previous state is not read — the action's
+ * answer depends on the request and on the database, never on what it said last
+ * time.
+ */
+export async function releaseAllReadyAction(
+  _previousState: BulkActionResult | null,
+  formData: FormData,
+): Promise<BulkActionResult> {
+  const user = await requireUser()
+  if (user.role !== 'FINANCE_ADMIN') {
+    return { ok: false, message: 'Only a Finance Admin can mark a cheque RELEASED.' }
+  }
+
+  if (str(formData, 'confirm') !== 'release') {
+    return {
+      ok: false,
+      message: 'This release was not confirmed. Open TODAY’S RELEASE and confirm the figures first.',
+    }
+  }
+
+  /**
+   * The figure that was on screen.
+   *
+   * Matched against digits before `Number` sees it, because `Number('')` is 0
+   * and `Number(' 12 ')` is 12: an ABSENT field would otherwise parse as a
+   * confirmed count of zero, which is a different refusal with a misleading
+   * sentence rather than the honest "this did not come from the confirmation
+   * step". `\d+` also rules out `1e9`, `0x51` and `Infinity`, all of which
+   * `Number` accepts.
+   */
+  const rawExpected = str(formData, 'expectedCount')
+  const expectedCount = /^\d+$/.test(rawExpected) ? Number(rawExpected) : Number.NaN
+  if (!Number.isInteger(expectedCount)) {
+    return {
+      ok: false,
+      message: 'This release could not be confirmed. Open TODAY’S RELEASE again and re-read the figures.',
+    }
+  }
+
+  const checkIds = await listTodaysReleaseIds(prisma)
+
+  if (checkIds.length === 0) {
+    return { ok: false, message: 'No cheques are ready to release right now.' }
+  }
+
+  if (checkIds.length > expectedCount) {
+    return {
+      ok: false,
+      message:
+        `${checkIds.length} cheques are ready now, but ${expectedCount} were on screen when you ` +
+        'confirmed. Re-read TODAY’S RELEASE and confirm the current figures.',
+    }
+  }
+
+  /**
+   * Sequential batches of `MAX_BULK_SELECTION`, not one oversized call.
+   *
+   * **Raising the cap would be the wrong fix.** It is not a limit on how much
+   * this action may release — the set here is decided by a query, counted on
+   * screen and confirmed. It is a limit on an UNBOUNDED, user-composed tick-box
+   * selection, where a select-all over a filter is how "the twelve I meant"
+   * becomes "every cheque in the company"; and it is what keeps the tick-box
+   * path from opening fifty interactive transactions' worth of work that this
+   * project's suite already learned deadlocks against Neon (`40P01`). Raising it
+   * to fit 81 would loosen that path to solve a problem it does not have.
+   *
+   * Batching costs nothing in correctness: `runEach` already processes one
+   * cheque at a time, so each cheque gets its own transaction, its own guards
+   * and its own audit row whether it is in a batch of one or of fifty. What the
+   * batches buy is that every id still passes through `parseSelection`, the
+   * single gate every bulk write in this system goes through.
+   */
+  const now = new Date()
+  const outcomes: BulkOutcome[] = []
+  for (const batch of chunkSelection(checkIds)) {
+    const selection = parseSelection(batch)
+    // Unreachable: `chunkSelection` de-duplicates, drops blanks and splits at
+    // the cap. Handled rather than asserted, because the alternative to a
+    // returned refusal is a thrown one half way through a release.
+    if (!selection.ok) return { ok: false, message: selection.message }
+
+    const batchResult = await runEach(selection.checkIds, (checkId) =>
+      markReleased(prisma, { checkId, userId: user.id, now }))
+    // `runEach` only reports `ok: false` for a refusal it was handed, which
+    // cannot happen above; the narrowing is for the type, not for the case.
+    if (!batchResult.ok) return batchResult
+    outcomes.push(...batchResult.outcomes)
+  }
+
+  // Recomputed over every batch, so "73 of 81" counts the whole action rather
+  // than the last batch of it.
+  const succeeded = outcomes.filter((o) => o.ok).length
+  return { ok: true, succeeded, failed: outcomes.length - succeeded, outcomes }
 }
