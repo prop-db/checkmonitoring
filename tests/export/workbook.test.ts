@@ -353,7 +353,10 @@ describe('SUMMARY', () => {
     const ws = (await readBack(input())).getWorksheet(SUMMARY_SHEET)!
     expect(ws.getCell('A1').value).toBe('CHECK RELEASE MONITORING')
     expect(ws.getCell('A1').font?.bold).toBe(true)
-    expect(ws.getCell('A2').value).toBe('SUMMARY — EVERY CHEQUE IN THE SYSTEM')
+    // Renamed on 2026-09-06: the sheet stopped covering EVERY cheque when the
+    // client asked for the ones with no recorded amount to be left out of the
+    // dashboard's figures, and a title claiming otherwise would be the lie.
+    expect(ws.getCell('A2').value).toBe('SUMMARY — THE WHOLE SYSTEM, NOT THIS FILE’S FILTERS')
     expect(String(ws.getCell('A3').value)).toContain('not narrowed by the filters')
     expect(String(ws.getCell('A4').value)).toContain('Paolo Parcon')
   })

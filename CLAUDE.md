@@ -142,6 +142,13 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
   every total, which is the honest representation of a cheque whose value nobody knows.
   **They are excluded from every currency total rather than counted as zero** — SQL `SUM()` skips a
   null — and `tests/queries.test.ts` pins that. Do not "fix" it.
+  **Since 2026-09-06 they are also out of the dashboard entirely**: "ignore them mean you have to
+  remove them, dont consider them becuase they dont have amount". `CheckFilters.incomplete` is now a
+  tri-state (`true` only them, `false` exclude, `undefined` no filter) and the dashboard, the export
+  and the printed sheet all pass `false`. **Nothing was deleted** — rule 10 still stands — and the
+  exclusion is stated on screen with the count and a link to `?incomplete=1`, which is the price of
+  hiding them. `getSummary` narrows itself the same way `buildWhere` does, so a card's number is
+  always the number of rows its table shows. There is no INCOMPLETE card any more.
 - **Acumatica bank-prefixes 90% of its cheque references** (`BPI 6000240287`) while the register
   writes them bare. `canonicalCheckNumber` reconciles them — without it the same cheque stores twice.
 - **`Branch` from Acumatica is space-padded** (`"A1+       "`). `orNull` trims it; an untrimmed read
@@ -154,7 +161,7 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
 
 Plans 1 and 2 complete. Plan 3 (portal automation) paused after Task 1 at the client's request —
 the portal needs an `encoder` service account that does not yet exist, and until then events simply
-queue. 628 tests across 39 files.
+queue. 893 tests across 51 files.
 
 Production is `check_monitoring_prod` on Neon — created clean, reference data only, one real admin,
 no demo cheques. The historical import was running at last handoff; it is idempotent, so if it was

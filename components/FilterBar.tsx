@@ -114,9 +114,13 @@ export function FilterBar({
       {/* The 129 cheques whose amount the register never recorded. A narrowing
           filter, never a view: incompleteness cuts across every status (50
           SIGNATURE_PENDING, 48 CANCELLED, 25 RELEASED, 6 READY_FOR_RELEASE), so
-          it composes with the selected view rather than replacing it. The
-          INCOMPLETE card above is the same filter — this one stays because it
-          sits with the other narrowing controls and clears with them. */}
+          it composes with the selected view rather than replacing it.
+
+          UNTICKED NOW MEANS "EXCLUDE THEM", not "do not filter" (client
+          decision, 2026-09-06) — the dashboard's counts and its table both leave
+          them out, and the page states the number above the table. This checkbox
+          is the way back to them, and there is no INCOMPLETE card above it any
+          more; that card was removed in the same change. */}
       <label className={`flex items-center gap-2 whitespace-nowrap ${field}`}>
         <input type="checkbox" name="incomplete" value="1" defaultChecked={incomplete} />
         INCOMPLETE ONLY

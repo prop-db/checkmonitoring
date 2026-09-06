@@ -55,7 +55,9 @@ export default async function PrintPage({
   const params = await searchParams
 
   const options = await getFilterOptions(prisma)
-  const { selection, filters, viewLabel, filterDescription } = resolveDashboardQuery(params, options)
+  const {
+    selection, filters, viewLabel, filterDescription, incomplete,
+  } = resolveDashboardQuery(params, options)
 
   const [rows, matching] = await Promise.all([
     listChecks(prisma, filters, PRINT_ROW_LIMIT),
@@ -153,12 +155,14 @@ export default async function PrintPage({
         </table>
       )}
 
-      {/* The same statement the dashboard makes, because it is exactly as true
-          on paper: a cheque with no recorded amount is counted in the list and
-          absent from any total struck from it. */}
+      {/* The same statement the dashboard makes, because a sheet that leaves the
+          room has to say what it leaves out — more so than a screen, which at
+          least has a link to press. Both halves of the toggle are stated, since
+          this sheet can be printed from either. */}
       <p className="mt-4 text-[10px] tracking-wide text-slate-500">
-        CHEQUES WITH NO RECORDED AMOUNT PRINT AS “—”. THEY ARE REAL CHEQUES AND ARE LISTED ABOVE;
-        THERE IS SIMPLY NO FIGURE OF THEIRS TO SHOW.
+        {incomplete
+          ? 'THESE ARE THE CHEQUES WITH NO RECORDED AMOUNT, WHICH IS WHY EVERY AMOUNT PRINTS AS “—”. THEY ARE REAL CHEQUES; THERE IS SIMPLY NO FIGURE OF THEIRS TO SHOW.'
+          : 'CHEQUES WITH NO RECORDED AMOUNT ARE NOT ON THIS SHEET. THEY ARE REAL CHEQUES AND ARE STILL IN THE SYSTEM — PRINT AGAIN WITH THE INCOMPLETE ONLY FILTER TO LIST THEM.'}
       </p>
     </main>
   )

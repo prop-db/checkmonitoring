@@ -84,11 +84,25 @@ describe('describeFilters', () => {
     ].join('  ·  '))
   })
 
-  // A blank search box is not a filter, and `incomplete: false` is "do not
-  // narrow on this" — the same reading buildWhere gives it.
-  it('ignores empty and false values rather than listing them', () => {
-    expect(describeFilters({ q: '   ', company: null, bank: undefined, incomplete: false }))
+  // A blank search box is not a filter. `undefined` incompleteness is not one
+  // either — `buildWhere` reads it as "do not narrow on this".
+  it('ignores empty values rather than listing them', () => {
+    expect(describeFilters({ q: '   ', company: null, bank: undefined }))
       .toBe('No filters applied')
+  })
+
+  /**
+   * SUPERSEDED BY A CLIENT DECISION, 2026-09-06. `incomplete: false` used to be
+   * silent, because it meant "do not narrow on this" and there was nothing to
+   * announce. It now REMOVES the 129 cheques with no recorded amount from the
+   * file, and a report that does not say what it excludes is a report that will
+   * be read as the whole picture — the same reason "No filters applied" is
+   * spelled out rather than left blank.
+   */
+  it('announces the exclusion of the records with no amount', () => {
+    expect(describeFilters({ incomplete: false })).toBe('EXCLUDES RECORDS WITH NO AMOUNT')
+    expect(describeFilters({ q: 'henkel', incomplete: false }))
+      .toBe('SEARCH: "henkel"  ·  EXCLUDES RECORDS WITH NO AMOUNT')
   })
 })
 

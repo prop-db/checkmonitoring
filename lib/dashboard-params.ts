@@ -68,9 +68,19 @@ export function resolveDashboardQuery(
   const companyId = parseOptionId(params.company, options.companies)
   const cashAccountId = parseOptionId(params.cashAccount, options.cashAccounts)
 
-  // The checkbox submits `incomplete=1`; the summary card links to the same.
-  // Only "1" turns it on — an unrecognised value leaves the filter off rather
-  // than guessing, which is how every parameter above behaves too.
+  /**
+   * The checkbox submits `incomplete=1`; the dashboard's "Show them" link
+   * writes the same. Only "1" turns it on — an unrecognised value leaves it off
+   * rather than guessing, which is how every parameter above behaves too.
+   *
+   * OFF is not "no filter" any more. `CheckFilters.incomplete` is a tri-state,
+   * and this boolean feeds it directly: `true` shows only the cheques with no
+   * recorded amount, `false` EXCLUDES them, which is the dashboard's default
+   * since the client asked for it on 2026-09-06. The bookmark behaviour is
+   * unchanged — `?incomplete=1` still opens exactly what it always did — but a
+   * URL WITHOUT the parameter now opens a smaller register than it used to, and
+   * the page says so above the table.
+   */
   const incomplete = params.incomplete === '1'
 
   const q = params.q?.trim() ?? ''

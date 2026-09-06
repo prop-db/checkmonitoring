@@ -21,7 +21,15 @@ describe('resolveDashboardQuery', () => {
     expect(r.filters.status).toBeUndefined()
     expect(r.selection).toEqual({ status: null, showAll: false, incomplete: false, base: {} })
     expect(r.viewLabel).toBe('NEEDS ACTION')
-    expect(r.filterDescription).toBe('No filters applied')
+    /**
+     * SUPERSEDED BY A CLIENT DECISION, 2026-09-06: this was 'No filters
+     * applied'. The default view now EXCLUDES the 129 cheques with no recorded
+     * amount, so the export's title block has something to declare even when the
+     * reader has touched nothing. `filters.incomplete` is `false`, not
+     * `undefined` — the tri-state's "exclude", not its "do not filter".
+     */
+    expect(r.filters.incomplete).toBe(false)
+    expect(r.filterDescription).toBe('EXCLUDES RECORDS WITH NO AMOUNT')
   })
 
   it('folds SCHEDULED into the READY FOR RELEASE view', () => {
@@ -50,7 +58,8 @@ describe('resolveDashboardQuery', () => {
     expect(r.filters.eligibility).toBeUndefined()
     // Dropped from the carried-forward filters too, not only from the query.
     expect(r.selection.base).toEqual({})
-    expect(r.filterDescription).toBe('No filters applied')
+    // The one thing left to declare is the default exclusion — see above.
+    expect(r.filterDescription).toBe('EXCLUDES RECORDS WITH NO AMOUNT')
   })
 
   it('resolves a company and cash account to the labels a reader recognises', () => {
@@ -62,7 +71,8 @@ describe('resolveDashboardQuery', () => {
     expect(r.filters.cashAccountId).toBe('ca-main')
     expect(r.filters.q).toBe('henkel')
     expect(r.filterDescription).toBe(
-      'COMPANY: STK  ·  BANK / CASH ACCOUNT: STK MAIN (BDO)  ·  ELIGIBILITY: SUPPLIER  ·  SEARCH: "henkel"',
+      'COMPANY: STK  ·  BANK / CASH ACCOUNT: STK MAIN (BDO)  ·  ELIGIBILITY: SUPPLIER  ·  SEARCH: "henkel"'
+      + '  ·  EXCLUDES RECORDS WITH NO AMOUNT',
     )
   })
 

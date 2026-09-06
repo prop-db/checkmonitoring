@@ -343,8 +343,8 @@ function buildSummarySheet(wb: ExcelJS.Workbook, { summary, meta }: ExportInput)
 
   titleBlock(ws, [
     'CHECK RELEASE MONITORING',
-    'SUMMARY — EVERY CHEQUE IN THE SYSTEM',
-    'These figures are not narrowed by the filters on the CHECK REGISTER sheet. They cover every cheque the system holds, exactly as the dashboard cards do.',
+    'SUMMARY — THE WHOLE SYSTEM, NOT THIS FILE’S FILTERS',
+    'These figures are not narrowed by the filters on the CHECK REGISTER sheet. They cover every cheque the system holds EXCEPT those with no recorded amount, exactly as the dashboard cards do — those are counted on their own line below.',
     generatedLine(meta),
   ])
 
@@ -395,7 +395,12 @@ function buildSummarySheet(wb: ExcelJS.Workbook, { summary, meta }: ExportInput)
   valueWidths.push(summary.incomplete.toLocaleString('en-PH'))
   r += 1
   const note = ws.getCell(r, 1)
-  note.value = 'Counted here and counted in every figure above. Absent from the values below, because there is nothing of theirs to add — they are not worth zero.'
+  // Counted HERE and nowhere else above, since 2026-09-06: the client asked for
+  // the cheques with no recorded amount to be left out of the dashboard's
+  // figures, and this sheet reports the dashboard. Nothing was deleted, so the
+  // number is stated rather than dropped — a register that shrinks by 129 with
+  // no line explaining it is how a reader concludes money went missing.
+  note.value = 'Real cheques whose amount the register never recorded. They are NOT counted in the figures above and are NOT in the values below — there is nothing of theirs to add, and they are not worth zero. They are still in the system: open the dashboard with the INCOMPLETE ONLY filter to list them. The CURRENCY counts below are the population each total was struck over and do include them.'
   note.font = { italic: true, size: 9, color: { argb: 'FF475569' } }
   // Not merged, for the same reason the title block is not: merges clip.
   r += 2

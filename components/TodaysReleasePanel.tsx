@@ -16,11 +16,14 @@ import { ReleaseAllConfirm } from './ReleaseAllConfirm'
  * RELEASE card folds together, read from `viewStatusFilter` rather than restated
  * anywhere.
  *
- * **The total is per currency and the count is not.** A cheque with no recorded
- * amount is a real cheque that has to be handed over, so it is IN the count; it
- * has no figure to add, so it is absent from the total. That makes the two
- * numbers legitimately disagree, which is why the panel says so out loud when
- * any are present rather than leaving a reader to wonder which figure is wrong.
+ * **The total is per currency and never summed across currencies.** The count
+ * and the totals are struck over ONE population, so they cannot disagree: the
+ * cheques with no recorded amount are excluded from this panel exactly as they
+ * are excluded from the card above it (client decision, 2026-09-06 — see
+ * TODAYS_RELEASE_FILTER). The panel used to count them and leave them out of the
+ * total, and said so in an amber note; that note is gone because the situation
+ * it explained cannot arise any more. Six of production's 129 are
+ * READY_FOR_RELEASE and are released one at a time from `/?incomplete=1`.
  */
 export function TodaysReleasePanel({
   todays, canRelease, confirming, confirmHref, cancelHref,
@@ -33,7 +36,7 @@ export function TodaysReleasePanel({
   confirmHref: string
   cancelHref: string
 }) {
-  const { count, incomplete, totalsByCurrency } = todays
+  const { count, totalsByCurrency } = todays
   const nothingToDo = count === 0
 
   return (
@@ -82,14 +85,6 @@ export function TodaysReleasePanel({
               ))}
             </dl>
           </div>
-
-          {incomplete > 0 && (
-            <p className="mt-3 rounded-lg bg-warning-bg px-3 py-2 text-sm text-warning-ink">
-              {incomplete} OF THESE {incomplete === 1 ? 'CHEQUE HAS' : 'CHEQUES HAVE'} NO RECORDED
-              AMOUNT, so {incomplete === 1 ? 'it is' : 'they are'} counted above but absent from the
-              total. The total is the value of the cheques whose amount is known.
-            </p>
-          )}
         </>
       )}
 

@@ -29,10 +29,36 @@ export type CheckFilters = {
   from?: Date
   to?: Date
   /**
-   * Only the records with no recorded amount. `true` narrows to them; `false`
-   * and `undefined` both mean "do not filter on this", because the useful
-   * question is "show me the gaps", never "hide them" — and a tri-state that
-   * could hide 129 cheques from a search by accident is worse than no filter.
+   * The cheques with no recorded amount — 129 in production. A TRI-STATE:
+   *
+   *   `true`       only those records
+   *   `false`      EXCLUDE them
+   *   `undefined`  do not filter on this
+   *
+   * ── WHY `false` NOW HIDES THEM (client decision, 2026-09-06) ─────────────
+   * This field used to be two-state, and the comment here argued against a
+   * tri-state on the grounds that accidentally hiding 129 cheques from a search
+   * is worse than not filtering at all. That reasoning was sound, and the client
+   * has overridden it: shown the INCOMPLETE card reading 129, they said
+   * "ignore them mean you have to remove them, dont consider them becuase they
+   * dont have amount".
+   *
+   * The warning it replaces still applies, so the risk is paid for rather than
+   * ignored:
+   *
+   *   · NOTHING IS DELETED. These are real cheques — 25 RELEASED, 48 CANCELLED
+   *     — and rule 10 forbids a bulk delete path outright. They stay in the
+   *     database, in `Check.isIncomplete`, and in every audit row.
+   *   · The dashboard states the exclusion ON SCREEN, with the count and a link
+   *     that shows them (`?incomplete=1`). A number that quietly got smaller is
+   *     how someone concludes money went missing.
+   *   · The export and the printed sheet say the same thing in their title
+   *     blocks, because they run the same `resolveDashboardQuery`.
+   *
+   * `undefined` — no filter — is still what a caller gets by leaving the field
+   * off, so a query that has no opinion about incompleteness cannot acquire one
+   * by accident.
+   * ────────────────────────────────────────────────────────────────────────
    */
   incomplete?: boolean
 }
@@ -41,23 +67,49 @@ export type CheckFilters = {
 // not the same fact as a total of zero, and must not be rendered as one.
 export type CurrencyTotal = { currency: string; total: string | null; count: number }
 
+/**
+ * The dashboard's scope, as a `where` fragment.
+ *
+ * CLIENT DECISION, 2026-09-06: the cheques with no recorded amount are out of
+ * the dashboard's counts as well as out of its table. The counts and the table
+ * MUST move together — a PENDING SIGNATURE card reading 213 that opens a table
+ * of 208 is the drift this constant exists to make impossible, and it is exactly
+ * what would happen if only the table were narrowed.
+ *
+ * `false`, not the absence of the key: `buildWhere` reads `false` as EXCLUDE and
+ * `undefined` as no filter, and the dashboard means the former.
+ */
+const COMPLETE_ONLY = { isIncomplete: false } as const
+
 export async function getSummary(db: Db) {
   const [grouped, currencyAgg, total, incomplete] = await Promise.all([
-    db.check.groupBy({ by: ['status'], _count: { _all: true } }),
-    // Grouped by currency, never summed across them: adding a PHP amount to a
-    // CNY amount produces a number with no meaning, so there is no code path
-    // here that could do it — each currency gets its own row.
+    // Every count on the dashboard is struck over the same population the table
+    // shows — see COMPLETE_ONLY.
+    db.check.groupBy({ by: ['status'], _count: { _all: true }, where: COMPLETE_ONLY }),
+    /**
+     * Grouped by currency, never summed across them: adding a PHP amount to a
+     * CNY amount produces a number with no meaning, so there is no code path
+     * here that could do it — each currency gets its own row.
+     *
+     * NOT narrowed by COMPLETE_ONLY, and that is deliberate. This block is the
+     * answer to "what is the money", and its behaviour towards a cheque with no
+     * amount is the property tests/queries.test.ts pins and forbids "fixing":
+     * SQL SUM() SKIPS a null rather than reading it as zero. Narrowing the group
+     * would leave every figure identical while changing what the count beneath
+     * it means, which is the same class of silent redefinition. The cards do not
+     * render this count; the export's SUMMARY sheet does, and says what it is.
+     */
     db.check.groupBy({
       by: ['currency'],
       _sum: { amount: true },
       _count: { _all: true },
       where: { status: { not: 'CANCELLED' } },
     }),
-    db.check.count(),
-    // Counted, never subtracted from anything. 129 cheques whose amount was
-    // never recorded are 129 real cheques: they are IN `total`, they are in
-    // their currency's `count`, and they are simply absent from its `total`
-    // because there is nothing of theirs to add. See the note below.
+    db.check.count({ where: COMPLETE_ONLY }),
+    // The one figure that counts them, because it is the DISCLOSURE: the number
+    // the dashboard states on screen, beside the link that shows them. Counted,
+    // never subtracted from anything, and never zero just because the rest of
+    // this function stopped looking at them.
     db.check.count({ where: { isIncomplete: true } }),
   ])
   const count = (s: CheckStatus) => grouped.find((g) => g.status === s)?._count._all ?? 0
@@ -83,6 +135,14 @@ export async function getSummary(db: Db) {
     count: g._count._all,
   }))
   return {
+    /**
+     * The TOTAL CHECKS card, and the count the TOTAL VALUE line is struck over.
+     *
+     * It is the number of cheques the dashboard SHOWS, not the number of rows
+     * in the table: since 2026-09-06 it excludes the ones with no recorded
+     * amount, because the card links to `?scope=all`, which no longer lists
+     * them. `incomplete` below is what it leaves out, and the page prints it.
+     */
     total,
     /**
      * The PENDING SIGNATURE card: both rungs, because to Finance a freshly
@@ -107,11 +167,16 @@ export async function getSummary(db: Db) {
     scheduled: count('SCHEDULED'),
     released: count('RELEASED'),
     /**
-     * Cheques with no recorded amount — 129 in production. This number and the
-     * currency totals above are answers to different questions and must stay
-     * that way: flagging a cheque incomplete does NOT enrol it in a total, and
-     * "fixing" the totals to count it as zero would leave every figure looking
-     * identical while quietly meaning something else.
+     * Cheques with no recorded amount — 129 in production. Every OTHER count
+     * here now excludes them (client decision, 2026-09-06), which makes this
+     * number the disclosure rather than a card: the dashboard prints it above
+     * the table, with a link that shows them, so a reader can always tell the
+     * difference between "the register is smaller" and "money went missing".
+     *
+     * This number and the currency totals above are still answers to different
+     * questions and must stay that way: flagging a cheque incomplete does NOT
+     * enrol it in a total, and "fixing" the totals to count it as zero would
+     * leave every figure looking identical while quietly meaning something else.
      */
     incomplete,
     totalsByCurrency,
@@ -129,22 +194,29 @@ export async function getSummary(db: Db) {
  * `showAll: false` is inert alongside an explicit status — `viewStatusFilter`
  * only consults it when none was given — but it is spelled out because
  * `ViewState` requires it and a reader should not have to check.
+ *
+ * `incomplete: false` for the same anti-drift reason the pair is not restated:
+ * the READY FOR RELEASE card counts `getSummary`, which excludes the cheques
+ * with no recorded amount (client decision, 2026-09-06), and a panel offering to
+ * RELEASE ALL 86 beneath a card reading 80 is precisely the disagreement this
+ * module is arranged to prevent. Six of production's 129 are READY_FOR_RELEASE,
+ * so this is a live case, not a hypothetical: they are not released in bulk any
+ * more, and are still released one at a time from `/?incomplete=1`.
  */
-export const TODAYS_RELEASE_FILTER: CheckFilters =
-  viewStatusFilter({ status: 'READY_FOR_RELEASE', showAll: false })
+export const TODAYS_RELEASE_FILTER: CheckFilters = {
+  ...viewStatusFilter({ status: 'READY_FOR_RELEASE', showAll: false }),
+  incomplete: false,
+}
 
 /** What the TODAY'S RELEASE panel shows, and what RELEASE ALL would act on. */
 export type TodaysRelease = {
-  /** Every cheque in the set, including the ones carrying no amount. */
-  count: number
   /**
-   * How many of those have no recorded amount, and are therefore counted above
-   * but absent from every figure below. Six of production's 129 incomplete
-   * cheques are READY_FOR_RELEASE, so this is a live case. The panel says so on
-   * screen: a count and a total that disagree without explanation read as a
-   * broken figure.
+   * Every cheque in the set. There is no separate `incomplete` figure any more:
+   * `TODAYS_RELEASE_FILTER` excludes the cheques with no recorded amount, so the
+   * count and the totals below are struck over one population and cannot
+   * legitimately disagree.
    */
-  incomplete: number
+  count: number
   /** Per currency, never summed across them. */
   totalsByCurrency: CurrencyTotal[]
 }
@@ -159,15 +231,12 @@ export type TodaysRelease = {
 export async function getTodaysRelease(db: Db): Promise<TodaysRelease> {
   const where = buildWhere(TODAYS_RELEASE_FILTER)
 
-  const [grouped, incomplete] = await Promise.all([
-    db.check.groupBy({
-      by: ['currency'],
-      _sum: { amount: true },
-      _count: { _all: true },
-      where,
-    }),
-    db.check.count({ where: { ...where, isIncomplete: true } }),
-  ])
+  const grouped = await db.check.groupBy({
+    by: ['currency'],
+    _sum: { amount: true },
+    _count: { _all: true },
+    where,
+  })
 
   // `?.toString() ?? null`, exactly as getSummary does it: a decimal STRING,
   // never a JS number, and null where no amount in the group is known — which
@@ -180,7 +249,6 @@ export async function getTodaysRelease(db: Db): Promise<TodaysRelease> {
 
   return {
     count: grouped.reduce((n, g) => n + g._count._all, 0),
-    incomplete,
     totalsByCurrency,
   }
 }
@@ -222,9 +290,12 @@ function buildWhere(filters: CheckFilters): Prisma.CheckWhereInput {
   if (filters.companyId) where.companyId = filters.companyId
   if (filters.cashAccountId) where.cashAccountId = filters.cashAccountId
   if (filters.eligibility) where.eligibility = filters.eligibility
-  // `=== true`, so `false` behaves like `undefined` and cannot silently hide
-  // the incomplete records from an ordinary search.
-  if (filters.incomplete === true) where.isIncomplete = true
+  // The tri-state, spelled out. `true` narrows to the records with no recorded
+  // amount, `false` EXCLUDES them (the dashboard's default since 2026-09-06 —
+  // see `CheckFilters.incomplete`), and `undefined` leaves the column alone.
+  // `!== undefined` rather than a truthiness test, so `false` cannot decay back
+  // into "no filter" the way it used to.
+  if (filters.incomplete !== undefined) where.isIncomplete = filters.incomplete
   if (filters.from || filters.to) {
     where.checkDate = { gte: filters.from, lte: filters.to }
   }

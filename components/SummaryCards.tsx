@@ -43,15 +43,9 @@ function IconWaiting() {
   )
 }
 
-function IconException() {
-  return (
-    <svg className={ICON} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-      <path d="M10 2.8 18.4 17H1.6L10 2.8Z" strokeLinejoin="round" />
-      <path d="M10 8v3.4" strokeLinecap="round" />
-      <circle cx="10" cy="14" r=".9" fill="currentColor" stroke="none" />
-    </svg>
-  )
-}
+// IconException went with the INCOMPLETE card (client decision, 2026-09-06). It
+// is not kept "in case": an icon with no card is a component nobody renders and
+// the next reader has to check.
 
 function IconValue() {
   return (
@@ -81,14 +75,15 @@ function IconArchive() {
 }
 
 /**
- * A PRIMARY card: the four figures the client asked the first screen to answer
- * in under five seconds — what is ready, what is waiting, what is broken, what
- * it is all worth.
+ * A PRIMARY card: the figures the client asked the first screen to answer in
+ * under five seconds — what is ready, what is waiting, what it is all worth.
  *
  * Colour earns its place here and nowhere else. READY FOR RELEASE is the one
- * action of the day and carries the success tone; INCOMPLETE is the exception
- * list and carries the warning tone; the other two are white, because a screen
- * where everything is coloured is the screen the client already had.
+ * action of the day and carries the success tone; the rest are white, because a
+ * screen where everything is coloured is the screen the client already had.
+ * There was a `warn` tone too, for the INCOMPLETE card — that card is gone
+ * (client decision, 2026-09-06) and so is the tone, rather than left as an
+ * option nothing passes.
  */
 function PrimaryCard({
   label, icon, value, support, tone = 'plain', href, selected = false, hint,
@@ -98,26 +93,25 @@ function PrimaryCard({
   value: React.ReactNode
   /** The supporting line beneath the figure. Always present — see below. */
   support: React.ReactNode
-  tone?: 'plain' | 'success' | 'warn'
+  tone?: 'plain' | 'success'
   href?: string
   selected?: boolean
   hint?: string
 }) {
   const skin = {
     success: 'bg-success-bg ring-success-ink/20',
-    warn: 'bg-warning-bg ring-warning-ink/25',
     plain: 'bg-white ring-hairline',
   }[tone]
 
-  const ink = { success: 'text-success-ink', warn: 'text-warning-ink', plain: 'text-navy' }[tone]
+  const ink = { success: 'text-success-ink', plain: 'text-navy' }[tone]
 
   /**
    * The selected card keeps its own colour and gains a heavy dark outline.
    *
-   * Colour alone would not do it: READY FOR RELEASE is already green and
-   * INCOMPLETE already amber, so "the tinted one" cannot mean "the chosen one"
-   * as well. The ring is a second channel, which also means the selection is
-   * still visible to someone who cannot separate those hues.
+   * Colour alone would not do it: READY FOR RELEASE is already green, so "the
+   * tinted one" cannot mean "the chosen one" as well. The ring is a second
+   * channel, which also means the selection is still visible to someone who
+   * cannot separate those hues.
    */
   const ring = selected ? 'ring-2 ring-navy shadow-sm' : `ring-1 ${skin.split(' ').pop()}`
   const bg = skin.split(' ')[0]
@@ -230,10 +224,14 @@ export type { DashboardSelection } from '@/lib/dashboard-view'
  * stated as a layout: RELEASED at 9,545 and READY FOR RELEASE at 80 were the
  * same size in the same colour, and the eye goes to the big number.
  *
- * So there are two rows now. The PRIMARY four answer the three questions the
- * first screen exists to answer — how many need action today, what is ready for
- * supplier release, and are there exceptions — plus what it is all worth. The
+ * So there are two rows now. The PRIMARY four answer the questions the first
+ * screen exists to answer — what is ready for supplier release, what is signed
+ * and waiting, what is still with a signatory — plus what it is all worth. The
  * SECONDARY row holds the historical views at a fraction of the weight.
+ *
+ * There was a fifth: INCOMPLETE, the exception list. It is gone (client
+ * decision, 2026-09-06) along with the cheques it counted, which are now out of
+ * every figure on this screen. See the TOTAL VALUE card below.
  * ──────────────────────────────────────────────────────────────────────────
  *
  * The cards remain the VIEW SELECTOR, not a shortcut to a dropdown. Selecting
@@ -267,15 +265,13 @@ export function SummaryCards({
    * it off. A view you can switch on and cannot switch off sends people to the
    * browser's Back button to undo a click they just made.
    *
-   * The hint says which of the two things a lit card is doing: a view card is
-   * the table's scope, INCOMPLETE only narrows whatever scope is already there.
+   * Every card is a view now — the INCOMPLETE toggle was the one that was not,
+   * and it is no longer a card — so the hint is the same for all of them.
    */
   const card = (id: CardId) => ({
     selected: isCardSelected(id, selection),
     href: cardHref(id, selection),
-    hint: id === 'INCOMPLETE'
-      ? 'ALSO NARROWED TO THESE — CLICK TO STOP'
-      : 'VIEWING — CLICK FOR NEEDS ACTION',
+    hint: 'VIEWING — CLICK FOR NEEDS ACTION',
   })
 
   // SCHEDULED has no card of its own. To Finance the two are one state — the
@@ -288,7 +284,9 @@ export function SummaryCards({
 
   return (
     <section className="space-y-3">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      {/* Four across, not five: the INCOMPLETE card left the row on 2026-09-06
+          and a five-column grid would leave a hole where it stood. */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <PrimaryCard
           label="READY FOR RELEASE"
           icon={<IconReady />}
@@ -312,8 +310,8 @@ export function SummaryCards({
             reachable only through a timeline node — the client noticed within
             minutes of the deploy.
 
-            White, not toned: colour is spent on the day's one action and on the
-            exception list, and a third tinted card starts the creep back toward
+            White, not toned: colour is spent on the day's one action and
+            nothing else, and a second tinted card starts the creep back toward
             the screen where everything was coloured and nothing stood out. */}
         <PrimaryCard
           label="SIGNED"
@@ -334,30 +332,32 @@ export function SummaryCards({
           {...card('SIGNATURE_PENDING')}
         />
 
-        {/* 129 cheques in production whose amount the register never recorded.
-            They are NOT part of the value beside them and never were — SQL
-            SUM() skips a null — so the exception card and the value card sit in
-            the same row deliberately: the reader can see how many cheques the
-            total cannot speak for.
+        {/* THE INCOMPLETE CARD IS GONE (client decision, 2026-09-06). Shown the
+            card reading 129 the client said "ignore them mean you have to remove
+            them, dont consider them becuase they dont have amount", so those
+            cheques are out of every count on this screen and out of the table.
 
-            The one card that is not a view: incompleteness cuts across every
-            status, so it composes with the selected view rather than replacing
-            it, and both cards light up together when both are on. */}
-        <PrimaryCard
-          label="INCOMPLETE"
-          icon={<IconException />}
-          value={summary.incomplete.toLocaleString('en-PH')}
-          support="MISSING AMOUNT · NEEDS CORRECTION"
-          tone={summary.incomplete > 0 ? 'warn' : 'plain'}
-          {...card('INCOMPLETE')}
-        />
+            Nothing was deleted — 25 of them are RELEASED — and the exclusion is
+            not silent either: `app/page.tsx` states the number above the table
+            with a link that shows them. That notice is where this card's figure
+            went, and it is the reason removing the card is honest rather than a
+            number that quietly got smaller. */}
 
         {/* Not clickable: there is no "cheques worth this much" set to view. */}
         <PrimaryCard
           label="TOTAL VALUE"
           icon={<IconValue />}
           value={<CurrencyBreakdown totalsByCurrency={summary.totalsByCurrency} />}
-          support={`ACROSS ${summary.total.toLocaleString('en-PH')} CHEQUES · EXCLUDES ${summary.incomplete.toLocaleString('en-PH')} WITH NO AMOUNT`}
+          /* The old line said "EXCLUDES 129 WITH NO AMOUNT" beside a count that
+             INCLUDED all 129 — true then, because the value skipped them and the
+             count did not. `summary.total` no longer counts them either, so the
+             clause is rewritten rather than left standing as a half-truth: they
+             are outside both figures now. */
+          support={
+            summary.incomplete > 0
+              ? `ACROSS ${summary.total.toLocaleString('en-PH')} CHEQUES · ${summary.incomplete.toLocaleString('en-PH')} WITH NO AMOUNT ARE NOT COUNTED AT ALL`
+              : `ACROSS ${summary.total.toLocaleString('en-PH')} CHEQUES`
+          }
         />
       </div>
 

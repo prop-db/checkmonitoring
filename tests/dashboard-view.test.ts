@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  isCardSelected, cardHref, clearFiltersHref, describeView, viewStatusFilter,
+  isCardSelected, cardHref, incompleteHref, clearFiltersHref, describeView, viewStatusFilter,
   releaseConfirmHref, releaseCancelHref, TODAYS_RELEASE_ANCHOR,
   exportHref, EXPORT_PATH,
   type DashboardSelection,
@@ -127,12 +127,23 @@ describe('TOTAL CHECKS', () => {
   })
 })
 
-describe('INCOMPLETE (NO AMOUNT) is a toggle, not a view', () => {
+/**
+ * INCOMPLETE (NO AMOUNT).
+ *
+ * CLIENT DECISION, 2026-09-06: the 129 cheques with no recorded amount come out
+ * of the dashboard's counts and its table, so this stopped being a CARD and the
+ * toggle's OFF position stopped meaning "do not filter". These tests were
+ * written against `cardHref('INCOMPLETE', …)`; they now exercise
+ * `incompleteHref`, which is the same URL arithmetic reached from the notice the
+ * page prints above the table instead of from a card. `?incomplete=1` is
+ * unchanged, so every bookmark that named it still opens what it named.
+ */
+describe('INCOMPLETE (NO AMOUNT) is a toggle, and no longer a card', () => {
   it('composes with the view instead of replacing it', () => {
     // The 129 cheques with no recorded amount cut across every status
     // (50 SIGNATURE_PENDING, 48 CANCELLED, 25 RELEASED, 6 READY_FOR_RELEASE),
     // so SIGNED + INCOMPLETE has to mean "signed cheques with no amount".
-    expect(cardHref('INCOMPLETE', { ...NOTHING, status: 'SIGNED' }))
+    expect(incompleteHref({ ...NOTHING, status: 'SIGNED' }))
       .toBe('/?status=SIGNED&incomplete=1')
   })
 
@@ -141,15 +152,14 @@ describe('INCOMPLETE (NO AMOUNT) is a toggle, not a view', () => {
     expect(viewStatusFilter(both)).toEqual({ status: 'SIGNED', statusIn: undefined })
   })
 
-  it('lights both cards when both are on, and says so above the table', () => {
+  it('lights the view card and says the toggle is on above the table', () => {
     const both: DashboardSelection = { ...NOTHING, status: 'SIGNED', incomplete: true }
     expect(isCardSelected('SIGNED', both)).toBe(true)
-    expect(isCardSelected('INCOMPLETE', both)).toBe(true)
     expect(describeView(both)).toBe('SIGNED + INCOMPLETE (NO AMOUNT)')
   })
 
   it('turns off without disturbing the view', () => {
-    expect(cardHref('INCOMPLETE', { ...NARROWED, status: 'SIGNED', incomplete: true }))
+    expect(incompleteHref({ ...NARROWED, status: 'SIGNED', incomplete: true }))
       .toBe('/?q=ACME&company=c1&cashAccount=a1&eligibility=ELIGIBLE&status=SIGNED')
   })
 
@@ -161,7 +171,16 @@ describe('INCOMPLETE (NO AMOUNT) is a toggle, not a view', () => {
   })
 
   it('composes with the all-cheques view too', () => {
-    expect(cardHref('INCOMPLETE', { ...NOTHING, showAll: true })).toBe('/?scope=all&incomplete=1')
+    expect(incompleteHref({ ...NOTHING, showAll: true })).toBe('/?scope=all&incomplete=1')
+  })
+
+  /**
+   * The link the page prints under VIEWING, and the reason hiding 129 cheques is
+   * a decision the reader can see and undo. Without a way back, a register that
+   * quietly got smaller is how somebody concludes money went missing.
+   */
+  it('offers a way back to them from the plain dashboard', () => {
+    expect(incompleteHref(NOTHING)).toBe('/?incomplete=1')
   })
 })
 
@@ -205,7 +224,7 @@ describe('the RELEASE ALL confirmation step', () => {
     for (const url of [
       cardHref('SIGNED', confirming),
       cardHref('TOTAL_CHECKS', confirming),
-      cardHref('INCOMPLETE', confirming),
+      incompleteHref(confirming),
       clearFiltersHref(confirming),
     ]) {
       expect(url).not.toContain('confirm=')
@@ -236,9 +255,9 @@ describe('exportHref', () => {
 
   it('carries exactly the parameters the dashboard link carries', () => {
     const sel: DashboardSelection = { ...NARROWED, status: 'READY_FOR_RELEASE', incomplete: true }
-    // The INCOMPLETE card's "turn it back on" link is the same view as `sel`,
-    // so the two URLs must differ only in their path.
-    const dashboard = cardHref('INCOMPLETE', { ...sel, incomplete: false })
+    // The "Show them" link is the same view as `sel`, so the two URLs must
+    // differ only in their path.
+    const dashboard = incompleteHref({ ...sel, incomplete: false })
     expect(exportHref(sel)).toBe(dashboard.replace('/?', `${EXPORT_PATH}?`))
   })
 

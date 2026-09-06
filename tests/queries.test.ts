@@ -79,6 +79,11 @@ describe('getSummary', () => {
   // A total of 1,500.50 over a count of 3 therefore does NOT mean the three
   // amounts add to 1,500.50. That is deliberate: the alternative is a total
   // that silently absorbs 397 unknowns as zeroes and looks authoritative.
+  //
+  // `s.total` is the exception, and it changed on 2026-09-06: it is the TOTAL
+  // CHECKS card, which links to a table that no longer lists the cheques with no
+  // amount, so it counts 2 of these 3. The currency block above is untouched -
+  // see the note in getSummary for why the two answer different questions.
   it('leaves a cheque with no recorded amount out of the total but still counts it', async () => {
     await makeCheck({ currency: 'PHP', amount: '1000.00' })
     await makeCheck({ currency: 'PHP', amount: '500.50' })
@@ -86,7 +91,8 @@ describe('getSummary', () => {
 
     const s = await getSummary(testDb)
     expect(s.totalsByCurrency).toEqual([{ currency: 'PHP', total: '1500.5', count: 3 }])
-    expect(s.total).toBe(3)
+    expect(s.total).toBe(2)
+    expect(s.incomplete).toBe(1)
   })
 
   // The degenerate case: every cheque in a currency has an unknown amount, so
@@ -150,14 +156,53 @@ describe('listChecks', () => {
 // it is counted, filterable, and — crucially — that flagging them changed
 // nothing about the money.
 describe('incomplete cheques', () => {
-  it('counts the cheques flagged incomplete', async () => {
+  /**
+   * SUPERSEDED BY A CLIENT DECISION, 2026-09-06. This used to assert
+   * `s.total === 3` — every cheque, the two with no amount included. Shown the
+   * INCOMPLETE card reading 129 the client said "ignore them mean you have to
+   * remove them, dont consider them becuase they dont have amount", so the
+   * dashboard's counts stop at the cheques that have one.
+   *
+   * `s.incomplete` is the figure that survives, because it is now the
+   * DISCLOSURE: the page prints it above the table with a link that shows them,
+   * which is what makes a register that got smaller readable rather than
+   * alarming.
+   */
+  it('counts the cheques flagged incomplete, and leaves them out of every other figure', async () => {
     await makeCheck({ amount: '1000.00' })
     await makeCheck({ amount: null })
     await makeCheck({ amount: null })
 
     const s = await getSummary(testDb)
     expect(s.incomplete).toBe(2)
-    expect(s.total).toBe(3)
+    expect(s.total).toBe(1)
+  })
+
+  /**
+   * The drift this whole change had to avoid: a card's number is the number of
+   * rows the table it links to shows. `getSummary` narrows itself the same way
+   * `buildWhere` narrows the table, so a status count and its table cannot part
+   * company.
+   */
+  it('keeps each status count equal to the rows that status opens', async () => {
+    await makeCheck({ status: 'SIGNATURE_PENDING', amount: '1000.00' })
+    await makeCheck({ status: 'SIGNATURE_PENDING', amount: null })
+    await makeCheck({ status: 'SIGNED', amount: '2000.00' })
+    await makeCheck({ status: 'SIGNED', amount: null })
+    await makeCheck({ status: 'RELEASED', amount: null })
+
+    const s = await getSummary(testDb)
+    expect(s.pendingSignature).toBe(1)
+    expect(s.signaturePending).toBe(1)
+    expect(s.signed).toBe(1)
+    expect(s.released).toBe(0)
+
+    // The dashboard's own filters, as `resolveDashboardQuery` builds them.
+    expect(await countChecks(testDb, { status: 'SIGNATURE_PENDING', incomplete: false }))
+      .toBe(s.signaturePending)
+    expect(await countChecks(testDb, { status: 'SIGNED', incomplete: false })).toBe(s.signed)
+    expect(await countChecks(testDb, { status: 'RELEASED', incomplete: false })).toBe(s.released)
+    expect(await countChecks(testDb, { incomplete: false })).toBe(s.total)
   })
 
   it('filters the table down to the incomplete records', async () => {
@@ -168,11 +213,34 @@ describe('incomplete cheques', () => {
     expect(rows.map((r) => r.checkNumber)).toEqual(['6000000102'])
   })
 
-  it('leaves the filter off entirely when it is not asked for', async () => {
-    await makeCheck({ amount: '1000.00' })
-    await makeCheck({ amount: null })
+  /**
+   * The tri-state, end to end. `false` is the dashboard's default and EXCLUDES;
+   * `undefined` is still no filter at all, so a caller with no opinion about
+   * incompleteness cannot acquire one by accident — `getTodaysRelease` and the
+   * admin screens depend on that distinction staying real.
+   */
+  it('excludes the incomplete records for false, and filters on nothing for undefined', async () => {
+    await makeCheck({ amount: '1000.00', checkNumber: '6000000201' })
+    await makeCheck({ amount: null, checkNumber: '6000000202' })
+
     expect(await countChecks(testDb, {})).toBe(2)
     expect(await countChecks(testDb, { incomplete: true })).toBe(1)
+    expect(await countChecks(testDb, { incomplete: false })).toBe(1)
+
+    const shown = await listChecks(testDb, { incomplete: false })
+    expect(shown.map((r) => r.checkNumber)).toEqual(['6000000201'])
+  })
+
+  // Hidden, never removed. Rule 10 forbids a bulk delete path, and 25 of
+  // production's 129 are RELEASED cheques somebody has already handed over.
+  it('hides them from the dashboard without touching the rows', async () => {
+    await makeCheck({ amount: null, checkNumber: '6000000203', status: 'RELEASED' })
+
+    expect(await countChecks(testDb, { incomplete: false, statusIn: undefined })).toBe(0)
+    const still = await listChecks(testDb, { incomplete: true })
+    expect(still).toHaveLength(1)
+    expect(still[0].status).toBe('RELEASED')
+    expect(still[0].amount).toBeNull()
   })
 
   // THE ONE THAT MUST NOT BE "FIXED". Flagging a cheque as incomplete does not
@@ -546,29 +614,58 @@ describe('getTodaysRelease', () => {
     ]))
   })
 
-  // Six of the 129 incomplete cheques are READY_FOR_RELEASE in production, so
-  // this is a live case, not a hypothetical. The cheque is counted and its
-  // (absent) amount is not summed - and `incomplete` exists so the panel can
-  // SAY so, rather than leaving a reader to wonder why 81 cheques total less
-  // than they expected.
-  it('counts a cheque with no amount but leaves it out of the total, and reports how many', async () => {
+  /**
+   * SUPERSEDED BY A CLIENT DECISION, 2026-09-06. This test used to assert that a
+   * READY_FOR_RELEASE cheque with no recorded amount was COUNTED here and
+   * reported through a `TodaysRelease.incomplete` field, so the panel could
+   * explain why its count and its total disagreed.
+   *
+   * The client asked for those cheques to be taken out of the dashboard
+   * entirely — "dont consider them becuase they dont have amount" — so the READY
+   * FOR RELEASE card no longer counts them, and this panel must not either: a
+   * panel offering to RELEASE ALL 2 beneath a card reading 1 is the exact
+   * disagreement `TODAYS_RELEASE_FILTER` exists to prevent. The field is gone
+   * with the case it explained. Nothing is deleted; the cheque is still there,
+   * and `/?incomplete=1` still lists it.
+   */
+  it('leaves a cheque with no recorded amount out of the set entirely', async () => {
     await makeCheck({ status: 'READY_FOR_RELEASE', amount: '1000.00' })
     await makeCheck({ status: 'SCHEDULED', amount: null })
 
     const t = await getTodaysRelease(testDb)
-    expect(t.count).toBe(2)
-    expect(t.incomplete).toBe(1)
-    expect(t.totalsByCurrency).toEqual([{ currency: 'PHP', total: '1000', count: 2 }])
+    expect(t.count).toBe(1)
+    expect(t.totalsByCurrency).toEqual([{ currency: 'PHP', total: '1000', count: 1 }])
   })
 
-  // Every amount unknown is not the same fact as a total of zero, and must not
-  // render as one. `formatMoney` shows null as an em dash.
+  // The cheque is excluded from the panel, NOT removed: it is still in the
+  // table, still READY_FOR_RELEASE, and still reachable by the filter the
+  // dashboard links to.
+  it('does not delete or restatus the cheque it excludes', async () => {
+    await makeCheck({ status: 'READY_FOR_RELEASE', amount: null, checkNumber: '6000000301' })
+
+    expect(await countChecks(testDb, { incomplete: true })).toBe(1)
+    const rows = await listChecks(testDb, { incomplete: true })
+    expect(rows[0].status).toBe('READY_FOR_RELEASE')
+    expect(rows[0].checkNumber).toBe('6000000301')
+  })
+
+  /**
+   * Every amount unknown is not the same fact as a total of zero, and must not
+   * render as one. `formatMoney` shows null as an em dash.
+   *
+   * Reached through the DRIFT case since 2026-09-06: the panel now filters on
+   * the stored `isIncomplete` flag, so the only way a null amount gets in is a
+   * row whose flag disagrees with its own amount — exactly what
+   * `scripts/backfill-incomplete.ts` exists to re-derive. The null must still be
+   * carried through rather than collapsed, because a flag being stale is not a
+   * reason to publish a confident ₱0.00.
+   */
   it('carries a wholly unknown total through as null rather than zero', async () => {
-    await makeCheck({ status: 'READY_FOR_RELEASE', amount: null })
+    const c = await makeCheck({ status: 'READY_FOR_RELEASE', amount: null })
+    await testDb.check.update({ where: { id: c.id }, data: { isIncomplete: false } })
 
     const t = await getTodaysRelease(testDb)
     expect(t.totalsByCurrency).toEqual([{ currency: 'PHP', total: null, count: 1 }])
-    expect(t.incomplete).toBe(1)
   })
 
   // The panel is shown even when there is nothing to release, so the empty
@@ -576,7 +673,7 @@ describe('getTodaysRelease', () => {
   it('answers zero when nothing is ready', async () => {
     await makeCheck({ status: 'SIGNED' })
     const t = await getTodaysRelease(testDb)
-    expect(t).toEqual({ count: 0, incomplete: 0, totalsByCurrency: [] })
+    expect(t).toEqual({ count: 0, totalsByCurrency: [] })
   })
 
   // The amount is a decimal STRING at every boundary. A JS number here would

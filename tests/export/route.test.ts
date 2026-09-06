@@ -158,7 +158,9 @@ describe('GET /api/export — the download', () => {
     const ws = (await sheetsFrom(await get('http://localhost/api/export?q=henkel')))
       .getWorksheet(REGISTER_SHEET)!
 
-    expect(ws.getCell('A3').value).toBe('SEARCH: "henkel"')
+    // The default exclusion rides along, as of 2026-09-06 — see the note on the
+    // unrecognised-parameter test below.
+    expect(ws.getCell('A3').value).toBe('SEARCH: "henkel"  ·  EXCLUDES RECORDS WITH NO AMOUNT')
     expect(ws.getRow(FIRST_DATA_ROW).getCell(3).value).toBe('HENKEL PHILIPPINES INC.')
     expect(ws.getRow(FIRST_DATA_ROW + 1).getCell(3).value).toBeNull()
   })
@@ -179,12 +181,31 @@ describe('GET /api/export — the download', () => {
     expect(res.status).toBe(200)
     const ws = (await sheetsFrom(res)).getWorksheet(REGISTER_SHEET)!
     expect(ws.getCell('A2').value).toBe('NEEDS ACTION — 1 CHEQUE')
-    expect(ws.getCell('A3').value).toBe('No filters applied')
+    // Not "No filters applied" any more: since 2026-09-06 the dashboard excludes
+    // the cheques with no recorded amount by default, and a report that does not
+    // say what it excludes is read as the whole picture.
+    expect(ws.getCell('A3').value).toBe('EXCLUDES RECORDS WITH NO AMOUNT')
   })
 
-  it('leaves a cheque with no recorded amount blank, all the way through the route', async () => {
+  /**
+   * SUPERSEDED IN PART BY A CLIENT DECISION, 2026-09-06. The route follows the
+   * dashboard, so a plain `?status=SIGNED` export no longer contains the cheques
+   * with no recorded amount at all — that is asserted first, because a workbook
+   * that disagreed with the screen it was exported from would be worse than no
+   * workbook. `?incomplete=1` still lists them, and the blank cell it writes is
+   * still the property worth pinning: never a zero.
+   */
+  it('follows the dashboard and excludes a cheque with no recorded amount', async () => {
     await makeCheck({ status: 'SIGNED', amount: null })
     const ws = (await sheetsFrom(await get('http://localhost/api/export?status=SIGNED')))
+      .getWorksheet(REGISTER_SHEET)!
+    expect(ws.getCell('A2').value).toBe('SIGNED — NO CHEQUES MATCH')
+    expect(ws.getCell('A3').value).toBe('EXCLUDES RECORDS WITH NO AMOUNT')
+  })
+
+  it('leaves a cheque with no recorded amount blank when it is asked for', async () => {
+    await makeCheck({ status: 'SIGNED', amount: null })
+    const ws = (await sheetsFrom(await get('http://localhost/api/export?status=SIGNED&incomplete=1')))
       .getWorksheet(REGISTER_SHEET)!
     expect(ws.getRow(FIRST_DATA_ROW).getCell(7).value).toBeNull()
   })

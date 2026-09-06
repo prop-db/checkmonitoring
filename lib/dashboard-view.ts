@@ -22,6 +22,14 @@ import { LIVE_STATUSES } from './domain/check-status'
  *   ALL CHEQUES    the TOTAL CHECKS card. Every status, and nothing else set.
  *   INCOMPLETE     a toggle that COMPOSES with whichever view is selected.
  *
+ * THE INCOMPLETE TOGGLE IS NOW OFF BY DEFAULT AND MEANS "EXCLUDE" (client
+ * decision, 2026-09-06): `incomplete: false` hides the 129 cheques with no
+ * recorded amount from the counts and the table, `incomplete: true` shows only
+ * them. It stopped being a CARD in the same change — the client asked for the
+ * card to go — but it is still a toggle in the URL, `?incomplete=1` still opens
+ * exactly what it always did, and `incompleteHref` below is the link the
+ * dashboard prints above the table so the exclusion is never silent.
+ *
  * NEEDS ACTION stays the default deliberately. Production holds 9,287 cheques,
  * 7,433 of them RELEASED; opening on everything buries the cheques somebody has
  * to act on today under eight thousand nobody will touch again, and the row
@@ -59,7 +67,14 @@ export const VIEW_CARDS = [
 ] as const satisfies readonly string[]
 
 export type ViewCardId = (typeof VIEW_CARDS)[number]
-export type CardId = ViewCardId | 'INCOMPLETE'
+/**
+ * There is no `'INCOMPLETE'` member any more. It was one, back when the
+ * dashboard had an INCOMPLETE card; the card is gone (client decision,
+ * 2026-09-06) and the toggle it wrote is reached through `incompleteHref`
+ * instead. Leaving a card id for a card that does not exist would have kept
+ * `isCardSelected` and `cardHref` carrying a branch nothing calls.
+ */
+export type CardId = ViewCardId
 
 /**
  * What the dashboard is currently showing, as the page read it back from the
@@ -115,7 +130,6 @@ function href(
 const NEEDS_ACTION: ViewState = { status: null, showAll: false }
 
 export function isCardSelected(card: CardId, sel: DashboardSelection): boolean {
-  if (card === 'INCOMPLETE') return sel.incomplete
   // TOTAL CHECKS is the absence of a status, so it must not light up beside a
   // status card that is also on.
   if (card === 'TOTAL_CHECKS') return sel.showAll && sel.status === null
@@ -132,22 +146,33 @@ export function isCardSelected(card: CardId, sel: DashboardSelection): boolean {
  * TOTAL CHECKS is the exception on the way in. It is the "show me everything,
  * start again" control, so selecting it drops the search, the dropdowns and the
  * incomplete toggle as well as any status. Every other card carries them along.
- *
- * INCOMPLETE is the exception on both sides: it is a toggle, not a view, so it
- * keeps whichever view is selected in both directions.
  */
 export function cardHref(card: CardId, sel: DashboardSelection): string {
   const selected = isCardSelected(card, sel)
-
-  if (card === 'INCOMPLETE') {
-    return href(sel.base, { status: sel.status, showAll: sel.showAll, incomplete: !selected })
-  }
 
   if (selected) return href(sel.base, { ...NEEDS_ACTION, incomplete: sel.incomplete })
 
   if (card === 'TOTAL_CHECKS') return href({}, { status: null, showAll: true, incomplete: false })
 
   return href(sel.base, { status: card, showAll: false, incomplete: sel.incomplete })
+}
+
+/**
+ * The INCOMPLETE toggle, as a link. What the removed card's href used to be.
+ *
+ * A toggle, not a view, so it keeps whichever view is selected in BOTH
+ * directions: from the default dashboard it opens `?incomplete=1`, the 129
+ * cheques with no recorded amount that the counts and the table now leave out;
+ * from there it goes back to the view without them.
+ *
+ * This is the link the dashboard prints beside its exclusion notice, and it is
+ * why hiding those cheques is a decision the reader can see and undo rather than
+ * a number that quietly got smaller.
+ */
+export function incompleteHref(sel: DashboardSelection): string {
+  return href(sel.base, {
+    status: sel.status, showAll: sel.showAll, incomplete: !sel.incomplete,
+  })
 }
 
 /**
@@ -278,6 +303,13 @@ const words = (s: string) => s.replace(/_/g, ' ')
  * is not — so it is stated here instead of applied silently. The live statuses
  * are read from `LIVE_STATUSES` rather than restated: a ninth live status must
  * not be filtered in while going unmentioned.
+ *
+ * The OTHER default this line does not carry is the exclusion of the cheques
+ * with no recorded amount. That one needs a count and a link, and this function
+ * is pure — so `app/page.tsx` prints it immediately beneath, off
+ * `summary.incomplete` and `incompleteHref`. It is not optional there: it is the
+ * price of hiding them. This function still names the toggle when it is ON,
+ * because SIGNED + INCOMPLETE is a narrower set than either.
  */
 export function describeView(sel: DashboardSelection): string {
   const view = sel.status === 'READY_FOR_RELEASE'

@@ -133,9 +133,19 @@ export function describeFilters(f: FilterDescription): string {
   if (bank) parts.push(`BANK / CASH ACCOUNT: ${bank}`)
   if (eligibility) parts.push(`ELIGIBILITY: ${eligibility}`)
   if (q) parts.push(`SEARCH: "${q}"`)
-  // `=== true`, matching buildWhere: `false` means "do not narrow on this", not
-  // "narrow to the complete ones", so it is not a filter to announce.
+  /**
+   * The tri-state, announced on BOTH sides — matching `buildWhere`, where
+   * `true` narrows to the records with no recorded amount and `false` excludes
+   * them (client decision, 2026-09-06).
+   *
+   * `false` was silent while it meant "do not narrow on this". It now removes
+   * 129 cheques from the file, and a report that does not say what it excludes
+   * is a report that will be read as the whole picture — the same reason "No
+   * filters applied" is spelled out rather than left blank. `undefined` still
+   * says nothing, because it still filters nothing.
+   */
   if (f.incomplete === true) parts.push('INCOMPLETE RECORDS ONLY (NO AMOUNT)')
+  else if (f.incomplete === false) parts.push('EXCLUDES RECORDS WITH NO AMOUNT')
   return parts.length ? parts.join('  ·  ') : 'No filters applied'
 }
 

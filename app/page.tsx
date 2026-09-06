@@ -6,7 +6,7 @@ import {
 } from '@/lib/queries'
 import { resolveDashboardQuery } from '@/lib/dashboard-params'
 import {
-  cardHref, clearFiltersHref, describeView,
+  clearFiltersHref, describeView, incompleteHref,
   releaseConfirmHref, releaseCancelHref,
 } from '@/lib/dashboard-view'
 import { AppHeader } from '@/components/AppHeader'
@@ -28,8 +28,9 @@ import { CheckTable } from '@/components/CheckTable'
  * So the screen is ordered by what it has to answer, and the first three
  * answers are on it before anything is scrolled:
  *
- *   1  KPI ROW          how many need action, what is ready, are there
- *                       exceptions, what is it all worth. Four cards.
+ *   1  KPI ROW          what is ready, what is signed and waiting, what is with
+ *                       a signatory, what is it all worth. Four cards — there
+ *                       was a fifth, INCOMPLETE, removed on 2026-09-06.
  *   2  TODAY'S RELEASE  the action itself, and the only control that hands
  *                       money over.
  *   3  RELEASE TIMELINE where the queue is jammed — 1,034 on SIGNED beside 80
@@ -97,10 +98,17 @@ export default async function DashboardPage({
    * above — the same list the dropdowns render, so the two cannot disagree
    * about what is selectable.
    *
-   * Only the TABLE is scoped by any of this. `getSummary` above is called with
-   * no filter at all and goes on counting every cheque in the system: a card
-   * that quietly reported the filtered subset would read as a total while
-   * meaning something else.
+   * Only the TABLE is scoped by any of this. `getSummary` above takes none of
+   * these filters and goes on counting system-wide: a card that quietly
+   * reported the filtered subset would read as a total while meaning something
+   * else.
+   *
+   * The ONE narrowing the cards share with the table is the exclusion of the
+   * cheques with no recorded amount, and it is shared on purpose — `getSummary`
+   * applies it itself, `buildWhere` applies it here, and a PENDING SIGNATURE
+   * card whose table opened five rows short is the drift that would otherwise
+   * appear the moment the table stopped showing them. The count that is left out
+   * is printed above the table with a link that shows it.
    */
   const {
     q, status, companyId, cashAccountId, eligibility, incomplete, showAll, selection, filters,
@@ -157,9 +165,37 @@ export default async function DashboardPage({
           what the export and the printed sheet will contain: the same view, the
           same filters, the same rows. */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-xs font-medium tracking-wide text-slate-600">
-          VIEWING: {describeView(selection)}
-        </p>
+        <div className="space-y-1">
+          <p className="text-xs font-medium tracking-wide text-slate-600">
+            VIEWING: {describeView(selection)}
+          </p>
+
+          {/* ── THE DISCLOSURE ────────────────────────────────────────────
+              The client asked for the cheques with no recorded amount to be
+              taken out of the counts and the table: "ignore them mean you have
+              to remove them, dont consider them becuase they dont have amount"
+              (2026-09-06). They are still in the database — 25 of them RELEASED
+              — and nothing was deleted.
+
+              This line is the price of hiding them, and it is not optional. A
+              register that shrinks by 129 with no explanation is how somebody
+              concludes money went missing, and by the time they ask, the number
+              they remember is a month old. So the count is stated, and the link
+              beside it opens exactly those cheques.
+
+              Only when the toggle is OFF: with it on, the reader is already
+              looking at them and `describeView` above says so. */}
+          {!incomplete && summary.incomplete > 0 && (
+            <p className="text-xs font-medium tracking-wide text-slate-500">
+              EXCLUDING {summary.incomplete.toLocaleString('en-PH')} CHEQUE
+              {summary.incomplete === 1 ? '' : 'S'} WITH NO RECORDED AMOUNT — not counted in the
+              cards above and not listed below.{' '}
+              <Link href={incompleteHref(selection)} className="underline underline-offset-2">
+                Show them
+              </Link>.
+            </p>
+          )}
+        </div>
 
         <QuickActions selection={selection} />
       </div>
@@ -178,12 +214,13 @@ export default async function DashboardPage({
 
       {incomplete && (
         <p className="rounded-lg bg-warning-bg px-4 py-2 text-sm text-warning-ink">
-          NARROWED TO INCOMPLETE RECORDS — cheques whose amount the register never recorded.
-          They are counted everywhere but are absent from every currency total, because there is
-          no figure of theirs to add.{' '}
-          {/* The card's own off-link, so clearing the toggle keeps the view. */}
-          <Link href={cardHref('INCOMPLETE', selection)} className="underline underline-offset-2">
-            Stop narrowing to them
+          SHOWING ONLY THE INCOMPLETE RECORDS — cheques whose amount the register never recorded.
+          They are real cheques and they are still here; they are simply left out of the
+          dashboard&rsquo;s counts and its table, and out of every currency total, because there
+          is no figure of theirs to add.{' '}
+          {/* The toggle's own off-link, so clearing it keeps the view. */}
+          <Link href={incompleteHref(selection)} className="underline underline-offset-2">
+            Back to the cheques with amounts
           </Link>.
         </p>
       )}
