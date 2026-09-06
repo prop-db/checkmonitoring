@@ -3,5 +3,53 @@
 @tailwind utilities;
 
 body {
-  @apply bg-white text-slate-800 antialiased;
+  @apply bg-ground text-slate-800 antialiased;
+}
+
+/**
+ * PRINT RELEASE LIST.
+ *
+ * A stylesheet, not a PDF library. The print view is an ordinary server-rendered
+ * page carrying the dashboard's own filters, and these rules strip the parts of
+ * it that mean nothing on paper: the navigation back to the screen, the print
+ * button itself, and the page's tinted ground, which a printer renders as a
+ * sheet of grey.
+ *
+ * `print-hide` is applied by hand rather than by guessing at element types, so
+ * nothing disappears from a printed sheet of cheques without somebody having
+ * said so.
+ */
+@media print {
+  .print-hide {
+    display: none !important;
+  }
+
+  body {
+    background: #fff;
+  }
+
+  /* Rings and shadows are screen affordances; on paper they print as smudges.
+     A hairline rule is what a table needs instead. */
+  .print-sheet,
+  .print-sheet * {
+    box-shadow: none !important;
+    --tw-ring-shadow: 0 0 #0000 !important;
+  }
+
+  .print-sheet table {
+    /* A cheque list runs to several pages. Repeating the header on each one is
+       the difference between a stack somebody can check against the paper in
+       front of them and a stack of unlabelled columns. */
+    width: 100%;
+  }
+
+  .print-sheet thead {
+    display: table-header-group;
+  }
+
+  .print-sheet tr {
+    /* Never split a cheque across a page break. */
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
 }

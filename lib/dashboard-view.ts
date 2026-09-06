@@ -44,6 +44,18 @@ const AVAILABLE = ['READY_FOR_RELEASE', 'SCHEDULED'] as const satisfies readonly
  */
 export const VIEW_CARDS = [
   'READY_FOR_RELEASE', 'SIGNATURE_PENDING', 'SIGNED', 'RELEASED', 'TOTAL_CHECKS',
+  /**
+   * GENERATED has no card of its own and is not meant to get one — the PENDING
+   * SIGNATURE card counts it, because to Finance a freshly generated cheque is
+   * a cheque waiting to be signed.
+   *
+   * It is a VIEW nonetheless: the release timeline shows the rung separately,
+   * since a node's count has to be the number of rows its link opens and
+   * `?status=SIGNATURE_PENDING` opens only the SIGNATURE_PENDING rows. Listing
+   * it here means the timeline links through `cardHref` like every card does,
+   * rather than concatenating a URL of its own.
+   */
+  'GENERATED',
 ] as const satisfies readonly string[]
 
 export type ViewCardId = (typeof VIEW_CARDS)[number]
@@ -197,6 +209,40 @@ export function exportHref(sel: DashboardSelection): string {
     status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete,
   })
   return s ? `${EXPORT_PATH}?${s}` : EXPORT_PATH
+}
+
+/**
+ * The dashboard URL for the selection as it stands — no card toggled, nothing
+ * cleared. The way back from a page that was opened FROM the dashboard, so the
+ * reader lands on the view they left rather than on `/` or on whatever the
+ * Back button happens to hold.
+ */
+export function dashboardHref(sel: DashboardSelection): string {
+  return href(sel.base, {
+    status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete,
+  })
+}
+
+export const PRINT_PATH = '/print'
+
+/**
+ * PRINT RELEASE LIST, as a URL.
+ *
+ * The SAME parameters the dashboard is reading, for the same reason
+ * `exportHref` carries them: a sheet somebody prints and walks to the vault
+ * with has to hold exactly the cheques that were on screen when they pressed
+ * the link. Two parsers that agreed today would drift the first time a filter
+ * was added to one of them.
+ *
+ * `confirm` is not carried, exactly as the export does not carry it: a
+ * half-made release is a state of the screen, not of the data, and it has no
+ * business on a piece of paper.
+ */
+export function printHref(sel: DashboardSelection): string {
+  const s = query(sel.base, {
+    status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete,
+  })
+  return s ? `${PRINT_PATH}?${s}` : PRINT_PATH
 }
 
 /**

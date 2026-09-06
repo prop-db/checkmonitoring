@@ -30,6 +30,26 @@ describe('getSummary', () => {
     expect(s.totalsByCurrency).toEqual([{ currency: 'PHP', total: '988577.1', count: 5 }])
   })
 
+  /**
+   * The PENDING SIGNATURE card folds GENERATED in; the release timeline shows
+   * the two rungs separately, because a timeline node's count has to be the
+   * number of rows its link opens and `?status=SIGNATURE_PENDING` opens only
+   * the SIGNATURE_PENDING rows.
+   *
+   * Both readings come from the SAME grouping, so they cannot drift: this pins
+   * that the split adds back up to the card.
+   */
+  it('reports the two pending rungs separately as well as folded into the card', async () => {
+    await makeCheck({ status: 'GENERATED' })
+    await makeCheck({ status: 'SIGNATURE_PENDING' })
+    await makeCheck({ status: 'SIGNATURE_PENDING' })
+
+    const s = await getSummary(testDb)
+    expect(s.generated).toBe(1)
+    expect(s.signaturePending).toBe(2)
+    expect(s.pendingSignature).toBe(s.generated + s.signaturePending)
+  })
+
   // The whole point of this step: a dataset spanning multiple currencies must
   // never collapse into one number. Two currencies in means two totals out.
   it('never adds two different currencies together', async () => {

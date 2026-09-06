@@ -40,7 +40,7 @@ export function TodaysReleasePanel({
     <section
       id={TODAYS_RELEASE_ANCHOR}
       className={`rounded-2xl p-6 ring-1 ${
-        nothingToDo ? 'bg-white ring-slate-200' : 'bg-emerald-50 ring-emerald-200'
+        nothingToDo ? 'bg-white ring-hairline' : 'bg-success-bg ring-success-ink/25'
       }`}
     >
       <p className="text-xs font-semibold tracking-widest text-slate-600">TODAY’S RELEASE</p>
@@ -84,7 +84,7 @@ export function TodaysReleasePanel({
           </div>
 
           {incomplete > 0 && (
-            <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            <p className="mt-3 rounded-lg bg-warning-bg px-3 py-2 text-sm text-warning-ink">
               {incomplete} OF THESE {incomplete === 1 ? 'CHEQUE HAS' : 'CHEQUES HAVE'} NO RECORDED
               AMOUNT, so {incomplete === 1 ? 'it is' : 'they are'} counted above but absent from the
               total. The total is the value of the cheques whose amount is known.

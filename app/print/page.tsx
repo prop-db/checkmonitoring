@@ -1,0 +1,165 @@
+import Link from 'next/link'
+import { requireUser } from '@/lib/auth'
+import { prisma } from '@/lib/db'
+import { listChecks, countChecks, toTableRow, getFilterOptions } from '@/lib/queries'
+import { resolveDashboardQuery, type DashboardSearchParams } from '@/lib/dashboard-params'
+import { dashboardHref } from '@/lib/dashboard-view'
+import { formatMoney } from '@/lib/money'
+import { statusPillClass } from '@/lib/status-pill'
+import { PrintButton } from '@/components/PrintButton'
+
+/**
+ * PRINT RELEASE LIST.
+ *
+ * ── SECURITY ──────────────────────────────────────────────────────────────
+ * `middleware.ts` DOES NOT RUN in this project — Node-runtime middleware is
+ * unsupported in Next 15.5.25 and the file is silently never registered. Every
+ * page is protected because it calls `requireUser()` itself, on its first line,
+ * and this one is no exception: it lists payees, amounts, banks and cheque
+ * numbers.
+ * ──────────────────────────────────────────────────────────────────────────
+ *
+ * A page with a `@media print` stylesheet, not a PDF library. The client asked
+ * for a print-friendly view of the current selection; a PDF dependency would be
+ * a second renderer to keep in step with the table for no gain over what the
+ * browser already does well.
+ *
+ * The selection is carried in the URL and resolved by `resolveDashboardQuery` —
+ * the same function the dashboard and the Excel export run, so the sheet holds
+ * exactly the cheques that were on screen. A second parser that agreed today
+ * would drift the first time a filter was added to one of them.
+ */
+
+// Derived from a session and from live financial data; never prerendered.
+export const dynamic = 'force-dynamic'
+
+/**
+ * How many rows a sheet will print.
+ *
+ * Lower than the export's 10,000 on purpose: this is paper. A thousand cheques
+ * is about twenty-five pages, which is already more than anybody carries to the
+ * vault, and the cap is stated on the sheet when it bites so a short list can
+ * never be mistaken for a complete one.
+ */
+const PRINT_ROW_LIMIT = 1_000
+
+const fmtDate = (d: Date | null) =>
+  d ? d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
+
+export default async function PrintPage({
+  searchParams,
+}: {
+  searchParams: Promise<DashboardSearchParams>
+}) {
+  const user = await requireUser()
+  const params = await searchParams
+
+  const options = await getFilterOptions(prisma)
+  const { selection, filters, viewLabel, filterDescription } = resolveDashboardQuery(params, options)
+
+  const [rows, matching] = await Promise.all([
+    listChecks(prisma, filters, PRINT_ROW_LIMIT),
+    countChecks(prisma, filters),
+  ])
+
+  // Mapped through `toTableRow` exactly as the dashboard table is: it is what
+  // turns a `Prisma.Decimal` into a decimal string, and it drops the fields —
+  // cancellation reasons, portal sync state, source sheet and row — that have
+  // no business on a sheet of paper that leaves the room.
+  const printed = rows.map(toTableRow)
+
+  // The link back to the exact view this sheet was made from, so the reader is
+  // not left pressing Back. Built by the same module every other dashboard link
+  // comes from.
+  const backHref = dashboardHref(selection)
+
+  return (
+    <main className="print-sheet mx-auto max-w-[1100px] p-8 text-slate-900">
+      <div className="print-hide mb-6 flex flex-wrap items-center justify-between gap-3">
+        <Link href={backHref} className="text-sm text-slate-500 underline underline-offset-2">
+          ← BACK TO THE DASHBOARD
+        </Link>
+        <div className="flex items-center gap-3">
+          {/* The button is an enhancement. The page prints correctly from the
+              browser's own Print command whether or not it loaded. */}
+          <span className="text-xs text-slate-500">OR USE YOUR BROWSER’S PRINT COMMAND</span>
+          <PrintButton />
+        </div>
+      </div>
+
+      <header className="border-b-2 border-navy pb-3">
+        <h1 className="text-lg font-semibold tracking-wide text-navy">CHECK RELEASE LIST</h1>
+        <p className="mt-1 text-sm font-medium tracking-wide text-slate-700">{viewLabel}</p>
+        {filterDescription && (
+          <p className="mt-0.5 text-xs tracking-wide text-slate-600">{filterDescription}</p>
+        )}
+        <p className="mt-2 text-xs tracking-wide text-slate-500">
+          {/* Who printed it and when. A sheet of cheque numbers found on a desk
+              with no date on it cannot be told from a current one. */}
+          {matching.toLocaleString('en-PH')} CHEQUE{matching === 1 ? '' : 'S'} · PRINTED{' '}
+          {new Date().toLocaleString('en-PH', {
+            year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+          })} BY {user.name}
+        </p>
+        {matching > printed.length && (
+          // Never silent. A short sheet that does not say it is short is
+          // indistinguishable from a complete one.
+          <p className="mt-2 text-xs font-semibold tracking-wide text-warning-ink">
+            THIS SHEET HOLDS THE FIRST {printed.length.toLocaleString('en-PH')} OF{' '}
+            {matching.toLocaleString('en-PH')} MATCHING CHEQUES. Narrow the filters and print again
+            for the rest.
+          </p>
+        )}
+      </header>
+
+      {printed.length === 0 ? (
+        <p className="mt-8 text-sm text-slate-500">NO CHEQUES MATCH THIS SELECTION.</p>
+      ) : (
+        <table className="mt-4 w-full border-collapse text-xs">
+          <thead>
+            <tr className="border-b border-hairline text-left tracking-wide text-slate-500">
+              <th className="py-2 pr-3 font-semibold">CHECK NUMBER</th>
+              <th className="py-2 pr-3 font-semibold">CHECK DATE</th>
+              <th className="py-2 pr-3 font-semibold">SUPPLIER NAME</th>
+              <th className="py-2 pr-3 font-semibold">COMPANY</th>
+              <th className="py-2 pr-3 font-semibold">BANK</th>
+              <th className="py-2 pr-3 text-right font-semibold">AMOUNT</th>
+              <th className="py-2 font-semibold">STATUS</th>
+            </tr>
+          </thead>
+          <tbody>
+            {printed.map((r) => (
+              <tr key={r.id} className="border-b border-slate-100 align-top">
+                <td className="py-1.5 pr-3 font-medium">{r.checkNumber}</td>
+                <td className="py-1.5 pr-3">{fmtDate(r.checkDate)}</td>
+                {/* An em dash, not a blank: 153 register rows have no payee, and
+                    an empty cell on paper reads as a printing fault. */}
+                <td className="py-1.5 pr-3">{r.payeeName ?? '—'}</td>
+                <td className="py-1.5 pr-3">{r.companyCode}</td>
+                <td className="py-1.5 pr-3">{r.cashAccountCode ?? '—'}</td>
+                {/* A decimal string, formatted. Null renders as an em dash —
+                    "no amount was recorded" is not "worth nothing". */}
+                <td className="py-1.5 pr-3 text-right tabular-nums">
+                  {formatMoney(r.amount, r.currency)}
+                </td>
+                <td className="py-1.5">
+                  <span className={`inline-block rounded px-1.5 py-0.5 font-semibold ${statusPillClass(r.status)}`}>
+                    {r.status.replace(/_/g, ' ')}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {/* The same statement the dashboard makes, because it is exactly as true
+          on paper: a cheque with no recorded amount is counted in the list and
+          absent from any total struck from it. */}
+      <p className="mt-4 text-[10px] tracking-wide text-slate-500">
+        CHEQUES WITH NO RECORDED AMOUNT PRINT AS “—”. THEY ARE REAL CHEQUES AND ARE LISTED ABOVE;
+        THERE IS SIMPLY NO FIGURE OF THEIRS TO SHOW.
+      </p>
+    </main>
+  )
+}

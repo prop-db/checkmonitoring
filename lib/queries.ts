@@ -84,7 +84,24 @@ export async function getSummary(db: Db) {
   }))
   return {
     total,
+    /**
+     * The PENDING SIGNATURE card: both rungs, because to Finance a freshly
+     * generated cheque is a cheque waiting to be signed.
+     *
+     * The two rungs are ALSO reported separately below, for the release
+     * timeline. No extra query — `grouped` already holds every status — and no
+     * change to this figure, which the card and the export's SUMMARY sheet both
+     * read.
+     */
     pendingSignature: count('GENERATED') + count('SIGNATURE_PENDING'),
+    /**
+     * The rungs on their own. The timeline shows GENERATED as its own node
+     * because a node's count must be the number of rows its link opens, and
+     * `?status=SIGNATURE_PENDING` opens only the SIGNATURE_PENDING rows —
+     * see lib/release-timeline.ts.
+     */
+    generated: count('GENERATED'),
+    signaturePending: count('SIGNATURE_PENDING'),
     signed: count('SIGNED'),
     readyForRelease: count('READY_FOR_RELEASE'),
     scheduled: count('SCHEDULED'),

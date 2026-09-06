@@ -102,7 +102,7 @@ export function CheckTable({ rows, canRelease }: { rows: CheckTableRow[]; canRel
    * three columns with no way to widen it again.
    */
   const picker = (
-    <details className="rounded-2xl bg-white p-3 ring-1 ring-slate-200">
+    <details className="rounded-2xl bg-white p-3 ring-1 ring-hairline">
       <summary className="cursor-pointer select-none text-xs font-medium tracking-wide text-slate-600">
         COLUMNS ({visible.length} OF {COLUMN_KEYS.length})
       </summary>
@@ -128,7 +128,7 @@ export function CheckTable({ rows, canRelease }: { rows: CheckTableRow[]; canRel
     return (
       <div className="space-y-3">
         {picker}
-        <p className="rounded-2xl bg-white p-8 text-center text-sm text-slate-500 ring-1 ring-slate-200">NO CHECKS MATCH THESE FILTERS.</p>
+        <p className="rounded-2xl bg-white p-8 text-center text-sm text-slate-500 ring-1 ring-hairline">NO CHECKS MATCH THESE FILTERS.</p>
       </div>
     )
   }
@@ -137,9 +137,19 @@ export function CheckTable({ rows, canRelease }: { rows: CheckTableRow[]; canRel
     <div className="space-y-3">
       {picker}
 
-      <div className="overflow-x-auto rounded-2xl bg-white ring-1 ring-slate-200">
+      {/* Scrolls in BOTH directions, and the vertical scroll is what makes the
+          sticky header work: a sticky element pins to its nearest SCROLLING
+          ancestor, and a container that only scrolls sideways — height set by
+          its content — gives it nothing to stick to. The capped height gives it
+          one. Two hundred rows of cheque numbers under a header that has
+          scrolled off the top is a table nobody can read. */}
+      <div className="max-h-[70vh] overflow-auto rounded-2xl bg-white ring-1 ring-hairline">
         <table className="w-full text-sm">
-          <thead className="border-b border-slate-200 text-left text-xs tracking-wide text-slate-500">
+          {/* Opaque, not tinted: a translucent header would let the banded rows
+              show through it as they scroll underneath. The bottom rule is an
+              inset shadow rather than a border, because a border on a sticky
+              header scrolls away with the cell box in some browsers. */}
+          <thead className="sticky top-0 z-10 bg-white text-left text-xs tracking-wide text-slate-500 shadow-[inset_0_-1px_0_#E5E7EB]">
             <tr>
               <th className="px-4 py-3">
                 <input
@@ -174,7 +184,11 @@ export function CheckTable({ rows, canRelease }: { rows: CheckTableRow[]; canRel
                 onClick={() => open(r.id)}
                 onKeyDown={(e) => { if (e.key === 'Enter') open(r.id) }}
                 tabIndex={0}
-                className="cursor-pointer border-b border-slate-100 last:border-0 hover:bg-slate-50 focus:bg-slate-50 focus:outline-none"
+                // Banded, so the eye can carry a row across eleven columns
+                // without losing its place. Hover and focus are declared after
+                // the bands so they win on both the odd and the even rows —
+                // a hover tint the banding beats is a hover tint that flickers.
+                className="cursor-pointer border-b border-slate-100 last:border-0 odd:bg-white even:bg-ground hover:bg-navy-bg focus:bg-navy-bg focus:outline-none"
               >
                 {/* The tick-box must not navigate. Stopping the event on the
                     cell, not just the input, keeps the generous click target
@@ -226,7 +240,10 @@ export function CheckTable({ rows, canRelease }: { rows: CheckTableRow[]; canRel
                 )}
                 {shows('checkDate') && <td className="px-4 py-3 text-slate-600">{fmtDate(r.checkDate)}</td>}
                 {shows('amount') && (
-                  <td className="px-4 py-3 text-right tabular-nums">{formatMoney(r.amount, r.currency)}</td>
+                  // Right-aligned and tabular, so the decimal points line up
+                  // down the column and an eight-figure amount is visibly an
+                  // eight-figure amount.
+                  <td className="px-4 py-3 text-right font-medium tabular-nums">{formatMoney(r.amount, r.currency)}</td>
                 )}
                 <td className="px-4 py-3"><StatusPill status={r.status} /></td>
                 {shows('availablePickupDate') && (

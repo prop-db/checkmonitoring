@@ -1,29 +1,47 @@
 import Link from 'next/link'
 import { ELIGIBILITIES } from '@/lib/queries'
 import type { FilterOptions } from '@/lib/queries'
+import { FilterAutoSubmit } from './FilterAutoSubmit'
+
+/** The APPLY button's id, so the enhancement can find and hide it. */
+const APPLY_ID = 'filter-apply'
 
 /**
- * The dashboard's filter bar.
+ * The dashboard's filter bar: one row — SEARCH · COMPANY · BANK · ELIGIBILITY ·
+ * INCOMPLETE · RESET.
  *
- * A plain `<form method="get">`, deliberately. Every control writes a URL
- * parameter, which is what makes a filtered view linkable, bookmarkable and
- * survivable across a refresh — and it keeps working on a Finance workstation
- * whose JavaScript has failed, the same reasoning as the sign-out form.
+ * A plain `<form method="get">`, deliberately, and still one. Every control
+ * writes a URL parameter, which is what makes a filtered view linkable,
+ * bookmarkable and survivable across a refresh — and it keeps working on a
+ * Finance workstation whose JavaScript has failed, the same reasoning as the
+ * sign-out form.
+ *
+ * ── AUTO-SUBMIT, WITHOUT LOSING THAT ──────────────────────────────────────
+ * The client asked for the APPLY button to go: the dropdowns should submit on
+ * change and the search box should debounce. That is `FilterAutoSubmit`, an
+ * enhancement mounted below.
+ *
+ * The button is still in the markup. It is hidden by the enhancement on mount,
+ * so a reader with a working bundle never sees it, and a reader whose bundle
+ * failed still has a way to submit. Deleting it outright would have left the
+ * dropdowns inert without JavaScript — the no-JS path is the one property here
+ * that is not negotiable, so the button is hidden rather than removed.
+ * ──────────────────────────────────────────────────────────────────────────
  *
  * The options are passed in, loaded from the database by the page. Nothing here
  * is hardcoded: a ninth company or a seventh cash account appears on this bar
- * without a code change. The statuses and eligibilities come from the domain's
- * own lists for the same reason — a restatement is how the ladder ends up with
- * eight rungs in one file and six in another.
+ * without a code change. The eligibilities come from the domain's own list for
+ * the same reason — a restatement is how one file ends up with a value another
+ * one has never heard of.
  *
  * The page validates every value it reads back, so an unrecognised parameter is
  * ignored rather than passed to Prisma. See `parseStatusParam` and friends.
  *
- * There is NO status dropdown. The summary cards above are the view selector —
- * which set of cheques you are looking at — and everything on this bar narrows
- * WITHIN that view. The dropdown wrote the same `?status=` the cards do, which
- * is two controls for one thing, and the client did not read the cards as
- * filters while a dropdown was competing with them.
+ * There is NO status dropdown. The summary cards and the release timeline above
+ * are the view selector — which set of cheques you are looking at — and
+ * everything on this bar narrows WITHIN that view. The dropdown wrote the same
+ * `?status=` the cards do, which is two controls for one thing, and the client
+ * did not read the cards as filters while a dropdown was competing with them.
  */
 export function FilterBar({
   options, showAll, q, status, companyId, cashAccountId, eligibility, incomplete, clearHref,
@@ -38,28 +56,31 @@ export function FilterBar({
   incomplete: boolean
   clearHref: string
 }) {
-  // A CLEAR control that is always there is furniture, and on an unfiltered
+  // A RESET control that is always there is furniture, and on an unfiltered
   // screen it invites the user to wonder what it would clear.
-  // The status is NOT counted. It is the view, not a filter, and CLEAR FILTERS
-  // deliberately keeps it: a bar offering CLEAR on an otherwise untouched
+  // The status is NOT counted. It is the view, not a filter, and RESET
+  // deliberately keeps it: a bar offering RESET on an otherwise untouched
   // SIGNED view would promise to clear something it does not clear.
   const anyFilter = Boolean(q || companyId || cashAccountId || eligibility || incomplete)
 
-  const field = 'rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900'
+  const field = 'h-10 rounded-lg border border-hairline bg-white px-3 text-sm text-slate-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy'
 
   return (
-    <form className="flex flex-wrap items-center gap-3 rounded-2xl bg-white p-4 ring-1 ring-slate-200" method="get">
+    <form className="flex flex-wrap items-center gap-2 rounded-2xl bg-white p-3 ring-1 ring-hairline" method="get">
       {/* The VIEW survives a search. These two hidden fields are the whole
           reason the status dropdown could be removed safely: a GET submit sends
           only the form's own controls, so without them searching inside SIGNED
-          would drop `status` and silently throw the user back to NEEDS ACTION. */}
+          would drop `status` and silently throw the user back to NEEDS ACTION.
+          `filterHref` reads the same FormData, so the enhanced path carries the
+          view for exactly the same reason. */}
       {status && <input type="hidden" name="status" value={status} />}
       {showAll && <input type="hidden" name="scope" value="all" />}
 
+      <label className="sr-only" htmlFor="filter-q">SEARCH</label>
       <input
-        name="q" defaultValue={q}
+        id="filter-q" name="q" type="text" defaultValue={q}
         placeholder="SEARCH CHECK NO., APV, PO OR SUPPLIER"
-        className={`${field} w-80`}
+        className={`${field} min-w-[16rem] flex-1`}
       />
 
       <label className="sr-only" htmlFor="filter-company">COMPANY</label>
@@ -73,7 +94,7 @@ export function FilterBar({
       {/* Labelled by the cash account code — "BPI STK" is what Finance says out
           loud, and the bank alone would not distinguish two accounts at the
           same bank. The bank code is shown beside it for the reader who knows
-          the institution but not the account label. */}
+          the institution but not the account. */}
       <label className="sr-only" htmlFor="filter-cash-account">BANK / CASH ACCOUNT</label>
       <select id="filter-cash-account" name="cashAccount" defaultValue={cashAccountId} className={field}>
         <option value="">ALL BANKS / CASH ACCOUNTS</option>
@@ -96,12 +117,18 @@ export function FilterBar({
           it composes with the selected view rather than replacing it. The
           INCOMPLETE card above is the same filter — this one stays because it
           sits with the other narrowing controls and clears with them. */}
-      <label className={`flex items-center gap-2 ${field}`}>
+      <label className={`flex items-center gap-2 whitespace-nowrap ${field}`}>
         <input type="checkbox" name="incomplete" value="1" defaultChecked={incomplete} />
-        INCOMPLETE ONLY (NO AMOUNT)
+        INCOMPLETE ONLY
       </label>
 
-      <button type="submit" className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white">
+      {/* Present for the no-script path, hidden by FilterAutoSubmit on mount.
+          See the note at the top of this file. */}
+      <button
+        id={APPLY_ID}
+        type="submit"
+        className="h-10 rounded-lg bg-navy px-4 text-sm font-medium text-white"
+      >
         APPLY
       </button>
 
@@ -111,11 +138,13 @@ export function FilterBar({
         // an unfiltered URL and keeps only the VIEW the user is reading in.
         <Link
           href={clearHref}
-          className="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 underline underline-offset-2 hover:text-slate-900"
+          className="h-10 rounded-lg px-3 py-2 text-sm font-medium text-navy underline underline-offset-2 hover:text-slate-900"
         >
-          CLEAR FILTERS
+          RESET
         </Link>
       )}
+
+      <FilterAutoSubmit applyButtonId={APPLY_ID} />
     </form>
   )
 }
