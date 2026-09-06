@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { ALL_STATUSES, ELIGIBILITIES } from '@/lib/queries'
+import { ELIGIBILITIES } from '@/lib/queries'
 import type { FilterOptions } from '@/lib/queries'
 
 /**
@@ -18,6 +18,12 @@ import type { FilterOptions } from '@/lib/queries'
  *
  * The page validates every value it reads back, so an unrecognised parameter is
  * ignored rather than passed to Prisma. See `parseStatusParam` and friends.
+ *
+ * There is NO status dropdown. The summary cards above are the view selector —
+ * which set of cheques you are looking at — and everything on this bar narrows
+ * WITHIN that view. The dropdown wrote the same `?status=` the cards do, which
+ * is two controls for one thing, and the client did not read the cards as
+ * filters while a dropdown was competing with them.
  */
 export function FilterBar({
   options, showAll, q, status, companyId, cashAccountId, eligibility, incomplete, clearHref,
@@ -34,14 +40,20 @@ export function FilterBar({
 }) {
   // A CLEAR control that is always there is furniture, and on an unfiltered
   // screen it invites the user to wonder what it would clear.
-  const anyFilter = Boolean(q || status || companyId || cashAccountId || eligibility || incomplete)
+  // The status is NOT counted. It is the view, not a filter, and CLEAR FILTERS
+  // deliberately keeps it: a bar offering CLEAR on an otherwise untouched
+  // SIGNED view would promise to clear something it does not clear.
+  const anyFilter = Boolean(q || companyId || cashAccountId || eligibility || incomplete)
 
   const field = 'rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900'
 
   return (
     <form className="flex flex-wrap items-center gap-3 rounded-2xl bg-white p-4 ring-1 ring-slate-200" method="get">
-      {/* The scope survives a search. Without this the form would drop
-          ?scope=all and silently pull the user back to the live list. */}
+      {/* The VIEW survives a search. These two hidden fields are the whole
+          reason the status dropdown could be removed safely: a GET submit sends
+          only the form's own controls, so without them searching inside SIGNED
+          would drop `status` and silently throw the user back to NEEDS ACTION. */}
+      {status && <input type="hidden" name="status" value={status} />}
       {showAll && <input type="hidden" name="scope" value="all" />}
 
       <input
@@ -70,14 +82,6 @@ export function FilterBar({
         ))}
       </select>
 
-      <label className="sr-only" htmlFor="filter-status">STATUS</label>
-      <select id="filter-status" name="status" defaultValue={status} className={field}>
-        <option value="">ALL STATUSES</option>
-        {ALL_STATUSES.map((s) => (
-          <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
-        ))}
-      </select>
-
       <label className="sr-only" htmlFor="filter-eligibility">ELIGIBILITY</label>
       <select id="filter-eligibility" name="eligibility" defaultValue={eligibility} className={field}>
         <option value="">ALL ELIGIBILITIES</option>
@@ -86,11 +90,12 @@ export function FilterBar({
         ))}
       </select>
 
-      {/* The 129 cheques whose amount the register never recorded. A checkbox,
-          not a third option on the status dropdown: incompleteness cuts across
-          every status (50 SIGNATURE_PENDING, 48 CANCELLED, 25 RELEASED, 6
-          READY_FOR_RELEASE), so it has to narrow alongside a status rather than
-          replace one. */}
+      {/* The 129 cheques whose amount the register never recorded. A narrowing
+          filter, never a view: incompleteness cuts across every status (50
+          SIGNATURE_PENDING, 48 CANCELLED, 25 RELEASED, 6 READY_FOR_RELEASE), so
+          it composes with the selected view rather than replacing it. The
+          INCOMPLETE card above is the same filter — this one stays because it
+          sits with the other narrowing controls and clears with them. */}
       <label className={`flex items-center gap-2 ${field}`}>
         <input type="checkbox" name="incomplete" value="1" defaultChecked={incomplete} />
         INCOMPLETE ONLY (NO AMOUNT)
@@ -103,7 +108,7 @@ export function FilterBar({
       {anyFilter && (
         // A link, not a reset button: reset would restore the form's defaults,
         // which ARE the current filters, and appear to do nothing. This goes to
-        // an unfiltered URL and keeps only the scope the user is reading in.
+        // an unfiltered URL and keeps only the VIEW the user is reading in.
         <Link
           href={clearHref}
           className="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 underline underline-offset-2 hover:text-slate-900"

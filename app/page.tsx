@@ -5,12 +5,14 @@ import {
   getSummary, listChecks, countChecks, toTableRow, getFilterOptions,
   parseStatusParam, parseEligibilityParam, parseOptionId,
 } from '@/lib/queries'
-import { LIVE_STATUSES } from '@/lib/domain/check-status'
+import {
+  cardHref, clearFiltersHref, describeView, viewStatusFilter,
+  type DashboardSelection,
+} from '@/lib/dashboard-view'
 import { AppHeader } from '@/components/AppHeader'
 import { SummaryCards } from '@/components/SummaryCards'
 import { FilterBar } from '@/components/FilterBar'
 import { CheckTable } from '@/components/CheckTable'
-import type { CheckStatus } from '@prisma/client'
 
 export default async function DashboardPage({
   searchParams,
@@ -32,9 +34,15 @@ export default async function DashboardPage({
    * The table defaults to the cheques that still need Finance.
    *
    * Production holds 9,287 cheques, of which 7,433 are RELEASED and 531
-   * CANCELLED. A default of "everything" buries the ~400 that somebody has to
-   * act on today under eight thousand that nobody will ever touch again, and
-   * the row limit means the live ones may not even be on the first page.
+   * CANCELLED. A default of "everything" buries the ones somebody has to act on
+   * today under eight thousand that nobody will ever touch again, and the row
+   * limit means the live ones may not even be on the first page.
+   *
+   * The NEEDS ACTION / ALL CHEQUES tabs that used to set this are gone — they
+   * duplicated the TOTAL CHECKS card, which is exactly "all cheques". The
+   * parameter stays: TOTAL CHECKS writes it, and a bookmark saved with it still
+   * opens the view it named. The default it guards is not silent — the line
+   * above the table names whichever view is active.
    *
    * Only the TABLE is scoped. `getSummary` is called with no filter at all and
    * goes on counting every cheque in the system: a card that quietly reported
@@ -75,34 +83,41 @@ export default async function DashboardPage({
   const q = params.q?.trim() ?? ''
 
   /**
-   * READY FOR RELEASE means both rungs.
+   * The selected view, and the filters that narrow within it.
    *
-   * To Finance the cheque is available and waiting to be handed over; whether a
-   * supplier has booked a pickup slot in the portal is a detail, not a separate
-   * queue, so the dashboard shows one card counting both. The filter has to
-   * agree with the card — a card reading 406 that opens a table of 396 is a bug
-   * report waiting to happen.
-   *
-   * The SCHEDULED status itself is untouched: a portal pickup confirmation
-   * still moves READY_FOR_RELEASE -> SCHEDULED, and `applyPickupConfirmation`
-   * still refuses every other transition.
+   * `base` is everything a card must carry forward — the search box and the
+   * three dropdowns — built from the VALIDATED values rather than the raw
+   * parameters, so an unrecognised one is dropped everywhere at once: it does
+   * not filter the table and it does not survive into a card's link either.
    */
-  const AVAILABLE: readonly CheckStatus[] = ['READY_FOR_RELEASE', 'SCHEDULED']
-  const foldsScheduled = status === 'READY_FOR_RELEASE'
+  const selection: DashboardSelection = {
+    status: status ?? null,
+    showAll,
+    incomplete,
+    base: Object.fromEntries(
+      Object.entries({
+        q,
+        company: companyId ?? '',
+        cashAccount: cashAccountId ?? '',
+        eligibility: eligibility ?? '',
+      }).filter(([, v]) => v !== ''),
+    ),
+  }
 
   // Every filter goes into ONE object, which `buildWhere` ANDs together. The
   // dropdowns therefore compose with each other, with the search box, with the
-  // incomplete checkbox and with the scope, with no extra query logic here.
+  // incomplete toggle and with the view, with no extra query logic here.
+  //
+  // The view's own status filter comes from `viewStatusFilter` — the same pure
+  // function the cards are built from, so the table and the card that opened it
+  // cannot disagree about what READY FOR RELEASE means.
   const filters = {
     q: q || undefined,
-    status: foldsScheduled ? undefined : status,
     companyId,
     cashAccountId,
     eligibility,
     incomplete,
-    // An explicit status from the dropdown wins over the scope — including
-    // RELEASED, which the live list excludes.
-    statusIn: foldsScheduled ? AVAILABLE : status || showAll ? undefined : LIVE_STATUSES,
+    ...viewStatusFilter(selection),
   }
 
   const [rows, matching] = await Promise.all([
@@ -110,74 +125,24 @@ export default async function DashboardPage({
     countChecks(prisma, filters),
   ])
 
-  /**
-   * The filters as a query string, built from the VALIDATED values rather than
-   * from the raw parameters. An unrecognised value is dropped everywhere at
-   * once: it does not filter the table, and it does not survive into the links
-   * that carry the filters forward either.
-   */
-  const activeParams = () => {
-    const qs = new URLSearchParams()
-    if (q) qs.set('q', q)
-    if (status) qs.set('status', status)
-    if (companyId) qs.set('company', companyId)
-    if (cashAccountId) qs.set('cashAccount', cashAccountId)
-    if (eligibility) qs.set('eligibility', eligibility)
-    if (incomplete) qs.set('incomplete', '1')
-    return qs
-  }
-
-  // Every link that flips the scope keeps the filters the user has already set.
-  const scopeHref = (scope: 'live' | 'all') => {
-    const qs = activeParams()
-    if (scope === 'all') qs.set('scope', 'all')
-    const s = qs.toString()
-    return s ? `/?${s}` : '/'
-  }
-
-  // CLEAR FILTERS drops every filter and keeps only the scope being read. It
-  // is not a link to "/" when the user is on ALL CHEQUES: clearing a search
-  // should not also throw them back to a different set of cheques.
-  const clearHref = showAll ? '/?scope=all' : '/'
-
-  const scopeTab = (active: boolean) =>
-    `rounded-lg px-4 py-2 text-sm font-medium ring-1 ${
-      active ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white text-slate-700 ring-slate-200 hover:bg-slate-50'
-    }`
-
   return (
     <main className="mx-auto max-w-[1600px] space-y-6 p-8">
       <AppHeader user={user} title="CHECK RELEASE MONITORING" />
 
-      {/* The cards are filters too, so they carry the other filters forward and
-          show which one is currently driving the table. `base` deliberately
-          excludes status, incomplete and scope — each card sets its own. */}
-      <SummaryCards
-        summary={summary}
-        selection={{
-          status: status ?? null,
-          incomplete,
-          showAll,
-          base: Object.fromEntries(
-            Object.entries({
-              q: q || '',
-              company: companyId ?? '',
-              cashAccount: cashAccountId ?? '',
-              eligibility: eligibility ?? '',
-            }).filter(([, v]) => v !== ''),
-          ),
-        }}
-      />
+      {/* The cards ARE the view selector — which set of cheques the table shows
+          — and they carry the narrowing filters forward so choosing a view does
+          not widen the table back out. `base` deliberately excludes status,
+          scope and incomplete: those are the view and its toggle. */}
+      <SummaryCards summary={summary} selection={selection} />
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Link href={scopeHref('live')} className={scopeTab(!showAll)}>NEEDS ACTION</Link>
-        <Link href={scopeHref('all')} className={scopeTab(showAll)}>ALL CHEQUES</Link>
-        <span className="text-xs tracking-wide text-slate-500">
-          {showAll
-            ? 'SHOWING EVERY CHEQUE, INCLUDING RELEASED, CANCELLED AND VOIDED.'
-            : 'SHOWING GENERATED, SIGNATURE PENDING, SIGNED, READY FOR RELEASE AND SCHEDULED.'}
-        </span>
-      </div>
+      {/* The scope tabs used to say this. They are gone, because they set the
+          same parameters the cards do, but the DEFAULT they carried is not: with
+          no card selected the table still shows only the live statuses, and this
+          line says so rather than leaving the reader to infer it from a row
+          count. */}
+      <p className="text-xs font-medium tracking-wide text-slate-600">
+        VIEWING: {describeView(selection)}
+      </p>
 
       <FilterBar
         options={options}
@@ -188,20 +153,18 @@ export default async function DashboardPage({
         cashAccountId={cashAccountId ?? ''}
         eligibility={eligibility ?? ''}
         incomplete={incomplete}
-        clearHref={clearHref}
+        clearHref={clearFiltersHref(selection)}
       />
-
-      {status && !showAll && (
-        <p className="rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-700">
-          FILTERED TO {status.replace(/_/g, ' ')} — a chosen status overrides the NEEDS ACTION scope.
-        </p>
-      )}
 
       {incomplete && (
         <p className="rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-900">
-          SHOWING INCOMPLETE RECORDS ONLY — cheques whose amount the register never recorded.
+          NARROWED TO INCOMPLETE RECORDS — cheques whose amount the register never recorded.
           They are counted everywhere but are absent from every currency total, because there is
-          no figure of theirs to add. <Link href={clearHref} className="underline underline-offset-2">Clear the filter</Link>.
+          no figure of theirs to add.{' '}
+          {/* The card's own off-link, so clearing the toggle keeps the view. */}
+          <Link href={cardHref('INCOMPLETE', selection)} className="underline underline-offset-2">
+            Stop narrowing to them
+          </Link>.
         </p>
       )}
 

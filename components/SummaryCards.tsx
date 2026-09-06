@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { formatMoney } from '@/lib/money'
+import { cardHref, isCardSelected, type CardId, type DashboardSelection } from '@/lib/dashboard-view'
 import type { CurrencyTotal } from '@/lib/queries'
 
 // `CurrencyTotal` is imported rather than restated. It was declared twice —
@@ -16,7 +17,7 @@ type Summary = {
 }
 
 function Card({
-  label, value, accent = false, tone = 'plain', href, selected = false,
+  label, value, accent = false, tone = 'plain', href, selected = false, hint,
 }: {
   label: string
   value: React.ReactNode
@@ -24,6 +25,7 @@ function Card({
   tone?: 'plain' | 'warn'
   href?: string
   selected?: boolean
+  hint?: string
 }) {
   const skin = tone === 'warn'
     ? 'bg-amber-50 ring-amber-200'
@@ -47,10 +49,8 @@ function Card({
           markup (dl/div), which HTML forbids inside <p>. The wrapper has to be a
           <div> to legally hold either. */}
       <div className="mt-2 text-2xl font-semibold text-slate-900">{value}</div>
-      {selected && (
-        <p className="mt-1 text-[10px] font-medium tracking-wide text-slate-500">
-          FILTERING — CLICK TO CLEAR
-        </p>
+      {selected && hint && (
+        <p className="mt-1 text-[10px] font-medium tracking-wide text-slate-500">{hint}</p>
       )}
     </>
   )
@@ -91,100 +91,85 @@ function CurrencyBreakdown({ totalsByCurrency }: { totalsByCurrency: CurrencyTot
   )
 }
 
-/**
- * Which card is currently driving the table, and the filters to carry along.
- *
- * `base` holds the filters a card must NOT throw away — the search box, the
- * company and cash-account dropdowns, the eligibility. Before this, every card
- * linked to an absolute URL, so narrowing to one company and then clicking
- * SIGNED silently dropped the company and widened the table. A card is a filter
- * like the dropdowns are, and filters compose.
- */
-export type CardSelection = {
-  status: string | null
-  incomplete: boolean
-  showAll: boolean
-  base: Readonly<Record<string, string>>
-}
+// Re-exported so a caller rendering these cards has one import, not two. The
+// type itself is declared with the logic, in lib/dashboard-view.ts.
+export type { DashboardSelection } from '@/lib/dashboard-view'
 
-// Card order follows the spec's priority: READY FOR RELEASE is the primary
-// daily Finance activity and leads the row.
+/**
+ * The cards are the dashboard's VIEW SELECTOR, not a shortcut to a dropdown.
+ *
+ * Selecting one chooses which set of cheques the table shows; the filter bar's
+ * COMPANY, BANK and ELIGIBILITY dropdowns then narrow within it. There is no
+ * STATUS dropdown and no scope tabs any more — they wrote the same URL
+ * parameters as these cards, and the client never read the cards as filters
+ * while a dropdown was competing with them.
+ *
+ * All of the URL arithmetic lives in `lib/dashboard-view.ts`, which is pure and
+ * tested. This file decides what a card looks like, never what it means.
+ *
+ * Card order follows the spec's priority: READY FOR RELEASE is the primary
+ * daily Finance activity and leads the row.
+ */
 export function SummaryCards({
   summary, selection,
 }: {
   summary: Summary
-  selection: CardSelection
+  selection: DashboardSelection
 }) {
-  const { status, incomplete, showAll, base } = selection
-
-  const href = (extra: Record<string, string>) => {
-    const qs = new URLSearchParams(base)
-    for (const [k, v] of Object.entries(extra)) qs.set(k, v)
-    const s = qs.toString()
-    return s ? `/?${s}` : '/'
-  }
-
   /**
-   * A selected card links to itself minus its own filter, so clicking it again
-   * turns it off. A filter you can switch on and cannot switch off sends people
-   * to the browser's Back button to undo a click they just made.
+   * A selected view card links back to NEEDS ACTION, so clicking it again turns
+   * it off. A view you can switch on and cannot switch off sends people to the
+   * browser's Back button to undo a click they just made.
+   *
+   * The hint says which of the two things a lit card is doing: a view card is
+   * the table's scope, INCOMPLETE only narrows whatever scope is already there.
    */
-  const statusCard = (want: string) => {
-    const on = status === want && !incomplete
-    return {
-      selected: on,
-      href: on ? href(showAll ? { scope: 'all' } : {}) : href({ status: want }),
-    }
-  }
+  const card = (id: CardId) => ({
+    selected: isCardSelected(id, selection),
+    href: cardHref(id, selection),
+    hint: id === 'INCOMPLETE'
+      ? 'ALSO NARROWED TO THESE — CLICK TO STOP'
+      : 'VIEWING — CLICK FOR NEEDS ACTION',
+  })
 
   return (
     <section className="grid grid-cols-2 gap-4 lg:grid-cols-4 xl:grid-cols-7">
-      {/* Every card filters the table below it. A number a user cannot act on
-          invites them to hunt for the rows by hand, which is what the search
-          box was being used for.
-
-          SCHEDULED has no card of its own. To Finance the two are one state —
+      {/* SCHEDULED has no card of its own. To Finance the two are one state —
           the cheque is available and waiting to be handed over — and a card
           reading 0 forever is furniture. The STATUS is NOT removed: a portal
           pickup confirmation moves READY_FOR_RELEASE -> SCHEDULED and must
           still have somewhere to land, so the count is folded in here rather
-          than dropped, and the link matches both. */}
+          than dropped, and the view matches both. */}
       <Card
         label="READY FOR RELEASE"
         value={String(summary.readyForRelease + summary.scheduled)}
         accent
-        {...statusCard('READY_FOR_RELEASE')}
+        {...card('READY_FOR_RELEASE')}
       />
-      <Card label="PENDING SIGNATURE" value={String(summary.pendingSignature)} {...statusCard('SIGNATURE_PENDING')} />
-      <Card label="SIGNED" value={String(summary.signed)} {...statusCard('SIGNED')} />
-      {/* RELEASED carries `scope=all` because the NEEDS ACTION default excludes
-          it, and a card that opens an empty table reads as a bug in the count
-          rather than a filter doing its job. */}
-      <Card
-        label="RELEASED"
-        value={String(summary.released)}
-        selected={status === 'RELEASED' && !incomplete}
-        href={status === 'RELEASED' && !incomplete ? href({ scope: 'all' }) : href({ status: 'RELEASED', scope: 'all' })}
-      />
-      {/* Selected only when nothing else is: TOTAL CHECKS is the absence of a
-          filter, so it must not light up beside a status card that is also on. */}
-      <Card
-        label="TOTAL CHECKS"
-        value={String(summary.total)}
-        selected={showAll && !status && !incomplete}
-        href={showAll && !status && !incomplete ? href({}) : href({ scope: 'all' })}
-      />
+      <Card label="PENDING SIGNATURE" value={String(summary.pendingSignature)} {...card('SIGNATURE_PENDING')} />
+      <Card label="SIGNED" value={String(summary.signed)} {...card('SIGNED')} />
+      {/* An explicit status wins over the NEEDS ACTION default, which excludes
+          RELEASED — so this opens a full table without widening the view to
+          everything, as it used to. */}
+      <Card label="RELEASED" value={String(summary.released)} {...card('RELEASED')} />
+      {/* "Show me everything, start again": every status, and no company, bank,
+          eligibility, search or incomplete filter left over. */}
+      <Card label="TOTAL CHECKS" value={String(summary.total)} {...card('TOTAL_CHECKS')} />
       {/* 129 cheques in production whose amount the register never recorded.
           They are NOT part of the value beside them and never were — SQL SUM()
           skips a null — so the two cards sit next to each other deliberately:
-          the reader can see how many cheques the total cannot speak for. */}
+          the reader can see how many cheques the total cannot speak for.
+
+          The one card that is not a view: incompleteness cuts across every
+          status, so it composes with the selected view rather than replacing
+          it, and both cards light up together when both are on. */}
       <Card
         label="INCOMPLETE (NO AMOUNT)"
         value={String(summary.incomplete)}
         tone={summary.incomplete > 0 ? 'warn' : 'plain'}
-        selected={incomplete}
-        href={incomplete ? href(showAll ? { scope: 'all' } : {}) : href({ incomplete: '1', scope: 'all' })}
+        {...card('INCOMPLETE')}
       />
+      {/* Not clickable: there is no "cheques worth this much" set to view. */}
       <Card label="TOTAL CHECK VALUE" value={<CurrencyBreakdown totalsByCurrency={summary.totalsByCurrency} />} />
     </section>
   )
