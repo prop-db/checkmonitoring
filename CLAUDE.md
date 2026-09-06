@@ -116,13 +116,30 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
   one point, cheque numbers fabricated out of amounts.
 - Import outcome: **9,461 rows import → 9,247 distinct cheques**; 2,639 stage for no company, 61 for
   an ambiguous company, 66 for no cheque number. Every row is accounted for; nothing is dropped.
-- **129 of the 9,247 register-derived cheques carry no amount** (production, 2026-09-04; the table
-  holds 21,817 rows in all, the rest from Acumatica). The register's amount cell was blank or held
-  the word "CANCELLED". Acumatica was reconciled against all 129 and has no record of any of them —
-  16 are 6-digit BDO numbers and 39 sit on a company whose tenant holds 142 payments in total, so
-  they read as cheques never entered in the ERP rather than phantoms. 83 name a real payee. They
-  break down 50 SIGNATURE_PENDING / 48 CANCELLED / 25 RELEASED / 6 READY_FOR_RELEASE, none with a
-  `releasedAt`. `Check.isIncomplete` flags them; `scripts/backfill-incomplete.ts` re-derives it.
+- **129 of the register-derived cheques carry no amount** (production, re-measured 2026-09-06).
+  The register's amount cell was blank or held the word "CANCELLED". They break down
+  48 CANCELLED / 29 SIGNATURE_PENDING / 25 RELEASED / 23 SIGNED / 4 VOIDED, and 83 name a real
+  payee. `Check.isIncomplete` flags them; `scripts/backfill-incomplete.ts` re-derives it.
+
+  **MOST OF THEM ARE CANCELLED CHEQUES, which is the client's own reading and it is right.** 80 of
+  the 129 carry at least one cancellation signal: 59 sit on the register's CANCELLED sheet, 52 hold
+  a CANCELLED or VOIDED status here, and **45 are Voided in Acumatica** — a voided payment keeps no
+  amount, so a blank cell is what a cancellation is supposed to look like, not a defect.
+
+  An earlier note here claimed Acumatica "has no record of any of them". **That was measured on
+  2026-09-04, before the full sync, and it is no longer true**: 51 now match (45 Voided, 4 Closed,
+  2 Balanced). Re-measure before repeating a count from this file.
+
+  49 carry no cancellation signal. 15 of those were released with no amount recorded in either
+  system — 13 on the BDO RELEASED sheet, 1 on MBTC P&P RELEASED, 1 Closed in Acumatica.
+
+  **CLIENT RULING 2026-09-06: leave them alone.** "Those 15 are released in the excel records but
+  no amount. Ignore them." The cheques were handed over and the register says so; the amount was
+  never written down and would have to come off a stub or a bank statement. Finance has decided
+  that is not worth doing. **Do not raise this again, and do not write an amount for any of them** —
+  a figure reconstructed from a bank statement and stored as if the register held it would be
+  indistinguishable from a recorded one. They stay flagged `isIncomplete` and stay excluded from
+  every total, which is the honest representation of a cheque whose value nobody knows.
   **They are excluded from every currency total rather than counted as zero** — SQL `SUM()` skips a
   null — and `tests/queries.test.ts` pins that. Do not "fix" it.
 - **Acumatica bank-prefixes 90% of its cheque references** (`BPI 6000240287`) while the register

@@ -62,6 +62,15 @@ function IconValue() {
   )
 }
 
+function IconSigned() {
+  return (
+    <svg className={ICON} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path d="M2.6 16.4h14.8" strokeLinecap="round" />
+      <path d="M4.6 13.2c2.6-.6 3.4-8.2 5-8.2 1.3 0 .5 5.4 1.8 5.4 1 0 1.4-2.2 2.4-2.2.9 0 1 2.6 1.8 2.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 function IconArchive() {
   return (
     <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
@@ -279,7 +288,7 @@ export function SummaryCards({
 
   return (
     <section className="space-y-3">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <PrimaryCard
           label="READY FOR RELEASE"
           icon={<IconReady />}
@@ -294,6 +303,24 @@ export function SummaryCards({
           }
           tone="success"
           {...card('READY_FOR_RELEASE')}
+        />
+
+        {/* SIGNED is a QUEUE, not an archive, which is why it sits in the
+            primary row and not beside RELEASED. These cheques are signed and in
+            hand; the only thing between them and a supplier is a Finance user
+            ticking READY FOR RELEASE. Omitting the card left 1,034 cheques
+            reachable only through a timeline node — the client noticed within
+            minutes of the deploy.
+
+            White, not toned: colour is spent on the day's one action and on the
+            exception list, and a third tinted card starts the creep back toward
+            the screen where everything was coloured and nothing stood out. */}
+        <PrimaryCard
+          label="SIGNED"
+          icon={<IconSigned />}
+          value={summary.signed.toLocaleString('en-PH')}
+          support="IN HAND · WAITING TO BE TICKED READY"
+          {...card('SIGNED')}
         />
 
         <PrimaryCard
