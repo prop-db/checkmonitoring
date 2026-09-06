@@ -149,7 +149,25 @@ export default async function DashboardPage({
     <main className="mx-auto max-w-[1600px] space-y-6 p-8">
       <AppHeader user={user} title="CHECK RELEASE MONITORING" />
 
-      <SummaryCards summary={summary} />
+      {/* The cards are filters too, so they carry the other filters forward and
+          show which one is currently driving the table. `base` deliberately
+          excludes status, incomplete and scope — each card sets its own. */}
+      <SummaryCards
+        summary={summary}
+        selection={{
+          status: status ?? null,
+          incomplete,
+          showAll,
+          base: Object.fromEntries(
+            Object.entries({
+              q: q || '',
+              company: companyId ?? '',
+              cashAccount: cashAccountId ?? '',
+              eligibility: eligibility ?? '',
+            }).filter(([, v]) => v !== ''),
+          ),
+        }}
+      />
 
       <div className="flex flex-wrap items-center gap-2">
         <Link href={scopeHref('live')} className={scopeTab(!showAll)}>NEEDS ACTION</Link>
