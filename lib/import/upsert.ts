@@ -205,10 +205,28 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
     let misfiled: { companyId: string; companyCode: string } | null = null
 
     if (!exact) {
-      const sameNumber = await tx.check.findMany({
-        where: { checkNumber },
-        include: { company: { select: { code: true } } },
-      })
+      // `isCheque` on BOTH sides, and it is not decoration.
+      //
+      // The whole fallback rests on one fact: a bank issues a cheque number to
+      // exactly one cheque book, so two companies cannot hold the same one and
+      // a match on the number alone is therefore the same cheque.
+      //
+      // That guarantee covers cheques and nothing else. A non-cheque payment
+      // carries an AP document reference in `checkNumber` — the China branches
+      // pay by transfer and their `PaymentRef` is `AP-DG001931` — and nothing
+      // stops two companies sharing one of those. Matching on it would rewrite
+      // a different company's payment, silently and with an audit row asserting
+      // the correction was right.
+      //
+      // The sync now filters to `PaymentMethod eq 'CHK'`, so such a row should
+      // not arrive at all. This is the second lock on that door: the first one
+      // is a query filter somebody could widen without ever reading this file.
+      const sameNumber = row.isCheque
+        ? await tx.check.findMany({
+            where: { checkNumber, isCheque: true },
+            include: { company: { select: { code: true } } },
+          })
+        : []
 
       if (sameNumber.length > 1) {
         // Every company the number is claimed by, this row's included, so the
