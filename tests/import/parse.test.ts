@@ -32,6 +32,43 @@ describe('parseRows', () => {
     expect(r.poNumbers).toEqual(['PO-A1-024539'])
   })
 
+  // The register's two reference columns are headed CHECKS APV (column 4) and
+  // VOUCHER NUMBER (column 8), and their contents are the other way round.
+  // Measured 2026-09-07 across all fifteen sheets and 12,227 rows:
+  //
+  //   CHECKS APV      11,584 CV, 1 AP, 636 empty, 6 other
+  //   VOUCHER NUMBER  11,944 AP, 0 CV, 222 empty, 61 other
+  //
+  // So neither column can be read positionally for what its header says, and
+  // the discrimination that matters is the `AP-`/`CV-` prefix. These two tests
+  // pin that in both directions, because the failure they guard against is
+  // silent: an AP value landing in `cvNumber` would overwrite a reference that
+  // came from Acumatica, and a CV value landing in `apvNumbers` would send the
+  // supplier portal a voucher that is not one.
+  it('reads the voucher out of the register even though its column is headed CHECKS APV', () => {
+    // The real BPI RELEASED row for cheque 6000353106, whose voucher
+    // AP-ST042652 never reached the supplier portal. CHECKS APV holds the CV;
+    // VOUCHER NUMBER holds the AP.
+    const [r] = parseRows([row('BPI RELEASED', 81, [
+      null, null, '6000353106', 'CV-ST019517', 'STARKSON PACKAGING INC.',
+      'SUPPLIES', 'LOCAL SUPPLIER', 'AP-ST042652', 46247, 12345.67,
+    ])]).parsed
+    expect(r.checkNumber).toBe('6000353106')
+    expect(r.cvNumber).toBe('CV-ST019517')
+    expect(r.apvNumbers).toEqual(['AP-ST042652'])
+  })
+
+  it('never lets one kind of reference land in the other one', () => {
+    // The columns swapped, which is what a differently generated export would
+    // look like. The prefix decides, so nothing moves.
+    const [r] = parseRows([row('BPI RELEASED', 82, [
+      null, null, '6000353107', 'AP-ST042653', 'STARKSON PACKAGING INC.',
+      null, null, 'CV-ST019518', 46247, 12345.67,
+    ])]).parsed
+    expect(r.cvNumber).toBe('CV-ST019518')
+    expect(r.apvNumbers).toEqual(['AP-ST042653'])
+  })
+
   it('collects every APV on a multi-bill row', () => {
     const [r] = parseRows([row('BPI RELEASED', 5, [
       '6000308611', 'AP-ST036371', 'AP-ST036372', 'CV-A1009393',

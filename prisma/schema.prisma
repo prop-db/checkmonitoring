@@ -155,6 +155,28 @@ model Check {
 
   checkNumber        String
   cvNumber           String?
+  // The AP vouchers this cheque settles, as the SOURCE states them. A reference
+  // list, not a ledger: `CheckBill` holds the per-bill amount, due date, terms
+  // and GL account, and comes from the approval-for-release workbook whose grain
+  // is one row per bill. The register's grain is one row per CHEQUE and its
+  // amount cell is the CHEQUE's amount, so a register row cannot produce a
+  // `CheckBill` without inventing a per-bill figure. It produces this instead.
+  //
+  // Measured 2026-09-07 over `CHECK MONITORING 9.1.2026.xlsx`: the column headed
+  // VOUCHER NUMBER (column 8) carries 11,944 AP references and no CV at all,
+  // while the column headed CHECKS APV (column 4) carries 11,584 CV references
+  // and exactly one AP. The headers are swapped with respect to their contents;
+  // the parser has always discriminated on the `AP-`/`CV-` prefix rather than on
+  // the position, which is why the CV numbers landed correctly all along and the
+  // vouchers had nowhere to land. 11,552 of the register's 11,779 distinct
+  // cheque numbers carry at least one.
+  //
+  // An import UNIONS rather than replaces (see `upsertCheck`): a cheque
+  // appearing on two register sheets is one cheque recorded twice, and 11 of the
+  // 360 multi-row cheque numbers state a different voucher on each row. An
+  // empty incoming array — every Acumatica row — never clears what the register
+  // recorded.
+  apvNumbers         String[]
   checkDate          DateTime?
   // Nullable because the register genuinely does not always know them: of its
   // 12,161 parsed rows, 397 carry no amount (260 blank, 135 where the amount
@@ -287,6 +309,11 @@ model Check {
   // column, and a sequential scan for a card rendered on every page load is the
   // one thing that would make the feature not worth having.
   @@index([isIncomplete])
+  // GIN, because the lookup this serves is `apvNumbers @> ARRAY['AP-ST042652']`
+  // — the approval workbook's fallback when its `check No.` cell does not hold
+  // a cheque number. A B-tree cannot answer containment on an array, so without
+  // this every such bill is a sequential scan of 21,817 rows.
+  @@index([apvNumbers], type: Gin)
 }
 
 // Which ingestion path a row came in on. The same enum `NormalisedRow.source`
@@ -423,6 +450,85 @@ model CheckBill {
   @@unique([checkId, apvNumber])
   @@index([apvNumber])
   @@index([poNumber])
+}
+
+// Why a row of the approval-for-release workbook produced no `CheckBill`.
+//
+// The first three are decided against the database and can change between runs;
+// the last two are decided by the parser and cannot. They are one enum because
+// the person reading the queue does not care which half of the importer refused
+// the row, only that the row is not attached to a cheque.
+enum StagedBillReason {
+  // The `check No.` cell holds no cheque number AND the row's voucher matched
+  // no cheque here. Row 81 of the 4 September LIST sheet is the measured case:
+  // the cell holds a date, 2026-08-13, which is cheque 6000353106's own date.
+  // Once the register's vouchers are loaded the voucher resolves it and the row
+  // stops being staged; until then it is exactly this.
+  NO_CHECK_NUMBER
+  // A usable cheque number, or a voucher, that names no cheque in this system.
+  // Expected rather than wrong: the cheque may be staged for want of a company,
+  // or simply absent from the register.
+  NO_MATCHING_CHECK
+  // The number or the voucher matches MORE THAN ONE cheque. Never resolved by
+  // picking one — a bill hung on the wrong cheque is a supplier told the wrong
+  // thing, and the `bank` column that would break the tie is this module
+  // deciding which company a bill belongs to.
+  AMBIGUOUS_CHECK
+  // No `Reference Nbr.` at all, so there is no voucher to key `CheckBill` on.
+  NO_APV
+  // No usable `Detail Total`. `CheckBill.amount` is NOT NULL and a bill amount
+  // is never invented to satisfy it.
+  NO_AMOUNT
+}
+
+/**
+ * A row of `APPROVAL FOR RELEASE 9.4.2026.xlsx` that produced no `CheckBill`,
+ * kept where somebody sees it.
+ *
+ * It exists because of one cheque. Voucher `AP-ST042652` never reached the
+ * supplier portal, and the cause was a single mis-keyed cell: row 81 of the
+ * LIST sheet holds a date where the cheque number belongs. The importer refused
+ * the row correctly and reported it correctly — to a terminal, once, during a
+ * run nobody was watching. A rejected row has to survive the run that rejected
+ * it, or the next person to notice is the supplier.
+ *
+ * Deliberately NOT a `StagedCheck`. That table holds rows that could not become
+ * a CHEQUE, and every one of them carries an `impliedStatus`; a bill implies no
+ * status at all — this workbook's `FINANCE REMARKS` reads AVAILABLE on all 85
+ * rows and is evidence, never an instruction — so squeezing a bill into it
+ * would mean inventing one. The two are surfaced on the same page, which is
+ * what "one place to look" actually requires.
+ *
+ * It carries no amount and no vendor. A human fixing a mis-keyed cheque cell
+ * needs the sheet, the row, the voucher and what the cell actually said; the
+ * bill's `Detail Total` beside a cheque-shaped row would sooner or later be
+ * read as the cheque's amount, and this table is displayed next to one whose
+ * amounts are exactly that.
+ */
+model StagedBill {
+  id              String           @id @default(cuid())
+  // The cell a human is pointed at, and the idempotency key: re-running the
+  // import updates a staged row rather than adding a second one, and a row that
+  // has since resolved is deleted by the same pass that stages the rest.
+  sourceSheet     String
+  sourceRow       Int
+  reason          StagedBillReason
+  // What the `check No.` cell actually held, verbatim — a date, a memo, or
+  // nothing. This is what a human replaces with the real number, so it must not
+  // be normalised, and it is never promoted into a cheque number.
+  statedCheckRef  String?
+  // Canonical, where the cell did hold one. Null when it did not.
+  checkNumber     String?
+  apvNumber       String?
+  poNumber        String?
+  // Every company code a contested cheque number resolves to, for the human who
+  // has to settle it. Empty unless `reason` is AMBIGUOUS_CHECK.
+  companies       String[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@unique([sourceSheet, sourceRow])
+  @@index([reason])
 }
 
 model AuditLog {

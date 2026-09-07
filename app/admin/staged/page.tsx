@@ -2,7 +2,8 @@ import type { CheckStatus, StagedReason } from '@prisma/client'
 import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import {
-  countStagedChecks, getStagedSummary, listStagedChecks, type StagedScope,
+  countStagedChecks, getStagedBillSummary, getStagedSummary, listStagedBills, listStagedChecks,
+  type StagedScope,
 } from '@/lib/admin/staged-queue'
 import { formatMoney } from '@/lib/money'
 
@@ -58,21 +59,34 @@ export default async function StagedPage({
 
   const filters = { scope, reason, impliedStatus, q: params.q }
 
-  const [summary, rows, matching] = await Promise.all([
+  const [summary, rows, matching, billSummary, billRows] = await Promise.all([
     getStagedSummary(prisma),
     listStagedChecks(prisma, filters),
     countStagedChecks(prisma, filters),
+    getStagedBillSummary(prisma),
+    listStagedBills(prisma),
   ])
 
   return (
     <div className="space-y-6">
-      <section className="grid grid-cols-2 gap-4 lg:grid-cols-4 xl:grid-cols-6">
+      {/* Seven, not six, since 2026-09-07: the approval workbook's refused rows
+          are a count of their own and belong on the same line as the rest. */}
+      <section className="grid grid-cols-2 gap-4 lg:grid-cols-4 xl:grid-cols-7">
         <Card label="STILL IN THE RELEASE WORKFLOW" value={n(summary.live)} accent />
         <Card label="ALREADY RELEASED OR CANCELLED" value={n(summary.closed)} />
         <Card label="NO COMPANY" value={n(summary.byReason.NO_COMPANY)} />
         <Card label="AMBIGUOUS COMPANY" value={n(summary.byReason.AMBIGUOUS_COMPANY)} />
         <Card label="NO CHECK NUMBER" value={n(summary.byReason.NO_CHECK_NUMBER)} />
         <Card label="SINCE PLACED BY A SYNC" value={n(summary.promoted)} />
+        {/* Toned only when it is not zero. This card exists because voucher
+            AP-ST042652 never reached the supplier portal over one mis-keyed
+            cell, and the importer's own report of it went to a terminal during
+            a run nobody was watching. A number nobody sees is not a report. */}
+        <Card
+          label="APPROVAL ROWS NOT ATTACHED"
+          value={n(billSummary.total)}
+          accent={billSummary.total > 0}
+        />
       </section>
 
       <p className="max-w-4xl rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-700">
@@ -173,6 +187,69 @@ export default async function StagedPage({
           </table>
         </div>
       )}
+
+      {/* The approval-for-release workbook's refused rows.
+          A second table rather than more rows in the one above, because a bill
+          is not a cheque: it has no implied status, no company and no amount of
+          its own that belongs beside cheque amounts. Same page, though — the
+          person who has to fix a mis-keyed cell should not have to know which
+          of two queues it landed in. */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold tracking-wide text-slate-900">
+          APPROVAL-FOR-RELEASE ROWS THAT ATTACHED TO NO CHEQUE
+        </h2>
+        {billRows.length === 0 ? (
+          <p className="rounded-2xl bg-white p-6 text-center text-sm text-slate-500 ring-1 ring-slate-200">
+            EVERY ROW OF THE APPROVAL-FOR-RELEASE WORKBOOK IS ATTACHED TO A CHEQUE.
+          </p>
+        ) : (
+          <>
+            <p className="max-w-4xl rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-700">
+              These rows carry a voucher that reached no cheque, so nothing about them reaches the
+              Supplier Portal either. NO CHECK NUMBER means the workbook&apos;s <em>check No.</em>{' '}
+              cell holds something that is not a cheque number — a date, usually — and the
+              row&apos;s voucher matched no cheque here; correct the cell, or import the register so
+              the voucher can find it. Nothing is deleted, and re-importing the workbook clears a
+              row that has since attached.
+            </p>
+            <div className="overflow-x-auto rounded-2xl bg-white ring-1 ring-slate-200">
+              <table className="w-full text-sm">
+                <thead className="border-b border-slate-200 text-left text-xs tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">CELL</th>
+                    <th className="px-4 py-3">VOUCHER</th>
+                    <th className="px-4 py-3">PO NUMBER</th>
+                    <th className="px-4 py-3">CHECK NUMBER</th>
+                    <th className="px-4 py-3">WHAT THE CELL SAID</th>
+                    <th className="px-4 py-3">WHY IT IS HERE</th>
+                    <th className="px-4 py-3">COMPANIES CLAIMED</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {billRows.map((b) => (
+                    <tr key={b.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                      <td className="px-4 py-3 text-slate-600">
+                        {b.sourceSheet} row {b.sourceRow}
+                      </td>
+                      <td className="px-4 py-3 font-medium">{b.apvNumber ?? '—'}</td>
+                      <td className="px-4 py-3 text-slate-600">{b.poNumber ?? '—'}</td>
+                      <td className="px-4 py-3">{b.checkNumber ?? '—'}</td>
+                      {/* Verbatim, and never promoted into the column beside
+                          it. This is what a human replaces with the real
+                          number. */}
+                      <td className="px-4 py-3 text-slate-600">{b.statedCheckRef ?? '—'}</td>
+                      <td className="px-4 py-3 text-slate-600">{b.reason.replace(/_/g, ' ')}</td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {b.companies.length ? b.companies.join(' / ') : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </section>
     </div>
   )
 }

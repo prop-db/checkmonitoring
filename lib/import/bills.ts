@@ -67,13 +67,28 @@ export type ParsedBill = {
 
   /**
    * Canonical, through `canonicalCheckNumber` — the single place that rule
-   * lives. Non-nullable by construction: a bill whose `check No.` is not a
-   * cheque number cannot be matched to one and goes to review instead, so it
-   * never reaches `bills`.
+   * lives. **Null when the `check No.` cell does not hold a cheque number.**
+   *
+   * It used to be non-nullable, and such a row went to review at parse time.
+   * That was correct and it lost a cheque: row 81 of the 4 September LIST sheet
+   * holds a date, `2026-08-13`, where the cheque number belongs — the only one
+   * of the 85 — and its voucher `AP-ST042652` therefore never reached the
+   * supplier portal. The client's instruction of 2026-09-07 is verbatim: *"In
+   * CHECK MONITORING 9.4.2026 please use acumatica as reference for check
+   * numbers."* So a row whose cheque cell is unusable is resolved by its
+   * VOUCHER against the cheques already here, and only staged if that finds
+   * none — or more than one, which is not a tie to break. See `matchBills`.
+   *
+   * The nullability stops at the parser. `CheckBill` still requires a cheque,
+   * and a bill that resolves to none is never written.
    */
-  checkNumber: string
-  /** What the cell actually held, verbatim, for the review report to show. */
-  statedCheckRef: string
+  checkNumber: string | null
+  /**
+   * What the `check No.` cell actually held, legibly, for the human who has to
+   * correct it — a date rendered `2026-08-13`, a memo, or null where the cell
+   * was empty. Never normalised and never promoted into a cheque number.
+   */
+  statedCheckRef: string | null
 
   // `CheckBill.apvNumber` and `.amount` are both NOT NULL, so both are
   // non-nullable here for the same reason `checkNumber` is: a bill missing
@@ -113,13 +128,36 @@ export type ParsedBill = {
   financeRemark: string | null
 }
 
-export type BillReviewReason = 'NO_CHECK_NUMBER' | 'NO_APV' | 'NO_AMOUNT'
+/**
+ * Why the PARSER refused a row, as opposed to why the database could not place
+ * it. Both are only ever the two NOT NULL columns of `CheckBill`, and neither
+ * is ever satisfied by inventing a value: `NO_AMOUNT` in particular is a bill
+ * whose `Detail Total` is missing or states its own currency, and the register's
+ * cheque amount is NOT that bill's amount.
+ *
+ * `NO_CHECK_NUMBER` is deliberately absent. Whether an unusable cheque cell is
+ * fatal is a question about the DATABASE — the row's voucher may name exactly
+ * one cheque — and a pure parser cannot answer it. It is decided in `matchBills`.
+ */
+export type BillReviewReason = 'NO_APV' | 'NO_AMOUNT'
 
 export type BillReviewItem = {
   sheet: string
   row: number
   reason: BillReviewReason
+  /**
+   * The whole row, for an operator reading a report in the terminal.
+   *
+   * **Never persisted.** It carries the vendor name and the balance amount, and
+   * `StagedBill` deliberately holds neither — a bill's figure sitting in a
+   * cheque-shaped queue is read as a cheque's figure sooner or later.
+   */
   cells: unknown[]
+  /** What the row did say where it could be read, so a staged row is legible. */
+  apvNumber: string | null
+  poNumber: string | null
+  checkNumber: string | null
+  statedCheckRef: string | null
 }
 
 // The due date is a real date cell on all 85 rows, but ExcelJS yields a bare
@@ -149,9 +187,6 @@ export function parseBillRows(rows: readonly RawRow[]): {
   for (const raw of rows) {
     if (raw.sheet !== BILL_SHEET) continue
 
-    const flag = (reason: BillReviewReason) =>
-      review.push({ sheet: raw.sheet, row: raw.row, reason, cells: raw.cells })
-
     // Deliberately NOT filtered on `Type = Bill`. 84 of the 85 rows say Bill and
     // the 85th (row 41) has an empty Type cell along with an empty Created By,
     // while carrying a perfectly good APV, amount and cheque number. Filtering
@@ -161,21 +196,36 @@ export function parseBillRows(rows: readonly RawRow[]): {
     // The cheque cell is a numeric cell on all 84 usable rows, so the number has
     // to survive the trip back to a string. `String(6000338925)` is exact —
     // these are integers well inside the safe range — and `cleanCell` handles
-    // the text form. The 85th row (row 81) holds a *date* here; it is a bill
-    // with no cheque number, not an error, and it goes to review.
+    // the text form. The 85th row (row 81) holds a *date* here.
+    //
+    // That row is NOT refused. It is a bill with no cheque number, which is a
+    // question for `matchBills` and not for a parser: its voucher may name
+    // exactly one cheque, and 2026-09-07 it does. What the cell held is kept
+    // verbatim — a date rendered as `2026-08-13`, which is legible where
+    // `String(new Date(...))` is not — because that is what a human replaces
+    // with the real number.
     const checkCell = raw.cells[COL.CHECK_NO]
-    const stated = checkCell instanceof Date ? null : cleanCell(checkCell)
+    const stated = checkCell instanceof Date
+      ? (Number.isNaN(checkCell.getTime()) ? null : checkCell.toISOString().slice(0, 10))
+      : cleanCell(checkCell)
     // The single cheque-number rule, shared with the register importer and the
     // Acumatica mapper. Acumatica prefixes 90.0% of its refs with a bank code
     // (`BPI 6000240287`) while the register writes them bare, so matching a bill
     // on a raw string would silently match nothing. Do not normalise here.
-    const checkNumber = canonicalCheckNumber(stated)
-    if (stated === null || checkNumber === null || !isBareCheckNumber(checkNumber)) {
-      flag('NO_CHECK_NUMBER')
-      continue
-    }
+    //
+    // A date, a memo or an empty cell yields null, and the row travels on with
+    // `checkNumber: null` rather than being dropped.
+    const canonical = checkCell instanceof Date ? null : canonicalCheckNumber(stated)
+    const checkNumber = canonical !== null && isBareCheckNumber(canonical) ? canonical : null
 
     const apvNumber = cleanCell(raw.cells[COL.REFERENCE_NBR])?.toUpperCase() ?? null
+    const poNumber = cleanCell(raw.cells[COL.VENDOR_REF])?.toUpperCase() ?? null
+    const flag = (reason: BillReviewReason) =>
+      review.push({
+        sheet: raw.sheet, row: raw.row, reason, cells: raw.cells,
+        apvNumber, poNumber, checkNumber, statedCheckRef: stated,
+      })
+
     if (apvNumber === null) {
       flag('NO_APV')
       continue
@@ -204,7 +254,7 @@ export function parseBillRows(rows: readonly RawRow[]): {
       statedCheckRef: stated,
       apvNumber,
       amount: money.amount,
-      poNumber: cleanCell(raw.cells[COL.VENDOR_REF])?.toUpperCase() ?? null,
+      poNumber,
       description: cleanCell(raw.cells[COL.DESCRIPTION]),
       glAccount: cleanCell(raw.cells[COL.GL_ACCOUNT]),
       dueDate: readDate(raw.cells[COL.DUE_DATE]),
@@ -218,24 +268,58 @@ export function parseBillRows(rows: readonly RawRow[]): {
   return { bills, review }
 }
 
-export type UnmatchedBillReason = 'NO_MATCHING_CHECK' | 'AMBIGUOUS_CHECK'
+export type UnmatchedBillReason = 'NO_CHECK_NUMBER' | 'NO_MATCHING_CHECK' | 'AMBIGUOUS_CHECK'
 
 export type UnmatchedBill = {
   sheet: string
   row: number
-  checkNumber: string
+  /** Null when the `check No.` cell held no cheque number at all. */
+  checkNumber: string | null
+  /** What that cell did hold, for the human who has to correct it. */
+  statedCheckRef: string | null
   apvNumber: string
+  poNumber: string | null
   reason: UnmatchedBillReason
   /** The company codes a contested cheque number resolves to, for the human
-   * who has to settle it. Empty for NO_MATCHING_CHECK. */
+   * who has to settle it. Empty for NO_MATCHING_CHECK and NO_CHECK_NUMBER. */
   companies: string[]
 }
+
+/**
+ * How a bill found its cheque.
+ *
+ * `CHECK_NUMBER` is the ordinary path and the one the workbook is supposed to
+ * offer. `APV` is the fallback for a mis-keyed cheque cell, and it is recorded
+ * on the row and written into the audit trail — attaching a bill to a cheque on
+ * evidence OTHER than the number printed beside it is a decision somebody may
+ * have to defend, so it never happens silently.
+ */
+export type BillMatchedOn = 'CHECK_NUMBER' | 'APV'
+
+export type MatchedBill = { bill: ParsedBill; checkId: string; matchedOn: BillMatchedOn }
+
+/**
+ * Cited on every bill attached by its voucher rather than by the cheque number
+ * printed beside it, so such a row is traceable to the instruction that allowed
+ * it rather than to "the importer decided".
+ */
+export const BILL_CHECK_REF_RULING =
+  'Client instruction of 2026-09-07: in the approval-for-release workbook, use Acumatica as the ' +
+  'reference for cheque numbers'
 
 export type BillImportSummary = {
   bills: number
   created: number
   updated: number
+  /** Bills attached by their voucher because the `check No.` cell was unusable. */
+  resolvedByVoucher: number
   unmatched: UnmatchedBill[]
+  /** Rows written to `StagedBill` by this run. Part of the summary rather than
+   * a separate return, because an import that only reported them is precisely
+   * what let a voucher go unnoticed. */
+  staged: number
+  /** Staged rows removed because the row they described now attaches. */
+  cleared: number
 }
 
 /**
@@ -250,8 +334,8 @@ export type BillImportSummary = {
 export async function matchBills(
   db: Db,
   bills: readonly ParsedBill[],
-): Promise<{ matched: { bill: ParsedBill; checkId: string }[]; unmatched: UnmatchedBill[] }> {
-  const matched: { bill: ParsedBill; checkId: string }[] = []
+): Promise<{ matched: MatchedBill[]; unmatched: UnmatchedBill[] }> {
+  const matched: MatchedBill[] = []
   const unmatched: UnmatchedBill[] = []
 
   for (const bill of bills) {
@@ -261,13 +345,31 @@ export async function matchBills(
     // number would be this module deciding which company a bill belongs to,
     // which is exactly the ambiguity a human is meant to settle. Two matches is
     // a review item, not a coin toss.
+    //
+    // WHEN THE CELL HOLDS NO CHEQUE NUMBER, the row is resolved by its VOUCHER
+    // instead — `Check.apvNumbers` contains it — under the client's instruction
+    // of 2026-09-07 to treat Acumatica as the reference for cheque numbers in
+    // this workbook. The fallback is deliberately narrow:
+    //
+    //   * it is reached ONLY when the cheque cell is unusable. A cell that
+    //     holds a perfectly good number naming no cheque here is NOT re-resolved
+    //     by voucher — that would be overruling the workbook on evidence it did
+    //     not offer, and the cheque is simply not in this system yet.
+    //   * exactly one match, or nothing. None and it is staged; more than one
+    //     and it is staged, because a bill hung on the wrong cheque is a
+    //     supplier told the wrong thing, and a mis-keyed cell is far cheaper.
+    const checkNumber = bill.checkNumber
+    const byVoucher = checkNumber === null
+    const where: Prisma.CheckWhereInput = byVoucher
+      ? { apvNumbers: { has: bill.apvNumber } }
+      : { checkNumber }
     const matches = await db.check.findMany({
-      where: { checkNumber: bill.checkNumber },
+      where,
       select: { id: true, company: { select: { code: true } } },
     })
 
     if (matches.length === 1) {
-      matched.push({ bill, checkId: matches[0].id })
+      matched.push({ bill, checkId: matches[0].id, matchedOn: byVoucher ? 'APV' : 'CHECK_NUMBER' })
       continue
     }
 
@@ -278,8 +380,16 @@ export async function matchBills(
       sheet: bill.sheet,
       row: bill.row,
       checkNumber: bill.checkNumber,
+      statedCheckRef: bill.statedCheckRef,
       apvNumber: bill.apvNumber,
-      reason: matches.length === 0 ? 'NO_MATCHING_CHECK' : 'AMBIGUOUS_CHECK',
+      poNumber: bill.poNumber,
+      reason: matches.length > 1
+        ? 'AMBIGUOUS_CHECK'
+        // A cell that never held a number is a different problem from a number
+        // that names nothing, and the fix is a different one — correct the
+        // cell, versus wait for the cheque to arrive. Saying so is the whole
+        // point of surfacing these.
+        : byVoucher ? 'NO_CHECK_NUMBER' : 'NO_MATCHING_CHECK',
       companies: matches.map((m) => m.company.code),
     })
   }
@@ -293,6 +403,9 @@ export type BillPreview = {
   bills: number
   review: BillReviewItem[]
   willImport: number
+  /** Of those, how many would be attached by their voucher rather than by the
+   * cheque number printed beside them. */
+  willResolveByVoucher: number
   unmatched: UnmatchedBill[]
 }
 
@@ -311,8 +424,79 @@ export async function previewBillImport(
     bills: args.bills.length,
     review: [...args.review],
     willImport: matched.length,
+    willResolveByVoucher: matched.filter((m) => m.matchedOn === 'APV').length,
     unmatched,
   }
+}
+
+export type StageBillsSummary = {
+  /** Rows written or refreshed on `StagedBill` by this pass. */
+  staged: number
+  /** Staged rows removed because the row they described now attaches to a
+   * cheque. Without this the queue only ever grows and a fixed cell never
+   * stops being reported. */
+  cleared: number
+}
+
+/**
+ * Put every refused row of the approval-for-release workbook where somebody
+ * sees it, and take away the ones that have since resolved.
+ *
+ * This is the point of the whole exercise. Voucher `AP-ST042652` never reached
+ * the supplier portal because of one mis-keyed cell, and the importer DID
+ * report it — to a terminal, once, during a run nobody was watching. A rejected
+ * row has to survive the run that rejected it.
+ *
+ * Keyed on `(sourceSheet, sourceRow)`, the cell a human can be pointed at, so a
+ * re-run refreshes a staged row rather than adding a second one.
+ *
+ * **Only rows this pass actually saw are cleared.** A row that has vanished from
+ * a newer snapshot of the workbook leaves its staged row standing, because this
+ * file is a snapshot and an absence in it is not evidence — the module's rule,
+ * not an oversight. Deleting on absence would quietly empty the queue the first
+ * time somebody exported a shorter list.
+ *
+ * Writes no `AuditLog`: the trail is check-scoped, and the defining property of
+ * every row here is that it belongs to no cheque.
+ */
+export async function stageBills(
+  db: Db,
+  args: { matched: readonly MatchedBill[]; review: readonly BillReviewItem[]; unmatched: readonly UnmatchedBill[] },
+): Promise<StageBillsSummary> {
+  // The two kinds of refusal are written by one loop, so a row refused by the
+  // parser and a row refused by the lookup cannot end up carrying different
+  // columns. A row is either parsed into a bill or reviewed, never both, so the
+  // two lists cannot collide on the key.
+  const rows = [
+    ...args.review.map((r) => ({ ...r, companies: [] as string[] })),
+    ...args.unmatched,
+  ]
+
+  for (const item of rows) {
+    const data = {
+      reason: item.reason,
+      statedCheckRef: item.statedCheckRef,
+      checkNumber: item.checkNumber,
+      apvNumber: item.apvNumber,
+      poNumber: item.poNumber,
+      companies: item.companies,
+    }
+    await db.stagedBill.upsert({
+      where: { sourceSheet_sourceRow: { sourceSheet: item.sheet, sourceRow: item.row } },
+      create: { sourceSheet: item.sheet, sourceRow: item.row, ...data },
+      update: data,
+    })
+  }
+
+  const cleared = args.matched.length
+    ? await db.stagedBill.deleteMany({
+        where: {
+          OR: args.matched.map((m) => ({ sourceSheet: m.bill.sheet, sourceRow: m.bill.row })),
+        },
+      })
+    : { count: 0 }
+
+  return { staged: rows.length, cleared: cleared.count }
 }
 
 /**
@@ -332,14 +516,18 @@ export async function previewBillImport(
  */
 export async function importBills(
   db: Db,
-  args: { bills: readonly ParsedBill[]; now: Date },
+  args: { bills: readonly ParsedBill[]; review: readonly BillReviewItem[]; now: Date },
 ): Promise<BillImportSummary> {
   const { matched, unmatched } = await matchBills(db, args.bills)
-  const summary: BillImportSummary = {
-    bills: args.bills.length, created: 0, updated: 0, unmatched,
+  const summary: Omit<BillImportSummary, keyof StageBillsSummary> = {
+    bills: args.bills.length,
+    created: 0,
+    updated: 0,
+    resolvedByVoucher: matched.filter((m) => m.matchedOn === 'APV').length,
+    unmatched,
   }
 
-  for (const { bill, checkId } of matched) {
+  for (const { bill, checkId, matchedOn } of matched) {
     const data = {
       poNumber: bill.poNumber,
       description: bill.description,
@@ -379,13 +567,27 @@ export async function importBills(
         // left the cheque's status exactly where it found it.
         financeRemark: bill.financeRemark,
         cashAccountLabel: bill.cashAccountLabel,
+        // How this bill found this cheque, and what the workbook actually
+        // printed where the cheque number belongs. Recorded on every row, not
+        // only the resolved ones, so the ordinary case is legible beside the
+        // exception rather than the exception being the only one described.
+        matchedOn,
+        statedCheckRef: bill.statedCheckRef,
+        ...(matchedOn === 'APV' ? { basis: BILL_CHECK_REF_RULING } : {}),
         at: args.now.toISOString(),
       },
       remarks:
         `Bill ${bill.apvNumber} ${existing ? 'updated' : 'imported'} from the approval-for-release ` +
-        `workbook (${bill.sheet} row ${bill.row}). Release status unchanged.`,
+        `workbook (${bill.sheet} row ${bill.row}). Release status unchanged.` +
+        (matchedOn === 'APV'
+          ? ` Its check No. cell held ${bill.statedCheckRef ?? 'nothing'}, which is not a cheque ` +
+            `number, so the bill was matched to this cheque by its voucher ${bill.apvNumber} — the ` +
+            `only cheque carrying it. ${BILL_CHECK_REF_RULING}.`
+          : ''),
     })
   }
 
-  return summary
+  const staging = await stageBills(db, { matched, review: args.review, unmatched })
+
+  return { ...summary, ...staging }
 }

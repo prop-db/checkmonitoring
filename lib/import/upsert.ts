@@ -55,6 +55,17 @@ export const IMMUTABLE_ON_UPDATE = [
  * text Finance maintains.
  */
 export const IMPORT_WRITABLE = [
+  // `apvNumbers` is here and NOT in the immutable list, and the distinction is
+  // the one rule 4 draws: the immutable list protects what FINANCE knows —
+  // whether a cheque has been signed, made available, released, cancelled. A
+  // voucher is not that. It is a fact the SOURCE states, the same kind of thing
+  // as `cvNumber` and `poNumbers` beside it, and nothing in this application
+  // lets a user edit it, so an import cannot be running over anybody's work.
+  //
+  // It is written by UNION rather than by replacement, which is what makes that
+  // safe in the direction that matters: the only way to lose a voucher here is
+  // for something to remove one, and nothing does.
+  'apvNumbers',
   'acumaticaPaymentId', 'checkNumber', 'cvNumber', 'checkDate', 'amount', 'currency',
   'isCheque', 'companyId', 'cashAccountId', 'checkBookId', 'payeeName', 'category',
   'eligibility', 'portalDomain', 'portalSyncStatus', 'sourceSheet', 'sourceRow',
@@ -123,6 +134,34 @@ export type UpsertResult =
 // sync erase what the register established and every import erase what the sync
 // established, one field at a time.
 const keep = <T>(value: T | null): T | undefined => value ?? undefined
+
+/**
+ * The array counterpart of `keep`, for `apvNumbers`.
+ *
+ * UNION, deduplicated and sorted — not replacement, and not append. Three
+ * things follow from that, each of them the behaviour this column needs:
+ *
+ * An empty incoming array cannot clear a recorded voucher. Every Acumatica row
+ * arrives with one (the payments generic inquiry publishes no bill references
+ * at all), so replacement would mean the first sync after an import wiping the
+ * register's 10,973 vouchers with nothing to show it had happened.
+ *
+ * A cheque recorded on two register sheets keeps both rows' vouchers. Measured
+ * 2026-09-07: 360 cheque numbers appear on more than one parsed row and 11 of
+ * them state a different voucher on each. Last-writer-wins loses one of the two.
+ *
+ * A re-import changes nothing, because sorting and deduplication make the
+ * result a function of the SET rather than of the order the rows arrived in.
+ *
+ * The cost, stated plainly: a voucher mis-keyed into the register once stays on
+ * the cheque until somebody removes it, because nothing here can tell a
+ * correction from a second voucher. That is the right way round — a spurious
+ * reference is visible on screen, whereas a lost one is the defect that started
+ * this — but it does mean this is not a repair mechanism.
+ */
+export function mergeVouchers(existing: readonly string[], incoming: readonly string[]): string[] {
+  return [...new Set([...existing, ...incoming])].sort()
+}
 
 /**
  * The single write path for both the workbook importer and the Acumatica sync.
@@ -257,6 +296,9 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
           checkNumber,
           acumaticaPaymentId: row.acumaticaPaymentId,
           cvNumber: row.cvNumber,
+          // Through the same merge an update uses, so a create and a re-import
+          // produce the identical array rather than two orderings of it.
+          apvNumbers: mergeVouchers([], row.apvNumbers),
           checkDate: row.checkDate,
           amount: row.amount,
           // Kept in step with `amount` at the only place `amount` is written.
@@ -381,6 +423,10 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
         companyId: misfiled ? company.id : undefined,
         acumaticaPaymentId: keep(row.acumaticaPaymentId),
         cvNumber: keep(row.cvNumber),
+        // `keep()` cannot express this: an empty array is not null, so it would
+        // be written straight through and would clear what the register
+        // recorded. See `mergeVouchers`.
+        apvNumbers: mergeVouchers(existing.apvNumbers, row.apvNumbers),
         checkDate: keep(row.checkDate),
         amount: keep(row.amount),
         // Derived from the amount the row will END UP with, not from the

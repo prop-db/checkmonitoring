@@ -180,18 +180,34 @@ async function importBillDetail(db: PrismaClient, rows: Awaited<ReturnType<typeo
   heading('ACCOUNTING — every row of the LIST sheet')
   line('bills read', preview.bills)
   line('  of which match a cheque', preview.willImport)
+  line('    by their voucher, not the cell', preview.willResolveByVoucher)
   line('  of which need review', preview.unmatched.length)
   line('rows that are not a usable bill', preview.review.length)
   rule()
   line('total', preview.totalRows)
 
-  if (preview.unmatched.length > 0) {
-    heading('BILLS WHOSE CHEQUE IS NOT HERE')
+  if (preview.willResolveByVoucher > 0) {
+    heading('BILLS RESOLVED BY THEIR VOUCHER')
+    console.log('  Their check No. cell does not hold a cheque number, so each was matched to the')
+    console.log('  one cheque carrying its voucher, under the client instruction of 2026-09-07 to')
+    console.log('  use Acumatica as the reference for cheque numbers. Recorded in the audit trail.')
+  }
+
+  if (preview.unmatched.length > 0 || preview.review.length > 0) {
+    heading('ROWS THAT WILL NOT ATTACH TO A CHEQUE')
     const byReason = new Map<string, number>()
     for (const u of preview.unmatched) byReason.set(u.reason, (byReason.get(u.reason) ?? 0) + 1)
-    for (const [reason, count] of byReason) line(`  ${reason}`, count)
+    for (const r of preview.review) byReason.set(r.reason, (byReason.get(r.reason) ?? 0) + 1)
+    for (const [reason, count] of [...byReason].sort()) line(`  ${reason}`, count)
     console.log('  Not an error, and not dropped: the cheque may be staged for want of a company,')
-    console.log('  or simply absent from the register. Review these on /admin/import.')
+    console.log('  or simply absent from the register. Every one of them is written to StagedBill')
+    console.log('  and shown on /admin/staged, so a mis-keyed cell survives the run that found it.')
+    // The cell, not the row's contents. A sheet and a row number is what
+    // somebody needs in order to go and look, and carries no vendor data.
+    for (const u of preview.unmatched) {
+      console.log(`    ${u.sheet} row ${u.row}  ${u.reason}  voucher ${u.apvNumber}` +
+        (u.checkNumber === null ? `  cell said: ${u.statedCheckRef ?? '(empty)'}` : ''))
+    }
   }
 
   if (args.dryRun) {
@@ -202,12 +218,14 @@ async function importBillDetail(db: PrismaClient, rows: Awaited<ReturnType<typeo
   // No target guard here, deliberately. This path writes only `CheckBill` rows,
   // keyed on `(checkId, apvNumber)`; it creates no cheque, changes no status,
   // and matches nothing it did not find already in the database.
-  const summary = await importBills(db, { bills, now: new Date() })
+  const summary = await importBills(db, { bills, review, now: new Date() })
 
   heading('WRITTEN')
   line('bills created', summary.created)
   line('bills updated', summary.updated)
-  line('left for review', summary.unmatched.length)
+  line('  matched by their voucher', summary.resolvedByVoucher)
+  line('rows staged for a human', summary.staged)
+  line('staged rows since resolved', summary.cleared)
 }
 
 async function main(): Promise<void> {

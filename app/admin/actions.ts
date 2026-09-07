@@ -183,7 +183,10 @@ export async function importWorkbookAction(formData: FormData): Promise<ImportWo
       if (!confirmed) {
         return { ok: true, kind: 'BILLS', stage: 'PREVIEW', fileName: file.name, preview }
       }
-      const summary = await importBills(prisma, { bills, now })
+      // `review` travels with `bills` so the rows this file refuses are staged
+      // rather than reported once into a response nobody keeps. Every row of
+      // the LIST sheet is now either a `CheckBill` or a `StagedBill`.
+      const summary = await importBills(prisma, { bills, review, now })
       revalidatePath('/')
       revalidatePath('/admin/import')
       return { ok: true, kind: 'BILLS', stage: 'IMPORTED', fileName: file.name, preview, summary }

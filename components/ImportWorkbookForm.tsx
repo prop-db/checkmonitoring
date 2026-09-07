@@ -119,9 +119,21 @@ export function ImportWorkbookForm() {
                   <dd className="tabular-nums">{result.summary.created.toLocaleString('en-PH')}</dd></div>
                 <div><dt className="text-xs tracking-wide text-slate-500">BILLS UPDATED</dt>
                   <dd className="tabular-nums">{result.summary.updated.toLocaleString('en-PH')}</dd></div>
-                <div><dt className="text-xs tracking-wide text-slate-500">LEFT FOR REVIEW</dt>
-                  <dd className="tabular-nums">{result.summary.unmatched.length.toLocaleString('en-PH')}</dd></div>
+                <div><dt className="text-xs tracking-wide text-slate-500">MATCHED BY VOUCHER</dt>
+                  <dd className="tabular-nums">{result.summary.resolvedByVoucher.toLocaleString('en-PH')}</dd></div>
+                {/* Not "left for review" any more. A row that is only reported
+                    is a row nobody reads twice — which is how a voucher went
+                    unnoticed until a supplier asked. These are on
+                    /admin/staged until they attach to a cheque. */}
+                <div><dt className="text-xs tracking-wide text-slate-500">STAGED FOR A HUMAN</dt>
+                  <dd className="tabular-nums">{result.summary.staged.toLocaleString('en-PH')}</dd></div>
               </dl>
+              {result.summary.staged > 0 && (
+                <p className="mt-3 text-sm text-slate-600">
+                  The staged rows are on <a className="underline" href="/admin/staged">/admin/staged</a>.
+                  Nothing is deleted, and re-importing this file clears a row that has since attached.
+                </p>
+              )}
             </section>
           )}
 

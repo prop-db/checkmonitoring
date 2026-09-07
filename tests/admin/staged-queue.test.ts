@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import type { CheckStatus, StagedReason } from '@prisma/client'
+import type { CheckStatus, StagedBillReason, StagedReason } from '@prisma/client'
 import { testDb, resetDb } from '../helpers/db'
-import { getStagedSummary, listStagedChecks, countStagedChecks } from '@/lib/admin/staged-queue'
+import {
+  getStagedBillSummary, getStagedSummary, listStagedBills, listStagedChecks, countStagedChecks,
+} from '@/lib/admin/staged-queue'
 
 beforeEach(resetDb)
 
@@ -122,5 +124,56 @@ describe('getStagedSummary', () => {
     await staged({ impliedStatus: 'SIGNED' })
     const s = await getStagedSummary(testDb)
     expect(s.promoted).toBe(1)
+  })
+})
+
+// The approval-for-release workbook's refused rows. A separate table and a
+// separate list, deliberately: `StagedCheck` holds rows that could not become a
+// CHEQUE and every one carries an `impliedStatus`, which a bill does not have
+// and must not be given. They share a page, not a table.
+describe('the staged bill queue', () => {
+  let billRow = 0
+  const stagedBill = (o: { reason?: StagedBillReason; apvNumber?: string } = {}) => {
+    billRow += 1
+    return testDb.stagedBill.create({
+      data: {
+        sourceSheet: 'LIST',
+        sourceRow: billRow,
+        reason: o.reason ?? 'NO_CHECK_NUMBER',
+        apvNumber: o.apvNumber ?? 'AP-ST042652',
+      },
+    })
+  }
+
+  it('lists the rows by the cell a human is pointed at', async () => {
+    // Deterministic, and by sheet and row rather than by insertion order:
+    // `createdAt` is identical to the second across one import.
+    await testDb.stagedBill.create({
+      data: { sourceSheet: 'LIST', sourceRow: 81, reason: 'NO_CHECK_NUMBER' },
+    })
+    await testDb.stagedBill.create({
+      data: { sourceSheet: 'LIST', sourceRow: 12, reason: 'NO_APV' },
+    })
+    const rows = await listStagedBills(testDb)
+    expect(rows.map((r) => r.sourceRow)).toEqual([12, 81])
+  })
+
+  it('reports a count for every reason, including the ones at zero', async () => {
+    // A card that vanishes when its count reaches zero is a card nobody
+    // notices coming back.
+    await stagedBill({ reason: 'NO_CHECK_NUMBER' })
+    await stagedBill({ reason: 'AMBIGUOUS_CHECK' })
+
+    const s = await getStagedBillSummary(testDb)
+    expect(s.total).toBe(2)
+    expect(s.byReason).toEqual({
+      NO_CHECK_NUMBER: 1, NO_MATCHING_CHECK: 0, AMBIGUOUS_CHECK: 1, NO_APV: 0, NO_AMOUNT: 0,
+    })
+  })
+
+  it('reports nothing staged as zero rather than as an absence', async () => {
+    const s = await getStagedBillSummary(testDb)
+    expect(s.total).toBe(0)
+    expect(s.byReason.NO_CHECK_NUMBER).toBe(0)
   })
 })

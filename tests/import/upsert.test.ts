@@ -113,6 +113,27 @@ describe('upsertCheck — creating', () => {
     expect(check.crNumber).toBe('CR 12345')
   })
 
+  it('writes the vouchers the source states onto the cheque', async () => {
+    // The whole point of the change. `AP-ST042652` was parsed out of the
+    // register on every import and then dropped on the floor, because `Check`
+    // had no column to put it in — so 84 vouchers were in the database against
+    // the register's 10,985, and a cheque nobody could find by its voucher
+    // never reached the supplier portal.
+    await seedCompany()
+    await upsert(row({ apvNumbers: ['AP-ST042652'] }))
+    const check = await testDb.check.findFirstOrThrow()
+    expect(check.apvNumbers).toEqual(['AP-ST042652'])
+  })
+
+  it('deduplicates and orders the vouchers it stores', async () => {
+    // Deterministic, so a re-import is a no-op rather than a reordering, and so
+    // two cheques carrying the same pair read the same way on screen.
+    await seedCompany()
+    await upsert(row({ apvNumbers: ['AP-ST042653', 'AP-ST042652', 'AP-ST042653'] }))
+    const check = await testDb.check.findFirstOrThrow()
+    expect(check.apvNumbers).toEqual(['AP-ST042652', 'AP-ST042653'])
+  })
+
   it('leaves an unknown cash account or checkbook code unwired rather than inventing one', async () => {
     await seedCompany()
     await upsert(row({ cashAccountCode: 'PAYROLL', checkBookCode: 'NOT-A-BOOK' }))
@@ -154,6 +175,38 @@ describe('upsertCheck — re-importing', () => {
     const check = await testDb.check.findFirstOrThrow()
     expect(check.amount?.toString()).toBe('200000')
     expect(check.sourceRow).toBe(900)
+  })
+
+  it('adds a voucher a second register row states, rather than replacing the first', async () => {
+    // A cheque appearing on two register sheets is one cheque recorded twice.
+    // Measured 2026-09-07: 360 cheque numbers sit on more than one parsed row,
+    // and 11 of them state a DIFFERENT non-empty voucher set on each. Under
+    // last-writer-wins those 11 lose a voucher to whichever sheet was read last,
+    // which is the exact failure this whole change exists to stop.
+    await seedCompany()
+    await upsert(row({ apvNumbers: ['AP-ST042652'] }))
+    await upsert(row({ apvNumbers: ['AP-ST042653'], sourceSheet: 'CANCELLED' }))
+    const check = await testDb.check.findFirstOrThrow()
+    expect(check.apvNumbers).toEqual(['AP-ST042652', 'AP-ST042653'])
+  })
+
+  it('is idempotent on the vouchers', async () => {
+    await seedCompany()
+    await upsert(row({ apvNumbers: ['AP-ST042652'] }))
+    await upsert(row({ apvNumbers: ['AP-ST042652'] }))
+    expect((await testDb.check.findFirstOrThrow()).apvNumbers).toEqual(['AP-ST042652'])
+  })
+
+  it('never clears a recorded voucher because this source carries none', async () => {
+    // Every Acumatica row arrives with an empty array — the payments generic
+    // inquiry publishes no voucher at all. An empty array means "this source
+    // does not carry one", never "clear the ones you have", exactly as `keep()`
+    // treats a null. Without this, one sync wipes the register's 10,985
+    // vouchers and the dashboard silently goes back to 84.
+    await seedCompany()
+    await upsert(row({ apvNumbers: ['AP-ST042652'] }))
+    await upsert(row({ source: 'ACUMATICA', apvNumbers: [], sourceSheet: null, sourceRow: null }))
+    expect((await testDb.check.findFirstOrThrow()).apvNumbers).toEqual(['AP-ST042652'])
   })
 
   // INVERTED 2026-09-06. This used to assert that the same cheque number under

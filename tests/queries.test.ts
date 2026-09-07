@@ -353,6 +353,36 @@ describe('toTableRow', () => {
     const [row] = await listChecks(testDb, {})
     expect(toTableRow(row).apvNumbers).toEqual(['APV-1', 'APV-2'])
   })
+
+  it('shows the register’s vouchers as well as the approval workbook’s bills', async () => {
+    // Two sources, one column. `Check.apvNumbers` is what the register states —
+    // 11,552 of its 11,779 cheque numbers carry one — and `bills` is the
+    // approval-for-release workbook's per-bill ledger, which covered 85 rows of
+    // one day's list. Showing either alone leaves the column empty for almost
+    // the whole register, which is the state that let a voucher go unnoticed.
+    const check = await makeCheck({ apvNumbers: ['AP-ST042652', 'AP-ST042999'] })
+    await testDb.checkBill.create({
+      data: { checkId: check.id, apvNumber: 'AP-ST042652', amount: '1.00' },
+    })
+    const [row] = await listChecks(testDb, {})
+    // Deduplicated: the two sources naming the same voucher is the normal case
+    // for a cheque on the approval list, not a reason to print it twice.
+    expect(toTableRow(row).apvNumbers).toEqual(['AP-ST042652', 'AP-ST042999'])
+  })
+
+  it('finds a cheque by a voucher the register states', async () => {
+    // Whole voucher, not a substring: Postgres array containment is the only
+    // filter available over a `text[]`. Worth knowing, and far better than the
+    // column not being searchable at all.
+    await makeCheck({ checkNumber: '6000353106', apvNumbers: ['AP-ST042652'] })
+    await makeCheck({ checkNumber: '6000353107', apvNumbers: ['AP-ST042999'] })
+
+    const rows = await listChecks(testDb, { q: 'AP-ST042652' })
+    expect(rows.map((r) => r.checkNumber)).toEqual(['6000353106'])
+    // Stored upper-cased by the parser, so a lower-cased search still finds it.
+    expect((await listChecks(testDb, { q: 'ap-st042652' })).map((r) => r.checkNumber))
+      .toEqual(['6000353106'])
+  })
 })
 
 // Postgres sorts NULLs FIRST on a descending sort. `checkDate` is nullable —

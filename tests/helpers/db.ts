@@ -20,6 +20,10 @@ export async function resetDb() {
     // become one. Truncated here all the same, so a test's staging count is its
     // own.
     await tx.stagedCheck.deleteMany()
+    // Not a child of Check either: a staged bill exists precisely because it
+    // attaches to no cheque. Truncated here so one file's refused rows are not
+    // another file's staged count.
+    await tx.stagedBill.deleteMany()
     await tx.cashAccount.deleteMany()
     await tx.checkBook.deleteMany()
     await tx.vendor.deleteMany()

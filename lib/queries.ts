@@ -310,6 +310,13 @@ function buildWhere(filters: CheckFilters): Prisma.CheckWhereInput {
       { payeeName: { contains: q, mode: 'insensitive' } },
       { bills: { some: { apvNumber: { contains: q, mode: 'insensitive' } } } },
       { bills: { some: { poNumber: { contains: q, mode: 'insensitive' } } } },
+      // WHOLE VOUCHER, not a substring, and not case-insensitive. Postgres
+      // array containment is the only filter available over a `text[]`; there
+      // is no `contains` for an array element. Searching "AP-ST042652" finds
+      // the cheque, searching "042652" does not — which is worth saying out
+      // loud, but is far better than the column not being searchable at all.
+      // Upper-cased because the parser stores vouchers upper-cased.
+      { apvNumbers: { has: q.toUpperCase() } },
     ]
   }
 
@@ -476,10 +483,17 @@ export function toTableRow(r: CheckRow): CheckTableRow {
   return {
     id: r.id,
     checkNumber: r.checkNumber,
-    // Every bill, not just the first: search matches APV/PO across all of them,
-    // and showing one arbitrary bill would display a different APV than the one
-    // the user searched for.
-    apvNumbers: r.bills.map((b) => b.apvNumber),
+    // Both sources, folded into one list, deduplicated and ordered.
+    //
+    // `Check.apvNumbers` is what the register states — 11,552 of its 11,779
+    // cheque numbers carry at least one — and `bills` is the approval-for-
+    // release workbook's per-bill ledger, which covers 85 rows of one day's
+    // working list. They overlap where a cheque is on both, and a cheque is
+    // usually on only one, so showing either alone leaves the column empty for
+    // most of the register. Every bill, not just the first: search matches APV
+    // across all of them, and showing one arbitrary bill would display a
+    // different APV than the one the user searched for.
+    apvNumbers: [...new Set([...r.apvNumbers, ...r.bills.map((b) => b.apvNumber)])].sort(),
     payeeName: r.payeeName,
     companyCode: r.company.code,
     // `?? null`, so a cheque with no cash account says so rather than crossing

@@ -25,6 +25,9 @@ export async function makeCheck(overrides: {
   // can be collapsed into its default with `??`. Use `=== undefined` below.
   amount?: string | null
   payeeName?: string | null
+  /** The AP vouchers the source states. Defaults to none, which is what a
+   * cheque imported before 2026-09-07 carries. */
+  apvNumbers?: string[]
 } = {}) {
   const company = await testDb.company.create({
     data: { code: `C${Math.random().toString(36).slice(2, 7)}`, name: 'Starkson Packaging Inc.', legalNames: [] },
@@ -41,6 +44,7 @@ export async function makeCheck(overrides: {
       companyId: company.id,
       cashAccountId: cashAccount.id,
       checkNumber: overrides.checkNumber ?? `600${Math.floor(Math.random() * 10_000_000)}`,
+      apvNumbers: overrides.apvNumbers ?? [],
       checkDate: overrides.checkDate === undefined ? new Date('2026-09-01') : overrides.checkDate,
       amount,
       // Derived here for the same reason `upsertCheck` derives it: a fixture

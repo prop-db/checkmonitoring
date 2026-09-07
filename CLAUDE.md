@@ -25,6 +25,7 @@ npm run db:seed                # dev seed, WITH demo cheques and known-password 
 npm run db:seed:reference      # production seed: reference data only, no cheques, no accounts
 npm run create-admin           # bootstrap the first FINANCE_ADMIN on a fresh database
 npx tsx scripts/backfill-incomplete.ts --dry-run   # re-derive Check.isIncomplete; idempotent
+npx tsx scripts/backfill-apv-numbers.ts "CHECK MONITORING 9.1.2026.xlsx" --dry-run  # fill Check.apvNumbers
 ```
 
 **On Windows, use `npx.cmd` / `npm.cmd`.** PowerShell's execution policy is `Undefined` (i.e.
@@ -149,6 +150,42 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
   exclusion is stated on screen with the count and a link to `?incomplete=1`, which is the price of
   hiding them. `getSummary` narrows itself the same way `buildWhere` does, so a card's number is
   always the number of rows its table shows. There is no INCOMPLETE card any more.
+- **The register's two reference columns hold the opposite of what their headers say.** Measured
+  2026-09-07 over all fifteen sheets: the column headed `CHECKS APV` (column 4) holds **11,584 CV
+  references and exactly one AP**, and the column headed `VOUCHER NUMBER` (column 8) holds **11,944
+  AP references and no CV at all**. Do not read either positionally. `sniff` discriminates on the
+  `AP-`/`CV-` prefix and always has, which is why `cvNumber` was right all along — the vouchers were
+  parsed too and simply had nowhere to go, because `Check` had no column for them. It has one since
+  2026-09-07 (`apvNumbers`), and `scripts/backfill-apv-numbers.ts` fills it for cheques that
+  pre-date it.
+
+  11,904 parsed rows carry at least one voucher, covering **11,552 of the register's 11,779 distinct
+  cheque numbers**. Those keyed rows carry **10,973 distinct vouchers**; twelve more sit on rows
+  that cannot be keyed at all and are staged `NO_CHECK_NUMBER`, for 10,985 across the whole
+  register. An import **unions** them onto the
+  cheque rather than replacing: 360 cheque numbers sit on more than one row and 11 of those state a
+  different voucher on each, so last-writer-wins loses one. An empty incoming array — every
+  Acumatica row, since the payments inquiry publishes no bill references — never clears what the
+  register recorded.
+
+  Three cells in that column are AP vouchers `sniff` does not classify: `AP-A1-02663` and
+  `AP-A1-030274` (a dash the `APV` pattern does not allow) and `AP-1PP-AP-000014` (a mis-key of
+  `A1PP-AP-000014`). They fall to free text and are **left alone** — widening the pattern re-classifies
+  12,000 rows to recover three, which is the wrong trade until somebody re-measures it.
+- **The approval workbook's `check No.` column is not trustworthy.** Client instruction 2026-09-07:
+  *"In CHECK MONITORING 9.4.2026 please use acumatica as reference for check numbers."* Row 81 of
+  the `LIST` sheet holds the date `2026-08-13` where the cheque number belongs — that being cheque
+  `6000353106`'s own date — and it is the only one of the 85 like that. Such a row is now resolved
+  by its **voucher** against `Check.apvNumbers`, and only when that finds **exactly one** cheque;
+  none or more than one and it is staged. A good cheque number that names no cheque here is *not*
+  re-resolved by voucher — that would be overruling the workbook on evidence it did not offer.
+- **A refused approval-workbook row lands in `StagedBill` and shows on `/admin/staged`.** This is
+  why `AP-ST042652` was missed: the importer refused the row correctly and reported it correctly, to
+  a terminal, once, during a run nobody was watching. `StagedBill` is deliberately **not** a
+  `StagedCheck` — every staged cheque carries an `impliedStatus` and a bill has none, and this
+  workbook's `FINANCE REMARKS = AVAILABLE` is evidence, never an instruction. It carries no amount
+  and no vendor, because a bill's `Detail Total` displayed beside cheque amounts is read as a
+  cheque's figure sooner or later.
 - **Acumatica bank-prefixes 90% of its cheque references** (`BPI 6000240287`) while the register
   writes them bare. `canonicalCheckNumber` reconciles them — without it the same cheque stores twice.
 - **`Branch` from Acumatica is space-padded** (`"A1+       "`). `orNull` trims it; an untrimmed read
@@ -161,7 +198,7 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
 
 Plans 1 and 2 complete. Plan 3 (portal automation) paused after Task 1 at the client's request —
 the portal needs an `encoder` service account that does not yet exist, and until then events simply
-queue. 893 tests across 51 files.
+queue. 927 tests across 52 files.
 
 Production is `check_monitoring_prod` on Neon — created clean, reference data only, one real admin,
 no demo cheques. The historical import was running at last handoff; it is idempotent, so if it was
@@ -175,3 +212,9 @@ npx.cmd tsx scripts/import-workbook.ts "CHECK MONITORING 9.1.2026.xlsx"
 Outstanding: promote a second FINANCE_ADMIN (one forgotten password currently locks administration);
 create the `check_monitoring_app` database role so the dormant `REVOKE` on `audit_log` activates;
 decide whether to delete `middleware.ts` or make it Edge-compatible.
+
+**Not yet applied to production (2026-09-07):** migration
+`20260907000000_check_apv_numbers_and_staged_bill` is applied to the TEST database only, and
+`scripts/backfill-apv-numbers.ts` has not been run anywhere but a dry run against the test database.
+Apply the migration, then dry-run the backfill, then run it. Re-import the approval workbook
+afterwards, not before — its row 81 can only resolve once the register's vouchers are in.

@@ -1,6 +1,6 @@
 import type { StagedReason } from '@prisma/client'
 import { formatMoney } from '@/lib/money'
-import type { BillPreview } from '@/lib/import/bills'
+import type { BillPreview, UnmatchedBillReason } from '@/lib/import/bills'
 import type { ImportPreview, StagedPreviewRow } from '@/lib/import/preview'
 
 /**
@@ -266,6 +266,19 @@ export function RegisterPreviewReport({ preview }: { preview: ImportPreview }) {
   )
 }
 
+// Spelled out as a record rather than as a ternary chain, and typed against the
+// reason union: adding a reason to `UnmatchedBillReason` without a sentence
+// here is a compile error, where the chain this replaced would silently have
+// shown one reason's wording under another reason's name.
+const UNMATCHED_BILL_WHY: Record<UnmatchedBillReason, string> = {
+  NO_MATCHING_CHECK:
+    'No cheque with this number is here — it may be staged for want of a company, or absent from the register',
+  AMBIGUOUS_CHECK:
+    'More than one cheque carries this number or voucher; a human has to say which',
+  NO_CHECK_NUMBER:
+    'The check No. cell holds no cheque number, and the row’s voucher matches no cheque here — correct the cell, or import the register so the voucher can find it',
+}
+
 export function BillPreviewReport({ preview }: { preview: BillPreview }) {
   return (
     <div className="space-y-6">
@@ -284,6 +297,14 @@ export function BillPreviewReport({ preview }: { preview: BillPreview }) {
         it, and importing it changes no cheque&apos;s release status.
       </p>
 
+      {preview.willResolveByVoucher > 0 && (
+        <p className="rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          {n(preview.willResolveByVoucher)} of them will be attached by their VOUCHER, because the
+          workbook&apos;s <em>check No.</em> cell does not hold a cheque number. Each matched exactly
+          one cheque; none was guessed at, and the audit trail records the basis.
+        </p>
+      )}
+
       {preview.unmatched.length > 0 && (
         <details className="rounded-2xl bg-white ring-1 ring-slate-200" open>
           <summary className="cursor-pointer px-6 py-4 text-sm font-medium">
@@ -295,6 +316,7 @@ export function BillPreviewReport({ preview }: { preview: BillPreview }) {
                 <tr>
                   <th className="px-4 py-3 text-right">ROW</th>
                   <th className="px-4 py-3">CHECK NUMBER</th>
+                  <th className="px-4 py-3">WHAT THE CELL SAID</th>
                   <th className="px-4 py-3">APV</th>
                   <th className="px-4 py-3">WHY</th>
                   <th className="px-4 py-3">COMPANIES</th>
@@ -304,13 +326,13 @@ export function BillPreviewReport({ preview }: { preview: BillPreview }) {
                 {preview.unmatched.map((u) => (
                   <tr key={`${u.sheet}#${u.row}`} className="border-b border-slate-100 last:border-0">
                     <td className="px-4 py-3 text-right tabular-nums text-slate-600">{u.row}</td>
-                    <td className="px-4 py-3 font-medium">{u.checkNumber}</td>
+                    {/* Null when the cell held no cheque number at all. An em
+                        dash rather than an empty cell, which is
+                        indistinguishable from a rendering fault. */}
+                    <td className="px-4 py-3 font-medium">{u.checkNumber ?? '—'}</td>
+                    <td className="px-4 py-3 text-slate-600">{u.statedCheckRef ?? '—'}</td>
                     <td className="px-4 py-3">{u.apvNumber}</td>
-                    <td className="px-4 py-3 text-slate-600">
-                      {u.reason === 'NO_MATCHING_CHECK'
-                        ? 'No cheque with this number is here — it may be staged for want of a company, or absent from the register'
-                        : 'More than one company has a cheque with this number; a human has to say which'}
-                    </td>
+                    <td className="px-4 py-3 text-slate-600">{UNMATCHED_BILL_WHY[u.reason]}</td>
                     <td className="px-4 py-3 text-slate-600">{u.companies.join(' / ') || '—'}</td>
                   </tr>
                 ))}

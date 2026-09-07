@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { testDb, resetDb } from '../helpers/db'
 import { makeCheck } from '../helpers/factory'
-import { BILL_SHEET, importBills, parseBillRows, type ParsedBill } from '@/lib/import/bills'
+import {
+  BILL_CHECK_REF_RULING, BILL_SHEET, importBills, parseBillRows, type ParsedBill,
+} from '@/lib/import/bills'
 import type { RawRow } from '@/lib/import/workbook'
 
 // The LIST sheet's measured layout, 0-indexed exactly as `readWorkbook` yields
@@ -117,17 +119,32 @@ describe('parseBillRows', () => {
     expect(review[0]?.reason).toBe('NO_AMOUNT')
   })
 
-  it('sends a row whose check No. is not a cheque number to review', () => {
-    // Measured: row 81 of the real LIST sheet holds a date in `check No.`. It
-    // is one of the 85 and must not be dropped for it.
+  // CHANGED 2026-09-07. This used to assert that a row whose `check No.` is not
+  // a cheque number goes to review at parse time. That was correct and it lost
+  // a cheque: row 81 of the real LIST sheet holds a date there, and its voucher
+  // AP-ST042652 therefore never reached the supplier portal. Whether such a row
+  // is fatal is a question about the DATABASE — the voucher may name exactly
+  // one cheque — and a pure parser cannot answer it. It is decided in
+  // `matchBills`, which the tests below pin.
+  it('keeps a row whose check No. is not a cheque number, with the cell verbatim', () => {
     const { bills, review } = parseBillRows([
       billRow(2, { checkNo: new Date('2026-08-13T00:00:00Z') }),
       billRow(3, { checkNo: null }),
+      billRow(4, { checkNo: 'pls check w/ jasmine' }),
     ])
-    expect(bills).toHaveLength(0)
-    expect(review.map((r) => r.reason)).toEqual(['NO_CHECK_NUMBER', 'NO_CHECK_NUMBER'])
-    expect(review[0].row).toBe(2)
+    expect(review).toHaveLength(0)
+    expect(bills.map((b) => b.checkNumber)).toEqual([null, null, null])
+    // Rendered as a date rather than through `String(new Date(...))`, which
+    // yields "Thu Aug 13 2026 00:00:00 GMT+0800 (…)" — unusable to the person
+    // who has to find the cheque this row means.
+    expect(bills[0].statedCheckRef).toBe('2026-08-13')
+    expect(bills[1].statedCheckRef).toBeNull()
+    expect(bills[2].statedCheckRef).toBe('pls check w/ jasmine')
+    // Everything else about the row survives, which is what makes it resolvable.
+    expect(bills[0].apvNumber).toBe('AP-A1033419')
+    expect(bills[0].amount).toBe('197715.42')
   })
+
 
   it('keeps a bill whose Type and Created By cells are blank', () => {
     // Measured: row 41 of the real LIST sheet has neither, and is a genuine
@@ -147,6 +164,10 @@ describe('parseBillRows', () => {
     ])
     expect(bills).toHaveLength(0)
     expect(review.map((r) => r.reason)).toEqual(['NO_APV', 'NO_AMOUNT', 'NO_AMOUNT'])
+    // A staged row has to be legible without reopening the workbook: the sheet
+    // and row alone leave a human hunting for which of 85 rows it was.
+    expect(review[1]).toMatchObject({ apvNumber: 'AP-A1033419', checkNumber: '6000338925' })
+    expect(review[0].apvNumber).toBeNull()
   })
 
   it('drops nothing: every LIST row is either a bill or a review item', () => {
@@ -195,8 +216,8 @@ describe('importBills', () => {
   const NOW = new Date('2026-09-04T13:32:00+08:00')
 
   async function run(rows: RawRow[]) {
-    const { bills } = parseBillRows(rows)
-    return importBills(testDb, { bills, now: NOW })
+    const { bills, review } = parseBillRows(rows)
+    return importBills(testDb, { bills, review, now: NOW })
   }
 
   it('writes a bill against the cheque its check No. names', async () => {
@@ -288,5 +309,159 @@ describe('importBills', () => {
     const audit = await testDb.auditLog.findMany({ where: { checkId: check.id } })
     expect(audit).toHaveLength(1)
     expect(audit[0]).toMatchObject({ actorType: 'SYSTEM', action: 'bill_imported', userId: null })
+  })
+})
+
+describe('importBills — a check No. cell that is not a cheque number', () => {
+  beforeEach(resetDb)
+
+  afterEach(async () => {
+    expect(await testDb.portalEvent.count()).toBe(0)
+  })
+
+  const NOW = new Date('2026-09-07T13:32:00+08:00')
+
+  async function run(rows: RawRow[]) {
+    const { bills, review } = parseBillRows(rows)
+    return importBills(testDb, { bills, review, now: NOW })
+  }
+
+  // The measured case, and the reason for the whole change: row 81 of the
+  // 4 September LIST sheet holds the date 2026-08-13 where the cheque number
+  // belongs. The cheque is fine — 6000353106, SIGNED, dated 2026-08-13, which
+  // is the very date somebody typed into the wrong column — and it carries the
+  // voucher AP-ST042652 in the register.
+  const misKeyed = (row: number) => billRow(row, {
+    checkNo: new Date('2026-08-13T00:00:00Z'),
+    referenceNbr: 'AP-ST042652',
+  })
+
+  it('attaches the bill to the one cheque carrying its voucher', async () => {
+    const check = await makeCheck({ checkNumber: '6000353106', apvNumbers: ['AP-ST042652'] })
+    const summary = await run([misKeyed(81)])
+
+    expect(summary).toMatchObject({ bills: 1, created: 1, resolvedByVoucher: 1 })
+    expect(summary.unmatched).toHaveLength(0)
+    const [bill] = await testDb.checkBill.findMany({ where: { checkId: check.id } })
+    expect(bill.apvNumber).toBe('AP-ST042652')
+  })
+
+  it('says in the audit trail that it matched on the voucher, and on what basis', async () => {
+    // Attaching a bill to a cheque on evidence other than the number printed
+    // beside it is a decision somebody may have to defend to Finance. It never
+    // happens silently.
+    const check = await makeCheck({ checkNumber: '6000353106', apvNumbers: ['AP-ST042652'] })
+    await run([misKeyed(81)])
+
+    const audit = await testDb.auditLog.findFirstOrThrow({ where: { checkId: check.id } })
+    expect(audit.details).toMatchObject({ matchedOn: 'APV', statedCheckRef: '2026-08-13' })
+    expect(audit.remarks).toContain('AP-ST042652')
+    expect(audit.remarks).toContain(BILL_CHECK_REF_RULING)
+  })
+
+  it('stages the row rather than guessing when the voucher names no cheque', async () => {
+    await makeCheck({ checkNumber: '6000353106', apvNumbers: [] })
+    const summary = await run([misKeyed(81)])
+
+    expect(await testDb.checkBill.count()).toBe(0)
+    expect(summary.unmatched).toEqual([
+      expect.objectContaining({ reason: 'NO_CHECK_NUMBER', row: 81, statedCheckRef: '2026-08-13' }),
+    ])
+  })
+
+  it('stages the row rather than choosing when the voucher names two cheques', async () => {
+    // Two cheques carrying one voucher is a state the register can produce, and
+    // a bill hung on the wrong one is a supplier told the wrong thing. A wrong
+    // cheque is far worse than a staged row.
+    await makeCheck({ checkNumber: '6000353106', apvNumbers: ['AP-ST042652'] })
+    await makeCheck({ checkNumber: '6000353107', apvNumbers: ['AP-ST042652'] })
+    const summary = await run([misKeyed(81)])
+
+    expect(await testDb.checkBill.count()).toBe(0)
+    expect(summary.unmatched[0]).toMatchObject({ reason: 'AMBIGUOUS_CHECK', row: 81 })
+    expect(summary.unmatched[0].companies).toHaveLength(2)
+  })
+
+  it('does not re-resolve a good cheque number that names no cheque', async () => {
+    // The fallback is for a cell that holds no cheque number, and only that. A
+    // perfectly good number naming no cheque here is not an invitation to
+    // overrule the workbook on evidence it did not offer — the cheque is simply
+    // not in this system yet.
+    await makeCheck({ checkNumber: '6000353106', apvNumbers: ['AP-A1033419'] })
+    const summary = await run([billRow(2, { checkNo: 6000999999 })])
+
+    expect(await testDb.checkBill.count()).toBe(0)
+    expect(summary.unmatched[0]).toMatchObject({
+      reason: 'NO_MATCHING_CHECK', checkNumber: '6000999999',
+    })
+  })
+})
+
+describe('stageBills — the rows that did not attach', () => {
+  beforeEach(resetDb)
+
+  const NOW = new Date('2026-09-07T13:32:00+08:00')
+
+  async function run(rows: RawRow[]) {
+    const { bills, review } = parseBillRows(rows)
+    return importBills(testDb, { bills, review, now: NOW })
+  }
+
+  it('writes every refused row where somebody sees it', async () => {
+    // The defect this whole change exists for. The importer already REPORTED
+    // the mis-keyed cell — to a terminal, once, during a run nobody was
+    // watching — and the next person to notice was going to be the supplier.
+    const summary = await run([
+      billRow(2, { checkNo: new Date('2026-08-13T00:00:00Z'), referenceNbr: 'AP-ST042652' }),
+      billRow(3, { referenceNbr: null }),
+      billRow(4, { detailTotal: null }),
+    ])
+    expect(summary.staged).toBe(3)
+
+    const staged = await testDb.stagedBill.findMany({ orderBy: { sourceRow: 'asc' } })
+    expect(staged.map((s) => [s.sourceRow, s.reason])).toEqual([
+      [2, 'NO_CHECK_NUMBER'], [3, 'NO_APV'], [4, 'NO_AMOUNT'],
+    ])
+    expect(staged[0]).toMatchObject({
+      sourceSheet: 'LIST', statedCheckRef: '2026-08-13', apvNumber: 'AP-ST042652',
+    })
+  })
+
+  it('is idempotent on the cell it points at', async () => {
+    await run([billRow(2, { referenceNbr: null })])
+    await run([billRow(2, { referenceNbr: null })])
+    expect(await testDb.stagedBill.count()).toBe(1)
+  })
+
+  it('takes a row away once it attaches to a cheque', async () => {
+    // Otherwise the queue only ever grows and a corrected cell never stops
+    // being reported, which is how a queue stops being read.
+    await run([misKeyedForClearing()])
+    expect(await testDb.stagedBill.count()).toBe(1)
+
+    await makeCheck({ checkNumber: '6000353106', apvNumbers: ['AP-ST042652'] })
+    const second = await run([misKeyedForClearing()])
+
+    expect(second.cleared).toBe(1)
+    expect(await testDb.stagedBill.count()).toBe(0)
+    expect(await testDb.checkBill.count()).toBe(1)
+  })
+
+  function misKeyedForClearing() {
+    return billRow(81, {
+      checkNo: new Date('2026-08-13T00:00:00Z'), referenceNbr: 'AP-ST042652',
+    })
+  }
+
+  it('holds no amount and no vendor name', async () => {
+    // Deliberate. This table is displayed beside one whose amounts are CHEQUE
+    // amounts, and a bill's Detail Total sitting in that column would be read
+    // as a cheque's figure sooner or later. The sheet, the row, the voucher and
+    // what the cell actually said are what a human needs to fix a mis-keyed
+    // cell; the rest is in the workbook.
+    await run([billRow(2, { referenceNbr: null })])
+    const [staged] = await testDb.stagedBill.findMany()
+    expect(Object.keys(staged)).not.toContain('amount')
+    expect(Object.keys(staged)).not.toContain('payeeName')
   })
 })

@@ -1,4 +1,6 @@
-import type { CheckStatus, Prisma, PrismaClient, StagedCheck, StagedReason } from '@prisma/client'
+import type {
+  CheckStatus, Prisma, PrismaClient, StagedBill, StagedBillReason, StagedCheck, StagedReason,
+} from '@prisma/client'
 import { CLOSED_STATUSES, LIVE_STATUSES } from '@/lib/domain/check-status'
 
 type Db = PrismaClient | Prisma.TransactionClient
@@ -158,4 +160,49 @@ export async function getStagedSummary(db: Db): Promise<StagedSummary> {
     byImpliedStatus: byStatus.map((g) => ({ status: g.impliedStatus, count: g._count._all })),
     promoted,
   }
+}
+
+/**
+ * The other half of the queue: rows of the approval-for-release workbook that
+ * attached to no cheque.
+ *
+ * A separate table and a separate list, shown on the same page. `StagedCheck`
+ * holds rows that could not become a CHEQUE and every one of them carries an
+ * `impliedStatus`; a bill implies no status at all — this workbook's `FINANCE
+ * REMARKS` reads AVAILABLE on all 85 rows and is evidence, never an instruction
+ * — so folding one into the other would mean inventing one. What "one place to
+ * look" actually requires is one page, and that is what this feeds.
+ *
+ * It is small by nature: 85 rows in the 4 September snapshot, one of them
+ * refused. There is no scope filter and no pagination because there is nothing
+ * to page through, and adding either would suggest there is.
+ */
+export type StagedBillSummary = {
+  total: number
+  byReason: Record<StagedBillReason, number>
+}
+
+const BILL_ORDER: Prisma.StagedBillOrderByWithRelationInput[] = [
+  { sourceSheet: 'asc' }, { sourceRow: 'asc' },
+]
+
+export async function listStagedBills(db: Db, limit = 200): Promise<StagedBill[]> {
+  return db.stagedBill.findMany({ orderBy: BILL_ORDER, take: limit })
+}
+
+export async function getStagedBillSummary(db: Db): Promise<StagedBillSummary> {
+  const [total, byReason] = await Promise.all([
+    db.stagedBill.count(),
+    db.stagedBill.groupBy({ by: ['reason'], _count: { _all: true } }),
+  ])
+
+  // Every reason spelled out rather than built from what the query returned, so
+  // a reason with no rows reads as 0 instead of being absent — a card that
+  // disappears when its count reaches zero is a card nobody notices coming back.
+  const counts: Record<StagedBillReason, number> = {
+    NO_CHECK_NUMBER: 0, NO_MATCHING_CHECK: 0, AMBIGUOUS_CHECK: 0, NO_APV: 0, NO_AMOUNT: 0,
+  }
+  for (const g of byReason) counts[g.reason] = g._count._all
+
+  return { total, byReason: counts }
 }
