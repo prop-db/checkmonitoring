@@ -172,6 +172,20 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
   `AP-A1-030274` (a dash the `APV` pattern does not allow) and `AP-1PP-AP-000014` (a mis-key of
   `A1PP-AP-000014`). They fall to free text and are **left alone** — widening the pattern re-classifies
   12,000 rows to recover three, which is the wrong trade until somebody re-measures it.
+- **The approval workbook's sheet names change with every export; its header does not.** 4 Sep:
+  `LIST` + `PIVOT`. 7 Sep: `local supplier` (227 rows) + `BROKERAGE` (11) + `Sheet3`, the pivot.
+  10 Sep: the same two data sheets + `PIVOT` again. `lib/import/bills.ts` therefore identifies a
+  data sheet by the **24-column Acumatica header on row 1** (`isBillSheet`) and reads every sheet
+  that carries it — a pivot's row 1 is empty. **Do not reintroduce a sheet-name check**: pointed at
+  the 7 September file, the `LIST`-only parser read zero rows and reported success. Every sheet is
+  reported by name, read or skipped, by the CLI and on `/admin/import`.
+  `local supplier` ∩ `BROKERAGE` on 7 Sep is **two vouchers, both naming the same cheque**, so the
+  `(checkId, apvNumber)` unique index folds them and there is nothing to arbitrate. A voucher naming
+  *different* cheques on two sheets would be a real conflict; it has not occurred.
+  **`BROKERAGE` is a separate portal stream** (`POST /api/broker-checks/mark-available` vs
+  `/api/checks/mark-available`). Nothing routes on it yet — Plan 3 — and the sheet is recorded on
+  every bill's audit row and on every `StagedBill`. `CheckBill` has no `sourceSheet` column; adding
+  one is the first thing Plan 3 will need.
 - **The approval workbook's `check No.` column is not trustworthy.** Client instruction 2026-09-07:
   *"In CHECK MONITORING 9.4.2026 please use acumatica as reference for check numbers."* Row 81 of
   the `LIST` sheet holds the date `2026-08-13` where the cheque number belongs — that being cheque
@@ -179,6 +193,8 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
   by its **voucher** against `Check.apvNumbers`, and only when that finds **exactly one** cheque;
   none or more than one and it is staged. A good cheque number that names no cheque here is *not*
   re-resolved by voucher — that would be overruling the workbook on evidence it did not offer.
+  The 7 September workbook has **50 such rows**, not one — 47 on `local supplier`, 3 on `BROKERAGE`.
+  Scale is not a reason to relax "exactly one match or stage it", and it has not been relaxed.
 - **A refused approval-workbook row lands in `StagedBill` and shows on `/admin/staged`.** This is
   why `AP-ST042652` was missed: the importer refused the row correctly and reported it correctly, to
   a terminal, once, during a run nobody was watching. `StagedBill` is deliberately **not** a
@@ -198,7 +214,7 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
 
 Plans 1 and 2 complete. Plan 3 (portal automation) paused after Task 1 at the client's request —
 the portal needs an `encoder` service account that does not yet exist, and until then events simply
-queue. 927 tests across 52 files.
+queue. 942 tests across 53 files.
 
 Production is `check_monitoring_prod` on Neon — created clean, reference data only, one real admin,
 no demo cheques. The historical import was running at last handoff; it is idempotent, so if it was

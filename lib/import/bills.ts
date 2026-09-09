@@ -8,8 +8,8 @@ import type { RawRow } from './workbook'
 type Db = PrismaClient | Prisma.TransactionClient
 
 /**
- * Bill detail from `APPROVAL FOR RELEASE 9.4.2026.xlsx`, which is NOT the
- * cheque register.
+ * Bill detail from the approval-for-release workbook, which is NOT the cheque
+ * register.
  *
  * Two things about it govern everything below.
  *
@@ -23,29 +23,43 @@ type Db = PrismaClient | Prisma.TransactionClient
  * create, only detail to hang on one that already exists.
  *
  * **It is a current snapshot, not history** — the approval-for-release working
- * list as of 4 September 2026. It says nothing whatsoever about cheques outside
- * it, so nothing here deletes or deactivates a cheque or a bill this file does
- * not mention. An absence in this file is not evidence.
+ * list as of the day it was exported. It says nothing whatsoever about cheques
+ * outside it, so nothing here deletes or deactivates a cheque or a bill this
+ * file does not mention. An absence in this file is not evidence.
+ *
+ * **Its sheets are not stable and its shape is.** 4 September: `LIST` and
+ * `PIVOT`. 7 September: `Sheet3` (the pivot, renamed), `local supplier` and
+ * `BROKERAGE`. 10 September: `PIVOT` again, plus the same two data sheets. The
+ * parser reads every sheet carrying the 24-column Acumatica header and no
+ * others; see `isBillSheet`. It does not know the name `LIST` and must not
+ * learn it again.
+ *
+ * **A voucher can appear on two data sheets.** Measured on the 7 September
+ * workbook: `local supplier` and `BROKERAGE` share exactly two vouchers, and
+ * both pairs name the SAME cheque — one by an identical cheque number on both
+ * rows, one by an unusable `check No.` cell on both, which resolves through the
+ * same voucher to the same cheque. So both fold onto one `CheckBill` through
+ * the `(checkId, apvNumber)` unique index: the second row updates the first
+ * rather than duplicating it, and both rows are recorded in the audit trail
+ * with their own sheet. Nothing here needs to arbitrate. If a voucher ever
+ * names DIFFERENT cheques on two sheets that is a real conflict rather than a
+ * duplicate, and it would have to be staged rather than written twice — it does
+ * not occur in any workbook measured so far, and this is not the place to guess
+ * at how it should be settled.
  */
 
-// Measured on the real workbook: two sheets, `LIST` with 85 data rows and
-// `PIVOT` with a pivot table over it. PIVOT's rows are derived subtotals, not
-// bills — importing one would double-count a bill — so only LIST is read.
-// Nothing is lost by skipping PIVOT: every figure on it is computed from LIST.
-export const BILL_SHEET = 'LIST'
-
-// The LIST sheet's columns, 0-indexed exactly as `readWorkbook` yields a row's
+// A bill sheet's columns, 0-indexed exactly as `readWorkbook` yields a row's
 // cells. Positional, unlike the register's parser, and legitimately so: this is
-// one machine-generated Acumatica export with one header row, not fifteen
-// hand-maintained sheets whose columns drift. The header row measured
-// 2026-09-04 reads, in order: Date, Post Period, Reference Nbr., Vendor Ref.,
-// Vendor Name, Balance Amount, Description, Due Date, Type, Detail Total, Terms
-// Code, Created By, NO. OF DAYS, four ageing buckets, OVER 90 DAYS, GL Account,
-// FINANCE REMARKS, Payment Ref. #, check No., bank.
+// one machine-generated Acumatica export with one header row per sheet, not
+// fifteen hand-maintained sheets whose columns drift. The header row measured
+// 2026-09-04 and again 2026-09-07 reads, in order: Date, Post Period, Reference
+// Nbr., Vendor Ref., Vendor Name, Balance Amount, Description, Due Date, Type,
+// Detail Total, Terms Code, Created By, NO. OF DAYS, four ageing buckets, OVER
+// 90 DAYS, GL Account, FINANCE REMARKS, Payment Ref. #, check No., bank.
 //
-// Re-measure these before pointing the parser at a differently generated
-// export. They are not sniffed, so a shifted column would be read as the wrong
-// field silently.
+// Reading positionally is only safe because the header is CHECKED before a
+// sheet is read — see `isBillSheet`. A shifted or renamed column makes the
+// sheet unreadable and reported, rather than read as the wrong field silently.
 const COL = {
   REFERENCE_NBR: 2,   // -> CheckBill.apvNumber
   VENDOR_REF: 3,      // -> CheckBill.poNumber
@@ -59,6 +73,75 @@ const COL = {
   CHECK_NO: 20,       // links to Check.checkNumber
   BANK: 21,           // a cash-account label, not a bank name
 } as const
+
+/**
+ * The label that must sit above each column this parser reads.
+ *
+ * Keyed on `COL`, so moving a column without restating the label it is now
+ * under is a compile error rather than a sheet that quietly stops being read.
+ */
+const HEADER_LABEL: Readonly<Record<keyof typeof COL, string>> = {
+  REFERENCE_NBR: 'REFERENCE NBR.',
+  VENDOR_REF: 'VENDOR REF.',
+  DESCRIPTION: 'DESCRIPTION',
+  DUE_DATE: 'DUE DATE',
+  DETAIL_TOTAL: 'DETAIL TOTAL',
+  TERMS_CODE: 'TERMS CODE',
+  CREATED_BY: 'CREATED BY',
+  GL_ACCOUNT: 'GL ACCOUNT',
+  FINANCE_REMARKS: 'FINANCE REMARKS',
+  CHECK_NO: 'CHECK NO.',
+  BANK: 'BANK',
+}
+
+/**
+ * Which sheets hold bills, as a property of the SHEET rather than of its name.
+ *
+ * This is the whole lesson of 7 September. The 4 September workbook was `LIST`
+ * and `PIVOT`; the 7 September one is `Sheet3`, `local supplier` and
+ * `BROKERAGE`, and a parser that skipped everything but `LIST` read zero rows
+ * out of it and reported success — the failure this codebase least wants, since
+ * a bill that is never read is a supplier never told.
+ *
+ * What did NOT change is the header. Every data sheet of both workbooks carries
+ * the same 24-column Acumatica header on row 1; every pivot sheet carries an
+ * empty row 1. So the header is the evidence, and the eleven columns this
+ * parser reads must ALL be where they say they are before a single row of the
+ * sheet is read positionally.
+ *
+ * Deliberately strict in both directions:
+ *
+ *   * a sheet with no header, or a header missing one of these labels, is not
+ *     read — it is reported. `Sheet3`'s column 3 holds pivot subtotals, and
+ *     reading it positionally would file an AMOUNT as a voucher reference.
+ *   * a sheet is not required to be *named* anything. `local supplier` and
+ *     `BROKERAGE` are both read, and `sourceSheet` on every parsed row keeps
+ *     them apart — the supplier portal exposes broker cheques on a different
+ *     endpoint, and that routing is Plan 3's to build on this evidence.
+ */
+export function isBillSheet(header: readonly unknown[] | undefined): boolean {
+  if (header === undefined || header.length === 0) return false
+  return (Object.keys(COL) as (keyof typeof COL)[]).every(
+    (key) => cleanCell(header[COL[key]])?.toUpperCase() === HEADER_LABEL[key],
+  )
+}
+
+/**
+ * What a run read, and from where, per sheet.
+ *
+ * A workbook that grew a sheet must not be summarised as one number. This is
+ * how an operator sees that `BROKERAGE` contributed 11 rows and that the pivot
+ * sheet was skipped rather than silently empty.
+ */
+export type BillSheetReport = {
+  sheet: string
+  /** Data rows the sheet carries, whether or not they were read. */
+  rows: number
+  /** False when the sheet carries no bill header. Its rows are not bills. */
+  read: boolean
+  bills: number
+  review: number
+}
 
 export type ParsedBill = {
   // Provenance, so a reconciliation report can point a human at the cell.
@@ -171,21 +254,37 @@ function readDate(cell: unknown): Date | null {
 }
 
 /**
- * Pure: a grid in, bills and a review queue out. No database, no clock.
+ * Pure: a grid in, bills, a review queue and a per-sheet account out. No
+ * database, no clock.
  *
- * Nothing is dropped. For rows on `BILL_SHEET`,
- * `bills.length + review.length === rows.length`; rows on any other sheet are
- * not bills at all and are skipped without a review item.
+ * Nothing is dropped and nothing is silent. Every sheet in the file appears in
+ * `sheets`, read or not; for the sheets that were read,
+ * `bills.length + review.length` equals their combined row count. A sheet whose
+ * header does not match is reported with `read: false` rather than passed over,
+ * because "read zero rows" and "there were no rows" are the two things this
+ * importer must never confuse.
  */
 export function parseBillRows(rows: readonly RawRow[]): {
   bills: ParsedBill[]
   review: BillReviewItem[]
+  sheets: BillSheetReport[]
 } {
   const bills: ParsedBill[] = []
   const review: BillReviewItem[] = []
+  // Insertion-ordered, so the report lists sheets in the order the workbook
+  // carries them.
+  const sheets = new Map<string, BillSheetReport>()
 
   for (const raw of rows) {
-    if (raw.sheet !== BILL_SHEET) continue
+    let report = sheets.get(raw.sheet)
+    if (report === undefined) {
+      // Decided once per sheet, from the first row of it we see — every row of
+      // a sheet carries the same header by construction.
+      report = { sheet: raw.sheet, rows: 0, read: isBillSheet(raw.header), bills: 0, review: 0 }
+      sheets.set(raw.sheet, report)
+    }
+    report.rows++
+    if (!report.read) continue
 
     // Deliberately NOT filtered on `Type = Bill`. 84 of the 85 rows say Bill and
     // the 85th (row 41) has an empty Type cell along with an empty Created By,
@@ -220,11 +319,14 @@ export function parseBillRows(rows: readonly RawRow[]): {
 
     const apvNumber = cleanCell(raw.cells[COL.REFERENCE_NBR])?.toUpperCase() ?? null
     const poNumber = cleanCell(raw.cells[COL.VENDOR_REF])?.toUpperCase() ?? null
-    const flag = (reason: BillReviewReason) =>
+    const sheetReport = report
+    const flag = (reason: BillReviewReason) => {
+      sheetReport.review++
       review.push({
         sheet: raw.sheet, row: raw.row, reason, cells: raw.cells,
         apvNumber, poNumber, checkNumber, statedCheckRef: stated,
       })
+    }
 
     if (apvNumber === null) {
       flag('NO_APV')
@@ -263,9 +365,10 @@ export function parseBillRows(rows: readonly RawRow[]): {
       cashAccountLabel: cleanCell(raw.cells[COL.BANK])?.toUpperCase() ?? null,
       financeRemark: cleanCell(raw.cells[COL.FINANCE_REMARKS])?.toUpperCase() ?? null,
     })
+    report.bills++
   }
 
-  return { bills, review }
+  return { bills, review, sheets: [...sheets.values()] }
 }
 
 export type UnmatchedBillReason = 'NO_CHECK_NUMBER' | 'NO_MATCHING_CHECK' | 'AMBIGUOUS_CHECK'
@@ -308,6 +411,9 @@ export const BILL_CHECK_REF_RULING =
   'reference for cheque numbers'
 
 export type BillImportSummary = {
+  /** What was read, and from where. A run that read one sheet of three has to
+   * say so on the way out as well as on the way in. */
+  sheets: BillSheetReport[]
   bills: number
   created: number
   updated: number
@@ -326,10 +432,10 @@ export type BillImportSummary = {
  * Which cheque each bill belongs to, or why it belongs to none. Reads; writes
  * nothing.
  *
- * Extracted so the import PREVIEW can tell an operator how many of the 85 bills
- * will find their cheque *before* anything is written, using the same matching
- * the write path uses. A preview with its own lookup would be a second place
- * for the "two matches is a review item, not a coin toss" rule to live.
+ * Extracted so the import PREVIEW can tell an operator how many bills will find
+ * their cheque *before* anything is written, using the same matching the write
+ * path uses. A preview with its own lookup would be a second place for the "two
+ * matches is a review item, not a coin toss" rule to live.
  */
 export async function matchBills(
   db: Db,
@@ -358,6 +464,13 @@ export async function matchBills(
     //   * exactly one match, or nothing. None and it is staged; more than one
     //     and it is staged, because a bill hung on the wrong cheque is a
     //     supplier told the wrong thing, and a mis-keyed cell is far cheaper.
+    //
+    // It was written for ONE row — row 81 of the 4 September LIST sheet. The
+    // 7 September workbook has 50 of them, across two data sheets, and that
+    // changes nothing here: each row is resolved on its own voucher against the
+    // same "exactly one" rule. Fifty rows wanting to resolve is not a reason to
+    // relax it. A row that stays staged is a cell somebody re-keys; a row
+    // resolved by relaxing it is a cheque nobody can defend.
     const checkNumber = bill.checkNumber
     const byVoucher = checkNumber === null
     const where: Prisma.CheckWhereInput = byVoucher
@@ -398,8 +511,12 @@ export async function matchBills(
 }
 
 export type BillPreview = {
-  /** Every row on the `LIST` sheet: `bills + review` accounts for all of them. */
+  /** Every row on every sheet that was read: `bills + review` accounts for all
+   * of them. Rows on a sheet with no bill header are NOT counted here; they are
+   * in `sheets`, which is the only place that says a sheet was skipped. */
   totalRows: number
+  /** What was read, and from where. Includes the sheets that were not read. */
+  sheets: BillSheetReport[]
   bills: number
   review: BillReviewItem[]
   willImport: number
@@ -416,11 +533,19 @@ export type BillPreview = {
  */
 export async function previewBillImport(
   db: Db,
-  args: { bills: readonly ParsedBill[]; review: readonly BillReviewItem[] },
+  args: {
+    bills: readonly ParsedBill[]
+    review: readonly BillReviewItem[]
+    /** From `parseBillRows`, and required rather than optional: a preview that
+     * did not say which sheets it read is exactly what let a renamed sheet
+     * report success over zero rows. */
+    sheets: readonly BillSheetReport[]
+  },
 ): Promise<BillPreview> {
   const { matched, unmatched } = await matchBills(db, args.bills)
   return {
     totalRows: args.bills.length + args.review.length,
+    sheets: [...args.sheets],
     bills: args.bills.length,
     review: [...args.review],
     willImport: matched.length,
@@ -448,7 +573,10 @@ export type StageBillsSummary = {
  * row has to survive the run that rejected it.
  *
  * Keyed on `(sourceSheet, sourceRow)`, the cell a human can be pointed at, so a
- * re-run refreshes a staged row rather than adding a second one.
+ * re-run refreshes a staged row rather than adding a second one. The key was
+ * chosen when the workbook had one data sheet and it stays correct now that it
+ * has two: row 6 of `local supplier` and row 6 of `BROKERAGE` are different
+ * cells and stage separately.
  *
  * **Only rows this pass actually saw are cleared.** A row that has vanished from
  * a newer snapshot of the workbook leaves its staged row standing, because this
@@ -513,13 +641,24 @@ export async function stageBills(
  * cheques, but that is a property of one day's working list, not of the domain —
  * the register carries cheques settling several bills and `CheckBill` is
  * correctly one-to-many. Do not turn this into a unique constraint on `checkId`.
+ *
+ * That same key is what makes the two vouchers shared by `local supplier` and
+ * `BROKERAGE` on 7 September harmless: both rows name the same cheque, so the
+ * second updates the first instead of writing a duplicate. Both rows leave
+ * their own audit entry, naming their own sheet.
  */
 export async function importBills(
   db: Db,
-  args: { bills: readonly ParsedBill[]; review: readonly BillReviewItem[]; now: Date },
+  args: {
+    bills: readonly ParsedBill[]
+    review: readonly BillReviewItem[]
+    sheets: readonly BillSheetReport[]
+    now: Date
+  },
 ): Promise<BillImportSummary> {
   const { matched, unmatched } = await matchBills(db, args.bills)
   const summary: Omit<BillImportSummary, keyof StageBillsSummary> = {
+    sheets: [...args.sheets],
     bills: args.bills.length,
     created: 0,
     updated: 0,
@@ -560,6 +699,13 @@ export async function importBills(
       details: {
         source: 'WORKBOOK',
         apvNumber: bill.apvNumber,
+        // The sheet is not decoration. Since 7 September the workbook separates
+        // `BROKERAGE` from `local supplier`, and the supplier portal exposes
+        // broker cheques on `POST /api/broker-checks/mark-available` rather
+        // than `POST /api/checks/mark-available`. Nothing routes on it yet —
+        // that is Plan 3, blocked on the portal's encoder account — so this is
+        // recorded rather than acted on, and recorded on an append-only row so
+        // the evidence for routing a bill later is not thrown away today.
         sourceSheet: bill.sheet,
         sourceRow: bill.row,
         // Recorded, not acted on. A human reading the trail should be able to

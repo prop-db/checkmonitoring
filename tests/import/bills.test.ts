@@ -2,11 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { testDb, resetDb } from '../helpers/db'
 import { makeCheck } from '../helpers/factory'
 import {
-  BILL_CHECK_REF_RULING, BILL_SHEET, importBills, parseBillRows, type ParsedBill,
+  BILL_CHECK_REF_RULING, importBills, isBillSheet, parseBillRows, type ParsedBill,
 } from '@/lib/import/bills'
 import type { RawRow } from '@/lib/import/workbook'
 
-// The LIST sheet's measured layout, 0-indexed exactly as `readWorkbook` yields
+// A bill sheet's measured layout, 0-indexed exactly as `readWorkbook` yields
 // a row's cells. Restated here rather than imported from the parser so this
 // file pins the mapping against the workbook, instead of agreeing with whatever
 // the parser happens to believe.
@@ -19,16 +19,43 @@ const COL = {
 
 const WIDTH = 24
 
-function listRow(row: number, values: Partial<Record<keyof typeof COL, unknown>>): RawRow {
+// Row 1 of every data sheet, verbatim as ExcelJS yields it — measured on the
+// 4, 7 and 10 September workbooks, which agree to the character including the
+// trailing space in `check No. ` and the two empty trailing cells. This is what
+// the parser identifies a bill sheet BY, so it is restated here for the same
+// reason `COL` is.
+const HEADER: readonly (string | null)[] = [
+  'Date', 'Post Period', 'Reference Nbr.', 'Vendor Ref.', 'Vendor Name', 'Balance Amount',
+  'Description', 'Due Date', 'Type', 'Detail Total', 'Terms Code', 'Created By', 'NO. OF DAYS',
+  '1-30 days Over due', '31-60 days Over due', '61-90days Over due', 'OVER 90 DAYS', 'GL Account',
+  'FINANCE REMARKS', 'Payment Ref. #', 'check No. ', 'bank', null, null,
+]
+
+// The 7 September workbook's two data sheets. Deliberately NOT `LIST`: the
+// sheet the 4 September file called LIST is called `local supplier` now, and a
+// test that kept using the old name would keep passing while the importer read
+// nothing at all — which is exactly the defect this file exists to prevent.
+const SHEET = 'local supplier'
+const BROKERAGE = 'BROKERAGE'
+
+function listRow(
+  row: number,
+  values: Partial<Record<keyof typeof COL, unknown>>,
+  sheet: string = SHEET,
+): RawRow {
   const cells: unknown[] = new Array<unknown>(WIDTH).fill(null)
   for (const key of Object.keys(values) as (keyof typeof COL)[]) cells[COL[key]] = values[key]
-  return { sheet: BILL_SHEET, row, cells }
+  return { sheet, row, cells, header: HEADER }
 }
 
-// A complete, well-formed LIST row, so a test states only what it is about.
+// A complete, well-formed bill row, so a test states only what it is about.
 // Typed against `COL` deliberately: a misspelt override is a compile error
 // rather than a silently ignored key.
-function billRow(row: number, values: Partial<Record<keyof typeof COL, unknown>> = {}): RawRow {
+function billRow(
+  row: number,
+  values: Partial<Record<keyof typeof COL, unknown>> = {},
+  sheet: string = SHEET,
+): RawRow {
   return listRow(row, {
     date: new Date('2026-08-04T00:00:00Z'),
     postPeriod: '08-2026',
@@ -47,7 +74,15 @@ function billRow(row: number, values: Partial<Record<keyof typeof COL, unknown>>
     checkNo: 6000338925,
     bank: 'BPI STK',
     ...values,
-  })
+  }, sheet)
+}
+
+// A row on a sheet with no header at all — the pivot, whatever it is called in
+// this week's export. Its cells are deliberately shaped like a pivot's: a
+// cash-account label, a count and a subtotal, which read as a voucher and an
+// amount if anybody ever reads them positionally.
+function pivotRow(row: number, sheet = 'Sheet3'): RawRow {
+  return { sheet, row, cells: ['BPI STK', 39, 1234567.89], header: [] }
 }
 
 function only(result: { bills: ParsedBill[] }): ParsedBill {
@@ -68,17 +103,8 @@ describe('parseBillRows', () => {
     expect(b.createdByName).toBe('JASMINE RABANG')
     expect(b.checkNumber).toBe('6000338925')
     expect(b.cashAccountLabel).toBe('BPI STK')
-    expect(b.sheet).toBe(BILL_SHEET)
+    expect(b.sheet).toBe(SHEET)
     expect(b.row).toBe(2)
-  })
-
-  it('ignores the PIVOT sheet entirely', () => {
-    // PIVOT is a pivot table over LIST. Its rows are derived totals, not bills,
-    // and letting one reach the database would double-count a bill.
-    const pivot: RawRow = { sheet: 'PIVOT', row: 2, cells: ['BPI STK', 39, 1234567.89] }
-    const result = parseBillRows([pivot, billRow(2)])
-    expect(result.bills).toHaveLength(1)
-    expect(result.review).toHaveLength(0)
   })
 
   it('reads a numeric cheque cell as digits, not as a float rendering', () => {
@@ -203,6 +229,95 @@ describe('parseBillRows', () => {
   })
 })
 
+// The 7 September defect. The parser knew one sheet name, `LIST`, and the new
+// export has no sheet by that name — so it read zero rows out of a workbook of
+// 238 bills and reported success. A sheet is now identified by the header it
+// carries, which is the one thing that has not changed across the 4, 7 and 10
+// September exports.
+describe('parseBillRows — which sheets hold bills', () => {
+  it('reads every sheet carrying the Acumatica bill header, whatever it is called', () => {
+    const { bills, sheets } = parseBillRows([
+      billRow(2),
+      billRow(3),
+      billRow(2, { referenceNbr: 'AP-ST043131' }, BROKERAGE),
+    ])
+
+    expect(bills).toHaveLength(3)
+    // And each bill remembers which sheet it came from. `BROKERAGE` is a
+    // distinct stream — the supplier portal exposes broker cheques on their own
+    // endpoint — and nothing may flatten the two together.
+    expect(bills.map((b) => b.sheet)).toEqual([SHEET, SHEET, BROKERAGE])
+    expect(sheets).toEqual([
+      { sheet: SHEET, rows: 2, read: true, bills: 2, review: 0 },
+      { sheet: BROKERAGE, rows: 1, read: true, bills: 1, review: 0 },
+    ])
+  })
+
+  it('skips a sheet with no header and says so, rather than reading it', () => {
+    // The pivot. Its column 3 holds a subtotal, so reading it positionally
+    // files an AMOUNT as a voucher reference — and its rows are derived from
+    // the data sheets, so importing one double-counts a bill.
+    const { bills, review, sheets } = parseBillRows([pivotRow(2), pivotRow(3), billRow(2)])
+
+    expect(bills).toHaveLength(1)
+    expect(review).toHaveLength(0)
+    // Reported, not passed over in silence: "we read no rows off that sheet"
+    // and "that sheet had no rows" are the two things this importer must never
+    // confuse.
+    expect(sheets).toEqual([
+      { sheet: 'Sheet3', rows: 2, read: false, bills: 0, review: 0 },
+      { sheet: SHEET, rows: 1, read: true, bills: 1, review: 0 },
+    ])
+  })
+
+  it('skips a sheet whose header has moved, rather than reading the wrong column', () => {
+    // A renamed or shifted column is not a smaller problem than a pivot. Every
+    // column this parser reads is positional, and its safety comes entirely
+    // from the header having been checked first.
+    const shifted = HEADER.map((h) => (h === 'Detail Total' ? 'Amount' : h))
+    const row = { ...billRow(2), header: shifted }
+
+    const { bills, sheets } = parseBillRows([row])
+    expect(bills).toHaveLength(0)
+    expect(sheets[0]).toMatchObject({ sheet: SHEET, rows: 1, read: false })
+  })
+
+  it('accepts the header however it is cased, spaced or padded', () => {
+    // Measured: the real header reads `check No. ` with a trailing space. A
+    // signature that broke on whitespace would be its own version of the bug.
+    const noisy = HEADER.map((h) => (h === null ? null : `  ${h.toLowerCase()}  `))
+    const { bills } = parseBillRows([{ ...billRow(2), header: noisy }])
+    expect(bills).toHaveLength(1)
+  })
+
+  it('treats a row with no header at all as belonging to no bill sheet', () => {
+    // Not a fallback to positional reading. A grid that says nothing about its
+    // shape is not evidence that it has the shape we want.
+    const { sheets } = parseBillRows([{ sheet: SHEET, row: 2, cells: [] }])
+    expect(sheets[0].read).toBe(false)
+    expect(isBillSheet(undefined)).toBe(false)
+    expect(isBillSheet([])).toBe(false)
+  })
+
+  it('accounts for every row of every sheet it read', () => {
+    const rows = [
+      pivotRow(2),
+      billRow(2),
+      billRow(3, { referenceNbr: null }),
+      billRow(2, { detailTotal: null }, BROKERAGE),
+    ]
+    const { bills, review, sheets } = parseBillRows(rows)
+
+    expect(bills.length + review.length).toBe(
+      sheets.filter((s) => s.read).reduce((n, s) => n + s.rows, 0),
+    )
+    // And every sheet in the file appears, read or not, so the totals above can
+    // be reconciled against the workbook rather than against themselves.
+    expect(sheets.map((s) => s.sheet)).toEqual(['Sheet3', SHEET, BROKERAGE])
+    expect(sheets.reduce((n, s) => n + s.rows, 0)).toBe(rows.length)
+  })
+})
+
 describe('importBills', () => {
   beforeEach(resetDb)
 
@@ -216,8 +331,8 @@ describe('importBills', () => {
   const NOW = new Date('2026-09-04T13:32:00+08:00')
 
   async function run(rows: RawRow[]) {
-    const { bills, review } = parseBillRows(rows)
-    return importBills(testDb, { bills, review, now: NOW })
+    const { bills, review, sheets } = parseBillRows(rows)
+    return importBills(testDb, { bills, review, sheets, now: NOW })
   }
 
   it('writes a bill against the cheque its check No. names', async () => {
@@ -322,8 +437,8 @@ describe('importBills — a check No. cell that is not a cheque number', () => {
   const NOW = new Date('2026-09-07T13:32:00+08:00')
 
   async function run(rows: RawRow[]) {
-    const { bills, review } = parseBillRows(rows)
-    return importBills(testDb, { bills, review, now: NOW })
+    const { bills, review, sheets } = parseBillRows(rows)
+    return importBills(testDb, { bills, review, sheets, now: NOW })
   }
 
   // The measured case, and the reason for the whole change: row 81 of the
@@ -403,8 +518,8 @@ describe('stageBills — the rows that did not attach', () => {
   const NOW = new Date('2026-09-07T13:32:00+08:00')
 
   async function run(rows: RawRow[]) {
-    const { bills, review } = parseBillRows(rows)
-    return importBills(testDb, { bills, review, now: NOW })
+    const { bills, review, sheets } = parseBillRows(rows)
+    return importBills(testDb, { bills, review, sheets, now: NOW })
   }
 
   it('writes every refused row where somebody sees it', async () => {
@@ -423,7 +538,7 @@ describe('stageBills — the rows that did not attach', () => {
       [2, 'NO_CHECK_NUMBER'], [3, 'NO_APV'], [4, 'NO_AMOUNT'],
     ])
     expect(staged[0]).toMatchObject({
-      sourceSheet: 'LIST', statedCheckRef: '2026-08-13', apvNumber: 'AP-ST042652',
+      sourceSheet: SHEET, statedCheckRef: '2026-08-13', apvNumber: 'AP-ST042652',
     })
   })
 
@@ -464,4 +579,123 @@ describe('stageBills — the rows that did not attach', () => {
     expect(Object.keys(staged)).not.toContain('amount')
     expect(Object.keys(staged)).not.toContain('payeeName')
   })
+})
+
+// The 7 September workbook: two data sheets and a pivot, 238 bills, 50 rows
+// whose `check No.` cell holds a date, and two vouchers that appear on both
+// data sheets.
+describe('importBills — a workbook of several sheets', () => {
+  beforeEach(resetDb)
+
+  afterEach(async () => {
+    expect(await testDb.portalEvent.count()).toBe(0)
+  })
+
+  const NOW = new Date('2026-09-07T13:32:00+08:00')
+
+  async function run(rows: RawRow[]) {
+    const { bills, review, sheets } = parseBillRows(rows)
+    return importBills(testDb, { bills, review, sheets, now: NOW })
+  }
+
+  it('imports from both data sheets and reports what came from where', async () => {
+    await makeCheck({ checkNumber: '6000338925' })
+    await makeCheck({ checkNumber: '6000353377' })
+
+    const summary = await run([
+      pivotRow(2),
+      billRow(2),
+      billRow(9, { checkNo: 6000353377, referenceNbr: 'AP-ST043131' }, BROKERAGE),
+    ])
+
+    expect(summary).toMatchObject({ bills: 2, created: 2, updated: 0 })
+    expect(summary.sheets).toEqual([
+      { sheet: 'Sheet3', rows: 1, read: false, bills: 0, review: 0 },
+      { sheet: SHEET, rows: 1, read: true, bills: 1, review: 0 },
+      { sheet: BROKERAGE, rows: 1, read: true, bills: 1, review: 0 },
+    ])
+  })
+
+  it('records which sheet a bill came from, so a broker cheque stays identifiable', async () => {
+    // The supplier portal exposes broker cheques on
+    // `POST /api/broker-checks/mark-available`, separately from
+    // `POST /api/checks/mark-available`. Nothing routes on this yet — that is
+    // Plan 3, blocked on the portal's encoder account — but the evidence for
+    // routing later must survive today's import.
+    const check = await makeCheck({ checkNumber: '6000353377' })
+    await run([billRow(9, { checkNo: 6000353377, referenceNbr: 'AP-ST043131' }, BROKERAGE)])
+
+    const audit = await testDb.auditLog.findFirstOrThrow({ where: { checkId: check.id } })
+    expect(audit.details).toMatchObject({ sourceSheet: BROKERAGE, sourceRow: 9 })
+    expect(audit.remarks).toContain(BROKERAGE)
+  })
+
+  it('folds a voucher that appears on both sheets onto one bill', async () => {
+    // Measured on the 7 September workbook: `local supplier` and `BROKERAGE`
+    // share exactly two vouchers, and both name the SAME cheque. The
+    // `(checkId, apvNumber)` unique index is what makes that a duplicate rather
+    // than a conflict — the second row updates the first — and both rows leave
+    // their own audit entry naming their own sheet.
+    const check = await makeCheck({ checkNumber: '6000353377' })
+    const summary = await run([
+      billRow(215, { checkNo: 6000353377, referenceNbr: 'AP-ST043131' }),
+      billRow(9, { checkNo: 6000353377, referenceNbr: 'AP-ST043131' }, BROKERAGE),
+    ])
+
+    expect(summary).toMatchObject({ bills: 2, created: 1, updated: 1 })
+    expect(await testDb.checkBill.count()).toBe(1)
+    const audit = await testDb.auditLog.findMany({ where: { checkId: check.id } })
+    expect(audit.map((a) => (a.details as { sourceSheet: string }).sourceSheet).sort())
+      .toEqual([BROKERAGE, SHEET])
+  })
+
+  it('stages the same row number on two sheets separately', async () => {
+    // `StagedBill` is keyed on `(sourceSheet, sourceRow)`. Row 6 of
+    // `local supplier` and row 6 of `BROKERAGE` are different cells, and a key
+    // that collided them would hide one behind the other.
+    const summary = await run([
+      billRow(6, { referenceNbr: null }),
+      billRow(6, { referenceNbr: null }, BROKERAGE),
+    ])
+
+    expect(summary.staged).toBe(2)
+    const staged = await testDb.stagedBill.findMany({ orderBy: { sourceSheet: 'asc' } })
+    expect(staged.map((s) => s.sourceSheet)).toEqual([BROKERAGE, SHEET])
+  })
+
+  it('resolves fifty mis-keyed rows one at a time, and still refuses a tie', async () => {
+    // The voucher fallback was written for ONE row. The 7 September workbook
+    // has 50 across two sheets. Scale changes nothing: each row is resolved on
+    // its own voucher, and the "exactly one cheque, or stage it" rule is the
+    // same rule. Fifty rows wanting to resolve is not a reason to relax it.
+    const DATE_CELL = new Date('2026-08-13T00:00:00Z')
+    const vouchers = Array.from({ length: 50 }, (_, i) => `AP-ST04${3000 + i}`)
+    for (const [i, apv] of vouchers.entries()) {
+      await makeCheck({ checkNumber: `60003530${String(i).padStart(2, '0')}`, apvNumbers: [apv] })
+    }
+    // And one voucher two cheques carry, which is not a tie to break.
+    await makeCheck({ checkNumber: '6000359001', apvNumbers: ['AP-ST049999'] })
+    await makeCheck({ checkNumber: '6000359002', apvNumbers: ['AP-ST049999'] })
+
+    const rows = vouchers.map((apv, i) =>
+      billRow(i + 2, { checkNo: DATE_CELL, referenceNbr: apv }, i % 2 ? BROKERAGE : SHEET),
+    )
+    rows.push(billRow(200, { checkNo: DATE_CELL, referenceNbr: 'AP-ST049999' }))
+
+    const summary = await run(rows)
+
+    expect(summary).toMatchObject({ bills: 51, created: 50, resolvedByVoucher: 50 })
+    expect(await testDb.checkBill.count()).toBe(50)
+    expect(summary.unmatched).toEqual([
+      expect.objectContaining({ reason: 'AMBIGUOUS_CHECK', row: 200, apvNumber: 'AP-ST049999' }),
+    ])
+    // Each landed on the cheque carrying its own voucher, not on whichever one
+    // the query happened to return first.
+    for (const [i, apv] of vouchers.entries()) {
+      const bill = await testDb.checkBill.findFirstOrThrow({
+        where: { apvNumber: apv }, include: { check: true },
+      })
+      expect(bill.check.checkNumber).toBe(`60003530${String(i).padStart(2, '0')}`)
+    }
+  }, 60_000)
 })

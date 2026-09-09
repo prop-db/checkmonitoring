@@ -292,10 +292,31 @@ export function BillPreviewReport({ preview }: { preview: BillPreview }) {
       </div>
 
       <p className="rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-700">
-        {n(preview.totalRows)} rows on the LIST sheet, all accounted for. This file is a snapshot of
-        the approval-for-release working list, not a history: it says nothing about cheques outside
-        it, and importing it changes no cheque&apos;s release status.
+        {n(preview.totalRows)} rows read, all accounted for. This file is a snapshot of the
+        approval-for-release working list, not a history: it says nothing about cheques outside it,
+        and importing it changes no cheque&apos;s release status.
       </p>
+
+      {/* Which sheets those rows came from, and which sheets were skipped. The
+          workbook's sheet names change between exports, so "0 bills" and "we
+          never read that sheet" have to be told apart on screen. */}
+      <ul className="space-y-1 rounded-2xl bg-white px-6 py-4 text-sm ring-1 ring-slate-200">
+        {preview.sheets.map((s) => (
+          <li key={s.sheet} className="flex justify-between gap-4">
+            <span className={s.read ? '' : 'text-slate-500'}>
+              {s.sheet}
+              {!s.read && (
+                <span className="ml-2 text-xs tracking-wide text-slate-500">
+                  SKIPPED · no bill header on row 1
+                </span>
+              )}
+            </span>
+            <span className="tabular-nums text-slate-500">
+              {s.read ? `${n(s.bills)} of ${n(s.rows)}` : n(s.rows)}
+            </span>
+          </li>
+        ))}
+      </ul>
 
       {preview.willResolveByVoucher > 0 && (
         <p className="rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-900">
@@ -314,6 +335,8 @@ export function BillPreviewReport({ preview }: { preview: BillPreview }) {
             <table className="w-full text-sm">
               <thead className="border-b border-slate-200 text-left text-xs tracking-wide text-slate-500">
                 <tr>
+                  {/* The sheet, not only the row: two sheets carry a row 6. */}
+                  <th className="px-4 py-3">SHEET</th>
                   <th className="px-4 py-3 text-right">ROW</th>
                   <th className="px-4 py-3">CHECK NUMBER</th>
                   <th className="px-4 py-3">WHAT THE CELL SAID</th>
@@ -325,6 +348,7 @@ export function BillPreviewReport({ preview }: { preview: BillPreview }) {
               <tbody>
                 {preview.unmatched.map((u) => (
                   <tr key={`${u.sheet}#${u.row}`} className="border-b border-slate-100 last:border-0">
+                    <td className="px-4 py-3 text-slate-600">{u.sheet}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-slate-600">{u.row}</td>
                     {/* Null when the cell held no cheque number at all. An em
                         dash rather than an empty cell, which is

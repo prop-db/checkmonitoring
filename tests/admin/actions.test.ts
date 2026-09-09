@@ -76,6 +76,27 @@ const registerRow = (
   checkNumber: string, payee: string, amount: number, checkBook: string | null,
 ) => [checkNumber, '', '', '', payee, '', '', '', '', amount, '', checkBook]
 
+// The approval-for-release workbook's own header, which is what identifies a
+// bill sheet — its NAME does not, and the 7 September export renamed every one
+// of them.
+const BILL_HEADER = [
+  'Date', 'Post Period', 'Reference Nbr.', 'Vendor Ref.', 'Vendor Name', 'Balance Amount',
+  'Description', 'Due Date', 'Type', 'Detail Total', 'Terms Code', 'Created By', 'NO. OF DAYS',
+  '1-30 days Over due', '31-60 days Over due', '61-90days Over due', 'OVER 90 DAYS', 'GL Account',
+  'FINANCE REMARKS', 'Payment Ref. #', 'check No. ', 'bank',
+]
+
+const billCells = (apvNumber: string, checkNumber: number): unknown[] => {
+  const cells: unknown[] = new Array(22).fill(null)
+  cells[2] = apvNumber
+  cells[6] = 'FREIGHT'
+  cells[9] = 1234.56
+  cells[18] = 'AVAILABLE'
+  cells[20] = checkNumber
+  cells[21] = 'BPI STK'
+  return cells
+}
+
 const registerFile = () =>
   xlsx({
     'BPI RELEASED': [
@@ -195,21 +216,29 @@ describe('importWorkbookAction', () => {
   })
 
   it('recognises the approval-for-release workbook without being told', async () => {
+    // Sheet names deliberately from the 7 September export — `Sheet3`,
+    // `local supplier`, `BROKERAGE`, none of them the `LIST` the importer used
+    // to require. The file is recognised by the Acumatica header instead, and a
+    // sheet without one is skipped rather than read as bills.
     const { importWorkbookAction } = await import('@/app/admin/actions')
-    const cells: unknown[] = new Array(22).fill(null)
-    cells[2] = 'AP-ST040284'
-    cells[6] = 'FREIGHT'
-    cells[9] = 1234.56
-    cells[20] = 6000000001
-    cells[21] = 'BPI STK'
-    const file = await xlsx({ LIST: [new Array(22).fill('H'), cells], PIVOT: [['H'], ['x']] })
+    const file = await xlsx({
+      Sheet3: [[], ['BPI STK', 39, 1234567.89]],
+      'local supplier': [BILL_HEADER, billCells('AP-ST040284', 6000000001)],
+      BROKERAGE: [BILL_HEADER, billCells('AP-ST043131', 6000000002)],
+    })
 
     const result = await importWorkbookAction(fd({ workbook: file }))
     expect(result.ok).toBe(true)
     if (!result.ok || result.kind !== 'BILLS') throw new Error('expected a bill preview')
-    expect(result.preview.bills).toBe(1)
-    // No cheque exists yet, so the bill goes to review rather than being dropped.
-    expect(result.preview.unmatched).toHaveLength(1)
+    expect(result.preview.bills).toBe(2)
+    // Said out loud on the way in: which sheets were read, and which was not.
+    expect(result.preview.sheets).toEqual([
+      { sheet: 'Sheet3', rows: 1, read: false, bills: 0, review: 0 },
+      { sheet: 'local supplier', rows: 1, read: true, bills: 1, review: 0 },
+      { sheet: 'BROKERAGE', rows: 1, read: true, bills: 1, review: 0 },
+    ])
+    // No cheque exists yet, so the bills go to review rather than being dropped.
+    expect(result.preview.unmatched).toHaveLength(2)
   })
 
   it('refuses the whole workbook when one cheque carries a clash nobody has ruled on', async () => {

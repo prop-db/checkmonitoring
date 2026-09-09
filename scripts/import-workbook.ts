@@ -174,10 +174,24 @@ async function importRegister(db: PrismaClient, rows: Awaited<ReturnType<typeof 
 }
 
 async function importBillDetail(db: PrismaClient, rows: Awaited<ReturnType<typeof readWorkbook>>, args: Args) {
-  const { bills, review } = parseBillRows(rows)
-  const preview = await previewBillImport(db, { bills, review })
+  const { bills, review, sheets } = parseBillRows(rows)
+  const preview = await previewBillImport(db, { bills, review, sheets })
 
-  heading('ACCOUNTING — every row of the LIST sheet')
+  // Which sheets were read and which were not, before any number that sums
+  // across them. The workbook's sheet names change between exports — LIST and
+  // PIVOT on 4 September, Sheet3 / local supplier / BROKERAGE on the 7th — so a
+  // run that did not say where its rows came from could report a confident zero
+  // off a file it never opened properly.
+  heading('SHEETS')
+  for (const s of preview.sheets) {
+    line(s.sheet, s.read ? `${n(s.rows)} rows` : `${n(s.rows)} rows  skipped`)
+  }
+  if (preview.sheets.some((s) => !s.read)) {
+    console.log('  A skipped sheet carries no Acumatica bill header on row 1 — a pivot, or an')
+    console.log('  export whose columns have moved. Its rows are not bills and were not read.')
+  }
+
+  heading('ACCOUNTING — every row of every sheet that was read')
   line('bills read', preview.bills)
   line('  of which match a cheque', preview.willImport)
   line('    by their voucher, not the cell', preview.willResolveByVoucher)
@@ -218,9 +232,12 @@ async function importBillDetail(db: PrismaClient, rows: Awaited<ReturnType<typeo
   // No target guard here, deliberately. This path writes only `CheckBill` rows,
   // keyed on `(checkId, apvNumber)`; it creates no cheque, changes no status,
   // and matches nothing it did not find already in the database.
-  const summary = await importBills(db, { bills, review, now: new Date() })
+  const summary = await importBills(db, { bills, review, sheets, now: new Date() })
 
   heading('WRITTEN')
+  for (const s of summary.sheets.filter((s) => s.read)) {
+    line(`  from ${s.sheet}`, s.bills)
+  }
   line('bills created', summary.created)
   line('bills updated', summary.updated)
   line('  matched by their voucher', summary.resolvedByVoucher)

@@ -178,15 +178,19 @@ export async function importWorkbookAction(formData: FormData): Promise<ImportWo
     const now = new Date()
 
     if (detected.kind === 'BILLS') {
-      const { bills, review } = parseBillRows(rows)
-      const preview = await previewBillImport(prisma, { bills, review })
+      // `sheets` travels with them: which sheets were read, and which carried
+      // no bill header and were skipped. The workbook's sheet names change
+      // between exports, so this is the difference between "no bills" and "we
+      // did not read the sheet the bills were on".
+      const { bills, review, sheets } = parseBillRows(rows)
+      const preview = await previewBillImport(prisma, { bills, review, sheets })
       if (!confirmed) {
         return { ok: true, kind: 'BILLS', stage: 'PREVIEW', fileName: file.name, preview }
       }
       // `review` travels with `bills` so the rows this file refuses are staged
       // rather than reported once into a response nobody keeps. Every row of
-      // the LIST sheet is now either a `CheckBill` or a `StagedBill`.
-      const summary = await importBills(prisma, { bills, review, now })
+      // every sheet that was read is now either a `CheckBill` or a `StagedBill`.
+      const summary = await importBills(prisma, { bills, review, sheets, now })
       revalidatePath('/')
       revalidatePath('/admin/import')
       return { ok: true, kind: 'BILLS', stage: 'IMPORTED', fileName: file.name, preview, summary }
