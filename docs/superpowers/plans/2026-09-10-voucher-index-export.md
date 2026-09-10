@@ -30,6 +30,8 @@
 | --- | --- |
 | `lib/export/voucher-index.ts` | **Create.** Pure. Constants, types, and `resolveVoucherRows` — every rule about which cheque wins and when a cell goes blank. No database, no ExcelJS, no clock. |
 | `lib/export/voucher-query.ts` | **Create.** Two reads: cheque candidates and staged candidates. Resolves nothing. |
+| `lib/export/sheet-style.ts` | **Create.** The palette and header styling both generated workbooks share, lifted out of `workbook.ts` so the two cannot drift apart. |
+| `lib/export/workbook.ts` | **Modify.** Its private style constants move to `sheet-style.ts`; nothing it renders changes. |
 | `lib/export/voucher-workbook.ts` | **Create.** ExcelJS rendering, beside `workbook.ts`. |
 | `app/api/export/vouchers/route.ts` | **Create.** Auth, assemble, respond with the fixed filename. |
 | `components/QuickActions.tsx` | **Modify.** One more anchor. |
@@ -716,18 +718,139 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ### Task 3: The workbook
 
+Two commits: first lift the sheet palette out of `workbook.ts` so both workbooks share one
+definition, then build the new renderer on it.
+
 **Files:**
+- Create: `lib/export/sheet-style.ts`
+- Modify: `lib/export/workbook.ts` (delete its private style constants, import them instead)
 - Create: `lib/export/voucher-workbook.ts`
 - Test: `tests/export/voucher-workbook.test.ts`
 
 **Interfaces:**
 - Consumes: everything Task 1 produces; `fitColumnWidth` from `lib/export/report.ts`.
 - Produces:
+  - from `lib/export/sheet-style.ts`: `HEADER_FILL`, `BAND_FILL`, `GRID`, `DATE_FORMAT`, `COUNT_FORMAT`, `DATE_WIDTH_SAMPLE`, `styleHeaderCell(cell: ExcelJS.Cell, label: string, align?: 'left' | 'right'): void`
   - `TIMESTAMP_CELL = 'A2'`
   - `type VoucherIndexMeta = { generatedAt: Date; generatedBy: string; totalRows: number }`
   - `buildVoucherIndexWorkbook(input: { rows: readonly VoucherRow[]; meta: VoucherIndexMeta }): Promise<ArrayBuffer>`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Lift the sheet palette into one module**
+
+Create `lib/export/sheet-style.ts`:
+
+```ts
+import type ExcelJS from 'exceljs'
+
+/**
+ * The look every generated sheet shares.
+ *
+ * Extracted from `workbook.ts` when the voucher index arrived, because two
+ * files each holding their own copy of `FF1E293B` is two files that drift: the
+ * register export and the voucher index are handed to the same reader, often in
+ * the same week, and a header that is nearly the same navy reads as a mistake.
+ *
+ * Only what is genuinely shared lives here. Neither sheet's title block does —
+ * the register's row 2 is a scope line and the index's is a machine-readable
+ * timestamp, and a styler with an option for that would serve neither well.
+ */
+
+/** slate-800 / white — the dashboard's own header. */
+export const HEADER_FILL = 'FF1E293B'
+/** slate-100, for row banding. */
+export const BAND_FILL = 'FFF1F5F9'
+/** slate-200, for cell borders. */
+export const GRID = 'FFE2E8F0'
+
+export const DATE_FORMAT = 'dd mmm yyyy'
+export const COUNT_FORMAT = '#,##0'
+
+/** Every date renders as `01 Sep 2026`; this is what a date column must fit. */
+export const DATE_WIDTH_SAMPLE = '01 Sep 2026'
+
+/**
+ * One header cell: the fill, the white bold text, and the border that keeps the
+ * band from bleeding into it.
+ */
+export function styleHeaderCell(
+  cell: ExcelJS.Cell,
+  label: string,
+  align: 'left' | 'right' = 'left',
+): void {
+  cell.value = label
+  cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 }
+  cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADER_FILL } }
+  cell.alignment = { horizontal: align, vertical: 'middle' }
+  cell.border = {
+    top: { style: 'thin', color: { argb: HEADER_FILL } },
+    bottom: { style: 'thin', color: { argb: HEADER_FILL } },
+    left: { style: 'thin', color: { argb: HEADER_FILL } },
+    right: { style: 'thin', color: { argb: HEADER_FILL } },
+  }
+}
+```
+
+Then in `lib/export/workbook.ts`, delete these six private constants:
+
+```ts
+// slate-800 / white, the dashboard's own header, and slate-100 for the banding.
+const HEADER_FILL = 'FF1E293B'
+const BAND_FILL = 'FFF1F5F9'
+const GRID = 'FFE2E8F0'
+const DATE_FORMAT = 'dd mmm yyyy'
+const COUNT_FORMAT = '#,##0'
+```
+
+```ts
+/** The width a date column needs — every date renders as `01 Sep 2026`. */
+const DATE_WIDTH_SAMPLE = '01 Sep 2026'
+```
+
+and import them instead, adding to the existing import block at the top of the file:
+
+```ts
+import {
+  HEADER_FILL, BAND_FILL, GRID, DATE_FORMAT, COUNT_FORMAT, DATE_WIDTH_SAMPLE, styleHeaderCell,
+} from './sheet-style'
+```
+
+Then replace the per-cell header styling inside `buildRegisterSheet` — the block that sets
+`cell.value`, `cell.font`, `cell.fill`, `cell.alignment` and `cell.border` — with a call:
+
+```ts
+  const header = ws.getRow(HEADER_ROW)
+  REGISTER_HEADERS.forEach((label, i) => {
+    styleHeaderCell(header.getCell(i + 1), label, i + 1 === AMOUNT_COLUMN ? 'right' : 'left')
+  })
+  header.height = 20
+```
+
+Leave every other use of those constants exactly as it is — this step changes where the values are
+defined, not what any sheet looks like.
+
+- [ ] **Step 2: Prove the register export is unchanged**
+
+```bash
+npx.cmd vitest run tests/export/workbook.test.ts
+```
+
+Expected: PASS, with the same test count as before the edit. This is a pure refactor; a single
+changed assertion means a value moved when it should not have.
+
+```bash
+npx.cmd tsc --noEmit
+```
+
+Expected: no output.
+
+```bash
+git add lib/export/sheet-style.ts lib/export/workbook.ts
+git commit -m "refactor: one definition of the generated sheets' palette
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+```
+
+- [ ] **Step 3: Write the failing test**
 
 Create `tests/export/voucher-workbook.test.ts`:
 
@@ -820,7 +943,7 @@ describe('buildVoucherIndexWorkbook', () => {
 })
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [ ] **Step 4: Run it and watch it fail**
 
 ```bash
 npx.cmd vitest run tests/export/voucher-workbook.test.ts
@@ -828,13 +951,14 @@ npx.cmd vitest run tests/export/voucher-workbook.test.ts
 
 Expected: FAIL — `Failed to resolve import "@/lib/export/voucher-workbook"`.
 
-- [ ] **Step 3: Write the renderer**
+- [ ] **Step 5: Write the renderer**
 
 Create `lib/export/voucher-workbook.ts`:
 
 ```ts
 import ExcelJS from 'exceljs'
 import { fitColumnWidth } from './report'
+import { BAND_FILL, DATE_FORMAT, DATE_WIDTH_SAMPLE, styleHeaderCell } from './sheet-style'
 import {
   VOUCHER_INDEX_SHEET, VOUCHER_HEADERS, VOUCHER_HEADER_ROW, VOUCHER_FIRST_DATA_ROW,
   describeVoucherScope, type VoucherRow,
@@ -872,12 +996,12 @@ export type VoucherIndexInputForSheet = {
   meta: VoucherIndexMeta
 }
 
-// slate-800 / white, the dashboard's own header — the same palette as workbook.ts.
-const HEADER_FILL = 'FF1E293B'
-const BAND_FILL = 'FFF1F5F9'
-const DATE_FORMAT = 'dd mmm yyyy'
+/**
+ * The one format this sheet does not share with the register export: the
+ * staleness cell shows a TIME as well as a date, because a file regenerated
+ * twice in one morning must be distinguishable from itself.
+ */
 const TIMESTAMP_FORMAT = 'dd mmm yyyy hh:mm AM/PM'
-const DATE_WIDTH_SAMPLE = '01 Sep 2026'
 
 /** What the cell holds, as text, for width fitting. Dates measure as a sample. */
 function widthSample(value: string | Date | null): string {
@@ -918,11 +1042,7 @@ export async function buildVoucherIndexWorkbook(
 
   const header = ws.getRow(VOUCHER_HEADER_ROW)
   VOUCHER_HEADERS.forEach((label, i) => {
-    const cell = header.getCell(i + 1)
-    cell.value = label
-    cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 }
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADER_FILL } }
-    cell.alignment = { horizontal: 'left', vertical: 'middle' }
+    styleHeaderCell(header.getCell(i + 1), label)
   })
   header.height = 20
 
@@ -962,7 +1082,7 @@ export async function buildVoucherIndexWorkbook(
 }
 ```
 
-- [ ] **Step 4: Run the test and the type-checker**
+- [ ] **Step 6: Run the test and the type-checker**
 
 ```bash
 npx.cmd vitest run tests/export/voucher-workbook.test.ts
@@ -976,7 +1096,7 @@ npx.cmd tsc --noEmit
 
 Expected: no output.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit the renderer**
 
 ```bash
 git add lib/export/voucher-workbook.ts tests/export/voucher-workbook.test.ts
