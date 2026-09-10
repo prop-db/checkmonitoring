@@ -306,8 +306,10 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
 
 Plans 1 and 2 complete. Plan 3 (portal automation) still paused: the portal needs an `encoder`
 service account that does not exist, and until it does every `PortalEvent` simply queues.
-**1,025 tests across 59 files** — 992 across 55 as of Plan 3, plus 33 across 4 measured on the
-voucher-index branch (`voucher-index 15`, `voucher-query 6`, `voucher-workbook 7`, `voucher-route 5`).
+**1,048 tests across 61 files** — 1,025 across 59 as of the voucher-index branch, plus 23 added on
+voucher-screen: `voucher-index.test.ts` +2, `voucher-query.test.ts` +3, `tests/status-pill.test.ts`
++3, and `tests/vouchers-view.test.ts` +15 (a new file, hence the file count moving by one and not
+by four — the other three additions land in files the voucher-index branch already had).
 Arithmetic on two measured figures, not a reading off one full-suite run: the whole suite takes ~20
 minutes because every test crosses to ap-southeast-1, so it is run before a merge, not per change.
 

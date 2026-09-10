@@ -15,6 +15,28 @@ import {
 } from '@/lib/vouchers-view'
 
 /**
+ * The empty state used to say, unconditionally, "A voucher no cheque has been
+ * written for has no row here at all" — false for every one of the 17
+ * vouchers (measured in `voucher-query.ts`) whose only cheque IS written and
+ * is simply excluded as incomplete. A reader who searched one of those 17 was
+ * being told the opposite of what happened. Say what was actually searched or
+ * chosen instead — the four combinations of a search and a status filter —
+ * and point at the disclosure above the table rather than repeat its number
+ * here, so the two stay in one place to keep straight.
+ */
+function describeEmptyVoucherState(q: string, status: string | undefined): string {
+  if (!q && !status) {
+    return 'No cheque carries an AP voucher yet. Vouchers arrive with the register import and the approval-for-release workbook.'
+  }
+  const what = q && status
+    ? `No voucher contains "${q}" with status ${status}.`
+    : q
+      ? `No voucher contains "${q}".`
+      : `No voucher has status ${status}.`
+  return `${what} A voucher can also be missing because its only cheque has no recorded amount — see the note above the table.`
+}
+
+/**
  * VOUCHERS — which cheque pays this AP voucher, and where is it.
  *
  * The client, shown a document asking Finance to repoint three VLOOKUPs in the
@@ -45,7 +67,15 @@ export default async function VouchersPage({
   // The search goes into the SQL; the status is applied after resolution,
   // because CONTESTED, ALL CANCELLED and NOT KEYED exist only once a voucher's
   // cheques have been looked at together.
-  const candidates = await listVoucherCandidates(prisma, { voucher: q || undefined })
+  //
+  // The incomplete count rides alongside on the same round trip. It is not
+  // filtered by `q` or `status` — it always states the whole exclusion, the
+  // same way `summary.incomplete` does on the dashboard — because the point
+  // is to tell a reader the rule exists at all, not to recompute it per search.
+  const [candidates, incompleteCount] = await Promise.all([
+    listVoucherCandidates(prisma, { voucher: q || undefined }),
+    prisma.check.count({ where: { isIncomplete: true } }),
+  ])
   const matching = filterByStatus(resolveVoucherRows(candidates), status)
   const rows = matching.slice(0, VOUCHER_SCREEN_ROW_LIMIT)
 
@@ -95,9 +125,36 @@ export default async function VouchersPage({
       </form>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-xs font-medium tracking-wide text-slate-600">
-          {describeVoucherView(matching.length, rows.length, q || undefined, status)}
-        </p>
+        <div className="space-y-1">
+          <p className="text-xs font-medium tracking-wide text-slate-600">
+            {describeVoucherView(matching.length, rows.length, q || undefined, status)}
+          </p>
+
+          {/* ── THE DISCLOSURE ──────────────────────────────────────────────
+              `listVoucherCandidates` reads `isIncomplete = false` — the same
+              client ruling (2026-09-06) the dashboard, the register export
+              and the printed sheet all honour: a cheque with no recorded
+              amount is left out everywhere, because there is no figure of
+              theirs to add. Everywhere else that exclusion only shrinks a
+              total, which is a harmless thing for a total to do. HERE it can
+              erase the answer to the one question this screen exists to
+              answer: measured in `voucher-query.ts`, 17 vouchers are carried
+              ONLY by one of the excluded cheques, so they get no row and the
+              screen falls silent about them exactly as if no cheque had ever
+              been written. That silence is not neutral the way a smaller
+              total is — it reads as a fact that is not true. State the
+              exclusion, with the count, every time it is nonzero. */}
+          {incompleteCount > 0 && (
+            <p className="text-xs font-medium tracking-wide text-slate-500">
+              EXCLUDES {incompleteCount.toLocaleString('en-PH')} CHEQUE{incompleteCount === 1 ? '' : 'S'} WITH
+              NO RECORDED AMOUNT — a voucher carried only by one of them has no row here and none
+              in the file.{' '}
+              <Link href="/?incomplete=1" className="underline underline-offset-2">
+                Show them
+              </Link>.
+            </p>
+          )}
+        </div>
 
         <div className="flex flex-wrap items-center gap-3">
           {/* The whole index, NOT the filtered view: a lookup extract has to
@@ -116,9 +173,7 @@ export default async function VouchersPage({
       {rows.length === 0
         ? (
           <EmptyState title={anyFilter ? 'NO VOUCHERS MATCH' : 'NO VOUCHERS ARE KNOWN'}>
-            {anyFilter
-              ? 'Nothing carries that voucher with that status. A voucher no cheque has been written for has no row here at all.'
-              : 'No cheque carries an AP voucher yet. Vouchers arrive with the register import and the approval-for-release workbook.'}
+            {describeEmptyVoucherState(q, status)}
           </EmptyState>
         )
         : <VoucherTable rows={rows} />}

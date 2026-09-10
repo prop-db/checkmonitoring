@@ -15,9 +15,9 @@ import { buildVoucherIndexWorkbook } from '@/lib/export/voucher-workbook'
  * before it reads anything at all.
  *
  * A 401, not a redirect: this is fetched as a download, and a 307 to /login
- * arrives as an HTML login page saved under an .xlsx filename — which, given
- * the filename is fixed and an Excel formula points at it, would be a login
- * page silently answering every VLOOKUP in the Executive Report.
+ * arrives as an HTML login page saved under an .xlsx filename — a file whoever
+ * requested it will open expecting cheque data and get a login form instead,
+ * with nothing in the browser's download UI to say so first.
  *
  * FINANCE_USER, not admin. This is a routine file somebody produces whenever
  * the Executive Report is refreshed, and there is currently one active
@@ -64,8 +64,9 @@ export async function GET(_request: Request): Promise<Response> {
     status: 200,
     headers: {
       'content-type': XLSX_MIME,
-      // FIXED. The Executive Report stores this name inside an external
-      // reference; a dated filename would break the link on every regeneration.
+      // FIXED — see `VOUCHER_INDEX_FILENAME` in voucher-index.ts. A stable
+      // name is cheaper for whoever downloads this to find and file than a
+      // dated one, and costs nothing to keep; no formula depends on it now.
       'content-disposition': `attachment; filename="${VOUCHER_INDEX_FILENAME}"`,
       // No `content-length` — the runtime sets it from the body it actually sends.
       'cache-control': 'no-store, no-cache, must-revalidate',

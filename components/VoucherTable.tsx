@@ -7,7 +7,11 @@ const fmtDate = (d: Date | null) =>
 
 /**
  * One voucher per row, exactly as the Excel index lays it out, minus RELEASED
- * — empty on every row today and shown on the cheque's own page when it fills.
+ * — not because it is empty (`markReleased` in `lib/domain/actions.ts` writes
+ * it; only register- and backfill-derived releases leave it null), but because
+ * a release date belongs on the cheque's own page, which the CHECK NUMBER
+ * column already links to. The Excel index still carries the column, for a
+ * reader with no browser open.
  *
  * A server component, on purpose: nothing here is interactive. The cheque
  * number is a link to the cheque, the status is a pill, and the remarks wrap.

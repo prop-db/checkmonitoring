@@ -61,7 +61,7 @@ describe('GET /api/export/vouchers — the guard', () => {
 })
 
 describe('GET /api/export/vouchers — the file', () => {
-  it('serves the fixed filename an external VLOOKUP depends on', async () => {
+  it('serves the extract under its fixed filename', async () => {
     await makeCheck({ apvNumbers: ['AP-ST042652'] })
     const res = await get()
     expect(res.status).toBe(200)

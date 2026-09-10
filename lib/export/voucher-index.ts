@@ -16,9 +16,17 @@ import { statusWords } from './report'
  */
 
 /**
- * FIXED, both of them. They are half of an external reference stored inside the
- * Executive Report: `='…\[CHECK BY VOUCHER.xlsx]INDEX'!$A$2`. A dated filename
- * would break the link on every regeneration, which is the failure being fixed.
+ * FIXED, both of them — not because a formula depends on them. It used to be
+ * true: an external VLOOKUP into `CHECK MONITORING <date>.xlsx` is exactly the
+ * failure this export was built to fix (see the module comment above), and
+ * while that VLOOKUP existed a dated filename would have broken it on every
+ * regeneration. The register was retired on 2026-09-10, and nothing outside
+ * this system depends on the name, the sheet or the timestamp cell any more.
+ *
+ * They stay fixed anyway, for a plainer reason: `CHECK BY VOUCHER.xlsx` is
+ * this screen's extract, and a stable name is cheaper to consume than a dated
+ * one — a bookmark or a shared-drive shortcut keeps working across every
+ * regeneration — and costs nothing to keep.
  *
  * The price of a fixed name is that a stale copy looks identical to a fresh one,
  * which is why the generation timestamp goes in a fixed cell — see
@@ -27,7 +35,7 @@ import { statusWords } from './report'
 export const VOUCHER_INDEX_SHEET = 'INDEX'
 export const VOUCHER_INDEX_FILENAME = 'CHECK BY VOUCHER.xlsx'
 
-/** Where the dashboard's anchor points. Stated once so the link and the route agree. */
+/** Where `/vouchers`' EXPORT EXCEL button points. Stated once so the link and the route agree. */
 export const VOUCHER_INDEX_HREF = '/api/export/vouchers'
 
 /**

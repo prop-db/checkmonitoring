@@ -15,12 +15,14 @@ import {
 /**
  * THE STALENESS CELL, and the reason it is fixed.
  *
- * `CHECK BY VOUCHER.xlsx` never changes its name, because an external VLOOKUP
- * needs a stable path. The cost is that a copy left on a shared drive for three
- * months looks exactly like one generated this morning. So the Executive Report
- * reads the age off the sheet itself:
- *
- *     ='…\[CHECK BY VOUCHER.xlsx]INDEX'!$A$2
+ * `CHECK BY VOUCHER.xlsx` never changes its name. See `VOUCHER_INDEX_SHEET` /
+ * `VOUCHER_INDEX_FILENAME` in `voucher-index.ts` for why: not because a
+ * formula needs a stable path any more, but because this is the `/vouchers`
+ * screen's extract, and a fixed name is cheaper to find and file than a dated
+ * one — at no cost. The cost that DOES come with a fixed name is that a copy
+ * left on a shared drive for three months looks exactly like one generated
+ * this morning, so the sheet states its own age itself, in a cell just as
+ * fixed as the name.
  *
  * A sheet that states its own age beats a filename nobody reads. Do not move it.
  */
@@ -147,7 +149,8 @@ export async function buildVoucherIndexWorkbook(
   })
 
   // The header row filters, so a Finance user can find one voucher by eye
-  // without disturbing the range an external VLOOKUP reads.
+  // without paging through the file — the same reason `/vouchers` has a
+  // search box, for whoever opened the download instead.
   ws.autoFilter = {
     from: { row: VOUCHER_HEADER_ROW, column: 1 },
     to: { row: VOUCHER_HEADER_ROW + rows.length, column: VOUCHER_HEADERS.length },
