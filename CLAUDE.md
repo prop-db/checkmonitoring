@@ -13,6 +13,34 @@ without anyone re-encoding the cheque.**
 Next.js 15 (App Router) · Prisma 6 · PostgreSQL on Neon (ap-southeast-1) · NextAuth v5 + argon2id ·
 Vitest · TypeScript strict. Deployed on Vercel at `checkmonitoring.rclcompanies.com`.
 
+## THIS SYSTEM IS THE RECORD. THE SPREADSHEET IS NOT.
+
+Client decision, 2026-09-10: **"No more updating thru excel."** `CHECK MONITORING <date>.xlsx`
+stops being maintained. The 9 September load was the last register import, and there should never
+be another.
+
+That is a change of premise, not a preference. Until now the spreadsheet was the real record and
+this app was catching up to it; from here the app IS the record and the register is history.
+It follows that:
+
+- **Do not build anything that assumes a future register file.** No incremental register import,
+  no watcher, no re-import path. `scripts/import-workbook.ts` stays for the historical load it
+  performed and for seeding a fresh database; it is not part of the routine.
+- **The Acumatica sync is now the only way a cheque arrives**, which makes it load-bearing in a
+  way it was not before. While Excel was maintained, a sync nobody ran meant stale data with a
+  paper fallback. Now it means the cheque does not exist. **A scheduled sync is a prerequisite
+  for switching the team off the spreadsheet**, not an improvement for later.
+- **The approval workbook is NOT covered by this decision.** `APPROVAL FOR RELEASE <date>.xlsx` is
+  exported from Acumatica rather than typed by hand — a report, not a parallel record. It
+  continues, and `lib/import/bills.ts` continues with it.
+- **Anything Finance used to type into the register must be typeable here**, or somebody will
+  reach for Excel out of necessity and the two records will diverge again. The register carried
+  remarks, point person, who is holding the cheque, and clearing details. The columns exist;
+  each needs to be reachable on screen.
+- Where the two disagreed, **the register was wrong** — 94 amounts and 1,958 company assignments,
+  measured below. That is the strongest argument for this decision, and worth repeating to
+  anyone who wants the spreadsheet back.
+
 ## Commands
 
 ```bash
@@ -274,7 +302,10 @@ Production is `check_monitoring_prod` on Neon. Both outstanding migrations were 
 
 ### What is missing, measured 2026-09-10 — in priority order
 
-1. **Nothing is scheduled.** `vercel.json` has no cron and there is no scheduled sync. Acumatica is
+1. **Nothing is scheduled, and since 2026-09-10 this is a PREREQUISITE rather than a gap** — with
+   the spreadsheet retired there is no other route a cheque has into the system, and a sync nobody
+   runs means the cheque does not exist anywhere Finance can see it. Build it before the team is
+   told to stop using Excel. `vercel.json` has no cron and there is no scheduled sync. Acumatica is
    read only when somebody clicks SYNC NOW; the last run was manual. The first arrow of
    `ACUMATICA -> CHECK MONITORING -> PORTAL` moves only when a human remembers.
 2. **One active FINANCE_ADMIN**, of three active users. This stopped being housekeeping the moment
