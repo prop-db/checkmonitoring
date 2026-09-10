@@ -1,21 +1,18 @@
 import { exportHref, printHref, type DashboardSelection } from '@/lib/dashboard-view'
-import { VOUCHER_INDEX_HREF } from '@/lib/export/voucher-index'
 
 /**
- * The four things a Finance user does with the list in front of them.
+ * The three things a Finance user does with the list in front of them.
  *
- * Every live action is a plain anchor, not a button with an onClick: the
- * export, the print sheet and the voucher index have to work on a workstation
- * whose JavaScript has failed, the same reasoning as the filter bar and the
- * sign-out form.
+ * Both live actions are plain anchors, not buttons with an onClick: the export
+ * and the print sheet have to work on a workstation whose JavaScript has
+ * failed, the same reasoning as the filter bar and the sign-out form. Each
+ * carries the SAME parameters the dashboard is reading, so the file and the
+ * sheet hold exactly the view on screen.
  *
- * The first two carry the SAME parameters the dashboard is reading, so the file
- * and the sheet hold exactly the view on screen. THE VOUCHER INDEX DOES NOT,
- * and that is the one thing to notice about this component: it is a lookup
- * table, so it has to cover every voucher rather than the ones that survived a
- * filter. Its label and its `title` both say so, because a file that quietly
- * held more than the screen did would be discovered by someone finding rows
- * they thought they had excluded.
+ * The voucher index is deliberately NOT here. It briefly was, on 2026-09-10,
+ * and it did not belong: it ignores every parameter this bar carries, because
+ * a lookup extract has to cover every voucher rather than the filtered view.
+ * It lives on /vouchers, the screen that explains it, beside its own EXPORT.
  */
 export function QuickActions({ selection }: { selection: DashboardSelection }) {
   return (
@@ -35,23 +32,6 @@ export function QuickActions({ selection }: { selection: DashboardSelection }) {
         className="rounded-lg bg-white px-4 py-2 text-sm font-medium tracking-wide text-navy ring-1 ring-hairline transition hover:ring-navy"
       >
         PRINT RELEASE LIST
-      </a>
-
-      {/**
-        * THE VOUCHER INDEX — the file the Finance Executive Report looks into.
-        *
-        * Unlike the two anchors above it, this one carries NO dashboard
-        * parameters, because it is not the view on screen: it is every voucher
-        * this system knows, which is what a lookup table has to be. The label
-        * says so, rather than leaving a reader to discover it by opening the
-        * file and finding rows they had filtered out.
-        */}
-      <a
-        href={VOUCHER_INDEX_HREF}
-        title="Every AP voucher and the cheque that pays it. Ignores the filters on this page — a lookup table has to cover everything. Save it where the Finance Executive Report expects to find it."
-        className="rounded-lg bg-white px-4 py-2 text-sm font-medium tracking-wide text-navy ring-1 ring-hairline transition hover:ring-navy"
-      >
-        VOUCHER INDEX (ALL CHEQUES)
       </a>
 
       {/**
