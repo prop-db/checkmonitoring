@@ -259,7 +259,7 @@ describe('upsertCheck — re-importing', () => {
         scheduledPickupTime: '10:30', pickupRep: 'J. CRUZ',
         portalConfirmedAt: new Date('2026-02-05T03:00:00Z'),
         releasedById: user.id, releasedAt: new Date('2026-02-06T04:00:00Z'),
-        orNumber: 'OR-000123', orDate: new Date('2026-02-07T00:00:00Z'),
+        orNumber: 'OR-000123', orDate: new Date('2026-02-07T00:00:00Z'), receiptType: 'OR',
         clearingStatus: 'DEPOSITED', crNumber: 'CR 6336',
         clearedDate: new Date('2026-02-08T00:00:00Z'),
         cancelledById: user.id, cancelledAt: new Date('2026-02-09T05:00:00Z'),

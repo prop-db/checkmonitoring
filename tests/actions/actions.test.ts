@@ -295,7 +295,7 @@ describe('markReleased', () => {
     const user = await makeUser()
     const check = await makeCheck({ status: 'SIGNED', eligibility: 'SUPPLIER' })
     await markReadyForRelease(testDb, { checkId: check.id, userId: user.id, availablePickupDate: PICKUP, now: NOW })
-    await markReleased(testDb, { checkId: check.id, userId: user.id, orNumber: 'OR-1', now: NOW })
+    await markReleased(testDb, { checkId: check.id, userId: user.id, orNumber: 'OR-1', receiptType: 'OR', now: NOW })
 
     const events = await testDb.portalEvent.findMany({ where: { checkId: check.id } })
     const released = events.find((e) => (e.payload as { action?: string }).action === 'RELEASED')
@@ -487,7 +487,7 @@ describe('portal event identity', () => {
     await markReadyForRelease(testDb, { checkId: check.id, userId: user.id, availablePickupDate: PICKUP, now: NOW })
     await revertAvailability(testDb, { checkId: check.id, userId: user.id, reason: 'Wrong pickup date', now: NOW })
     await markReadyForRelease(testDb, { checkId: check.id, userId: user.id, availablePickupDate: PICKUP, now: LATER })
-    await markReleased(testDb, { checkId: check.id, userId: user.id, orNumber: 'OR-1', now: LATER })
+    await markReleased(testDb, { checkId: check.id, userId: user.id, orNumber: 'OR-1', receiptType: 'OR', now: LATER })
 
     const events = await testDb.portalEvent.findMany({ where: { checkId: check.id } })
     // Keyed by idempotencyKey rather than compared as an ordered list: all four

@@ -1,8 +1,10 @@
 'use client'
 
 import { useState, useTransition } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { MAX_BULK_SELECTION } from '@/lib/bulk'
+import { ReceiptFields, EMPTY_RECEIPT, receiptTypeMissing, type ReceiptValue } from './ReceiptFields'
 import {
   bulkSignAction, bulkReadyForReleaseAction, bulkReleaseAction,
   type BulkActionResult, type BulkOutcome,
@@ -37,13 +39,31 @@ export function BulkActionBar({
   const [pending, startTransition] = useTransition()
   const [result, setResult] = useState<BulkActionResult | null>(null)
   const [pickupDate, setPickupDate] = useState('')
+  const [receipt, setReceipt] = useState<ReceiptValue>(EMPTY_RECEIPT)
+  /**
+   * The cheque just released with an empty box, so the offer to record its
+   * receipt can be made at the moment "I'll do it later" is decided — rather
+   * than left to somebody remembering the page exists.
+   */
+  const [receiptPending, setReceiptPending] = useState<string | null>(null)
 
   const overCap = checkIds.length > MAX_BULK_SELECTION
   const disabled = pending || overCap
 
+  /**
+   * The receipt box appears for ONE ticked cheque, which is the client's own
+   * shape for it: one supplier at the counter, one receipt. `bulkReleaseAction`
+   * refuses a receipt typed against a larger selection, so this is the courtesy
+   * and that is the control. A batch releases with no box at all, which is what
+   * makes the receipt optional.
+   */
+  const single = checkIds.length === 1
+  const typeMissing = receiptTypeMissing(receipt)
+
   const submit = (
     action: (fd: FormData) => Promise<BulkActionResult>,
     extra: Record<string, string> = {},
+    onSuccess?: () => void,
   ) => {
     const formData = new FormData()
     for (const id of checkIds) formData.append('checkId', id)
@@ -52,9 +72,17 @@ export function BulkActionBar({
       const r = await action(formData)
       setResult(r)
       if (r.ok && r.succeeded > 0) {
+        // Cleared first, so a sign or a ready-for-release never leaves the
+        // previous release's receipt offer standing over an unrelated cheque.
+        setReceiptPending(null)
+        onSuccess?.()
         // Refresh before clearing: the rows the user is looking at have new
         // statuses, and the result panel below stays on screen to say which.
         router.refresh()
+        // Emptied with the selection. A reference left in the box would be
+        // offered again against the next cheque ticked, which is the one way
+        // this control could put a supplier's receipt on the wrong cheque.
+        setReceipt(EMPTY_RECEIPT)
         onDone()
       }
     })
@@ -104,7 +132,7 @@ export function BulkActionBar({
 
         {canRelease && (
           <button
-            type="button" disabled={disabled}
+            type="button" disabled={disabled || typeMissing}
             onClick={() => {
               // The highest-risk action in the system: the cheque physically
               // leaves the building and RELEASED leads only to VOIDED.
@@ -112,7 +140,19 @@ export function BulkActionBar({
                 `Mark ${checkIds.length} cheque(s) RELEASED? This records that the cheques have ` +
                 'been physically handed over and cannot be undone.',
               )) return
-              submit(bulkReleaseAction)
+              // The receipt travels only with a single cheque. For a batch the
+              // box is not even drawn, and the server refuses one anyway.
+              const withReceipt = single && receipt.orNumber.trim() !== ''
+              const releasedId = single ? checkIds[0] : null
+              submit(
+                bulkReleaseAction,
+                single ? {
+                  orNumber: receipt.orNumber,
+                  orDate: receipt.orDate,
+                  receiptType: receipt.receiptType,
+                } : {},
+                () => setReceiptPending(withReceipt ? null : releasedId),
+              )
             }}
             className="rounded-lg bg-rose-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
@@ -120,6 +160,32 @@ export function BulkActionBar({
           </button>
         )}
       </div>
+
+      {canRelease && single && (
+        <div className="mt-3 rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200">
+          <p className="text-xs font-semibold tracking-widest text-slate-600">
+            SUPPLIER RECEIPT — OPTIONAL
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            The Official or Collection Receipt the supplier hands over. Leave it empty to release
+            now and record the receipt later.
+          </p>
+          <div className="mt-3">
+            <ReceiptFields
+              value={receipt} onChange={setReceipt} idPrefix="bulk-receipt" disabled={pending}
+            />
+          </div>
+        </div>
+      )}
+
+      {canRelease && !single && checkIds.length > 1 && (
+        // Said rather than left to be discovered by a refusal. The box is not
+        // drawn for a batch, and a reader who expected it should know why.
+        <p className="mt-3 text-xs text-slate-500">
+          A RECEIPT REFERENCE BELONGS TO ONE CHEQUE. Tick a single cheque to record one, or release
+          these together and add each receipt afterwards.
+        </p>
+      )}
 
       {overCap && (
         <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
@@ -137,6 +203,20 @@ export function BulkActionBar({
           {result.succeeded > 0 && (
             <p className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">
               {result.succeeded} CHEQUE{result.succeeded === 1 ? '' : 'S'} UPDATED.
+              {receiptPending && (
+                // The offer, at the moment "later" is chosen. Without it, "add
+                // the receipt later" means remembering that a page exists.
+                <>
+                  {' '}
+                  <Link
+                    href={`/receipts/${receiptPending}`}
+                    className="font-semibold underline underline-offset-2"
+                  >
+                    RECORD THE SUPPLIER RECEIPT
+                  </Link>
+                  {' when the paper reaches you.'}
+                </>
+              )}
             </p>
           )}
           {failures.length > 0 && (

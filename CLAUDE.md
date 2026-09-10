@@ -66,6 +66,16 @@ These are safety properties, not preferences. Each exists because of a specific 
    the same transaction, because the detached rows would otherwise point at nothing. There is no
    bulk version and must not be one. Measured 2026-09-04: 98 of the 129 incomplete cheques qualify;
    the other 31 (25 RELEASED, 6 READY_FOR_RELEASE) do not, and that is the answer, not a gap.
+11. **A supplier's receipt is never written to `crNumber`.** The OR/CR box on the release form is
+   the paper the supplier hands over when they collect — Official Receipt or Collection Receipt —
+   and it lives in `orNumber` / `orDate` / `receiptType`. `crNumber` sits beside `clearingStatus`
+   and `clearedDate` and holds the **bank's** clearing reference, recorded weeks later. The two
+   abbreviate alike and mean nothing like each other: a receipt number in `crNumber` reads, to every
+   report and every reconciliation, as evidence that the money cleared — for a cheque that was
+   merely handed across a counter. `markReleased` and `recordReceipt` write only the three receipt
+   columns; `recordClearing` is the only writer of `crNumber`. Pinned by `tests/actions/receipt.test.ts`.
+   The **type is stored, not parsed back out of the reference** — "OR-000123", "4471" and "CR 88"
+   are all references a supplier writes, and a prefix rule over them is a guess dressed as a fact.
 
 ## Things that will catch you out
 
@@ -99,7 +109,7 @@ run when `DATABASE_URL_TEST` is unset or equal to `DATABASE_URL`.
 
 | Path | Responsibility |
 | --- | --- |
-| `lib/domain/` | Pure rules. No database, network, filesystem, clock. `check-status.ts` (the ladder), `eligibility.ts` (the portal gate). `actions.ts` is the deliberate exception — it takes `db` and is the only module that changes a status. |
+| `lib/domain/` | Pure rules. No database, network, filesystem, clock. `check-status.ts` (the ladder), `eligibility.ts` (the portal gate), `receipt.ts` (the OR/CR box — see rule 11). `actions.ts` is the deliberate exception — it takes `db` and is the only module that changes a status. |
 | `lib/import/` | Workbook parsing → `parse.ts`, `field-sniffer.ts`, `company.ts`, `implied-status.ts`, `bills.ts`, and `upsert.ts` — the single write path where duplicate prevention lives. |
 | `lib/integrations/acumatica/` | OData reader and mapper. |
 | `lib/sync/run.ts` | Incremental sync, watermark with a 120-minute overlap. |
@@ -214,7 +224,7 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
 
 Plans 1 and 2 complete. Plan 3 (portal automation) paused after Task 1 at the client's request —
 the portal needs an `encoder` service account that does not yet exist, and until then events simply
-queue. 942 tests across 53 files.
+queue. 983 tests across 55 files.
 
 Production is `check_monitoring_prod` on Neon — created clean, reference data only, one real admin,
 no demo cheques. The historical import was running at last handoff; it is idempotent, so if it was
@@ -234,3 +244,11 @@ decide whether to delete `middleware.ts` or make it Edge-compatible.
 `scripts/backfill-apv-numbers.ts` has not been run anywhere but a dry run against the test database.
 Apply the migration, then dry-run the backfill, then run it. Re-import the approval workbook
 afterwards, not before — its row 81 can only resolve once the register's vouchers are in.
+
+**Not yet applied to production (2026-09-10):** migration `20260910000000_check_receipt_type`, which
+adds the `ReceiptType` enum and `Check.receiptType`. Applied to the TEST database only. It needs no
+backfill — every existing row reads NULL, which is the truth about all of them, because no screen
+has ever offered the choice. It is additive and nullable, so it can be applied while an import runs;
+what CANNOT wait is `prisma generate`, which has already run against the shared `node_modules`, so
+any process started against production after 2026-09-10 09:26 will select a column production does
+not have until the migration is applied.

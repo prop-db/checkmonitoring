@@ -8,8 +8,9 @@ import { DomainError } from '@/lib/domain/errors'
 import { isNextControlFlowError } from '@/lib/next-errors'
 import {
   markSigned, markReadyForRelease, revertAvailability,
-  markReleased, recordClearing, cancelCheck, deleteIncompleteCheck,
+  markReleased, recordClearing, cancelCheck, deleteIncompleteCheck, recordReceipt,
 } from '@/lib/domain/actions'
+import { readReceiptFields } from '@/lib/receipt-form'
 
 export type ActionResult = { ok: true } | { ok: false; message: string }
 
@@ -71,11 +72,36 @@ export async function revertAction(formData: FormData): Promise<ActionResult> {
 export async function releaseAction(formData: FormData): Promise<ActionResult> {
   const user = await requireUser()
   const checkId = str(formData, 'checkId')
+  const receipt = readReceiptFields(formData)
+  if (!receipt.ok) return { ok: false, message: receipt.message }
   return run(checkId, () => markReleased(prisma, {
     checkId, userId: user.id,
-    orNumber: str(formData, 'orNumber') || undefined,
-    orDate: date(formData, 'orDate') ?? undefined,
+    orNumber: receipt.orNumber,
+    orDate: receipt.orDate,
+    receiptType: receipt.receiptType,
     remarks: str(formData, 'remarks') || undefined,
+    now: new Date(),
+  }))
+}
+
+/**
+ * The receipt a supplier hands over, typed in after the cheque was released.
+ *
+ * Open to any signed-in Finance user, like `releaseAction` beside it. It
+ * records a reference against a release that has already happened; it moves no
+ * status, releases no money, and cannot clear a receipt that is already there
+ * (`recordReceipt` refuses an overwrite). The audit row names whoever typed it.
+ */
+export async function recordReceiptAction(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser()
+  const checkId = str(formData, 'checkId')
+  const receipt = readReceiptFields(formData)
+  if (!receipt.ok) return { ok: false, message: receipt.message }
+  return run(checkId, () => recordReceipt(prisma, {
+    checkId, userId: user.id,
+    orNumber: receipt.orNumber ?? '',
+    orDate: receipt.orDate,
+    receiptType: receipt.receiptType,
     now: new Date(),
   }))
 }

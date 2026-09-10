@@ -52,7 +52,27 @@ async function inTx<T>(db: Db, fn: (tx: Prisma.TransactionClient) => Promise<T>)
 export const IMMUTABLE_ON_UPDATE = [
   'status', 'signedById', 'signedAt', 'readyById', 'readyAt',
   'availablePickupDate', 'scheduledPickupDate', 'scheduledPickupTime', 'pickupRep',
-  'portalConfirmedAt', 'releasedById', 'releasedAt', 'orNumber', 'orDate',
+  'portalConfirmedAt', 'releasedById', 'releasedAt',
+  // The supplier's receipt, all three together.
+  //
+  // `receiptType` is here rather than in IMPORT_WRITABLE, and the test above
+  // forces the question, so here is the reasoning rather than the pattern
+  // match. The line rule 4 draws is between what the SOURCE states and what
+  // FINANCE knows — `apvNumbers` is import-writable precisely because a voucher
+  // is a fact the register prints and nobody here can edit. A receipt type is
+  // the opposite on both counts. Neither source states it: the register has no
+  // receipt column at all, and Acumatica's payments inquiry knows nothing about
+  // a piece of paper a supplier hands over at our counter. And it is entered by
+  // a Finance user, on the release form or afterwards on the receipt page, so
+  // an import that wrote it would be overwriting somebody's answer with a
+  // guess — the exact failure rule 4 exists for, at the scale of 12,000 rows
+  // and with no error to notice.
+  //
+  // It also has to travel with `orNumber` and `orDate`, which have been
+  // immutable since Plan 1. A type left writable while its reference is
+  // protected could drift apart from it: an import could re-answer "which kind
+  // of receipt" for a number it cannot see.
+  'orNumber', 'orDate', 'receiptType',
   'clearingStatus', 'crNumber', 'clearedDate', 'cancelledById', 'cancelledAt', 'cancelReason',
 ] as const satisfies readonly (keyof Check)[]
 

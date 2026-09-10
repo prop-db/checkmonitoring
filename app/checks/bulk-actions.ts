@@ -8,6 +8,7 @@ import { isNextControlFlowError } from '@/lib/next-errors'
 import { markSigned, markReadyForRelease, markReleased } from '@/lib/domain/actions'
 import { parseSelection, chunkSelection } from '@/lib/bulk'
 import { listTodaysReleaseIds } from '@/lib/queries'
+import { readReceiptFields, receiptWasTyped } from '@/lib/receipt-form'
 
 /**
  * The spec's §13.1 minimum-click workflow: tick several cheques, press one
@@ -149,6 +150,23 @@ export async function bulkReadyForReleaseAction(formData: FormData): Promise<Bul
  * server action is an HTTP endpoint, reachable by anyone holding a session
  * whether or not a button points at it, so this test is the control and the
  * hidden button in `BulkActionBar` is only a courtesy.
+ *
+ * **THE RECEIPT BOX, AND WHY IT IS ONE CHEQUE ONLY.**
+ * The client's requirement is about ticking — "Check released can be ticked and
+ * once ticked it should have a box for OR or CR reference and marked as
+ * RELEASED" — so this is where the box lives. One ticked cheque is one supplier
+ * at the counter handing over one receipt, and it is the only shape in which a
+ * reference has an owner.
+ *
+ * A receipt typed against a SELECTION is refused outright, before anything is
+ * released. Spreading one reference over a batch would write the supplier's
+ * number against cheques they never issued it for, and afterwards every one of
+ * them would be indistinguishable from a recorded fact. Refusing costs a
+ * Finance user one untick; the alternative costs a receipt number that means
+ * nothing on cheques nobody can now tell apart.
+ *
+ * A batch with an EMPTY box releases exactly as it always did. That is what
+ * makes the receipt optional, and RELEASE ALL at the counter depends on it.
  */
 export async function bulkReleaseAction(formData: FormData): Promise<BulkActionResult> {
   const user = await requireUser()
@@ -158,9 +176,24 @@ export async function bulkReleaseAction(formData: FormData): Promise<BulkActionR
   const selection = parseSelection(ids(formData))
   if (!selection.ok) return { ok: false, message: selection.message }
 
+  const receipt = readReceiptFields(formData)
+  if (!receipt.ok) return { ok: false, message: receipt.message }
+  if (receiptWasTyped(receipt) && selection.checkIds.length !== 1) {
+    return {
+      ok: false,
+      message:
+        'A receipt reference belongs to one cheque, and ' +
+        `${selection.checkIds.length} are ticked. Untick the rest, or release them together and ` +
+        'add each receipt afterwards.',
+    }
+  }
+
   const now = new Date()
   return runEach(selection.checkIds, (checkId) =>
-    markReleased(prisma, { checkId, userId: user.id, now }))
+    markReleased(prisma, {
+      checkId, userId: user.id, now,
+      orNumber: receipt.orNumber, orDate: receipt.orDate, receiptType: receipt.receiptType,
+    }))
 }
 
 /**

@@ -1,0 +1,49 @@
+-- The supplier's receipt gains the one thing it was missing: which kind it is.
+--
+-- The client's requirement, verbatim: "Check released can be ticked and once
+-- ticked it should have a box for OR or CR reference and marked as RELEASED."
+-- Clarified in the same conversation: the reference is the supplier's receipt —
+-- Official Receipt or Collection Receipt, the paper handed over when the cheque
+-- is collected — and it is OPTIONAL. A cheque may be released with the box
+-- empty and the receipt added later.
+--
+-- `Check.orNumber` and `Check.orDate` already existed and `markReleased`
+-- already wrote them; nothing ever offered them on a screen. What did not exist
+-- is WHICH KIND of receipt the number names.
+--
+-- WHY A COLUMN RATHER THAN A PREFIX RULE OVER `orNumber`.
+-- "OR-000123", "4471" and "CR 88" are all references a supplier writes by hand.
+-- A parser over that string would answer "which kind" with a guess, and this
+-- project has already measured what positional and prefix guesses cost it: the
+-- register's two reference columns hold the opposite of what their headers say,
+-- and reading either positionally produced four classes of wrong payee. Finance
+-- knows which piece of paper it took; asking once and storing the answer is
+-- what makes "how many CRs did we take in September" a query instead of a
+-- re-parse of 21,817 free-text cells.
+--
+-- CR HERE IS A COLLECTION RECEIPT AND IS NOT `Check.crNumber`.
+-- `crNumber` sits beside `clearingStatus` (NONE/DEPOSITED/ENCASHED/CLEARED) and
+-- `clearedDate` and holds the BANK's clearing reference, recorded weeks after
+-- release when the cheque comes back through the account. The two abbreviate to
+-- the same two letters and mean nothing like each other. A supplier's receipt
+-- number written into `crNumber` would read, to every report and every
+-- reconciliation, as evidence that the money had cleared — for a cheque that
+-- had merely been handed across a counter. Nothing in this change writes
+-- `crNumber`, and `tests/actions/actions.test.ts` pins that.
+CREATE TYPE "ReceiptType" AS ENUM ('OR', 'CR');
+
+-- NULLABLE, and deliberately WITHOUT a default. Every existing row reads NULL —
+-- "nobody said" — which is the truth about all 21,817 of them: no screen has
+-- ever offered the choice. A `DEFAULT 'OR'` would answer, on every historical
+-- cheque at once, a question nobody was asked, and the answer would afterwards
+-- be indistinguishable from one a Finance user actually gave.
+--
+-- It is null exactly when `orNumber` is. `normaliseReceipt` drops a type with
+-- no reference and `checkReceipt` refuses a reference with no type, so the pair
+-- is written and cleared together. That invariant is enforced in the domain
+-- rather than by a CHECK constraint because `orNumber` predates it and the
+-- production table already holds released cheques whose receipt was never
+-- recorded either way; a constraint would have to be written against data
+-- nobody has re-measured, and rule 4's import path never touches these columns
+-- anyway.
+ALTER TABLE "Check" ADD COLUMN     "receiptType" "ReceiptType";
