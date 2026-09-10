@@ -12,6 +12,7 @@ import {
  */
 function candidate(overrides: Partial<CheckCandidate> & { voucher: string }): CheckCandidate {
   return {
+    checkId: 'chk_0001',
     checkNumber: '6000353106',
     status: 'SIGNED',
     bank: 'BPI',
@@ -156,6 +157,26 @@ describe('resolveVoucherRows — one row per voucher', () => {
       staged: [],
     })
     expect(rows.map((r) => r.voucher)).toEqual(['AP-A1000001', 'AP-ST000002'])
+  })
+
+  it('carries the cheque id so a screen can link the number', () => {
+    const [row] = resolveVoucherRows({
+      checks: [candidate({ voucher: 'AP-ST042652', checkId: 'chk_link' })],
+      staged: [],
+    })
+    expect(row.checkId).toBe('chk_link')
+  })
+
+  it('has no cheque id when it has no cheque number', () => {
+    const rows = resolveVoucherRows({
+      checks: [
+        candidate({ voucher: 'AP-ST036567', checkId: 'chk_a', checkNumber: '6000300003', status: 'SIGNED' }),
+        candidate({ voucher: 'AP-ST036567', checkId: 'chk_b', checkNumber: '6000300004', status: 'SIGNED' }),
+      ],
+      staged: [],
+    })
+    expect(rows[0].checkNumber).toBeNull()
+    expect(rows[0].checkId).toBeNull()
   })
 })
 

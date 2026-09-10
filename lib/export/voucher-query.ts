@@ -30,6 +30,7 @@ export async function listVoucherCandidates(db: Db): Promise<VoucherIndexInput> 
      */
     db.$queryRaw<RawCheckCandidate[]>`
       select v.voucher                                  as "voucher",
+             c.id                                       as "checkId",
              c."checkNumber"                            as "checkNumber",
              c.status::text                             as "status",
              b.code                                     as "bank",

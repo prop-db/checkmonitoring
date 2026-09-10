@@ -10,6 +10,7 @@ const GENERATED_AT = new Date('2026-09-10T14:30:00+08:00')
 
 function row(overrides: Partial<VoucherRow> & { voucher: string }): VoucherRow {
   return {
+    checkId: 'chk_0001',
     checkNumber: '6000353106',
     bank: 'BPI',
     company: 'STK',

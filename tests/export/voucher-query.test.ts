@@ -49,6 +49,12 @@ describe('listVoucherCandidates', () => {
     expect(checks[0].bank).toBe('MBTC-X')
   })
 
+  it('returns the cheque id alongside its number', async () => {
+    const check = await makeCheck({ apvNumbers: ['AP-ST042652'] })
+    const { checks } = await listVoucherCandidates(testDb)
+    expect(checks[0].checkId).toBe(check.id)
+  })
+
   it('returns staged rows that name a voucher', async () => {
     await testDb.stagedCheck.create({
       data: {

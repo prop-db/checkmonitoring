@@ -82,6 +82,8 @@ function isDead(status: CheckStatus): boolean {
 /** One (voucher, cheque) pair as the database hands it over. */
 export type CheckCandidate = {
   voucher: string
+  /** `Check.id`, so a screen can link the number. The workbook ignores it. */
+  checkId: string
   checkNumber: string
   status: CheckStatus
   bank: string | null
@@ -109,6 +111,8 @@ export type VoucherIndexInput = {
 /** One line of the sheet. `checkNumber` is null exactly when we will not guess. */
 export type VoucherRow = {
   voucher: string
+  /** Null exactly when `checkNumber` is — the screen links one to the other. */
+  checkId: string | null
   checkNumber: string | null
   bank: string | null
   company: string | null
@@ -161,6 +165,7 @@ function fromCheque(
 ): VoucherRow {
   return {
     voucher,
+    checkId: c.checkId,
     checkNumber: c.checkNumber,
     bank: c.bank,
     company: c.company,
@@ -176,6 +181,7 @@ function fromCheque(
 function withoutCheque(voucher: string, status: string, remarks: string): VoucherRow {
   return {
     voucher,
+    checkId: null,
     checkNumber: null,
     bank: null,
     company: null,
