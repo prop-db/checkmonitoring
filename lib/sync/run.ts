@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { writeAudit } from '@/lib/audit'
+import { DomainError } from '@/lib/domain/errors'
 import { upsertCheck } from '@/lib/import/upsert'
 import {
   PAYMENTS_FEED,
@@ -39,6 +40,53 @@ async function inTx<T>(db: Db, fn: (tx: Prisma.TransactionClient) => Promise<T>)
  * updates rather than duplicates. Do not "optimise" this to zero.
  */
 export const SYNC_OVERLAP_MINUTES = 120
+
+/**
+ * How long an unfinished run is believed to be still running.
+ *
+ * `runSync` writes its row before reading the feed and finishes it in every
+ * exit path it controls — but a platform kill runs no `catch`, so a killed run
+ * keeps `finishedAt` null for ever. The 4 September 14:07 row in production is
+ * one. Two facts follow: a null `finishedAt` inside this window is a run to
+ * wait for, and one outside it is a corpse to ignore.
+ *
+ * Ten minutes is generous against the 60-second function limit the scheduled
+ * route runs under, and short enough that a killed SYNC NOW does not lock the
+ * tenant until somebody notices. `ABANDONED_AFTER_MINUTES` in
+ * lib/admin/sync-overview.ts is the SCREEN's threshold for the same rows and is
+ * deliberately longer: a terminal run of a first full sync legitimately takes
+ * an hour, and the screen must not libel it. This one governs whether a NEW
+ * run may start, and nothing that runs on a schedule takes an hour.
+ */
+export const SYNC_IN_PROGRESS_MINUTES = 10
+
+/**
+ * Thrown before anything is written. A `DomainError`, so the admin action shows
+ * its message rather than a stack trace, and the scheduled route can tell it
+ * from a failure — a sync that declined to double up is not a sync that broke.
+ */
+export class SyncInProgressError extends DomainError {
+  constructor(tenant: AcumaticaTenant, startedAt: Date) {
+    super(
+      'SYNC_IN_PROGRESS',
+      `A ${tenant} sync started at ${startedAt.toISOString()} has not finished. ` +
+        `Wait for it, or ${SYNC_IN_PROGRESS_MINUTES} minutes, before starting another.`,
+    )
+  }
+}
+
+async function assertNoRunInProgress(db: Db, tenant: AcumaticaTenant, now: Date): Promise<void> {
+  const open = await db.syncRun.findFirst({
+    where: {
+      tenant,
+      finishedAt: null,
+      startedAt: { gt: new Date(now.getTime() - SYNC_IN_PROGRESS_MINUTES * 60_000) },
+    },
+    orderBy: { startedAt: 'desc' },
+    select: { startedAt: true },
+  })
+  if (open) throw new SyncInProgressError(tenant, open.startedAt)
+}
 
 /**
  * Only the bounded head of the problem list reaches `SyncRun.message`. The AP
@@ -196,6 +244,13 @@ export async function lastSyncWatermark(db: Db, tenant: AcumaticaTenant): Promis
 export async function runSync(db: Db, args: SyncArgs): Promise<SyncRunResult> {
   const { client, tenant, since, now, trigger } = args
   const mode: SyncMode = since ? 'INCREMENTAL' : 'FULL'
+
+  // Before the row, so a refused start leaves no trace of its own. The check
+  // and the create are two round trips, not one transaction — a genuine race
+  // between two clicks a millisecond apart would let both through, and the
+  // upserts are idempotent so the cost of that is wasted work, not a wrong
+  // cheque. What this stops is the common case: a cron landing on a SYNC NOW.
+  await assertNoRunInProgress(db, tenant, now)
 
   // Written BEFORE the feed is read, and finished in every exit path below. A
   // run with `finishedAt` null is therefore one that is still going or whose

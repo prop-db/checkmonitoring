@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { testDb, resetDb } from '../helpers/db'
 import {
   runSync, lastSyncWatermark, SYNC_OVERLAP_MINUTES,
+  SyncInProgressError, SYNC_IN_PROGRESS_MINUTES,
 } from '@/lib/sync/run'
 import {
   PAYMENTS_FEED, PAYMENT_FIELDS,
@@ -820,5 +821,41 @@ describe('runSync — a cheque whose reference is a memo', () => {
     await seedBothTenantsST()
     await sync([feedRow()]).result
     expect((await testDb.check.findFirstOrThrow()).isCheque).toBe(true)
+  })
+})
+
+describe('runSync — one run per tenant at a time', () => {
+  const minutesBefore = (m: number) => new Date(NOW.getTime() - m * 60_000)
+
+  const unfinished = (tenant: 'GOLIVE' | 'MANUFACTURING', startedAt: Date) =>
+    testDb.syncRun.create({
+      data: { mode: 'INCREMENTAL', tenant, startedAt, finishedAt: null, trigger: 'MANUAL' },
+    })
+
+  it('refuses to start while a run of the same tenant is still going', async () => {
+    await seedBothTenantsST()
+    await unfinished('GOLIVE', minutesBefore(5))
+    await expect(sync([feedRow()]).result).rejects.toBeInstanceOf(SyncInProgressError)
+    // Refused BEFORE writing: the refusal leaves no row of its own.
+    expect(await testDb.syncRun.count()).toBe(1)
+  })
+
+  /**
+   * A killed run keeps `finishedAt` null for ever — the 4 September 14:07 row
+   * in production is one. Past the window it is a corpse, not a competitor,
+   * and must not block every future run.
+   */
+  it('ignores an unfinished run older than the window', async () => {
+    await seedBothTenantsST()
+    await unfinished('GOLIVE', minutesBefore(SYNC_IN_PROGRESS_MINUTES + 5))
+    const result = await sync([feedRow()]).result
+    expect(result.imported).toBe(1)
+  })
+
+  it('does not let one tenant block the other', async () => {
+    await seedBothTenantsST()
+    await unfinished('MANUFACTURING', minutesBefore(5))
+    const result = await sync([feedRow()], { tenant: 'GOLIVE' }).result
+    expect(result.imported).toBe(1)
   })
 })
