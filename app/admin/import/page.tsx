@@ -12,8 +12,8 @@ export default async function ImportPage() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-2xl bg-white p-6 ring-1 ring-slate-200">
-        <h2 className="text-sm font-semibold tracking-wide">IMPORT A WORKBOOK</h2>
+      <section className="rounded-2xl bg-white p-6 ring-1 ring-hairline">
+        <h2 className="text-[11px] font-semibold tracking-widest text-slate-400">IMPORT A WORKBOOK</h2>
         <p className="mt-2 max-w-3xl text-sm text-slate-600">
           Nothing is written until you have seen the report and confirmed it. Import brings in what
           the workbook knows — amounts, dates, payees, cash accounts. It never changes whether a
@@ -27,16 +27,16 @@ export default async function ImportPage() {
             leaving somebody to discover. */}
         <p className="mt-2 max-w-3xl text-sm text-slate-500">
           For the one-time historical load of the full register, use{' '}
-          <code className="rounded bg-slate-100 px-1">npx tsx scripts/import-workbook.ts &lt;path&gt; --dry-run</code>{' '}
+          <code className="rounded bg-ground px-1.5 py-0.5 ring-1 ring-hairline">npx tsx scripts/import-workbook.ts &lt;path&gt; --dry-run</code>{' '}
           first. It prints the same accounting and writes nothing.
         </p>
       </section>
 
       {staged.total > 0 && (
-        <p className="rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-700">
+        <p className="rounded-xl bg-warning-bg px-4 py-3 text-sm text-warning-ink">
           {n(staged.total)} row(s) are already held for review — {n(staged.live)} of them cheques
           still in the release workflow.{' '}
-          <Link href="/admin/staged" className="underline underline-offset-2">
+          <Link href="/admin/staged" className="font-medium underline underline-offset-2">
             OPEN THE STAGED QUEUE
           </Link>
         </p>

@@ -47,27 +47,130 @@ export type TimelineNode = {
   selected: boolean
 }
 
+/**
+ * THE LADDER, ONCE.
+ *
+ * Both the dashboard's counted timeline and a single cheque's progress spine
+ * walk these five rungs in this order. Stated here rather than in each of them,
+ * because two lists that agree today are two lists that disagree the first time
+ * somebody adds a rung to one.
+ */
+const LADDER = [
+  ['GENERATED', 'GENERATED'],
+  ['SIGNATURE_PENDING', 'PENDING'],
+  ['SIGNED', 'SIGNED'],
+  ['READY_FOR_RELEASE', 'READY'],
+  ['RELEASED', 'RELEASED'],
+] as const satisfies readonly (readonly [TimelineNode['id'], string])[]
+
+/** A rung of the ladder, as an id. */
+export type LadderId = TimelineNode['id']
+
 export function buildReleaseTimeline(
   summary: TimelineSummary,
   selection: DashboardSelection,
 ): TimelineNode[] {
-  const stages: readonly (readonly [TimelineNode['id'], string, number])[] = [
-    ['GENERATED', 'GENERATED', summary.generated],
-    ['SIGNATURE_PENDING', 'PENDING', summary.signaturePending],
-    ['SIGNED', 'SIGNED', summary.signed],
+  const count: Record<LadderId, number> = {
+    GENERATED: summary.generated,
+    SIGNATURE_PENDING: summary.signaturePending,
+    SIGNED: summary.signed,
     // The pair, exactly as the card and the view read it.
-    ['READY_FOR_RELEASE', 'READY', summary.readyForRelease + summary.scheduled],
-    ['RELEASED', 'RELEASED', summary.released],
-  ]
+    READY_FOR_RELEASE: summary.readyForRelease + summary.scheduled,
+    RELEASED: summary.released,
+  }
 
-  return stages.map(([id, label, count]) => ({
+  return LADDER.map(([id, label]) => ({
     id,
     label,
-    count,
+    count: count[id],
     // Both of these are the card's own functions, not a restatement: a lit node
     // links back to NEEDS ACTION so clicking it again turns it off, and the
     // narrowing filters are carried along, because that is what a card does.
     href: cardHref(id, selection),
     selected: isCardSelected(id, selection),
   }))
+}
+
+/**
+ * ── ONE CHEQUE'S PROGRESS ALONG THAT SAME LADDER ──────────────────────────
+ *
+ * The dashboard timeline answers "where is the queue jammed". This answers
+ * "where is THIS cheque", on the check detail page, using the same five rungs
+ * in the same order — the reader who learned the shape on the dashboard should
+ * not have to learn a second one here.
+ *
+ * Pure, like everything else in this file. No database, no clock, no links: a
+ * cheque's own page is already the view, so a rung is not a place to navigate
+ * to and none of these carry an href.
+ *
+ * SCHEDULED folds into READY, exactly as the card, the view and the counted
+ * timeline fold it — a portal pickup booking is not a sixth rung, it is the
+ * same rung with a date attached.
+ *
+ * CANCELLED and VOIDED are NOT rungs and are not drawn as one. A cancelled
+ * cheque stopped somewhere, and this system does not record where: the status
+ * column holds CANCELLED and nothing says which rung it was on when it did.
+ * Rather than guess a position, `stopped` is set and every rung reads
+ * UPCOMING, so the spine shows an unwalked ladder beside a stated fact instead
+ * of a plausible-looking progress bar nobody can substantiate. The audit trail
+ * beneath it is where the actual history is.
+ * ──────────────────────────────────────────────────────────────────────────
+ */
+export type ProgressState =
+  /** Behind the cheque: it has been through this rung. */
+  | 'DONE'
+  /** Where the cheque is sitting now. */
+  | 'CURRENT'
+  /** Ahead of it. */
+  | 'UPCOMING'
+
+export type ProgressStep = {
+  id: LadderId
+  label: string
+  state: ProgressState
+}
+
+export type CheckProgress = {
+  steps: ProgressStep[]
+  /** The rung the cheque is on, or null when it has left the ladder. */
+  current: LadderId | null
+  /** CANCELLED or VOIDED — a cheque that stopped rather than progressed. */
+  stopped: 'CANCELLED' | 'VOIDED' | null
+}
+
+/** Which rung a status sits on. Null for the two that are not on the ladder. */
+function rungOf(status: string): LadderId | null {
+  switch (status) {
+    case 'GENERATED': return 'GENERATED'
+    case 'SIGNATURE_PENDING': return 'SIGNATURE_PENDING'
+    case 'SIGNED': return 'SIGNED'
+    // The fold. See above.
+    case 'READY_FOR_RELEASE':
+    case 'SCHEDULED': return 'READY_FOR_RELEASE'
+    case 'RELEASED': return 'RELEASED'
+    default: return null
+  }
+}
+
+/**
+ * Takes a plain string rather than a `CheckStatus`, like `statusPillClass`
+ * does: a status reaches the detail page and the audit trail as a stored
+ * string, and an unrecognised one has to render as *something*. It renders as
+ * an unwalked ladder with no current rung — visibly nothing rather than a
+ * confident wrong position.
+ */
+export function buildCheckProgress(status: string): CheckProgress {
+  const current = rungOf(status)
+  const stopped = status === 'CANCELLED' || status === 'VOIDED' ? status : null
+  const at = current === null ? -1 : LADDER.findIndex(([id]) => id === current)
+
+  return {
+    steps: LADDER.map(([id, label], i) => ({
+      id,
+      label,
+      state: at < 0 || i > at ? 'UPCOMING' : i === at ? 'CURRENT' : 'DONE',
+    })),
+    current,
+    stopped,
+  }
 }

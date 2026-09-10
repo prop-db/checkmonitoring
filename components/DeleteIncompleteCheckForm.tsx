@@ -34,7 +34,7 @@ export function DeleteIncompleteCheckForm({ checkId, checkNumber }: { checkId: s
         <button
           type="button"
           onClick={() => setArmed(true)}
-          className="rounded-lg border border-rose-300 px-4 py-2 text-sm font-medium text-rose-700"
+          className="rounded-lg px-4 py-2 text-sm font-medium tracking-wide text-danger-ink ring-1 ring-danger-ink/25 transition hover:bg-danger-bg"
         >
           DELETE THIS INCOMPLETE RECORD
         </button>
@@ -47,7 +47,7 @@ export function DeleteIncompleteCheckForm({ checkId, checkNumber }: { checkId: s
 
   return (
     <form
-      className="space-y-3 rounded-2xl bg-rose-50 p-4 ring-1 ring-rose-200"
+      className="space-y-3 rounded-2xl bg-danger-bg p-4 ring-1 ring-danger-ink/20"
       onSubmit={(e) => {
         e.preventDefault()
         const formData = new FormData(e.currentTarget)
@@ -62,17 +62,17 @@ export function DeleteIncompleteCheckForm({ checkId, checkNumber }: { checkId: s
       }}
     >
       <input type="hidden" name="checkId" value={checkId} />
-      <p className="text-sm text-rose-900">
+      <p className="text-sm text-danger-ink">
         <strong>Delete cheque {checkNumber} permanently?</strong> This removes the record itself.
         Its audit rows survive, detached, so what was done to it stays on the record — but the
         cheque, and any bill lines on it, are gone.
       </p>
-      <label className="block text-xs font-medium tracking-wide text-slate-600">
+      <label className="block text-[11px] font-semibold tracking-widest text-danger-ink">
         REASON (REQUIRED)
         <input
           name="reason" value={reason} onChange={(e) => setReason(e.target.value)}
           placeholder="Why this record is being removed"
-          className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          className="mt-1.5 block h-10 w-full rounded-lg border border-hairline bg-white px-3 text-sm font-normal tracking-normal text-slate-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
         />
       </label>
       <div className="flex gap-2">
@@ -80,19 +80,19 @@ export function DeleteIncompleteCheckForm({ checkId, checkNumber }: { checkId: s
           type="submit"
           // Refused server-side too — this only spares the round trip.
           disabled={pending || reason.trim() === ''}
-          className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="rounded-lg bg-danger-ink px-4 py-2 text-sm font-medium tracking-wide text-white transition hover:bg-danger-ink/90 disabled:opacity-50"
         >
           {pending ? 'DELETING…' : 'CONFIRM DELETE'}
         </button>
         <button
           type="button" onClick={() => setArmed(false)} disabled={pending}
-          className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700"
+          className="rounded-lg bg-white px-4 py-2 text-sm font-medium tracking-wide text-slate-700 ring-1 ring-hairline transition hover:ring-navy"
         >
           CANCEL
         </button>
       </div>
       {result && !result.ok && (
-        <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{result.message}</p>
+        <p className="rounded-lg bg-warning-bg p-3 text-sm text-warning-ink">{result.message}</p>
       )}
     </form>
   )

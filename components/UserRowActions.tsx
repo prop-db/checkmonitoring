@@ -65,14 +65,14 @@ export function UserRowActions({
           <input type="hidden" name="userId" value={userId} />
           <select
             name="role" defaultValue={role} aria-label={`Role for ${name}`}
-            className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
+            className="rounded-lg border border-hairline bg-white px-2 py-1.5 text-xs text-slate-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
           >
             <option value="FINANCE_USER">FINANCE USER</option>
             <option value="FINANCE_ADMIN">FINANCE ADMIN</option>
           </select>
           <button
             type="submit" disabled={pending}
-            className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50 disabled:opacity-50"
+            className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-hairline hover:ring-navy disabled:opacity-50"
           >
             SAVE ROLE
           </button>
@@ -85,8 +85,8 @@ export function UserRowActions({
             type="submit" disabled={pending}
             className={
               active
-                ? 'rounded-lg px-2.5 py-1.5 text-xs font-medium text-rose-800 ring-1 ring-rose-200 hover:bg-rose-50 disabled:opacity-50'
-                : 'rounded-lg px-2.5 py-1.5 text-xs font-medium text-emerald-800 ring-1 ring-emerald-200 hover:bg-emerald-50 disabled:opacity-50'
+                ? 'rounded-lg px-2.5 py-1.5 text-xs font-medium text-danger-ink ring-1 ring-danger-ink/20 hover:bg-danger-bg disabled:opacity-50'
+                : 'rounded-lg px-2.5 py-1.5 text-xs font-medium text-success-ink ring-1 ring-success-ink/20 hover:bg-success-bg disabled:opacity-50'
             }
           >
             {active ? 'DEACTIVATE' : 'REACTIVATE'}
@@ -96,7 +96,7 @@ export function UserRowActions({
         <button
           type="button"
           onClick={() => setShowPassword((s) => !s)}
-          className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50"
+          className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-hairline hover:ring-navy"
         >
           {showPassword ? 'CANCEL' : 'SET PASSWORD'}
         </button>
@@ -109,11 +109,11 @@ export function UserRowActions({
             name="password" type="password" required autoComplete="new-password"
             aria-label={`New password for ${name}`}
             placeholder="NEW PASSWORD"
-            className="w-56 rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
+            className="w-56 rounded-lg border border-hairline bg-white px-2 py-1.5 text-xs text-slate-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
           />
           <button
             type="submit" disabled={pending}
-            className="rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+            className="rounded-lg bg-navy px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-navy/90 disabled:opacity-50"
           >
             {pending ? 'SAVING…' : 'SET'}
           </button>
@@ -125,10 +125,10 @@ export function UserRowActions({
       )}
 
       {result && !result.ok && (
-        <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-900">{result.message}</p>
+        <p className="rounded-lg bg-warning-bg p-2 text-xs text-warning-ink">{result.message}</p>
       )}
       {result && result.ok && (
-        <p className="rounded-lg bg-emerald-50 p-2 text-xs text-emerald-900">Saved.</p>
+        <p className="rounded-lg bg-success-bg p-2 text-xs text-success-ink">Saved.</p>
       )}
     </div>
   )

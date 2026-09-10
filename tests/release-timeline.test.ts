@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildReleaseTimeline, type TimelineSummary } from '@/lib/release-timeline'
+import { buildCheckProgress, buildReleaseTimeline, type TimelineSummary } from '@/lib/release-timeline'
 import { cardHref, type DashboardSelection } from '@/lib/dashboard-view'
 
 /**
@@ -89,5 +89,73 @@ describe('buildReleaseTimeline', () => {
     const onSigned: DashboardSelection = { ...NOTHING, status: 'SIGNED' }
     const signed = buildReleaseTimeline(SUMMARY, onSigned).find((n) => n.id === 'SIGNED')
     expect(signed?.href).toBe('/')
+  })
+})
+
+/**
+ * The same ladder, walked for ONE cheque, on the check detail page.
+ *
+ * Pure for the same reason the counted timeline is: five rungs and a position
+ * is a decision, not a rendering, so it is decided here and tested without
+ * rendering anything.
+ */
+describe('buildCheckProgress', () => {
+  it('walks the same five rungs, in the same order, as the dashboard timeline', () => {
+    expect(buildCheckProgress('SIGNED').steps.map((s) => s.label))
+      .toEqual(buildReleaseTimeline(SUMMARY, NOTHING).map((n) => n.label))
+  })
+
+  it('marks the rungs behind the cheque DONE and the ones ahead UPCOMING', () => {
+    const { steps, current } = buildCheckProgress('SIGNED')
+    expect(current).toBe('SIGNED')
+    expect(steps.map((s) => s.state)).toEqual(['DONE', 'DONE', 'CURRENT', 'UPCOMING', 'UPCOMING'])
+  })
+
+  it('starts a freshly generated cheque on the first rung with nothing behind it', () => {
+    expect(buildCheckProgress('GENERATED').steps.map((s) => s.state))
+      .toEqual(['CURRENT', 'UPCOMING', 'UPCOMING', 'UPCOMING', 'UPCOMING'])
+  })
+
+  it('leaves nothing ahead of a released cheque', () => {
+    const { steps, current } = buildCheckProgress('RELEASED')
+    expect(current).toBe('RELEASED')
+    expect(steps.every((s) => s.state !== 'UPCOMING')).toBe(true)
+  })
+
+  /**
+   * The fold the card, the view and the counted timeline all apply: a portal
+   * pickup booking is the same rung with a date on it, not a sixth rung.
+   */
+  it('folds SCHEDULED into READY, exactly as the card and the view do', () => {
+    expect(buildCheckProgress('SCHEDULED')).toEqual(buildCheckProgress('READY_FOR_RELEASE'))
+    expect(buildCheckProgress('SCHEDULED').current).toBe('READY_FOR_RELEASE')
+  })
+
+  /**
+   * A cancelled cheque stopped somewhere and nothing records where. Drawing it
+   * as having reached a particular rung would be an invention; this states the
+   * stop and walks none of the ladder.
+   */
+  it.each(['CANCELLED', 'VOIDED'] as const)('puts %s beside the ladder, not on it', (status) => {
+    const progress = buildCheckProgress(status)
+    expect(progress.stopped).toBe(status)
+    expect(progress.current).toBeNull()
+    expect(progress.steps.every((s) => s.state === 'UPCOMING')).toBe(true)
+  })
+
+  it('says a live cheque has not stopped', () => {
+    expect(buildCheckProgress('READY_FOR_RELEASE').stopped).toBeNull()
+  })
+
+  /**
+   * A status arrives here as a stored string — the same reason
+   * `statusPillClass` takes one. An unreadable one draws an unwalked ladder,
+   * never a confident wrong position.
+   */
+  it('renders an unrecognised status as no position at all rather than guessing one', () => {
+    const progress = buildCheckProgress('NOT_A_STATUS')
+    expect(progress.current).toBeNull()
+    expect(progress.stopped).toBeNull()
+    expect(progress.steps.every((s) => s.state === 'UPCOMING')).toBe(true)
   })
 })

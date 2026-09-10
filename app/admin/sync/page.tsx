@@ -1,6 +1,7 @@
 import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { getSyncOverview, type TenantSync } from '@/lib/admin/sync-overview'
+import { EmptyState } from '@/components/EmptyState'
 import { SyncNowButton } from '@/components/SyncNowButton'
 
 // Spec §11's wording: "Last Sync: September 1, 2026 — 10:45 AM".
@@ -36,9 +37,9 @@ function TenantCard({ t }: { t: TenantSync }) {
   const lastAttempt = fmtDateTime(t.lastAttempt?.startedAt ?? null)
 
   return (
-    <section className="space-y-4 rounded-2xl bg-white p-6 ring-1 ring-slate-200">
-      <div className="flex items-baseline justify-between">
-        <h2 className="text-sm font-semibold tracking-wide">
+    <section className="space-y-4 rounded-2xl bg-white p-6 ring-1 ring-hairline">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-[11px] font-semibold tracking-widest text-slate-400">
           ACUMATICA · {TENANT_LABEL[t.tenant] ?? t.tenant}
         </h2>
         {/* Two different facts, and conflating them is what wasted half an hour
@@ -48,11 +49,11 @@ function TenantCard({ t }: { t: TenantSync }) {
             is alive — it cannot see the process, and "SYNCING…" over a dead job
             is a statement this system has no basis for. */}
         {t.abandoned ? (
-          <span className="rounded bg-rose-100 px-2 py-0.5 text-xs tracking-wide text-rose-900">
+          <span className="rounded-full bg-danger-bg px-2.5 py-1 text-xs font-semibold tracking-wide text-danger-ink">
             RUN ABANDONED
           </span>
         ) : t.inFlight ? (
-          <span className="rounded bg-amber-100 px-2 py-0.5 text-xs tracking-wide text-amber-900">
+          <span className="rounded-full bg-warning-bg px-2.5 py-1 text-xs font-semibold tracking-wide text-warning-ink">
             RUN NOT FINISHED
           </span>
         ) : null}
@@ -64,20 +65,20 @@ function TenantCard({ t }: { t: TenantSync }) {
       {t.lastAttempt === null ? (
         <p className="text-sm text-slate-500">This tenant has never been synced.</p>
       ) : t.abandoned ? (
-        <div className="space-y-2 rounded-xl bg-rose-50 p-4 ring-1 ring-rose-200">
-          <p className="text-sm font-medium text-rose-900">
+        <div className="space-y-2 rounded-xl bg-danger-bg p-4 ring-1 ring-danger-ink/20">
+          <p className="text-sm font-medium text-danger-ink">
             A run started {t.lastAttempt.startedAt.toISOString().slice(0, 16).replace('T', ' ')} and never
             reported finishing.
           </p>
-          <p className="text-sm text-rose-800">
+          <p className="text-sm text-danger-ink/90">
             Its process was almost certainly killed. A first full sync reads tens of thousands of rows
             and cannot complete inside a web request — whatever it wrote is committed and correct, but
             it stopped partway. Finish it from a terminal, where nothing imposes a timeout:
           </p>
-          <code className="block rounded bg-white/70 px-3 py-2 text-xs text-rose-900">
+          <code className="block rounded-lg bg-white/70 px-3 py-2 text-xs text-danger-ink">
             npx.cmd tsx scripts/sync.ts {t.tenant}
           </code>
-          <p className="text-xs text-rose-800">
+          <p className="text-xs text-danger-ink/90">
             Re-running is safe: the sync is idempotent, so rows already written are updated rather than
             duplicated.
           </p>
@@ -85,28 +86,28 @@ function TenantCard({ t }: { t: TenantSync }) {
       ) : (
         <div className="space-y-3">
           <div>
-            <p className="text-xs tracking-wide text-slate-500">LAST SUCCESSFUL SYNC</p>
-            <p className="text-lg font-semibold text-slate-900">
+            <p className="text-[11px] font-semibold tracking-widest text-slate-400">LAST SUCCESSFUL SYNC</p>
+            <p className="text-lg font-semibold text-navy">
               {lastSuccess ?? 'None — no run has finished without errors.'}
             </p>
             {t.lastSuccess && <Counts run={t.lastSuccess} />}
           </div>
 
           <div>
-            <p className="text-xs tracking-wide text-slate-500">LAST ATTEMPT</p>
+            <p className="text-[11px] font-semibold tracking-widest text-slate-400">LAST ATTEMPT</p>
             <p className="text-sm text-slate-900">{lastAttempt}</p>
             <Counts run={t.lastAttempt} />
             {/* The run's own recorded problem text, truncated by `runSync`. It
                 is the difference between "3 errors" and a diagnosis. */}
             {t.lastAttempt.message && (
-              <p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+              <p className="mt-2 rounded-lg bg-warning-bg p-3 text-sm text-warning-ink">
                 {t.lastAttempt.message}
               </p>
             )}
           </div>
 
           <div>
-            <p className="text-xs tracking-wide text-slate-500">NEXT RUN READS FROM</p>
+            <p className="text-[11px] font-semibold tracking-widest text-slate-400">NEXT RUN READS FROM</p>
             <p className="text-sm text-slate-700">
               {fmtDateTime(t.lastAttempt.watermark) ??
                 'the beginning — no watermark has been recorded, so the next run is a full read'}
@@ -139,19 +140,27 @@ export default async function SyncPage() {
       </div>
 
       {overview.untenantedRuns > 0 && (
-        <p className="rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-700">
+        <p className="rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">
           {n(overview.untenantedRuns)} earlier run(s) predate the tenant column and are not
           attributed to either tenant. They are listed below.
         </p>
       )}
 
-      <section className="overflow-x-auto rounded-2xl bg-white ring-1 ring-slate-200">
-        <h2 className="p-6 pb-4 text-sm font-semibold tracking-wide">SYNC LOG</h2>
-        {recent.length === 0 ? (
-          <p className="px-6 pb-6 text-sm text-slate-500">NO SYNC HAS EVER RUN.</p>
-        ) : (
+      {/* An empty sync log is not an empty table. "Nobody has ever synced" and
+          "the log failed to render" look identical once the headers are drawn
+          over nothing, and the first of the two is a fact somebody needs to
+          act on. */}
+      {recent.length === 0 ? (
+        <EmptyState title="NO SYNC HAS EVER RUN">
+          Nothing has been read from Acumatica on this database yet. Press SYNC NOW on a tenant
+          above, or run <code className="rounded bg-ground px-1">scripts/sync.ts</code> from a
+          terminal for the first full read — it is far too long for a web request.
+        </EmptyState>
+      ) : (
+        <section className="overflow-x-auto rounded-2xl bg-white ring-1 ring-hairline">
+          <h2 className="px-6 pb-4 pt-6 text-[11px] font-semibold tracking-widest text-slate-400">SYNC LOG</h2>
           <table className="w-full text-sm">
-            <thead className="border-b border-slate-200 text-left text-xs tracking-wide text-slate-500">
+            <thead className="border-b border-hairline text-left text-[11px] font-semibold tracking-widest text-slate-400">
               <tr>
                 <th className="px-4 py-3">STARTED</th>
                 <th className="px-4 py-3">TENANT</th>
@@ -166,7 +175,7 @@ export default async function SyncPage() {
             </thead>
             <tbody>
               {recent.map((r) => (
-                <tr key={r.id} className="border-b border-slate-100 last:border-0">
+                <tr key={r.id} className="border-b border-slate-100 last:border-0 odd:bg-white even:bg-ground">
                   <td className="px-4 py-3 text-slate-600">{fmtDateTime(r.startedAt)}</td>
                   {/* An em dash rather than a blank: a run with no tenant is a
                       run recorded before the column existed, not a rendering
@@ -176,7 +185,7 @@ export default async function SyncPage() {
                   <td className="px-4 py-3 text-right tabular-nums">{n(r.imported)}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{n(r.updated)}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{n(r.staged)}</td>
-                  <td className={`px-4 py-3 text-right tabular-nums ${r.errors > 0 ? 'text-rose-700' : 'text-slate-600'}`}>
+                  <td className={`px-4 py-3 text-right tabular-nums ${r.errors > 0 ? 'font-semibold text-danger-ink' : 'text-slate-600'}`}>
                     {n(r.errors)}
                   </td>
                   <td className="px-4 py-3 text-slate-600">
@@ -187,8 +196,8 @@ export default async function SyncPage() {
               ))}
             </tbody>
           </table>
-        )}
-      </section>
+        </section>
+      )}
     </div>
   )
 }

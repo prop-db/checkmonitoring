@@ -1,6 +1,6 @@
-import Link from 'next/link'
 import { requireAdmin } from '@/lib/auth'
 import { AppHeader } from '@/components/AppHeader'
+import { AdminTabs } from '@/components/AdminTabs'
 
 // Every admin route is FINANCE_ADMIN only (spec §12). Enforced here so a new
 // page under /admin is gated by existing, not by its author remembering — and
@@ -30,17 +30,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         showAdminLink={false}
       />
 
-      <nav className="flex gap-2">
-        {tabs.map(([href, label]) => (
-          <Link
-            key={href}
-            href={href}
-            className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
-          >
-            {label}
-          </Link>
-        ))}
-      </nav>
+      {/* Which tab you are on is a browser fact, so the tabs are a client
+          component. They highlight; they do not gate. The gate is
+          `requireAdmin()` above and again inside every page. */}
+      <AdminTabs tabs={tabs} />
 
       {children}
     </main>

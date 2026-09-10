@@ -29,18 +29,18 @@ export function SyncNowButton({ tenant, label }: { tenant: AcumaticaTenant; labe
         <button
           type="submit"
           disabled={pending}
-          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="rounded-lg bg-navy px-4 py-2 text-sm font-medium tracking-wide text-white transition hover:bg-navy/90 disabled:opacity-50"
         >
           {pending ? 'SYNCING…' : `SYNC NOW · ${label}`}
         </button>
       </form>
 
       {result && !result.ok && (
-        <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{result.message}</p>
+        <p className="rounded-lg bg-warning-bg p-3 text-sm text-warning-ink">{result.message}</p>
       )}
 
       {result && result.ok && (
-        <div className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">
+        <div className="rounded-lg bg-success-bg p-3 text-sm text-success-ink">
           <p className="font-medium">{result.tenant} · {result.mode}</p>
           {/* Every figure the run reported, not just the flattering ones.
               `fetched = skipped + collapsed + imported + updated + staged + errors`

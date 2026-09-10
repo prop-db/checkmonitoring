@@ -43,11 +43,11 @@ export default async function UsersPage() {
   return (
     <div className="space-y-6">
       {liveSeeded.length > 0 && (
-        <section className="space-y-2 rounded-2xl bg-rose-50 p-6 ring-1 ring-rose-200">
-          <h2 className="text-sm font-semibold tracking-wide text-rose-900">
+        <section className="space-y-2 rounded-2xl bg-danger-bg p-6 ring-1 ring-danger-ink/20">
+          <h2 className="text-sm font-semibold tracking-wide text-danger-ink">
             SEEDED TEST ACCOUNTS ARE STILL ACTIVE — DEACTIVATE BEFORE PRODUCTION
           </h2>
-          <p className="text-sm text-rose-900">
+          <p className="text-sm text-danger-ink">
             {liveSeeded.map((u) => u.email).join(' and ')}{' '}
             {liveSeeded.length === 1 ? 'was' : 'were'} created by{' '}
             <code className="rounded bg-white/70 px-1">prisma/seed.ts</code> with a password that
@@ -57,7 +57,7 @@ export default async function UsersPage() {
               : 'Create a real Finance Admin first — until one exists, deactivating these would ' +
                 'leave nobody able to administer the system and will be refused.'}
           </p>
-          <p className="text-sm text-rose-900">
+          <p className="text-sm text-danger-ink">
             Deactivate, never delete: these accounts may already be named in the audit trail, and a
             deleted row would take that attribution with it.
           </p>
@@ -66,16 +66,16 @@ export default async function UsersPage() {
 
       <CreateUserForm />
 
-      <div className="overflow-x-auto rounded-2xl bg-white ring-1 ring-slate-200">
-        <div className="flex items-baseline justify-between p-6 pb-4">
-          <h2 className="text-sm font-semibold tracking-wide">USERS</h2>
-          <p className="text-sm text-slate-500">
+      <div className="overflow-x-auto rounded-2xl bg-white ring-1 ring-hairline">
+        <div className="flex flex-wrap items-baseline justify-between gap-3 px-6 pb-4 pt-6">
+          <h2 className="text-[11px] font-semibold tracking-widest text-slate-400">USERS</h2>
+          <p className="text-[11px] font-medium tracking-wide text-slate-400">
             {activeAdmins.length} ACTIVE FINANCE ADMIN{activeAdmins.length === 1 ? '' : 'S'}
           </p>
         </div>
 
         <table className="w-full text-sm">
-          <thead className="border-b border-slate-200 text-left text-xs tracking-wide text-slate-500">
+          <thead className="border-b border-hairline text-left text-[11px] font-semibold tracking-widest text-slate-400">
             <tr>
               <th className="px-4 py-3">NAME</th>
               <th className="px-4 py-3">EMAIL</th>
@@ -90,12 +90,12 @@ export default async function UsersPage() {
             {users.map((u) => (
               <tr
                 key={u.id}
-                className={`border-b border-slate-100 last:border-0 ${u.active ? 'hover:bg-slate-50' : 'bg-slate-50/60 text-slate-500'}`}
+                className={`border-b border-slate-100 last:border-0 ${u.active ? 'hover:bg-navy-bg' : 'bg-ground text-slate-500'}`}
               >
                 <td className="px-4 py-3 font-medium">
                   {u.name}
                   {u.isSeededTestAccount && (
-                    <span className="ml-2 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] tracking-wide text-rose-800">
+                    <span className="ml-2 rounded bg-danger-bg px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-danger-ink">
                       SEEDED TEST ACCOUNT
                     </span>
                   )}
@@ -104,7 +104,7 @@ export default async function UsersPage() {
                 <td className="px-4 py-3">
                   <span
                     className={`inline-block rounded-full px-2.5 py-1 text-xs font-medium tracking-wide ${
-                      u.role === 'FINANCE_ADMIN' ? 'bg-indigo-50 text-indigo-800' : 'bg-slate-100 text-slate-700'
+                      u.role === 'FINANCE_ADMIN' ? 'bg-navy-bg text-navy' : 'bg-slate-100 text-slate-700'
                     }`}
                   >
                     {u.role.replace(/_/g, ' ')}
@@ -113,7 +113,7 @@ export default async function UsersPage() {
                 <td className="px-4 py-3">
                   <span
                     className={`inline-block rounded-full px-2.5 py-1 text-xs font-medium tracking-wide ${
-                      u.active ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'
+                      u.active ? 'bg-success-bg text-success-ink' : 'bg-danger-bg text-danger-ink'
                     }`}
                   >
                     {u.active ? 'ACTIVE' : 'DEACTIVATED'}
@@ -131,11 +131,11 @@ export default async function UsersPage() {
                     cannot disagree. */}
                 <td className="px-4 py-3">
                   {u.lockedUntil ? (
-                    <span className="inline-block rounded-full bg-rose-50 px-2.5 py-1 text-xs font-medium tracking-wide text-rose-800">
+                    <span className="inline-block whitespace-nowrap rounded-full bg-danger-bg px-2.5 py-1 text-xs font-medium tracking-wide text-danger-ink">
                       LOCKED UNTIL {fmtTime(u.lockedUntil)} · {u.recentFailedLogins} FAILED
                     </span>
                   ) : u.recentFailedLogins > 0 ? (
-                    <span className="inline-block rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium tracking-wide text-amber-800">
+                    <span className="inline-block rounded-full bg-warning-bg px-2.5 py-1 text-xs font-medium tracking-wide text-warning-ink">
                       {u.recentFailedLogins} RECENT
                     </span>
                   ) : (
@@ -154,7 +154,7 @@ export default async function UsersPage() {
         </table>
       </div>
 
-      <p className="max-w-4xl rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-700">
+      <p className="max-w-4xl rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">
         Accounts are never deleted here. A user is named on the cheques they signed, marked ready,
         released or cancelled, and on every audit entry they wrote; deleting the row would blank
         that attribution out rather than fail. DEACTIVATE is removal — a deactivated account is
@@ -162,7 +162,7 @@ export default async function UsersPage() {
         deactivated nor demoted, including by themselves.
       </p>
 
-      <p className="max-w-4xl rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-700">
+      <p className="max-w-4xl rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">
         FAILED SIGN-INS counts wrong passwords for that address in the last {WINDOW_MINUTES}{' '}
         minutes, and resets the moment the account signs in successfully. Past{' '}
         {EMAIL_FREE_FAILURES} failures the login is refused for a minute, then longer, up to a

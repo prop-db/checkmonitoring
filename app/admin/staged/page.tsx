@@ -6,6 +6,7 @@ import {
   type StagedScope,
 } from '@/lib/admin/staged-queue'
 import { formatMoney } from '@/lib/money'
+import { EmptyState } from '@/components/EmptyState'
 
 /**
  * The staged queue: rows the importer could not write, kept whole.
@@ -21,6 +22,13 @@ import { formatMoney } from '@/lib/money'
 
 const n = (v: number) => v.toLocaleString('en-PH')
 
+// The one field treatment, matching `components/FilterBar.tsx`. Two filter bars
+// in one application that focus in different colours is exactly the drift the
+// palette work exists to end.
+const FIELD =
+  'h-10 rounded-lg border border-hairline bg-white px-3 text-sm text-slate-900 ' +
+  'focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy'
+
 const fmtDate = (d: Date | null) =>
   d ? d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
 
@@ -31,11 +39,24 @@ const STATUSES: readonly CheckStatus[] = [
   'SCHEDULED', 'RELEASED', 'CANCELLED', 'VOIDED',
 ]
 
+/**
+ * A count card, in the dashboard's own shape: white on the tinted ground with a
+ * hairline ring, the label small and tracked above the figure.
+ *
+ * `accent` is the warning tone and is spent on exactly two of the seven — the
+ * rows still in the release workflow, and the approval rows that attached to
+ * nothing — because those are the two somebody has to act on. Seven tinted
+ * cards would be the screen the client complained about.
+ */
 function Card({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
   return (
-    <div className={`rounded-2xl p-5 ring-1 ${accent ? 'bg-amber-50 ring-amber-200' : 'bg-white ring-slate-200'}`}>
-      <p className="text-xs font-medium tracking-wide text-slate-500">{label}</p>
-      <p className="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{value}</p>
+    <div className={`rounded-2xl p-5 ring-1 ${accent ? 'bg-warning-bg ring-warning-ink/20' : 'bg-white ring-hairline'}`}>
+      <p className={`text-[11px] font-semibold tracking-widest ${accent ? 'text-warning-ink' : 'text-slate-400'}`}>
+        {label}
+      </p>
+      <p className={`mt-2 text-2xl font-semibold tabular-nums ${accent ? 'text-warning-ink' : 'text-navy'}`}>
+        {value}
+      </p>
     </div>
   )
 }
@@ -89,7 +110,7 @@ export default async function StagedPage({
         />
       </section>
 
-      <p className="max-w-4xl rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-700">
+      <p className="max-w-4xl rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">
         These {n(summary.total)} rows were kept whole because they could not be written as cheques.
         Most of them are closed history — Finance reconciles those in the Supplier Portal or in
         Acumatica, and this system is not their system of record. The {n(summary.live)} still in the
@@ -97,47 +118,64 @@ export default async function StagedPage({
         record of why a cheque was held, and the Acumatica sync places some of them automatically.
       </p>
 
-      <form className="flex flex-wrap gap-3" method="get">
+      {/* The dashboard's filter bar, in a card, with the same field treatment —
+          a plain `method="get"` form, so every filter is in the URL and a
+          narrowed queue stays linkable. There is no auto-submit enhancement
+          here and the APPLY button is therefore real and stays visible. */}
+      <form className="flex flex-wrap items-center gap-2 rounded-2xl bg-white p-3 ring-1 ring-hairline" method="get">
         <input
           name="q" defaultValue={params.q ?? ''}
           placeholder="SEARCH CHECK NO., WHAT THE CELL SAID, OR PAYEE"
-          className="w-96 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          className={`${FIELD} min-w-[16rem] flex-1`}
         />
-        <select name="scope" defaultValue={scope}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm">
+        <select name="scope" defaultValue={scope} className={FIELD}>
           <option value="LIVE">STILL IN THE RELEASE WORKFLOW</option>
           <option value="CLOSED">RELEASED OR CANCELLED</option>
           <option value="ALL">ALL — LIVE ROWS FIRST</option>
         </select>
-        <select name="reason" defaultValue={params.reason ?? ''}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm">
+        <select name="reason" defaultValue={params.reason ?? ''} className={FIELD}>
           <option value="">ANY REASON</option>
           {REASONS.map((r) => <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>)}
         </select>
-        <select name="impliedStatus" defaultValue={params.impliedStatus ?? ''}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm">
+        <select name="impliedStatus" defaultValue={params.impliedStatus ?? ''} className={FIELD}>
           <option value="">ANY IMPLIED STATUS</option>
           {STATUSES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
         </select>
-        <button type="submit" className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white">
+        <button
+          type="submit"
+          className="h-10 rounded-lg bg-navy px-4 text-sm font-medium tracking-wide text-white transition hover:bg-navy/90"
+        >
           APPLY
         </button>
       </form>
 
       {matching > rows.length && (
-        <p className="rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-900">
+        <p className="rounded-lg bg-warning-bg px-4 py-2 text-sm text-warning-ink">
           SHOWING {n(rows.length)} OF {n(matching)} MATCHING ROWS. Narrow the filters to see the rest.
         </p>
       )}
 
       {rows.length === 0 ? (
-        <p className="rounded-2xl bg-white p-8 text-center text-sm text-slate-500 ring-1 ring-slate-200">
-          NO STAGED ROWS MATCH THESE FILTERS.
-        </p>
+        // Two different emptinesses, and telling them apart is the whole point:
+        // an unfiltered LIVE queue with nothing in it means every cheque the
+        // register named found a company and a number, which is good news and
+        // says so. A filtered one that matched nothing is just a filter.
+        summary.total === 0 ? (
+          <EmptyState tone="good" title="NOTHING IS HELD FOR REVIEW">
+            Every row of every workbook imported so far was written as a cheque. Rows land here
+            when the importer cannot tell whose cheque they are, or cannot find a cheque number
+            on them — nothing is ever discarded.
+          </EmptyState>
+        ) : (
+          <EmptyState title="NO STAGED ROWS MATCH THESE FILTERS">
+            {n(summary.total)} row(s) are held for review in total. Widen the scope, or clear the
+            reason and implied-status filters, to see them.
+          </EmptyState>
+        )
       ) : (
-        <div className="overflow-x-auto rounded-2xl bg-white ring-1 ring-slate-200">
+        <div className="overflow-x-auto rounded-2xl bg-white ring-1 ring-hairline">
           <table className="w-full text-sm">
-            <thead className="border-b border-slate-200 text-left text-xs tracking-wide text-slate-500">
+            <thead className="border-b border-hairline text-left text-[11px] font-semibold tracking-widest text-slate-400">
               <tr>
                 <th className="px-4 py-3">CHECK NUMBER</th>
                 <th className="px-4 py-3">PAYEE</th>
@@ -153,7 +191,7 @@ export default async function StagedPage({
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                <tr key={r.id} className="border-b border-slate-100 last:border-0 odd:bg-white even:bg-ground hover:bg-navy-bg">
                   {/* For a NO_CHECK_NUMBER row the cheque number is null and
                       this shows what the cell actually held — which is what a
                       human replaces with the real number. It is never promoted
@@ -176,7 +214,7 @@ export default async function StagedPage({
                       ? `${r.sourceSheet} row ${r.sourceRow}`
                       : `Acumatica ${r.acumaticaTenant} ${r.acumaticaRef}`}
                     {r.promotedCheckId && (
-                      <span className="ml-2 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] tracking-wide text-emerald-800">
+                      <span className="ml-2 rounded bg-success-bg px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-success-ink">
                         PLACED
                       </span>
                     )}
@@ -195,16 +233,21 @@ export default async function StagedPage({
           person who has to fix a mis-keyed cell should not have to know which
           of two queues it landed in. */}
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold tracking-wide text-slate-900">
+        <h2 className="text-[11px] font-semibold tracking-widest text-slate-400">
           APPROVAL-FOR-RELEASE ROWS THAT ATTACHED TO NO CHEQUE
         </h2>
         {billRows.length === 0 ? (
-          <p className="rounded-2xl bg-white p-6 text-center text-sm text-slate-500 ring-1 ring-slate-200">
-            EVERY ROW OF THE APPROVAL-FOR-RELEASE WORKBOOK IS ATTACHED TO A CHEQUE.
-          </p>
+          // Good news, and the reason this queue exists: voucher AP-ST042652
+          // reached no cheque and nobody saw it. An empty list here means every
+          // approved voucher found its cheque.
+          <EmptyState tone="good" title="EVERY APPROVAL ROW IS ATTACHED TO A CHEQUE">
+            No voucher from the approval-for-release workbook is stranded. A row appears here when
+            its <em>check No.</em> cell holds something that is not a cheque number and its voucher
+            matches no cheque — never silently, and never only in a terminal.
+          </EmptyState>
         ) : (
           <>
-            <p className="max-w-4xl rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-700">
+            <p className="max-w-4xl rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">
               These rows carry a voucher that reached no cheque, so nothing about them reaches the
               Supplier Portal either. NO CHECK NUMBER means the workbook&apos;s <em>check No.</em>{' '}
               cell holds something that is not a cheque number — a date, usually — and the
@@ -212,9 +255,9 @@ export default async function StagedPage({
               the voucher can find it. Nothing is deleted, and re-importing the workbook clears a
               row that has since attached.
             </p>
-            <div className="overflow-x-auto rounded-2xl bg-white ring-1 ring-slate-200">
+            <div className="overflow-x-auto rounded-2xl bg-white ring-1 ring-hairline">
               <table className="w-full text-sm">
-                <thead className="border-b border-slate-200 text-left text-xs tracking-wide text-slate-500">
+                <thead className="border-b border-hairline text-left text-[11px] font-semibold tracking-widest text-slate-400">
                   <tr>
                     <th className="px-4 py-3">CELL</th>
                     <th className="px-4 py-3">VOUCHER</th>
@@ -227,7 +270,7 @@ export default async function StagedPage({
                 </thead>
                 <tbody>
                   {billRows.map((b) => (
-                    <tr key={b.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                    <tr key={b.id} className="border-b border-slate-100 last:border-0 odd:bg-white even:bg-ground hover:bg-navy-bg">
                       <td className="px-4 py-3 text-slate-600">
                         {b.sourceSheet} row {b.sourceRow}
                       </td>

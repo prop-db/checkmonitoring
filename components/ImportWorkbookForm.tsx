@@ -38,8 +38,8 @@ export function ImportWorkbookForm() {
 
   return (
     <div className="space-y-6">
-      <section className="space-y-4 rounded-2xl bg-white p-6 ring-1 ring-slate-200">
-        <h2 className="text-sm font-semibold tracking-wide">CHOOSE A WORKBOOK</h2>
+      <section className="space-y-4 rounded-2xl bg-white p-6 ring-1 ring-hairline">
+        <h2 className="text-[11px] font-semibold tracking-widest text-slate-400">CHOOSE A WORKBOOK</h2>
         <p className="text-sm text-slate-600">
           Either the cheque register or the approval-for-release list. Which one it is is worked out
           from the file itself.
@@ -48,7 +48,7 @@ export function ImportWorkbookForm() {
           ref={inputRef}
           type="file"
           accept=".xlsx"
-          className="block text-sm"
+          className="block w-full text-sm text-slate-600 file:mr-4 file:rounded-lg file:border-0 file:bg-navy-bg file:px-4 file:py-2 file:text-sm file:font-medium file:tracking-wide file:text-navy hover:file:bg-navy-bg/70"
           onChange={(e) => {
             setFile(e.currentTarget.files?.[0] ?? null)
             // A new file invalidates the report on screen. Leaving the old one
@@ -62,7 +62,7 @@ export function ImportWorkbookForm() {
             type="button"
             disabled={!file || pending}
             onClick={() => submit(false)}
-            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="rounded-lg bg-navy px-4 py-2 text-sm font-medium tracking-wide text-white transition hover:bg-navy/90 disabled:opacity-50"
           >
             {pending && !previewed ? 'READING…' : 'PREVIEW'}
           </button>
@@ -71,7 +71,12 @@ export function ImportWorkbookForm() {
               type="button"
               disabled={pending}
               onClick={() => submit(true)}
-              className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              // The one control on this screen that writes, so it is the one
+              // that is not navy: the client's own success ink, solid, beside a
+              // navy PREVIEW. Distinguishable by shape and position as well as
+              // by hue — it is the second button and it only exists after a
+              // preview has been read.
+              className="rounded-lg bg-success-ink px-4 py-2 text-sm font-medium tracking-wide text-white transition hover:bg-success-ink/90 disabled:opacity-50"
             >
               {pending ? 'IMPORTING…' : 'CONFIRM AND IMPORT'}
             </button>
@@ -80,14 +85,14 @@ export function ImportWorkbookForm() {
       </section>
 
       {result && !result.ok && (
-        <p className="rounded-lg bg-amber-50 p-4 text-sm text-amber-900">{result.message}</p>
+        <p className="rounded-lg bg-warning-bg p-4 text-sm text-warning-ink">{result.message}</p>
       )}
 
       {result?.ok && (
         <>
           <p
             className={`rounded-lg p-4 text-sm ${
-              imported ? 'bg-emerald-50 text-emerald-900' : 'bg-slate-100 text-slate-700'
+              imported ? 'bg-success-bg text-success-ink' : 'bg-navy-bg text-navy'
             }`}
           >
             {imported
@@ -96,36 +101,36 @@ export function ImportWorkbookForm() {
           </p>
 
           {imported && result.kind === 'REGISTER' && (
-            <section className="rounded-2xl bg-white p-6 ring-1 ring-slate-200">
-              <h2 className="text-sm font-semibold tracking-wide">WHAT WAS WRITTEN</h2>
+            <section className="rounded-2xl bg-white p-6 ring-1 ring-hairline">
+              <h2 className="text-[11px] font-semibold tracking-widest text-slate-400">WHAT WAS WRITTEN</h2>
               <dl className="mt-3 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
-                <div><dt className="text-xs tracking-wide text-slate-500">CREATED</dt>
+                <div><dt className="text-[11px] font-semibold tracking-widest text-slate-400">CREATED</dt>
                   <dd className="tabular-nums">{result.summary.created.toLocaleString('en-PH')}</dd></div>
-                <div><dt className="text-xs tracking-wide text-slate-500">UPDATED</dt>
+                <div><dt className="text-[11px] font-semibold tracking-widest text-slate-400">UPDATED</dt>
                   <dd className="tabular-nums">{result.summary.updated.toLocaleString('en-PH')}</dd></div>
-                <div><dt className="text-xs tracking-wide text-slate-500">HELD FOR REVIEW</dt>
+                <div><dt className="text-[11px] font-semibold tracking-widest text-slate-400">HELD FOR REVIEW</dt>
                   <dd className="tabular-nums">{result.summary.staged.toLocaleString('en-PH')}</dd></div>
-                <div><dt className="text-xs tracking-wide text-slate-500">ROWS IN THE FILE</dt>
+                <div><dt className="text-[11px] font-semibold tracking-widest text-slate-400">ROWS IN THE FILE</dt>
                   <dd className="tabular-nums">{result.summary.rows.toLocaleString('en-PH')}</dd></div>
               </dl>
             </section>
           )}
 
           {imported && result.kind === 'BILLS' && (
-            <section className="rounded-2xl bg-white p-6 ring-1 ring-slate-200">
-              <h2 className="text-sm font-semibold tracking-wide">WHAT WAS WRITTEN</h2>
+            <section className="rounded-2xl bg-white p-6 ring-1 ring-hairline">
+              <h2 className="text-[11px] font-semibold tracking-widest text-slate-400">WHAT WAS WRITTEN</h2>
               <dl className="mt-3 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
-                <div><dt className="text-xs tracking-wide text-slate-500">BILLS CREATED</dt>
+                <div><dt className="text-[11px] font-semibold tracking-widest text-slate-400">BILLS CREATED</dt>
                   <dd className="tabular-nums">{result.summary.created.toLocaleString('en-PH')}</dd></div>
-                <div><dt className="text-xs tracking-wide text-slate-500">BILLS UPDATED</dt>
+                <div><dt className="text-[11px] font-semibold tracking-widest text-slate-400">BILLS UPDATED</dt>
                   <dd className="tabular-nums">{result.summary.updated.toLocaleString('en-PH')}</dd></div>
-                <div><dt className="text-xs tracking-wide text-slate-500">MATCHED BY VOUCHER</dt>
+                <div><dt className="text-[11px] font-semibold tracking-widest text-slate-400">MATCHED BY VOUCHER</dt>
                   <dd className="tabular-nums">{result.summary.resolvedByVoucher.toLocaleString('en-PH')}</dd></div>
                 {/* Not "left for review" any more. A row that is only reported
                     is a row nobody reads twice — which is how a voucher went
                     unnoticed until a supplier asked. These are on
                     /admin/staged until they attach to a cheque. */}
-                <div><dt className="text-xs tracking-wide text-slate-500">STAGED FOR A HUMAN</dt>
+                <div><dt className="text-[11px] font-semibold tracking-widest text-slate-400">STAGED FOR A HUMAN</dt>
                   <dd className="tabular-nums">{result.summary.staged.toLocaleString('en-PH')}</dd></div>
               </dl>
               {result.summary.staged > 0 && (

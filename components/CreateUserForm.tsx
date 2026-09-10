@@ -24,9 +24,17 @@ export function CreateUserForm() {
   const [pending, startTransition] = useTransition()
   const [result, setResult] = useState<AdminActionResult | null>(null)
 
+  // One field treatment across the application: hairline border, navy focus.
+  // The dashboard's filter bar settled it; repeating `border-slate-300` here is
+  // how the two screens drifted apart in the first place.
+  const field =
+    'h-10 w-full rounded-lg border border-hairline bg-white px-3 text-sm text-slate-900 ' +
+    'focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy'
+  const label = 'mb-1.5 block text-[11px] font-semibold tracking-widest text-slate-400'
+
   return (
-    <section className="space-y-4 rounded-2xl bg-white p-6 ring-1 ring-slate-200">
-      <h2 className="text-sm font-semibold tracking-wide">CREATE USER</h2>
+    <section className="space-y-4 rounded-2xl bg-white p-6 ring-1 ring-hairline">
+      <h2 className="text-[11px] font-semibold tracking-widest text-slate-400">CREATE USER</h2>
 
       <form
         ref={formRef}
@@ -45,32 +53,32 @@ export function CreateUserForm() {
         }}
       >
         <div>
-          <label className="mb-1 block text-xs font-medium tracking-wide text-slate-600" htmlFor="new-user-name">
+          <label className={label} htmlFor="new-user-name">
             NAME
           </label>
           <input
             id="new-user-name" name="name" required autoComplete="off"
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className={field}
           />
         </div>
 
         <div>
-          <label className="mb-1 block text-xs font-medium tracking-wide text-slate-600" htmlFor="new-user-email">
+          <label className={label} htmlFor="new-user-email">
             EMAIL
           </label>
           <input
             id="new-user-email" name="email" type="email" required autoComplete="off"
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className={field}
           />
         </div>
 
         <div>
-          <label className="mb-1 block text-xs font-medium tracking-wide text-slate-600" htmlFor="new-user-role">
+          <label className={label} htmlFor="new-user-role">
             ROLE
           </label>
           <select
             id="new-user-role" name="role" defaultValue="FINANCE_USER"
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className={field}
           >
             <option value="FINANCE_USER">FINANCE USER</option>
             <option value="FINANCE_ADMIN">FINANCE ADMIN</option>
@@ -78,19 +86,19 @@ export function CreateUserForm() {
         </div>
 
         <div>
-          <label className="mb-1 block text-xs font-medium tracking-wide text-slate-600" htmlFor="new-user-password">
+          <label className={label} htmlFor="new-user-password">
             PASSWORD
           </label>
           <input
             id="new-user-password" name="password" type="password" required autoComplete="new-password"
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className={field}
           />
         </div>
 
         <div className="md:col-span-4">
           <button
             type="submit" disabled={pending}
-            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="rounded-lg bg-navy px-4 py-2 text-sm font-medium tracking-wide text-white transition hover:bg-navy/90 disabled:opacity-50"
           >
             {pending ? 'CREATING…' : 'CREATE USER'}
           </button>
@@ -104,10 +112,10 @@ export function CreateUserForm() {
       </p>
 
       {result && !result.ok && (
-        <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{result.message}</p>
+        <p className="rounded-lg bg-warning-bg p-3 text-sm text-warning-ink">{result.message}</p>
       )}
       {result && result.ok && (
-        <p className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">Account created.</p>
+        <p className="rounded-lg bg-success-bg p-3 text-sm text-success-ink">Account created.</p>
       )}
     </section>
   )

@@ -4,6 +4,8 @@ import { prisma } from '@/lib/db'
 import { formatMoney } from '@/lib/money'
 import { AppHeader } from '@/components/AppHeader'
 import { StatusPill } from '@/components/StatusPill'
+import { CheckProgress } from '@/components/CheckProgress'
+import { Panel, Field } from '@/components/Panel'
 import { AuditTrail } from '@/components/AuditTrail'
 import { ReadyForReleaseForm } from '@/components/ReadyForReleaseForm'
 import { ActionForm } from '@/components/ActionForm'
@@ -11,16 +13,49 @@ import { DeleteIncompleteCheckForm } from '@/components/DeleteIncompleteCheckFor
 import { checkDeletable } from '@/lib/domain/incomplete'
 import { signAction, releaseAction } from '../actions'
 
+/**
+ * ONE CHEQUE.
+ *
+ * The most-used screen after the dashboard, and until 2026-09-10 the one that
+ * looked least like it: white cards on white, three primary buttons in three
+ * unrelated hues, and the audit trail — the part a reader actually comes here
+ * for — rendered as a four-column table of em dashes.
+ *
+ * It is now the dashboard's own vocabulary: the tinted ground, `Panel` cards
+ * with hairline rings, the `StatusPill` map, and the release ladder drawn as a
+ * spine at the top so the first thing the screen answers is "where is this
+ * cheque". Nothing about what it queries, guards or permits changed.
+ */
+
 const fmtDate = (d: Date | null) =>
   d ? d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
 const fmtDateTime = (d: Date | null) =>
   d ? d.toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'
 
-function Field({ label, value }: { label: string; value: React.ReactNode }) {
+// The spine's own marks: a bare date under the rung it belongs to, and nothing
+// at all where there is no date. `fmtDate`'s em dash would read as "this rung
+// has no date" rather than "the cheque has not reached it".
+const mark = (d: Date | null) =>
+  d ? d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: '2-digit' }) : null
+
+/** A page-level notice. Pastel ground, dark ink, the palette's three tones. */
+function Notice({
+  tone, title, children,
+}: {
+  tone: 'warning' | 'info' | 'danger'
+  title: string
+  children: React.ReactNode
+}) {
+  const skin = {
+    warning: 'bg-warning-bg text-warning-ink',
+    info: 'bg-navy-bg text-navy',
+    danger: 'bg-danger-bg text-danger-ink',
+  }[tone]
+
   return (
-    <div>
-      <dt className="text-xs tracking-wide text-slate-500">{label}</dt>
-      <dd className="mt-0.5 text-sm text-slate-900">{value}</dd>
+    <div className={`rounded-2xl px-5 py-4 text-sm leading-relaxed ${skin}`}>
+      <p className="text-[11px] font-semibold tracking-widest">{title}</p>
+      <p className="mt-1">{children}</p>
     </div>
   )
 }
@@ -61,35 +96,91 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
         back={{ href: '/', label: '← BACK TO DASHBOARD' }}
       />
 
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold tracking-wide">CHECK {check.checkNumber}</h1>
-          {/* An em dash rather than the empty string React renders for null:
-              the register does not always record a payee, and a blank line under
-              the cheque number reads as a rendering fault, not as a fact. */}
-          <p className="text-sm text-slate-500">{check.payeeName ?? '—'}</p>
+      {/* ── THE IDENTITY CARD ──────────────────────────────────────────────
+          What cheque this is, who it is for, what it is worth and where it
+          stands, in one card and in that order. The amount is the largest
+          figure on the screen and is right-aligned and tabular-figured, the
+          same treatment the dashboard table gives the same column: a reader
+          comparing this page against the list should not have to re-read the
+          number in a different shape. */}
+      <section className="rounded-2xl bg-white p-6 ring-1 ring-hairline">
+        <div className="flex flex-wrap items-start justify-between gap-6">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold tracking-widest text-slate-400">CHECK NUMBER</p>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight tabular-nums text-navy">
+              {check.checkNumber}
+            </h1>
+            {/* An em dash rather than the empty string React renders for null:
+                the register does not always record a payee, and a blank line
+                under the cheque number reads as a rendering fault, not as a
+                fact. */}
+            <p className="mt-1 break-words text-sm font-medium text-slate-700">
+              {check.payeeName ?? '—'}
+            </p>
+            <p className="mt-1 text-xs tracking-wide text-slate-500">
+              {check.company.code}
+              {check.cashAccount && ` · ${check.cashAccount.code}`}
+              {` · ${fmtDate(check.checkDate)}`}
+            </p>
+          </div>
+
+          <div className="ml-auto text-right">
+            <p className="text-[11px] font-semibold tracking-widest text-slate-400">AMOUNT</p>
+            {/* A Decimal, formatted on the server. It never crosses to a client
+                component — see lib/money.ts and toTableRow. */}
+            <p className="mt-1 text-3xl font-semibold tracking-tight tabular-nums text-navy">
+              {formatMoney(check.amount, check.currency)}
+            </p>
+            <div className="mt-2 flex justify-end">
+              <StatusPill status={check.status} />
+            </div>
+          </div>
         </div>
-        <StatusPill status={check.status} />
-      </header>
+
+        {/* The ladder, drawn. Same five rungs as the dashboard's timeline, from
+            the same pure module — see lib/release-timeline.ts. */}
+        <div className="mt-6 border-t border-hairline pt-5">
+          <p className="text-[11px] font-semibold tracking-widest text-slate-400">RELEASE WORKFLOW</p>
+          <div className="mt-3 overflow-x-auto">
+            <CheckProgress
+              status={check.status}
+              marks={{
+                SIGNED: mark(check.signedAt),
+                READY_FOR_RELEASE: mark(check.availablePickupDate ?? check.readyAt),
+                RELEASED: mark(check.releasedAt),
+              }}
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* CANCELLED carries a reason and it is the most important sentence on
+          the page for a cheque that has one. It was a grey line at the bottom
+          of the ACTIONS card; it is a notice at the top now. */}
+      {check.status === 'CANCELLED' && (
+        <Notice tone="danger" title="CANCELLED">
+          {check.cancelReason ?? 'No reason was recorded.'}
+        </Notice>
+      )}
 
       {check.isIncomplete && (
-        <p className="rounded-2xl bg-amber-50 p-4 text-sm text-amber-900">
-          <strong>INCOMPLETE RECORD.</strong> No amount has been recorded for this cheque. It is
-          counted everywhere but appears in no currency total — there is no figure of its to add —
-          and it cannot be marked ready for release until somebody supplies one.
-        </p>
+        <Notice tone="warning" title="NO AMOUNT RECORDED">
+          The register never recorded an amount for this cheque. It is left out of every currency
+          total — there is no figure of its to add — and out of the dashboard&rsquo;s counts and
+          table entirely, and it cannot be marked ready for release until somebody supplies one.
+          Nothing about it has been deleted.
+        </Notice>
       )}
 
       {check.eligibility === 'INTERNAL' && (
-        <p className="rounded-2xl bg-slate-100 p-4 text-sm text-slate-700">
-          <strong>NOT PORTAL-ELIGIBLE.</strong> This is an internal payment (payroll, tax,
-          fund transfer or inter-company). It is tracked here but is never sent to the Supplier Portal.
-        </p>
+        <Notice tone="info" title="NOT PORTAL-ELIGIBLE">
+          This is an internal payment (payroll, tax, fund transfer or inter-company). It is tracked
+          here but is never sent to the Supplier Portal.
+        </Notice>
       )}
 
-      <section className="rounded-2xl bg-white p-6 ring-1 ring-slate-200">
-        <h2 className="mb-4 text-sm font-semibold tracking-wide">CHECK INFORMATION</h2>
-        <dl className="grid grid-cols-2 gap-4 md:grid-cols-3">
+      <Panel title="CHECK INFORMATION">
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-5 md:grid-cols-3">
           <Field label="CHECK NUMBER" value={check.checkNumber} />
           <Field label="CV NUMBER" value={check.cvNumber ?? '—'} />
           {/* Every bill, matching the dashboard table: a multi-bill check must not
@@ -98,18 +189,17 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
           <Field label="PAYEE" value={check.payeeName ?? '—'} />
           <Field label="COMPANY" value={check.company.code} />
           <Field label="CHECK DATE" value={fmtDate(check.checkDate)} />
-          <Field label="AMOUNT" value={formatMoney(check.amount, check.currency)} />
+          <Field label="AMOUNT" value={formatMoney(check.amount, check.currency)} tabular />
           <Field label="CASH ACCOUNT" value={check.cashAccount?.code ?? '—'} />
           <Field label="CHECK BOOK" value={check.checkBook?.code ?? '—'} />
           <Field label="CURRENCY" value={check.currency} />
           <Field label="CATEGORY" value={check.category ?? '—'} />
           <Field label="ELIGIBILITY" value={check.eligibility} />
         </dl>
-      </section>
+      </Panel>
 
-      <section className="rounded-2xl bg-white p-6 ring-1 ring-slate-200">
-        <h2 className="mb-4 text-sm font-semibold tracking-wide">RELEASE MONITORING</h2>
-        <dl className="grid grid-cols-2 gap-4 md:grid-cols-3">
+      <Panel title="RELEASE MONITORING">
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-5 md:grid-cols-3">
           <Field label="SIGNED BY" value={check.signedBy?.name ?? '—'} />
           <Field label="SIGNED DATE/TIME" value={fmtDateTime(check.signedAt)} />
           <Field label="READY BY" value={check.readyBy?.name ?? '—'} />
@@ -120,19 +210,22 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
           <Field label="RELEASED DATE/TIME" value={fmtDateTime(check.releasedAt)} />
           <Field label="CLEARING STATUS" value={check.clearingStatus} />
           <Field label="CR NUMBER" value={check.crNumber ?? '—'} />
-          <Field label="REMARKS" value={check.remarks ?? '—'} />
+          <Field label="REMARKS" value={check.remarks ?? '—'} wide />
         </dl>
-      </section>
+      </Panel>
 
-      <section className="rounded-2xl bg-white p-6 ring-1 ring-slate-200">
-        <h2 className="mb-4 text-sm font-semibold tracking-wide">ACTIONS</h2>
-
+      {/* The conditionals here are untouched: which action a cheque offers is
+          the domain's ladder, not a matter of styling. Only the buttons'
+          appearance changed — navy for the ordinary step, the success tone for
+          the one that hands money over, both from the client's palette rather
+          than from three unrelated Tailwind hues. */}
+      <Panel title="ACTIONS">
         {check.status === 'SIGNATURE_PENDING' && (
           <ActionForm
             action={signAction}
             checkId={check.id}
             label="MARK SIGNED"
-            className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="rounded-lg bg-navy px-4 py-2 text-sm font-medium tracking-wide text-white transition hover:bg-navy/90 disabled:opacity-50"
           />
         )}
 
@@ -145,33 +238,53 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
             action={releaseAction}
             checkId={check.id}
             label="MARK RELEASED"
-            className="block rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="block rounded-lg bg-navy px-4 py-2 text-sm font-medium tracking-wide text-white transition hover:bg-navy/90 disabled:opacity-50"
           >
-            <label className="block text-xs font-medium tracking-wide text-slate-600">REMARKS</label>
+            <label className="block text-[11px] font-semibold tracking-widest text-slate-400">REMARKS</label>
             <input name="remarks" placeholder="Picked up by supplier"
-              className="w-96 rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              className="h-10 w-full max-w-md rounded-lg border border-hairline bg-white px-3 text-sm text-slate-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy" />
           </ActionForm>
         )}
 
         {check.status === 'RELEASED' && (
-          <p className="text-sm text-slate-500">This check has been released.</p>
+          <p className="rounded-xl bg-success-bg px-4 py-3 text-sm text-success-ink">
+            This cheque has been released
+            {check.releasedBy?.name ? ` by ${check.releasedBy.name}` : ''}
+            {check.releasedAt ? ` on ${fmtDateTime(check.releasedAt)}` : ''}. There is nothing
+            further to do here.
+          </p>
         )}
+
         {check.status === 'CANCELLED' && (
-          <p className="text-sm text-rose-700">CANCELLED — {check.cancelReason}</p>
+          <p className="text-sm text-slate-500">
+            A cancelled cheque offers no actions. The reason is stated at the top of this page.
+          </p>
         )}
-      </section>
+
+        {check.status === 'VOIDED' && (
+          <p className="text-sm text-slate-500">
+            This cheque is VOIDED in Acumatica. Acumatica is the source of that fact and this system
+            never writes it back.
+          </p>
+        )}
+
+        {check.status === 'GENERATED' && (
+          <p className="text-sm text-slate-500">
+            This cheque has not been sent for signature yet, so there is nothing to do here.
+          </p>
+        )}
+      </Panel>
 
       {/* Offered only for an incomplete record, and only to a Finance Admin the
           guard actually permits. A FINANCE_USER, or an admin looking at one of
           the 25 RELEASED or 6 READY_FOR_RELEASE incomplete cheques, is told why
           instead of being shown a button that would refuse them. */}
       {check.isIncomplete && user.role === 'FINANCE_ADMIN' && (
-        <section className="rounded-2xl bg-white p-6 ring-1 ring-slate-200">
-          <h2 className="mb-4 text-sm font-semibold tracking-wide">INCOMPLETE RECORD</h2>
+        <Panel title="INCOMPLETE RECORD">
           {deletable.ok
             ? <DeleteIncompleteCheckForm checkId={check.id} checkNumber={check.checkNumber} />
             : <p className="text-sm text-slate-600">{deletable.message}</p>}
-        </section>
+        </Panel>
       )}
 
       <AuditTrail rows={check.auditLogs} />

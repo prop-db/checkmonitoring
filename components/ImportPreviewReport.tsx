@@ -30,11 +30,13 @@ const fmtDate = (d: Date | null) =>
   d ? d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
 
 function Figure({ label, value, tone }: { label: string; value: string; tone: 'good' | 'warn' }) {
-  const skin = tone === 'good' ? 'bg-emerald-50 ring-emerald-200' : 'bg-amber-50 ring-amber-200'
+  const skin = tone === 'good'
+    ? 'bg-success-bg ring-success-ink/20 text-success-ink'
+    : 'bg-warning-bg ring-warning-ink/20 text-warning-ink'
   return (
     <div className={`rounded-2xl p-6 ring-1 ${skin}`}>
-      <p className="text-xs font-medium tracking-wide text-slate-600">{label}</p>
-      <p className="mt-2 text-3xl font-semibold tabular-nums text-slate-900">{value}</p>
+      <p className="text-[11px] font-semibold tracking-widest">{label}</p>
+      <p className="mt-2 text-3xl font-semibold tabular-nums">{value}</p>
     </div>
   )
 }
@@ -42,13 +44,13 @@ function Figure({ label, value, tone }: { label: string; value: string; tone: 'g
 function StagedGroup({ reason, rows }: { reason: StagedReason; rows: StagedPreviewRow[] }) {
   if (rows.length === 0) return null
   return (
-    <details className="rounded-2xl bg-white ring-1 ring-slate-200">
+    <details className="rounded-2xl bg-white ring-1 ring-hairline">
       <summary className="cursor-pointer px-6 py-4 text-sm font-medium">
         {n(rows.length)} · {REASON_LABEL[reason]}
       </summary>
       <div className="overflow-x-auto border-t border-slate-100">
         <table className="w-full text-sm">
-          <thead className="border-b border-slate-200 text-left text-xs tracking-wide text-slate-500">
+          <thead className="border-b border-hairline text-left text-[11px] font-semibold tracking-widest text-slate-400">
             <tr>
               <th className="px-4 py-3">SHEET</th>
               <th className="px-4 py-3 text-right">ROW</th>
@@ -106,7 +108,7 @@ export function RegisterPreviewReport({ preview }: { preview: ImportPreview }) {
         <Figure label="WILL NOT IMPORT — HELD FOR REVIEW" value={n(preview.willStage)} tone="warn" />
       </div>
 
-      <p className="rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-700">
+      <p className="rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">
         {n(preview.totalRows)} rows in the workbook, all accounted for. Of the {n(preview.willStage)}{' '}
         that will not import, {n(preview.stagedLive)} are cheques still in the release workflow and{' '}
         {n(preview.stagedClosed)} are already released or cancelled
@@ -115,15 +117,15 @@ export function RegisterPreviewReport({ preview }: { preview: ImportPreview }) {
       </p>
 
       {preview.unruledClashes.length > 0 && (
-        <section className="rounded-2xl bg-rose-50 p-6 ring-1 ring-rose-200">
-          <h3 className="text-sm font-semibold tracking-wide text-rose-900">
+        <section className="rounded-2xl bg-danger-bg p-6 ring-1 ring-danger-ink/20">
+          <h3 className="text-[11px] font-semibold tracking-widest text-danger-ink">
             {n(preview.unruledClashes.length)} CHEQUE(S) CANNOT BE IMPORTED AT ALL
           </h3>
-          <p className="mt-2 text-sm text-rose-900">
+          <p className="mt-2 text-sm text-danger-ink">
             Their sheets imply a combination of statuses Finance has not ruled on, so the importer
             cannot choose one. A human has to decide before this workbook can be imported.
           </p>
-          <ul className="mt-3 space-y-1 text-sm text-rose-900">
+          <ul className="mt-3 space-y-1 text-sm text-danger-ink">
             {preview.unruledClashes.map((c) => (
               <li key={c.checkNumber}>
                 <span className="font-medium">{c.checkNumber}</span> — {c.sheets.join(' + ')}
@@ -141,14 +143,14 @@ export function RegisterPreviewReport({ preview }: { preview: ImportPreview }) {
         />
       ))}
 
-      <details className="rounded-2xl bg-white ring-1 ring-slate-200">
+      <details className="rounded-2xl bg-white ring-1 ring-hairline">
         <summary className="cursor-pointer px-6 py-4 text-sm font-medium">
           {n(preview.contradictions.length)} · CONTRADICTORY STATUS — and how the Finance ruling of
           3 September 2026 settled each
         </summary>
         <div className="overflow-x-auto border-t border-slate-100">
           <table className="w-full text-sm">
-            <thead className="border-b border-slate-200 text-left text-xs tracking-wide text-slate-500">
+            <thead className="border-b border-hairline text-left text-[11px] font-semibold tracking-widest text-slate-400">
               <tr>
                 <th className="px-4 py-3">CHECK NUMBER</th>
                 <th className="px-4 py-3">SHEETS</th>
@@ -172,14 +174,14 @@ export function RegisterPreviewReport({ preview }: { preview: ImportPreview }) {
         </div>
       </details>
 
-      <details className="rounded-2xl bg-white ring-1 ring-slate-200">
+      <details className="rounded-2xl bg-white ring-1 ring-hairline">
         <summary className="cursor-pointer px-6 py-4 text-sm font-medium">
           {n(preview.companyConflicts.length)} · CASH ACCOUNT AND CHECK BOOK NAME DIFFERENT
           COMPANIES — the cash account wins, and the register needs correcting
         </summary>
         <div className="overflow-x-auto border-t border-slate-100">
           <table className="w-full text-sm">
-            <thead className="border-b border-slate-200 text-left text-xs tracking-wide text-slate-500">
+            <thead className="border-b border-hairline text-left text-[11px] font-semibold tracking-widest text-slate-400">
               <tr>
                 <th className="px-4 py-3">SHEET</th>
                 <th className="px-4 py-3 text-right">ROW</th>
@@ -207,23 +209,23 @@ export function RegisterPreviewReport({ preview }: { preview: ImportPreview }) {
         </div>
       </details>
 
-      <section className="rounded-2xl bg-white p-6 ring-1 ring-slate-200">
-        <h3 className="text-sm font-semibold tracking-wide">OTHER CONFLICTS</h3>
+      <section className="rounded-2xl bg-white p-6 ring-1 ring-hairline">
+        <h3 className="text-[11px] font-semibold tracking-widest text-slate-400">OTHER CONFLICTS</h3>
         <dl className="mt-3 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
-          <div><dt className="text-xs tracking-wide text-slate-500">DUPLICATE ACROSS SHEETS</dt>
+          <div><dt className="text-[11px] font-semibold tracking-widest text-slate-400">DUPLICATE ACROSS SHEETS</dt>
             <dd className="tabular-nums">{n(preview.conflictsByKind.DUPLICATE_ACROSS_SHEETS)}</dd></div>
-          <div><dt className="text-xs tracking-wide text-slate-500">AMOUNT MISMATCH</dt>
+          <div><dt className="text-[11px] font-semibold tracking-widest text-slate-400">AMOUNT MISMATCH</dt>
             <dd className="tabular-nums">{n(preview.conflictsByKind.AMOUNT_MISMATCH)}</dd></div>
-          <div><dt className="text-xs tracking-wide text-slate-500">IMPLAUSIBLE DATE</dt>
+          <div><dt className="text-[11px] font-semibold tracking-widest text-slate-400">IMPLAUSIBLE DATE</dt>
             <dd className="tabular-nums">{n(preview.conflictsByKind.IMPLAUSIBLE_DATE)}</dd></div>
-          <div><dt className="text-xs tracking-wide text-slate-500">CONTRADICTORY STATUS</dt>
+          <div><dt className="text-[11px] font-semibold tracking-widest text-slate-400">CONTRADICTORY STATUS</dt>
             <dd className="tabular-nums">{n(preview.conflictsByKind.CONTRADICTORY_STATUS)}</dd></div>
         </dl>
       </section>
 
       {/* The merge list, presented BEFORE the import runs — spec §8. It is
           reported and never applied: nothing in this system rewrites a payee. */}
-      <details className="rounded-2xl bg-white ring-1 ring-slate-200">
+      <details className="rounded-2xl bg-white ring-1 ring-hairline">
         <summary className="cursor-pointer px-6 py-4 text-sm font-medium">
           {n(preview.vendorMerges.length)} · VENDOR MERGE LIST — payee spellings that fold to one
           name, out of {n(preview.distinctPayees)} spellings in the file
@@ -249,7 +251,7 @@ export function RegisterPreviewReport({ preview }: { preview: ImportPreview }) {
         </div>
       </details>
 
-      <details className="rounded-2xl bg-white ring-1 ring-slate-200">
+      <details className="rounded-2xl bg-white ring-1 ring-hairline">
         <summary className="cursor-pointer px-6 py-4 text-sm font-medium">
           {preview.sheets.length} SHEETS READ
         </summary>
@@ -291,7 +293,7 @@ export function BillPreviewReport({ preview }: { preview: BillPreview }) {
         />
       </div>
 
-      <p className="rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-700">
+      <p className="rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">
         {n(preview.totalRows)} rows read, all accounted for. This file is a snapshot of the
         approval-for-release working list, not a history: it says nothing about cheques outside it,
         and importing it changes no cheque&apos;s release status.
@@ -300,7 +302,7 @@ export function BillPreviewReport({ preview }: { preview: BillPreview }) {
       {/* Which sheets those rows came from, and which sheets were skipped. The
           workbook's sheet names change between exports, so "0 bills" and "we
           never read that sheet" have to be told apart on screen. */}
-      <ul className="space-y-1 rounded-2xl bg-white px-6 py-4 text-sm ring-1 ring-slate-200">
+      <ul className="space-y-1 rounded-2xl bg-white px-6 py-4 text-sm ring-1 ring-hairline">
         {preview.sheets.map((s) => (
           <li key={s.sheet} className="flex justify-between gap-4">
             <span className={s.read ? '' : 'text-slate-500'}>
@@ -319,7 +321,7 @@ export function BillPreviewReport({ preview }: { preview: BillPreview }) {
       </ul>
 
       {preview.willResolveByVoucher > 0 && (
-        <p className="rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-900">
+        <p className="rounded-lg bg-warning-bg px-4 py-2 text-sm text-warning-ink">
           {n(preview.willResolveByVoucher)} of them will be attached by their VOUCHER, because the
           workbook&apos;s <em>check No.</em> cell does not hold a cheque number. Each matched exactly
           one cheque; none was guessed at, and the audit trail records the basis.
@@ -327,13 +329,13 @@ export function BillPreviewReport({ preview }: { preview: BillPreview }) {
       )}
 
       {preview.unmatched.length > 0 && (
-        <details className="rounded-2xl bg-white ring-1 ring-slate-200" open>
+        <details className="rounded-2xl bg-white ring-1 ring-hairline" open>
           <summary className="cursor-pointer px-6 py-4 text-sm font-medium">
             {n(preview.unmatched.length)} · BILLS WITH NO CHEQUE TO ATTACH TO
           </summary>
           <div className="overflow-x-auto border-t border-slate-100">
             <table className="w-full text-sm">
-              <thead className="border-b border-slate-200 text-left text-xs tracking-wide text-slate-500">
+              <thead className="border-b border-hairline text-left text-[11px] font-semibold tracking-widest text-slate-400">
                 <tr>
                   {/* The sheet, not only the row: two sheets carry a row 6. */}
                   <th className="px-4 py-3">SHEET</th>
@@ -367,7 +369,7 @@ export function BillPreviewReport({ preview }: { preview: BillPreview }) {
       )}
 
       {preview.review.length > 0 && (
-        <details className="rounded-2xl bg-white ring-1 ring-slate-200">
+        <details className="rounded-2xl bg-white ring-1 ring-hairline">
           <summary className="cursor-pointer px-6 py-4 text-sm font-medium">
             {n(preview.review.length)} · ROWS THAT ARE NOT A USABLE BILL
           </summary>
