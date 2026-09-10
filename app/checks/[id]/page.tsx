@@ -11,7 +11,7 @@ import { ReadyForReleaseForm } from '@/components/ReadyForReleaseForm'
 import { ActionForm } from '@/components/ActionForm'
 import { DeleteIncompleteCheckForm } from '@/components/DeleteIncompleteCheckForm'
 import { checkDeletable } from '@/lib/domain/incomplete'
-import { signAction, releaseAction } from '../actions'
+import { signAction, releaseAction, revertAction } from '../actions'
 
 /**
  * ONE CHEQUE.
@@ -220,7 +220,13 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
           the one that hands money over, both from the client's palette rather
           than from three unrelated Tailwind hues. */}
       <Panel title="ACTIONS">
-        {check.status === 'SIGNATURE_PENDING' && (
+        {/* `isCheque` gates this, as it gates the dashboard table's checkbox.
+            A DEBIT ADV or a CASH payment is not a cheque and nobody signs one —
+            CLAUDE.md states that outright. This page offered the button anyway
+            until 2026-09-10; `assertReleasable` refused the action server-side,
+            so nothing unsafe ever happened, but a button that exists only to be
+            rejected teaches people to distrust the screen. */}
+        {check.status === 'SIGNATURE_PENDING' && check.isCheque && (
           <ActionForm
             action={signAction}
             checkId={check.id}
@@ -243,6 +249,37 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
             <label className="block text-[11px] font-semibold tracking-widest text-slate-400">REMARKS</label>
             <input name="remarks" placeholder="Picked up by supplier"
               className="h-10 w-full max-w-md rounded-lg border border-hairline bg-white px-3 text-sm text-slate-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy" />
+          </ActionForm>
+        )}
+
+        {/* Back down a rung: READY FOR RELEASE -> SIGNED.
+            `revertAvailability` has existed since Plan 1 — guarded, audited, and
+            clearing any pickup the portal had booked — with nothing rendering it,
+            so a cheque approved by mistake could only be corrected in the
+            database. Client asked for it on 2026-09-10.
+
+            FINANCE_ADMIN only, matching `revertAction`'s own guard: the button is
+            hidden for everyone else rather than shown and refused, but the
+            server check is what actually enforces it. The reason is required —
+            the domain refuses a blank one — because a cheque that moved down a
+            rung with no explanation is indistinguishable from one that was never
+            approved. */}
+        {(check.status === 'READY_FOR_RELEASE' || check.status === 'SCHEDULED') &&
+          user.role === 'FINANCE_ADMIN' && (
+          <ActionForm
+            action={revertAction}
+            checkId={check.id}
+            label="REVERT TO SIGNED"
+            className="block rounded-lg border border-hairline bg-white px-4 py-2 text-sm font-medium tracking-wide text-navy transition hover:bg-ground disabled:opacity-50"
+          >
+            <label className="block text-[11px] font-semibold tracking-widest text-slate-400">
+              REASON <span className="text-danger-ink">— REQUIRED</span>
+            </label>
+            <input name="reason" required placeholder="Approved in error"
+              className="h-10 w-full max-w-md rounded-lg border border-hairline bg-white px-3 text-sm text-slate-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy" />
+            <p className="text-[11px] text-slate-500">
+              Returns this cheque to SIGNED and clears any pickup the supplier had booked.
+            </p>
           </ActionForm>
         )}
 

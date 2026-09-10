@@ -26,6 +26,8 @@ npm run db:seed:reference      # production seed: reference data only, no cheque
 npm run create-admin           # bootstrap the first FINANCE_ADMIN on a fresh database
 npx tsx scripts/backfill-incomplete.ts --dry-run   # re-derive Check.isIncomplete; idempotent
 npx tsx scripts/backfill-apv-numbers.ts "CHECK MONITORING 9.1.2026.xlsx" --dry-run  # fill Check.apvNumbers
+npx tsx scripts/backfill-available.ts --dry-run                     # the approval list IS ready-for-release
+npx tsx scripts/backfill-released-dropped.ts <older> <newer> --dry-run   # dropped off that list = released
 ```
 
 **On Windows, use `npx.cmd` / `npm.cmd`.** PowerShell's execution policy is `Undefined` (i.e.
@@ -94,6 +96,14 @@ placed in middleware passes tests that import it directly and protects nothing.
 `resetDb()` truncates it. Concurrent runs produce `40P01` deadlocks and spurious FK failures, and
 they destroy an in-flight import. `fileParallelism: false` prevents this within a run and cannot
 prevent it across processes.
+
+**Prisma’s interactive-transaction defaults are far too tight for an import.** 5s to run, 2s to
+acquire a connection. One row of `upsertCheck` is four round trips to ap-southeast-1, so across
+9,515 rows one row eventually runs long and kills the WHOLE run — surfacing as *"Transaction not
+found. Transaction ID is invalid, refers to an old closed transaction"*, which reads as a connection
+fault and sends you to look at Neon rather than at the default. It killed the 9 September register
+load after about 5,000 cheques. `TX_OPTIONS` in `lib/import/upsert.ts` raises it to 30s. Any new
+long-running write loop needs the same; the import is idempotent, so a killed run costs only time.
 
 **The Neon connection string contains `&`.** Spawn the Prisma CLI with the URL as an argv entry and
 `shell: false`, or the shell mangles it.
@@ -205,6 +215,21 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
   re-resolved by voucher — that would be overruling the workbook on evidence it did not offer.
   The 7 September workbook has **50 such rows**, not one — 47 on `local supplier`, 3 on `BROKERAGE`.
   Scale is not a reason to relax "exactly one match or stage it", and it has not been relaxed.
+- **The approval workbook IS the release list, in both directions.** Two client rulings.
+  *(2026-09-04)* A cheque carrying a bill from that workbook belongs at READY_FOR_RELEASE —
+  `scripts/backfill-available.ts`, which also demotes any READY_FOR_RELEASE cheque NOT on the list.
+  *(2026-09-10)* A voucher present on an OLDER approval workbook and absent from a NEWER one was
+  released in between — `scripts/backfill-released-dropped.ts`.
+
+  The second **writes RELEASED over an ERP that says otherwise**, knowingly: of the 51 vouchers that
+  dropped between 4 and 7 September, 49 of the cheques they name were still `Balanced` in Acumatica
+  and not one was `Closed`. On the usual rule that means "not released". The client resolved it:
+  *"Those are not in the list of course will reflect balance in acumatica because no update yet for
+  the released checks in acumatica."* The ERP entry lags the counter — the very lag this system
+  exists to close. Every audit row records what Acumatica said at the time, so the disagreement is
+  visible rather than buried. `releasedAt` and `releasedById` stay null: neither is knowable from a
+  workbook, and a fabricated timestamp on a release record is worse than none.
+
 - **A refused approval-workbook row lands in `StagedBill` and shows on `/admin/staged`.** This is
   why `AP-ST042652` was missed: the importer refused the row correctly and reported it correctly, to
   a terminal, once, during a run nobody was watching. `StagedBill` is deliberately **not** a
@@ -212,6 +237,22 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
   workbook's `FINANCE REMARKS = AVAILABLE` is evidence, never an instruction. It carries no amount
   and no vendor, because a bill's `Detail Total` displayed beside cheque amounts is read as a
   cheque's figure sooner or later.
+- **THE REGISTER’S AMOUNTS ARE NOT RELIABLE. ACUMATICA’S ARE.** Measured 2026-09-10, and it is the
+  strongest evidence yet for the client’s "follow Acumatica" ruling. The 9 September register import
+  changed 94 amounts on cheques Acumatica also knows. All 94 were read back from the live ERP:
+  **the register was wrong in every one, Acumatica right in every one.** Seven moved by more than
+  PHP 10,000 and one turned 217,037.94 into 27,037.94 — a leading digit dropped. The small ones look
+  like plausible net-to-gross corrections (3,928.57 -> 4,000.00 is exactly 12% VAT) and are not:
+  they are wrong too. **Do not accept a register amount over an Acumatica one, and do not reason
+  from the shape of the difference.**
+
+  The same import also moved **1,958 cheques to a company Acumatica contradicts**, silently, because
+  `companyId` and `amount` are both in `IMPORT_WRITABLE`. Both were restored from a pre-import
+  snapshot, with 2,052 audit rows. **The ruling is still not enforced in code** — nothing in
+  `upsertCheck` stops a register row overwriting a field the ERP owns, and this was caught only by
+  diffing against a snapshot taken by hand beforehand. **Snapshot before any bulk write to
+  production**: it is the only reason that recovery was exact rather than reconstructed.
+
 - **Acumatica bank-prefixes 90% of its cheque references** (`BPI 6000240287`) while the register
   writes them bare. `canonicalCheckNumber` reconciles them — without it the same cheque stores twice.
 - **`Branch` from Acumatica is space-padded** (`"A1+       "`). `orNull` trims it; an untrimmed read
@@ -222,33 +263,37 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
 
 ## State
 
-Plans 1 and 2 complete. Plan 3 (portal automation) paused after Task 1 at the client's request —
-the portal needs an `encoder` service account that does not yet exist, and until then events simply
-queue. 983 tests across 55 files.
+Plans 1 and 2 complete. Plan 3 (portal automation) still paused: the portal needs an `encoder`
+service account that does not exist, and until it does every `PortalEvent` simply queues.
+**992 tests across 55 files.**
 
-Production is `check_monitoring_prod` on Neon — created clean, reference data only, one real admin,
-no demo cheques. The historical import was running at last handoff; it is idempotent, so if it was
-interrupted, re-run it:
+Production is `check_monitoring_prod` on Neon. Both outstanding migrations were applied on
+2026-09-10 — `20260907000000_check_apv_numbers_and_staged_bill` and
+`20260910000000_check_receipt_type` — so schema and database agree. As of that evening:
+11,870 cheques, 9,224 carrying an AP voucher (from 84), 287 bills, 0 staged bills.
 
-```bash
-npx.cmd tsx scripts/import-workbook.ts "CHECK MONITORING 9.1.2026.xlsx" --dry-run
-npx.cmd tsx scripts/import-workbook.ts "CHECK MONITORING 9.1.2026.xlsx"
-```
+### What is missing, measured 2026-09-10 — in priority order
 
-Outstanding: promote a second FINANCE_ADMIN (one forgotten password currently locks administration);
-create the `check_monitoring_app` database role so the dormant `REVOKE` on `audit_log` activates;
-decide whether to delete `middleware.ts` or make it Edge-compatible.
-
-**Not yet applied to production (2026-09-07):** migration
-`20260907000000_check_apv_numbers_and_staged_bill` is applied to the TEST database only, and
-`scripts/backfill-apv-numbers.ts` has not been run anywhere but a dry run against the test database.
-Apply the migration, then dry-run the backfill, then run it. Re-import the approval workbook
-afterwards, not before — its row 81 can only resolve once the register's vouchers are in.
-
-**Not yet applied to production (2026-09-10):** migration `20260910000000_check_receipt_type`, which
-adds the `ReceiptType` enum and `Check.receiptType`. Applied to the TEST database only. It needs no
-backfill — every existing row reads NULL, which is the truth about all of them, because no screen
-has ever offered the choice. It is additive and nullable, so it can be applied while an import runs;
-what CANNOT wait is `prisma generate`, which has already run against the shared `node_modules`, so
-any process started against production after 2026-09-10 09:26 will select a column production does
-not have until the migration is applied.
+1. **Nothing is scheduled.** `vercel.json` has no cron and there is no scheduled sync. Acumatica is
+   read only when somebody clicks SYNC NOW; the last run was manual. The first arrow of
+   `ACUMATICA -> CHECK MONITORING -> PORTAL` moves only when a human remembers.
+2. **One active FINANCE_ADMIN**, of three active users. This stopped being housekeeping the moment
+   admin-only actions shipped (revert availability; the release reversal below). One forgotten
+   password locks administration, and one has already been forgotten on this system.
+3. **The audit trail is write-only.** 2,052 rows were written on 2026-09-10 alone and no screen in
+   the app can read them. `/admin` has users, sync, import and staged — no audit.
+4. **No notifications at all.** A failed sync is silent; nobody is told a cheque is ready or that a
+   supplier booked a pickup.
+5. **3,718 staged rows with no owner** — no ageing, no alert, nobody assigned.
+6. **"Acumatica wins" is not enforced in code.** See the amounts note above.
+7. **No snapshot step before a bulk write.** Today’s recovery depended on one taken by hand.
+8. **A release cannot be reversed.** `RELEASED` -> `VOIDED` is the only edge out, and that means the
+   bank voided the cheque, not that somebody ticked the wrong row. Designed with the client
+   2026-09-10 but **not built**: FINANCE_ADMIN only, mandatory reason, back to READY_FOR_RELEASE,
+   pickup fields cleared, portal REVERT queued — and **refused outright when a receipt already
+   exists**, because a recorded OR/CR is the supplier’s own paper saying they took the cheque.
+   (Reverting availability, READY_FOR_RELEASE -> SIGNED, does exist and was wired to the check
+   detail page on 2026-09-10; it had been a working, guarded, tested server action with no button
+   since Plan 1.)
+9. The test suite takes ~20 minutes because every test crosses the South China Sea. A local Postgres
+   would make it ~2. It is the tax on every deploy.
