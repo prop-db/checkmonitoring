@@ -73,6 +73,99 @@ describe('releaseAction', () => {
   })
 })
 
+describe('releaseAction with a receipt', () => {
+  async function ready() {
+    const { readyForReleaseAction } = await import('@/app/checks/actions')
+    const check = await makeCheck({ status: 'SIGNED' })
+    await readyForReleaseAction(fd({ checkId: check.id, availablePickupDate: '2026-09-10' }))
+    return check
+  }
+
+  it('records the reference, the date and the kind of receipt', async () => {
+    const { releaseAction } = await import('@/app/checks/actions')
+    const check = await ready()
+    const result = await releaseAction(fd({
+      checkId: check.id, orNumber: 'OR-000123', orDate: '2026-09-10', receiptType: 'OR',
+    }))
+    expect(result).toEqual({ ok: true })
+    const after = await testDb.check.findUniqueOrThrow({ where: { id: check.id } })
+    expect(after.orNumber).toBe('OR-000123')
+    expect(after.receiptType).toBe('OR')
+    expect(after.crNumber).toBeNull()
+  })
+
+  it('releases with an empty box', async () => {
+    const { releaseAction } = await import('@/app/checks/actions')
+    const check = await ready()
+    const result = await releaseAction(fd({ checkId: check.id, orNumber: '', receiptType: '' }))
+    expect(result).toEqual({ ok: true })
+    const after = await testDb.check.findUniqueOrThrow({ where: { id: check.id } })
+    expect(after.status).toBe('RELEASED')
+    expect(after.receiptType).toBeNull()
+  })
+
+  it('returns the domain’s sentence for a reference with no type', async () => {
+    const { releaseAction } = await import('@/app/checks/actions')
+    const check = await ready()
+    const result = await releaseAction(fd({ checkId: check.id, orNumber: 'OR-000123', receiptType: '' }))
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.message).toContain('Collection Receipt')
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: check.id } })).status)
+      .toBe('READY_FOR_RELEASE')
+  })
+
+  it('rejects a receipt type that is neither OR nor CR without throwing', async () => {
+    const { releaseAction } = await import('@/app/checks/actions')
+    const check = await ready()
+    const result = await releaseAction(fd({ checkId: check.id, orNumber: 'X', receiptType: 'crn' }))
+    expect(result).toEqual({ ok: false, message: 'Invalid receipt type.' })
+  })
+})
+
+describe('recordReceiptAction', () => {
+  async function released() {
+    const { readyForReleaseAction, releaseAction } = await import('@/app/checks/actions')
+    const check = await makeCheck({ status: 'SIGNED' })
+    await readyForReleaseAction(fd({ checkId: check.id, availablePickupDate: '2026-09-10' }))
+    await releaseAction(fd({ checkId: check.id }))
+    return check
+  }
+
+  it('adds the receipt to a cheque released without one', async () => {
+    const { recordReceiptAction } = await import('@/app/checks/actions')
+    const check = await released()
+    const result = await recordReceiptAction(fd({
+      checkId: check.id, orNumber: '4471', orDate: '2026-09-11', receiptType: 'CR',
+    }))
+    expect(result).toEqual({ ok: true })
+    const after = await testDb.check.findUniqueOrThrow({ where: { id: check.id } })
+    expect(after.orNumber).toBe('4471')
+    expect(after.receiptType).toBe('CR')
+    // The Collection Receipt is not a bank clearing reference.
+    expect(after.crNumber).toBeNull()
+    expect(after.clearingStatus).toBe('NONE')
+  })
+
+  it('refuses a cheque that has not been released', async () => {
+    const { recordReceiptAction } = await import('@/app/checks/actions')
+    const check = await makeCheck({ status: 'READY_FOR_RELEASE' })
+    const result = await recordReceiptAction(fd({
+      checkId: check.id, orNumber: 'OR-1', receiptType: 'OR',
+    }))
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.message).toContain('RELEASED')
+  })
+
+  it('refuses an empty box rather than reporting success at doing nothing', async () => {
+    const { recordReceiptAction } = await import('@/app/checks/actions')
+    const check = await released()
+    const result = await recordReceiptAction(fd({ checkId: check.id, orNumber: '', receiptType: '' }))
+    expect(result.ok).toBe(false)
+  })
+})
+
 describe('clearingAction', () => {
   it('rejects a bogus clearingStatus without throwing', async () => {
     const { clearingAction } = await import('@/app/checks/actions')

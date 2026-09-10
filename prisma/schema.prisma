@@ -39,6 +39,24 @@ enum ClearingStatus {
   CLEARED
 }
 
+// Which piece of paper the supplier handed over when they collected the cheque:
+// an Official Receipt or a Collection Receipt.
+//
+// Stored rather than parsed back out of the reference string. "OR-000123",
+// "4471" and "CR 88" are all references a supplier writes, and a prefix rule
+// over them would be a guess dressed as a fact — this register has already
+// taught the project what positional and prefix guesses cost. Finance answers
+// once, and the answer is a column, which is also what makes "how many CRs did
+// we take in September" a query rather than a re-parse.
+//
+// CR here is a COLLECTION RECEIPT. It is not `Check.crNumber`, which sits
+// beside `clearingStatus` and holds the BANK's clearing reference weeks later.
+// See the note on `receiptType` below.
+enum ReceiptType {
+  OR
+  CR
+}
+
 enum Eligibility {
   SUPPLIER
   BROKER
@@ -227,13 +245,34 @@ model Check {
 
   releasedById       String?
   releasedAt         DateTime?
+  // The supplier's receipt: the paper handed over when the cheque is collected.
+  // All three are Finance facts recorded at, or after, the moment of release,
+  // and all three are optional — the client's ruling is that a cheque may be
+  // released with the box empty and the receipt added later.
+  //
+  // `receiptType` says WHICH kind of receipt `orNumber` names, and it is null
+  // exactly when `orNumber` is: `normaliseReceipt` in lib/domain/receipt.ts
+  // drops a type with no reference, and `checkReceipt` refuses a reference with
+  // no type. There is deliberately no default — a default would answer, on
+  // every one of the 21,817 existing rows, a question nobody was asked.
+  //
+  // **`crNumber`, further down, is NOT this.** It is the BANK's clearing
+  // reference, recorded weeks after release beside `clearingStatus` and
+  // `clearedDate`. A supplier's Collection Receipt written there would read to
+  // every report as evidence the cheque had cleared the bank.
   orNumber           String?
   orDate             DateTime?
+  receiptType        ReceiptType?
   remarks            String?
 
   pointPerson        String?
   checksPossession   String?
 
+  // BANK CLEARING, not a receipt. `crNumber` is the reference the bank gives
+  // when the cheque comes back through the account, and it is written only by
+  // `recordClearing` alongside a `clearingStatus` move. A supplier's Collection
+  // Receipt goes in `receiptType` = CR with its number in `orNumber`; putting
+  // one here would make an uncollected cheque read as cleared money.
   clearingStatus     ClearingStatus   @default(NONE)
   crNumber           String?
   clearedDate        DateTime?

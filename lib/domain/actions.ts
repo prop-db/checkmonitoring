@@ -6,6 +6,7 @@ import { writeAudit } from '@/lib/audit'
 import { DomainError } from './errors'
 import { portalRoute, type Eligibility } from './eligibility'
 import { checkDeletable } from './incomplete'
+import { checkReceipt, normaliseReceipt, hasReceipt, type Receipt, type ReceiptType } from './receipt'
 import {
   assertTransition, assertClearing, assertReleasable, checkReadyForRelease,
   type CheckStatus, type ClearingStatus,
@@ -245,10 +246,74 @@ export async function applyPickupConfirmation(
   })
 }
 
+/**
+ * The audit row a receipt gets, wherever it was entered.
+ *
+ * Written for every receipt and only for a receipt, so "who recorded this OR,
+ * and when" is one query rather than a reading of two different actions'
+ * details. `withRelease` is the whole reason it is a shared helper: a receipt
+ * handed over at the counter and a receipt typed in the next morning are
+ * different events, and the difference has to be recorded at the time — it
+ * cannot be reconstructed afterwards from timestamps, because a release and a
+ * late entry on the same afternoon look identical.
+ *
+ * Amounts are never in here. A receipt is a reference, not a figure.
+ */
+const RECEIPT_REMARK_LABELS: Record<ReceiptType | 'UNSTATED', string> = {
+  OR: 'Official Receipt',
+  CR: 'Collection Receipt',
+  UNSTATED: 'Receipt of unstated kind',
+}
+
+async function writeReceiptAudit(
+  tx: Prisma.TransactionClient,
+  args: { checkId: string; userId: string; receipt: Receipt; withRelease: boolean; now: Date },
+): Promise<void> {
+  await writeAudit(tx, {
+    checkId: args.checkId,
+    actorType: 'USER',
+    userId: args.userId,
+    action: 'receipt_recorded',
+    details: {
+      orNumber: args.receipt.orNumber,
+      // The receipt's OWN date — the day the supplier wrote it — which is not
+      // the day it was typed in. `recordedAt` below is that.
+      orDate: args.receipt.orDate?.toISOString() ?? null,
+      receiptType: args.receipt.receiptType,
+      withRelease: args.withRelease,
+      recordedAt: args.now.toISOString(),
+    },
+    // The null arm cannot be reached — `checkReceipt` refuses a reference with
+    // no type — and is written out anyway rather than folded into the OR
+    // branch. A ternary whose else-arm says "Official Receipt" would label an
+    // unanswered question as an answer if the guard were ever weakened, which
+    // is the one failure this whole feature is arranged to prevent.
+    remarks:
+      `${RECEIPT_REMARK_LABELS[args.receipt.receiptType ?? 'UNSTATED']} ` +
+      `${args.receipt.orNumber}${args.withRelease ? ' (recorded at release)' : ' (added after release)'}`,
+  })
+}
+
 export async function markReleased(
   db: Db,
-  args: { checkId: string; userId: string; orNumber?: string; orDate?: Date; remarks?: string; now: Date },
+  args: {
+    checkId: string; userId: string
+    /**
+     * The supplier's receipt, all three optional together. The client's ruling:
+     * a cheque may be released with the box empty and the receipt added later,
+     * which is what RELEASE ALL at the counter depends on.
+     */
+    orNumber?: string; orDate?: Date; receiptType?: ReceiptType | null
+    remarks?: string; now: Date
+  },
 ): Promise<Check> {
+  // Before the transaction opens, and before anything is written: a reference
+  // with no type refuses the whole release rather than releasing the cheque and
+  // dropping the reference on the floor.
+  const guard = checkReceipt(args)
+  if (!guard.ok) throw new DomainError(guard.code, guard.message)
+  const receipt = normaliseReceipt(args)
+
   return inTx(db, async (tx) => {
     const check = await load(tx, args.checkId)
     assertReleasable({ isCheque: check.isCheque })
@@ -263,8 +328,9 @@ export async function markReleased(
         status: 'RELEASED',
         releasedById: args.userId,
         releasedAt: args.now,
-        orNumber: args.orNumber ?? null,
-        orDate: args.orDate ?? null,
+        orNumber: receipt.orNumber,
+        orDate: receipt.orDate,
+        receiptType: receipt.receiptType,
         remarks: args.remarks ?? check.remarks,
         portalSyncStatus: pushes ? 'PENDING' : 'NOT_APPLICABLE',
       },
@@ -281,11 +347,17 @@ export async function markReleased(
           kind: 'RELEASED',
           status: 'PENDING',
           idempotencyKey: portalEventKey(check.id, 'RELEASED', args.now),
+          // `receiptType` is deliberately NOT in the payload. The portal's
+          // POST /api/checks/:id takes `status`, `orNumber` and `orDate` at
+          // encoder tier (evidence in docs/superpowers/specs/) and nothing
+          // more; a field it does not accept is a field that can fail a
+          // delivery nobody is watching. Which kind of receipt it is stays a
+          // Finance fact until the portal asks for it.
           payload: {
             action: 'RELEASED',
             checkNumber: check.checkNumber,
             releasedAt: args.now.toISOString(),
-            orNumber: args.orNumber ?? null,
+            orNumber: receipt.orNumber,
           },
         },
       })
@@ -295,6 +367,102 @@ export async function markReleased(
       checkId: check.id, actorType: 'USER', userId: args.userId, action: 'released',
       remarks: args.remarks,
     })
+    // In the same transaction as the release it accompanied, so a receipt can
+    // never be recorded against a release that rolled back.
+    if (hasReceipt(receipt)) {
+      await writeReceiptAudit(tx, {
+        checkId: check.id, userId: args.userId, receipt, withRelease: true, now: args.now,
+      })
+    }
+    return updated
+  })
+}
+
+/**
+ * The add-it-later path, and the reason the box is allowed to be empty at all.
+ *
+ * The client made the receipt optional — "A cheque can be released with the box
+ * empty and the receipt added later" — and an optional field with no way to
+ * fill it in afterwards is not optional, it is skipped.
+ *
+ * **Only for a cheque that has actually been handed over.** A receipt is the
+ * paper the supplier gives back when they collect, so there is nothing to
+ * record before that happens. `releasedAt` is tested alongside the status, not
+ * as a proxy for it: `voidCheck` leaves the release facts standing on a cheque
+ * voided after release, deliberately, as the evidence it was handed over — and
+ * the receipt for that hand-over is part of the same evidence.
+ *
+ * **It adds; it does not amend.** A cheque that already records a receipt is
+ * refused, and the refusal names what is there. Overwriting would replace a
+ * fact somebody entered against money that has already moved, and this path
+ * exists to fill a gap rather than to correct one. If Finance ever needs a
+ * correction, it should be its own action with its own reason, not this one
+ * quietly widened.
+ *
+ * **It queues no portal event.** `markReleased` already queued RELEASED with
+ * whatever the receipt was at the time — null, for every cheque that reaches
+ * here — and the outbox is an append-only record of what the portal was told,
+ * not a mutable draft. A late receipt therefore does not reach the supplier
+ * portal; nothing does yet, since Plan 3 is paused for want of an `encoder`
+ * service account, and adding a fourth `PortalEventKind` is that plan's
+ * decision to make rather than this one's.
+ */
+export async function recordReceipt(
+  db: Db,
+  args: {
+    checkId: string; userId: string
+    orNumber: string; orDate?: Date; receiptType: ReceiptType | null
+    now: Date
+  },
+): Promise<Check> {
+  const guard = checkReceipt(args)
+  if (!guard.ok) throw new DomainError(guard.code, guard.message)
+  const receipt = normaliseReceipt(args)
+
+  // Distinct from the guard above: this endpoint exists to ADD a receipt, so an
+  // empty box is nothing to do rather than a silent clearing of one.
+  if (!hasReceipt(receipt)) {
+    throw new DomainError(
+      'RECEIPT_REQUIRED',
+      'Enter the receipt reference the supplier gave you. Leaving it blank records nothing.',
+    )
+  }
+
+  return inTx(db, async (tx) => {
+    const check = await load(tx, args.checkId)
+
+    if (check.status !== 'RELEASED' && check.releasedAt === null) {
+      throw new DomainError(
+        'NOT_RELEASED',
+        'A supplier’s receipt can only be recorded against a cheque that has been RELEASED. ' +
+        'Release the cheque first; the receipt can be entered at the same time.',
+      )
+    }
+
+    if (check.orNumber !== null) {
+      throw new DomainError(
+        'RECEIPT_ALREADY_RECORDED',
+        `This cheque already records receipt ${check.orNumber}. A recorded receipt is not ` +
+        'overwritten from here — if it is wrong, raise it with a Finance Admin.',
+      )
+    }
+
+    const updated = await tx.check.update({
+      where: { id: check.id },
+      // Only the three receipt columns. Not `status`, which is already
+      // RELEASED and is not this action's to move; and emphatically not
+      // `crNumber` or `clearingStatus`, which are the BANK's clearing facts.
+      data: {
+        orNumber: receipt.orNumber,
+        orDate: receipt.orDate,
+        receiptType: receipt.receiptType,
+      },
+    })
+
+    await writeReceiptAudit(tx, {
+      checkId: check.id, userId: args.userId, receipt, withRelease: false, now: args.now,
+    })
+
     return updated
   })
 }
