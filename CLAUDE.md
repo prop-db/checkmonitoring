@@ -288,16 +288,19 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
 - **`PaymentMethod` decides `isCheque`**, alongside the China-branch rule. `DEBIT ADV` and `CASH` are
   not cheques and must not offer a SIGN button.
 - A voided cheque is **two feed rows** under one reference; the original's positive amount survives.
-- **The Finance Executive Report reads this system through `CHECK BY VOUCHER.xlsx`.** Its `AP Local`
-  sheet used to find a payable's cheque with three `VLOOKUP`s into the released sheets of
-  `CHECK MONITORING <date>.xlsx`; the register was retired on 2026-09-10 and a `VLOOKUP` into a
-  stale external returns its last cached value for ever rather than failing. `/api/export/vouchers`
-  replaces them. **The filename and the sheet name (`INDEX`) are fixed** — they are stored inside an
-  Excel external reference — so the file states its own age in `$A$2` instead, and the Executive
-  Report displays it. Measured 2026-09-10 over `AP Local`'s 1,472 distinct vouchers: 986 name exactly
-  one cheque, 54 name more than one (46 of them a re-issue with a single live cheque), 432 name none.
-  The old formulas could answer 2 of the 1,472, because they looked only at released cheques and
-  `AP Local` is the OPEN payables ledger. Do not "restore" released-only semantics.
+- **Which cheque pays an AP voucher is answered on `/vouchers`, and `CHECK BY VOUCHER.xlsx` is
+  its extract.** The Finance Executive Report's `AP Local` sheet used to find a payable's cheque
+  with three `VLOOKUP`s into the released sheets of `CHECK MONITORING <date>.xlsx`; the register
+  was retired on 2026-09-10 and a `VLOOKUP` into a stale external returns its last cached value for
+  ever rather than failing. A handover asking Finance to repoint those formulas was written and
+  then withdrawn the same day on the client's ruling: *"I want the report to be done in the portal.
+  And report can be extracted from there."* Measured over `AP Local`'s 1,472 distinct vouchers: 986
+  name exactly one cheque, 54 name more than one (46 of them a re-issue with a single live cheque),
+  432 name none. The old formulas could answer 2 of the 1,472, because they looked only at released
+  cheques and `AP Local` is the OPEN payables ledger. `resolveVoucherRows` in
+  `lib/export/voucher-index.ts` is the one judgement both the screen and the file are built from;
+  do not add a second. The extract keeps its fixed filename, fixed sheet `INDEX` and the timestamp
+  in `$A$2` — a stable shape costs nothing — but nothing outside this system depends on them now.
 
 ## State
 

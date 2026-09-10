@@ -1,3 +1,9 @@
+> **Superseded in part, the same day.** The delivery model here — a fixed-filename file that the
+> Executive Report's formulas are repointed at — was withdrawn on the client's ruling that the
+> report lives in this application and Excel is the extract. See
+> `2026-09-10-voucher-screen-design.md`. The resolver, the read, the workbook and the route
+> described below are unchanged and are that screen's engine.
+
 # Voucher index export — design
 
 **What it is.** A generated workbook, one row per AP voucher, that answers *"which cheque pays this
