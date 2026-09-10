@@ -11,12 +11,27 @@ import { resolveImpliedStatus } from './implied-status'
 
 type Db = PrismaClient | Prisma.TransactionClient
 
+/**
+ * Prisma's interactive-transaction defaults are 5s to run and 2s to acquire a
+ * connection. Both are too tight for this workload.
+ *
+ * One row here is several round trips to Neon in ap-southeast-1 - the duplicate
+ * lookup, the company fallback, the upsert, the audit write - and a single slow
+ * row kills the ENTIRE import, because it surfaces as "Transaction not found
+ * ... refers to an old closed transaction" rather than as a slow row. That is
+ * how the 9 September register load died, after about 5,000 cheques.
+ *
+ * Raised, not removed: a transaction that cannot finish inside half a minute is
+ * a defect worth failing on, not something to wait indefinitely for.
+ */
+const TX_OPTIONS = { timeout: 30_000, maxWait: 15_000 } as const
+
 // The same shape `lib/domain/actions.ts` uses. A caller can pass an existing
 // transaction client; otherwise we open our own, so a check and its audit row
 // are never written apart.
 async function inTx<T>(db: Db, fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
   if ('$transaction' in db && typeof db.$transaction === 'function') {
-    return (db as PrismaClient).$transaction(fn)
+    return (db as PrismaClient).$transaction(fn, TX_OPTIONS)
   }
   return fn(db as Prisma.TransactionClient)
 }
