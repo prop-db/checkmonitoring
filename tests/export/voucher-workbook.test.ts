@@ -44,12 +44,23 @@ describe('buildVoucherIndexWorkbook', () => {
    * from a fresh one by name, so the Executive Report reads this cell instead:
    * `='…\[CHECK BY VOUCHER.xlsx]INDEX'!$A$2`. It must be a real Date, not text,
    * or Excel cannot format or compare it.
+   *
+   * ExcelJS encodes a Date cell as the INSTANT (`getTime()`), and Excel displays
+   * that serial as a wall-clock reading with no timezone attached. Vercel runs
+   * this function with `TZ=UTC`, so the raw instant would display as UTC — eight
+   * hours behind the Manila wall clock the company actually runs on. The cell is
+   * written eight hours AHEAD of the true instant so that the wall-clock reading
+   * Excel shows equals Manila time regardless of the host's TZ. That means the
+   * stored value is deliberately NOT `GENERATED_AT.getTime()`.
    */
-  it('puts the generation timestamp in A2 as a date', async () => {
+  it('puts the generation timestamp in A2 as a date, shifted to display Manila time', async () => {
     const wb = await build([row({ voucher: 'AP-ST042652' })])
     const cell = wb.getWorksheet(VOUCHER_INDEX_SHEET)!.getCell(TIMESTAMP_CELL)
     expect(cell.value).toBeInstanceOf(Date)
-    expect((cell.value as Date).getTime()).toBe(GENERATED_AT.getTime())
+    expect((cell.value as Date).getTime()).toBe(GENERATED_AT.getTime() + 8 * 60 * 60 * 1000)
+    // The format must say which clock the cell is on, since the shift only
+    // works if the reader knows this is Manila time and not the host's local time.
+    expect(cell.numFmt).toContain('PHT')
   })
 
   it('puts VOUCHER in column A of the header row', async () => {

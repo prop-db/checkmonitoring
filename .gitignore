@@ -15,3 +15,7 @@ tsconfig.tsbuildinfo
 probe-*
 
 .vercel
+
+# Claude Code worktrees created for parallel sessions — each one can carry its
+# own real .env, and a `git add -A` from the repo root would stage it.
+.claude/worktrees/

@@ -41,9 +41,42 @@ export type VoucherIndexInputForSheet = {
 /**
  * The one format this sheet does not share with the register export: the
  * staleness cell shows a TIME as well as a date, because a file regenerated
- * twice in one morning must be distinguishable from itself.
+ * twice in one morning must be distinguishable from itself. The trailing
+ * literal `"PHT"` says which clock that time is on — see `MANILA_OFFSET_MS`.
  */
-const TIMESTAMP_FORMAT = 'dd mmm yyyy hh:mm AM/PM'
+const TIMESTAMP_FORMAT = 'dd mmm yyyy hh:mm AM/PM "PHT"'
+
+/**
+ * THE TIMEZONE HAZARD, and why a fixed +8 fixes it.
+ *
+ * ExcelJS does not store a Date cell as displayed digits — it stores the
+ * INSTANT (`Date#getTime()`) as an Excel serial number, and Excel renders that
+ * serial as a wall-clock reading with no timezone attached. A `Date` built from
+ * `meta.generatedAt` therefore displays, in Excel, as whatever wall-clock time
+ * that instant was in the timezone of the MACHINE THAT WROTE THE FILE — because
+ * that is the only timezone info the writer had.
+ *
+ * On a Manila laptop that machine is `Asia/Manila`, so the naive code would
+ * happen to work. On Vercel it does not: serverless functions run with
+ * `TZ=UTC` regardless of where the request came from, so `meta.generatedAt`
+ * (itself a correct UTC instant, e.g. `new Date()`) would display as UTC wall
+ * time — eight hours behind Manila. A file finished at 07:30 PHT would show
+ * "09 Sep 2026 11:30 PM", a calendar day earlier than the truth, on the one
+ * cell whose entire job is to tell Finance how stale the file is.
+ *
+ * The fix shifts the INSTANT written to the cell forward by the Manila offset
+ * before handing it to ExcelJS, so the wall-clock digits Excel renders (under
+ * any host TZ, because ExcelJS/Excel never consult one) equal Manila time. This
+ * is deliberately not "convert to Manila time" in the timezone-arithmetic
+ * sense — there is no TZ-aware conversion available at this layer — it is
+ * "lie to the serial format by the fixed amount that makes the displayed digits
+ * come out right for the one timezone this company operates in."
+ *
+ * A fixed +8 (not a TZ database lookup) is correct here because the
+ * Philippines has observed a single offset, UTC+8, year-round with no daylight
+ * saving since 1977. There is no summer-time case to get wrong.
+ */
+const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000
 
 /** What the cell holds, as text, for width fitting. Dates measure as a sample. */
 function widthSample(value: string | Date | null): string {
@@ -70,7 +103,7 @@ export async function buildVoucherIndexWorkbook(
   ws.getRow(1).height = 24
 
   const stamp = ws.getCell(TIMESTAMP_CELL)
-  stamp.value = meta.generatedAt
+  stamp.value = new Date(meta.generatedAt.getTime() + MANILA_OFFSET_MS)
   stamp.numFmt = TIMESTAMP_FORMAT
   stamp.font = { bold: true, size: 12, color: { argb: 'FF0F172A' } }
 

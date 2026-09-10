@@ -257,6 +257,17 @@ function resolveOne(voucher: string, candidates: readonly CheckCandidate[]): Vou
  * it is, and therefore which bank's. A number with no bank feeding the
  * workbook's `bank` column is precisely the guess staging exists to prevent. It
  * goes in `REMARKS`, where a human reads it, never in the column a formula does.
+ *
+ * The remark does NOT say why the row is staged, because `listVoucherCandidates`
+ * reads every `StagedCheck` row with no filter on `reason` — this function
+ * cannot see it and must not guess it. `NO_COMPANY` and `AMBIGUOUS_COMPANY` rows
+ * are indeed unresolved company assignments, but a `NO_CHECK_NUMBER` row (twelve
+ * measured) has the OPPOSITE problem: the company is fine and the cheque NUMBER
+ * itself is the thing in question. Asserting "never resolved to a company" on a
+ * `NO_CHECK_NUMBER` row would send whoever reads `/admin/staged` to fix a company
+ * assignment that was never broken. State only what every staged row shares —
+ * that it names this voucher and was never settled — and let the per-row detail
+ * that follows (sheet, row, stated reference) carry the specifics.
  */
 function stagedRow(voucher: string, rows: readonly StagedCandidate[]): VoucherRow {
   const where = rows
@@ -271,7 +282,7 @@ function stagedRow(voucher: string, rows: readonly StagedCandidate[]): VoucherRo
   return withoutCheque(
     voucher,
     NOT_KEYED,
-    'A staged row names this voucher but never resolved to a company, so no cheque ' +
+    'A staged row names this voucher and was never settled, so no cheque ' +
       `number can be given here — see /admin/staged. ${where}.`,
   )
 }
