@@ -147,7 +147,12 @@ async function seedBothTenantsST() {
 
 const sync = (
   rows: readonly AcumaticaRow[],
-  opts: { tenant?: 'GOLIVE' | 'MANUFACTURING'; since?: Date | null; now?: Date } = {},
+  opts: {
+    tenant?: 'GOLIVE' | 'MANUFACTURING'
+    since?: Date | null
+    now?: Date
+    trigger?: 'MANUAL' | 'SCHEDULED'
+  } = {},
 ) => {
   const { client, calls } = fakeFeed(rows)
   return {
@@ -157,6 +162,7 @@ const sync = (
       tenant: opts.tenant ?? 'GOLIVE',
       since: opts.since ?? null,
       now: opts.now ?? NOW,
+      trigger: opts.trigger ?? 'MANUAL',
     }),
   }
 }
@@ -174,6 +180,28 @@ describe('runSync — the run record', () => {
     expect(run.errors).toBe(0)
     expect(run.finishedAt).not.toBeNull()
     expect(run.startedAt).toEqual(NOW)
+  })
+
+  it('records who started it', async () => {
+    await seedBothTenantsST()
+    const result = await sync([feedRow()], { trigger: 'SCHEDULED' }).result
+    const run = await testDb.syncRun.findUniqueOrThrow({ where: { id: result.syncRunId } })
+    expect(run.trigger).toBe('SCHEDULED')
+  })
+
+  /**
+   * Measured 2026-09-10: `finishedAt = startedAt` on every completed run in
+   * production, because `finish` wrote the instant the run was STARTED with.
+   * No run had ever had a duration. `startedAt` is still the caller's clock —
+   * that is what lets these tests pin it — so the only honest `finishedAt` is
+   * the real one.
+   */
+  it('finishes after it starts', async () => {
+    await seedBothTenantsST()
+    const result = await sync([feedRow()]).result
+    const run = await testDb.syncRun.findUniqueOrThrow({ where: { id: result.syncRunId } })
+    expect(run.startedAt).toEqual(NOW)
+    expect(run.finishedAt!.getTime()).toBeGreaterThan(run.startedAt.getTime())
   })
 
   it('records which tenant it ran against, because branch codes mean different companies in each', async () => {
@@ -419,7 +447,7 @@ describe('runSync — a run that fails outright', () => {
     const { client } = fakeFeed([], new Error('OData AP-Checks and Payments returned 500'))
 
     await expect(
-      runSync(testDb, { client, tenant: 'GOLIVE', since: null, now: NOW }),
+      runSync(testDb, { client, tenant: 'GOLIVE', since: null, now: NOW, trigger: 'MANUAL' }),
     ).rejects.toThrow('returned 500')
 
     const run = await testDb.syncRun.findFirstOrThrow()

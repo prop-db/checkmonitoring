@@ -669,6 +669,12 @@ model SyncRun {
   // off. Null when the run took responsibility for no rows, which leaves the
   // previous run's watermark standing.
   watermark  DateTime?
+  // Who started the run: a person pressing SYNC NOW, or the schedule. A string
+  // like `mode` and `tenant` beside it. Defaults to MANUAL because that is the
+  // truth about every row written before the column existed — all thirteen of
+  // them were clicked. `runSync` always sets it; the default is for history, not
+  // for callers, and `SyncArgs.trigger` is required for exactly that reason.
+  trigger    String    @default("MANUAL")
   imported   Int       @default(0)
   updated    Int       @default(0)
   // Payments this run could not write and kept whole instead — since 2026-09-04

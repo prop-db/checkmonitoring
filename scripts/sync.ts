@@ -95,6 +95,7 @@ async function main() {
     tenant,
     since: watermark,
     now: new Date(),
+    trigger: 'MANUAL',
   })
 
   const after = await db.check.count()

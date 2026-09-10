@@ -103,6 +103,7 @@ export async function syncNowAction(formData: FormData): Promise<SyncNowResult> 
       tenant: tenant.data,
       since,
       now: new Date(),
+      trigger: 'MANUAL',
     })
     revalidatePath('/admin/sync')
     revalidatePath('/')

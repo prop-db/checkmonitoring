@@ -51,6 +51,9 @@ const MAX_PROBLEM_LENGTH = 300
 
 export type SyncMode = 'FULL' | 'INCREMENTAL'
 
+/** Who started a run. Stated by every caller, never defaulted — like `tenant`. */
+export type SyncTrigger = 'MANUAL' | 'SCHEDULED'
+
 export type SyncArgs = {
   client: AcumaticaClient
   /**
@@ -63,6 +66,12 @@ export type SyncArgs = {
   /** The previous run's watermark, or null for a full read. See `lastSyncWatermark`. */
   since: Date | null
   now: Date
+  /**
+   * A person pressing SYNC NOW, a terminal run, or the schedule. Recorded on
+   * the `SyncRun` row so the admin log can say which runs happened because
+   * somebody remembered and which because nobody had to.
+   */
+  trigger: SyncTrigger
 }
 
 export type SyncRunResult = {
@@ -185,14 +194,14 @@ export async function lastSyncWatermark(db: Db, tenant: AcumaticaTenant): Promis
  * asserts the count is unchanged after every single test in the file.
  */
 export async function runSync(db: Db, args: SyncArgs): Promise<SyncRunResult> {
-  const { client, tenant, since, now } = args
+  const { client, tenant, since, now, trigger } = args
   const mode: SyncMode = since ? 'INCREMENTAL' : 'FULL'
 
   // Written BEFORE the feed is read, and finished in every exit path below. A
   // run with `finishedAt` null is therefore one that is still going or whose
   // process died — which is what makes a hung sync distinguishable from a
   // failed one on the admin screen.
-  const run = await db.syncRun.create({ data: { mode, tenant, startedAt: now } })
+  const run = await db.syncRun.create({ data: { mode, tenant, startedAt: now, trigger } })
 
   let fetched = 0
   let skipped = 0
@@ -208,7 +217,11 @@ export async function runSync(db: Db, args: SyncArgs): Promise<SyncRunResult> {
     await db.syncRun.update({
       where: { id: run.id },
       data: {
-        finishedAt: now,
+        // The real instant, not `now`. `now` is the caller's clock and is what
+        // `startedAt` holds; writing it here too gave every run in production a
+        // duration of zero (measured 2026-09-10) and made a hung run look
+        // finished the moment it began.
+        finishedAt: new Date(),
         imported,
         updated,
         staged,
