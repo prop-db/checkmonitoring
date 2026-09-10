@@ -288,12 +288,22 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
 - **`PaymentMethod` decides `isCheque`**, alongside the China-branch rule. `DEBIT ADV` and `CASH` are
   not cheques and must not offer a SIGN button.
 - A voided cheque is **two feed rows** under one reference; the original's positive amount survives.
+- **The Finance Executive Report reads this system through `CHECK BY VOUCHER.xlsx`.** Its `AP Local`
+  sheet used to find a payable's cheque with three `VLOOKUP`s into the released sheets of
+  `CHECK MONITORING <date>.xlsx`; the register was retired on 2026-09-10 and a `VLOOKUP` into a
+  stale external returns its last cached value for ever rather than failing. `/api/export/vouchers`
+  replaces them. **The filename and the sheet name (`INDEX`) are fixed** — they are stored inside an
+  Excel external reference — so the file states its own age in `$A$2` instead, and the Executive
+  Report displays it. Measured 2026-09-10 over `AP Local`'s 1,472 distinct vouchers: 986 name exactly
+  one cheque, 54 name more than one (46 of them a re-issue with a single live cheque), 432 name none.
+  The old formulas could answer 2 of the 1,472, because they looked only at released cheques and
+  `AP Local` is the OPEN payables ledger. Do not "restore" released-only semantics.
 
 ## State
 
 Plans 1 and 2 complete. Plan 3 (portal automation) still paused: the portal needs an `encoder`
 service account that does not exist, and until it does every `PortalEvent` simply queues.
-**992 tests across 55 files.**
+**1,025 tests across 59 files.**
 
 Production is `check_monitoring_prod` on Neon. Both outstanding migrations were applied on
 2026-09-10 — `20260907000000_check_apv_numbers_and_staged_bill` and
@@ -328,3 +338,8 @@ Production is `check_monitoring_prod` on Neon. Both outstanding migrations were 
    since Plan 1.)
 9. The test suite takes ~20 minutes because every test crosses the South China Sea. A local Postgres
    would make it ~2. It is the tax on every deploy.
+10. **The cash-outflow forecast is the next seam, and it is buildable now** — from `READY_FOR_RELEASE`
+   and `SCHEDULED` cheques with `availablePickupDate` / `scheduledPickupDate`, feeding the daily cash
+   position Finance asks for. The other three reports Finance named on 2026-09-10 — bank
+   reconciliation, hedging, foreign outlook — are not: the spec's closing section ("What this is
+   not") records why and where their sources actually live.
