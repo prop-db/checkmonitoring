@@ -5,6 +5,27 @@ export const testDb = new PrismaClient({
   datasources: { db: { url: testDatabaseUrl() } },
 })
 
+/**
+ * Prisma's interactive-transaction defaults are 5s to run and 2s to acquire a
+ * connection. This function issues FIFTEEN statements to Neon in
+ * ap-southeast-1, and it runs from `beforeEach` in every database test file —
+ * so on a slow day the truncation itself outlives the budget and the whole file
+ * fails, always in `resetDb`, never on an assertion.
+ *
+ * It surfaces as *"Transaction not found. Transaction ID is invalid, refers to
+ * an old closed transaction"*, which reads as a connection fault and sends the
+ * reader to look at Neon rather than at the default. Observed 2026-09-10 across
+ * `tests/export`: eight failures on one run and six on the next, every one of
+ * them inside this transaction and not one an assertion — the varying count is
+ * the tell that it is a timeout rather than a regression.
+ *
+ * The same figures `TX_OPTIONS` in lib/import/upsert.ts uses, for the same
+ * reason and on the advice CLAUDE.md already gives: any new long-running write
+ * loop needs them. Raised, not removed — a truncation that cannot finish inside
+ * half a minute is a defect worth failing on.
+ */
+const RESET_TX_OPTIONS = { timeout: 30_000, maxWait: 15_000 } as const
+
 export async function resetDb() {
   // Order matters: children before parents.
   await testDb.$transaction(async (tx) => {
@@ -37,5 +58,5 @@ export async function resetDb() {
     await tx.loginAttempt.deleteMany()
     await tx.syncRun.deleteMany()
     await tx.setting.deleteMany()
-  })
+  }, RESET_TX_OPTIONS)
 }
