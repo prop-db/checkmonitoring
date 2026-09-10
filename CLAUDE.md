@@ -133,8 +133,12 @@ fault and sends you to look at Neon rather than at the default. It killed the 9 
 load after about 5,000 cheques. `TX_OPTIONS` in `lib/import/upsert.ts` raises it to 30s. Any new
 long-running write loop needs the same; the import is idempotent, so a killed run costs only time.
 
-**The Neon connection string contains `&`.** Spawn the Prisma CLI with the URL as an argv entry and
-`shell: false`, or the shell mangles it.
+**The Neon connection string contains `&`, and `prisma migrate dev` refuses a non-interactive
+shell.** `node scripts/migrate.mjs test` and `node scripts/migrate.mjs prod --confirm` apply the
+migrations with the URL passed in `argv` and no shell, printing the host and database first. Every
+migration must reach the TEST database before the suite is run, or every database test fails on a
+missing column. Any other script that spawns the Prisma CLI must do the same: URL as an argv entry,
+`shell: false`.
 
 **`.env` values are quoted; Vercel stores quotes literally.** `dotenv` strips them locally, so
 `DATABASE_URL="postgresql://…"` works on a laptop and fails on Vercel with *"the URL must start with
@@ -320,12 +324,18 @@ Production is `check_monitoring_prod` on Neon. Both outstanding migrations were 
 
 ### What is missing, measured 2026-09-10 — in priority order
 
-1. **Nothing is scheduled, and since 2026-09-10 this is a PREREQUISITE rather than a gap** — with
-   the spreadsheet retired there is no other route a cheque has into the system, and a sync nobody
-   runs means the cheque does not exist anywhere Finance can see it. Build it before the team is
-   told to stop using Excel. `vercel.json` has no cron and there is no scheduled sync. Acumatica is
-   read only when somebody clicks SYNC NOW; the last run was manual. The first arrow of
-   `ACUMATICA -> CHECK MONITORING -> PORTAL` moves only when a human remembers.
+1. **The scheduled sync is BUILT and not yet deployed** (2026-09-11). `vercel.json` carries
+   `crons: [{ path: /api/cron/sync, schedule: "0 10 * * *" }]` — 18:00 Manila, daily, which is the
+   Hobby plan's ceiling. The route authenticates with `CRON_SECRET` on its first line and refuses
+   to run while it is unset; it never runs FULL — no watermark means a recorded refusal on
+   `/admin/sync`, and a first read stays a terminal job (`scripts/sync.ts`). `runSync` now refuses
+   to overlap another run of the same tenant inside `SYNC_IN_PROGRESS_MINUTES` (10), records
+   `trigger` (MANUAL | SCHEDULED), and writes a true `finishedAt` — every run before 2026-09-11
+   has `finishedAt = startedAt`, because `finish` wrote the start instant. The dashboard states
+   ACUMATICA LAST READ per tenant and warns past `STALE_AFTER_HOURS` (30).
+   **To go live:** set `CRON_SECRET` in Vercel, `node scripts/migrate.mjs prod --confirm`,
+   `npx vercel --prod`, then trigger the job once from the Vercel dashboard and confirm two
+   SCHEDULED rows on `/admin/sync`. Until that is done, item 1 is still open in production.
 2. **One active FINANCE_ADMIN**, of three active users. This stopped being housekeeping the moment
    admin-only actions shipped (revert availability; the release reversal below). One forgotten
    password locks administration, and one has already been forgotten on this system.
