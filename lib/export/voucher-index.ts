@@ -124,6 +124,36 @@ function describeCheque(c: CheckCandidate): string {
   return `${c.checkNumber} (${statusWords(c.status)})`
 }
 
+/**
+ * Same job as `describeCheque`, plus the company — used ONLY in the two
+ * messages that describe a genuine CONTESTED/ALL_CANCELLED conflict.
+ *
+ * Two cheques can legitimately share a `checkNumber`: the schema's real
+ * uniqueness constraint is `@@unique([companyId, checkNumber])`, not on
+ * `checkNumber` alone. When a voucher names two live cheques that happen to
+ * carry the same number, `describeCheque` alone renders
+ * `6000300008 (SIGNED); 6000300008 (SIGNED)` — two identical strings naming
+ * the very two cheques a human is being sent to go reconcile, with nothing
+ * to tell them apart. That is not a hypothetical: it is exactly the shape
+ * `resolveOne`'s CONTESTED branch exists to flag. The company is what
+ * distinguishes them, so it goes in the remarks — `6000300008 · STK
+ * (SIGNED)` vs `6000300008 · A1+ (SIGNED)` — even though `CHECK NUMBER`
+ * alone is ambiguous, `COMPANY` is the column a reader can actually use to
+ * find the right row in Check Release Monitoring.
+ *
+ * `describeCheque` stays as it is and keeps doing the `supersedes` job
+ * alone: a superseded cheque is the SAME company's own prior issuance of
+ * the same voucher (see `resolveOne`'s re-issue comment), never a different
+ * company's, so the company is already implied by the row it sits in and
+ * naming it again would be noise, not disambiguation. Widening
+ * `describeCheque` itself to always include the company would also break
+ * the pinned `supersedes` format (`'6000300001 (VOIDED)'`) for no reason —
+ * that column was never ambiguous.
+ */
+function describeConflict(c: CheckCandidate): string {
+  return `${c.checkNumber} · ${c.company} (${statusWords(c.status)})`
+}
+
 function fromCheque(
   voucher: string,
   c: CheckCandidate,
@@ -204,7 +234,7 @@ function resolveOne(voucher: string, candidates: readonly CheckCandidate[]): Vou
     return withoutCheque(
       voucher,
       CONTESTED,
-      `More than one live cheque names this voucher: ${live.map(describeCheque).join('; ')}. ` +
+      `More than one live cheque names this voucher: ${live.map(describeConflict).join('; ')}. ` +
         'Settle it in Check Release Monitoring; no cheque number is given here because ' +
         'attaching a bill to the wrong cheque tells a supplier the wrong thing.',
     )
@@ -215,7 +245,7 @@ function resolveOne(voucher: string, candidates: readonly CheckCandidate[]): Vou
   return withoutCheque(
     voucher,
     ALL_CANCELLED,
-    `Every cheque naming this voucher was cancelled or voided: ${dead.map(describeCheque).join('; ')}.`,
+    `Every cheque naming this voucher was cancelled or voided: ${dead.map(describeConflict).join('; ')}.`,
   )
 }
 

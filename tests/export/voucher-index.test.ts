@@ -98,7 +98,11 @@ describe('resolveVoucherRows — one row per voucher', () => {
     })
     expect(rows[0].checkNumber).toBeNull()
     expect(rows[0].status).toBe(CONTESTED)
-    expect(rows[0].remarks).toContain('6000300008')
+    // The shared cheque number alone does not tell a human which two cheques to
+    // go reconcile — @@unique([companyId, checkNumber]) means both candidates
+    // are legitimately "6000300008". The remarks must name the company on each.
+    expect(rows[0].remarks).toContain('6000300008 · STK (SIGNED)')
+    expect(rows[0].remarks).toContain('6000300008 · A1+ (SIGNED)')
   })
 
   it('still answers when the only cheque was cancelled — 35 measured', () => {
