@@ -130,10 +130,12 @@ out of ~10,985. One rule across every output, for a rounding error.
 
 | file | responsibility |
 | --- | --- |
-| `lib/queries/voucher-index.ts` | One query over `unnest("apvNumbers")` joined to `Check`, plus a pass over `StagedCheck`. Returns **candidates**. Resolves nothing. |
-| `lib/export/voucher-index.ts` | **Pure.** Candidates in, sheet rows out. Every rule in the case table lives here. No database, no ExcelJS, no clock — so a test hands it literals. Same split as `lib/export/report.ts`. |
+| `lib/export/voucher-index.ts` | **Pure.** Candidates in, sheet rows out. Every rule in the case table lives here, plus the cap and the filename. No database, no ExcelJS, no clock — so a test hands it literals. Same split as `lib/export/report.ts`. |
+| `lib/export/voucher-query.ts` | One query over `unnest("apvNumbers")` joined to `Check`, plus a pass over `StagedCheck`. Returns **candidates**. Resolves nothing. |
 | `lib/export/voucher-workbook.ts` | ExcelJS rendering, beside `workbook.ts`. |
 | `app/api/export/vouchers/route.ts` | `getSessionUser()` on the first line. |
+
+The query lives in `lib/export/` rather than in `lib/queries.ts` for two reasons: that file is already 515 lines and serves the dashboard, and a `lib/queries/` directory beside a `lib/queries.ts` module is an import ambiguity waiting to be resolved wrongly. Everything this feature owns changes together, so it lives together.
 
 The pure/rendering split is not stylistic. The decisions worth pinning — which cheque wins a
 re-issue, when a cell goes blank, what the cap is — are decisions, and a test that has to open a
