@@ -16,6 +16,9 @@ import { TodaysReleasePanel } from '@/components/TodaysReleasePanel'
 import { QuickActions } from '@/components/QuickActions'
 import { FilterBar } from '@/components/FilterBar'
 import { CheckTable } from '@/components/CheckTable'
+import { getSyncOverview } from '@/lib/admin/sync-overview'
+import { describeStaleness } from '@/lib/sync/staleness'
+import { SyncStatusLine } from '@/components/SyncStatusLine'
 
 /**
  * THE DASHBOARD.
@@ -74,14 +77,24 @@ export default async function DashboardPage({
   // offering to RELEASE ALL over a filtered subset while reading like a total
   // is the misunderstanding worth ruling out by construction.
   //
-  // These THREE queries feed everything above the table. The KPI row's value
-  // line and the timeline's five counts are both read off what is already here
-  // — no fourth query was added for the redesign.
-  const [summary, options, todaysRelease] = await Promise.all([
+  // These queries feed everything above the table. The KPI row's value
+  // line and the timeline's five counts are both read off what is already here.
+  const [summary, options, todaysRelease, syncOverview] = await Promise.all([
     getSummary(prisma),
     getFilterOptions(prisma),
     getTodaysRelease(prisma),
+    // A fourth query, added for the staleness line. Two cheap findFirsts per
+    // tenant on an indexed column; the comment above about "no fourth query"
+    // was about the redesign of the KPI row, and this is not that.
+    getSyncOverview(prisma),
   ])
+
+  const staleness = describeStaleness(
+    // The latest run that finished with no failed row — `lastSuccess` — is the
+    // read; a run that never reached the feed read nothing.
+    syncOverview.tenants.map((t) => ({ tenant: t.tenant, lastReadAt: t.lastSuccess?.startedAt ?? null })),
+    new Date(),
+  )
 
   /**
    * Every URL parameter is validated, the view is resolved and the filters are
@@ -122,6 +135,10 @@ export default async function DashboardPage({
   return (
     <main className="mx-auto max-w-[1600px] space-y-6 p-8">
       <AppHeader user={user} title="CHECK RELEASE MONITORING" />
+
+      {/* When Acumatica was last read. Above the cards, because every number
+          on them is only as current as this line says. */}
+      <SyncStatusLine staleness={staleness} isAdmin={user.role === 'FINANCE_ADMIN'} />
 
       {/* The cards ARE the view selector — which set of cheques the table shows
           — and they carry the narrowing filters forward so choosing a view does

@@ -1,6 +1,7 @@
 import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/db'
-import { getSyncOverview, type TenantSync } from '@/lib/admin/sync-overview'
+import { getSyncOverview, ABANDONED_AFTER_MINUTES, type TenantSync } from '@/lib/admin/sync-overview'
+import { SYNC_IN_PROGRESS_MINUTES } from '@/lib/sync/run'
 import { EmptyState } from '@/components/EmptyState'
 import { SyncNowButton } from '@/components/SyncNowButton'
 
@@ -53,7 +54,10 @@ function TenantCard({ t }: { t: TenantSync }) {
             RUN ABANDONED
           </span>
         ) : t.inFlight ? (
-          <span className="rounded-full bg-warning-bg px-2.5 py-1 text-xs font-semibold tracking-wide text-warning-ink">
+          <span
+            className="rounded-full bg-warning-bg px-2.5 py-1 text-xs font-semibold tracking-wide text-warning-ink"
+            title={`A run started and has not reported finishing. SYNC NOW refuses to start another for ${SYNC_IN_PROGRESS_MINUTES} minutes after that; past that it treats the run as dead and will start. Past ${ABANDONED_AFTER_MINUTES} minutes this screen calls it abandoned.`}
+          >
             RUN NOT FINISHED
           </span>
         ) : null}
@@ -97,6 +101,13 @@ function TenantCard({ t }: { t: TenantSync }) {
             <p className="text-[11px] font-semibold tracking-widest text-slate-400">LAST ATTEMPT</p>
             <p className="text-sm text-slate-900">{lastAttempt}</p>
             <Counts run={t.lastAttempt} />
+            {t.inFlight && !t.abandoned && (
+              <p className="mt-2 text-xs text-slate-500">
+                Started {Math.floor((Date.now() - t.lastAttempt.startedAt.getTime()) / 60_000)} minutes ago
+                and not finished. SYNC NOW will refuse until {SYNC_IN_PROGRESS_MINUTES} minutes have
+                passed, then treat it as dead and start; the schedule does the same.
+              </p>
+            )}
             {/* The run's own recorded problem text, truncated by `runSync`. It
                 is the difference between "3 errors" and a diagnosis. */}
             {t.lastAttempt.message && (
@@ -165,6 +176,7 @@ export default async function SyncPage() {
                 <th className="px-4 py-3">STARTED</th>
                 <th className="px-4 py-3">TENANT</th>
                 <th className="px-4 py-3">MODE</th>
+                <th className="px-4 py-3">TRIGGER</th>
                 <th className="px-4 py-3 text-right">IMPORTED</th>
                 <th className="px-4 py-3 text-right">UPDATED</th>
                 <th className="px-4 py-3 text-right">STAGED</th>
@@ -182,6 +194,7 @@ export default async function SyncPage() {
                       fault. */}
                   <td className="px-4 py-3">{r.tenant ?? '—'}</td>
                   <td className="px-4 py-3 text-slate-600">{r.mode}</td>
+                  <td className="px-4 py-3 text-slate-600">{r.trigger}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{n(r.imported)}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{n(r.updated)}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{n(r.staged)}</td>
