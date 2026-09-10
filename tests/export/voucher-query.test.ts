@@ -69,4 +69,36 @@ describe('listVoucherCandidates', () => {
     expect(staged[0].sourceSheet).toBe('BPI STK')
     expect(staged[0].sourceRow).toBe(412)
   })
+
+  it('narrows to vouchers containing the search, case-insensitively', async () => {
+    await makeCheck({ apvNumbers: ['AP-ST042652'] })
+    await makeCheck({ apvNumbers: ['AP-A1033692'] })
+    const { checks } = await listVoucherCandidates(testDb, { voucher: 'st0426' })
+    expect(checks.map((c) => c.voucher)).toEqual(['AP-ST042652'])
+  })
+
+  it('narrows the staged rows by the same search', async () => {
+    await testDb.stagedCheck.create({
+      data: {
+        source: 'WORKBOOK', sourceSheet: 'BPI STK', sourceRow: 412,
+        reason: 'NO_COMPANY', checkNumber: '6000353110',
+        apvNumbers: ['AP-A1-02663'], impliedStatus: 'SIGNED',
+      },
+    })
+    await testDb.stagedCheck.create({
+      data: {
+        source: 'WORKBOOK', sourceSheet: 'BPI STK', sourceRow: 413,
+        reason: 'NO_COMPANY', checkNumber: '6000353111',
+        apvNumbers: ['AP-ST099001'], impliedStatus: 'SIGNED',
+      },
+    })
+    const { staged } = await listVoucherCandidates(testDb, { voucher: 'a1-02' })
+    expect(staged.map((s) => s.voucher)).toEqual(['AP-A1-02663'])
+  })
+
+  it('treats an empty search as no search', async () => {
+    await makeCheck({ apvNumbers: ['AP-ST042652'] })
+    const { checks } = await listVoucherCandidates(testDb, { voucher: '   ' })
+    expect(checks).toHaveLength(1)
+  })
 })

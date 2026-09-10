@@ -15,7 +15,27 @@ type Db = PrismaClient | Prisma.TransactionClient
 /** `status` arrives as text from the cast; widened back on the way out. */
 type RawCheckCandidate = Omit<CheckCandidate, 'status'> & { status: string }
 
-export async function listVoucherCandidates(db: Db): Promise<VoucherIndexInput> {
+/**
+ * The screen's search. `voucher` is matched as a case-insensitive SUBSTRING,
+ * so "042652" finds `AP-ST042652` — unlike the dashboard's `q`, which can only
+ * test whole-array containment over `apvNumbers` and finds nothing for a
+ * fragment. That is the point of unnesting: once a voucher is a row, it is a
+ * string, and `ilike` works on it.
+ *
+ * A bound parameter, never string-built. `%` and `_` inside the search act as
+ * wildcards; a voucher reference contains neither, so nothing is escaped.
+ */
+export type VoucherCandidateFilter = { voucher?: string }
+
+export async function listVoucherCandidates(
+  db: Db,
+  filter: VoucherCandidateFilter = {},
+): Promise<VoucherIndexInput> {
+  const needle = filter.voucher?.trim()
+  // `%` alone matches every voucher, so the unfiltered read is the same query
+  // with the same plan rather than a second query to keep in step.
+  const pattern = needle ? `%${needle}%` : '%'
+
   const [checks, staged] = await Promise.all([
     /**
      * `isIncomplete = false` — the 129 cheques with no recorded amount are out,
@@ -37,7 +57,7 @@ export async function listVoucherCandidates(db: Db): Promise<VoucherIndexInput> 
              co.code                                     as "company",
              c."checkDate"                              as "checkDate",
              coalesce(c."payeeName", ve."canonicalName") as "payee",
-             c."releasedAt"                              as "releasedAt"
+             c."releasedAt"                             as "releasedAt"
         from "Check" c
         cross join lateral unnest(c."apvNumbers") as v(voucher)
         join "Company" co on co.id = c."companyId"
@@ -45,7 +65,8 @@ export async function listVoucherCandidates(db: Db): Promise<VoucherIndexInput> 
         left join "CashAccount" ca on ca.id = c."cashAccountId"
         left join "Bank" b on b.id = coalesce(cb."bankId", ca."bankId")
         left join "Vendor" ve on ve.id = c."vendorId"
-       where c."isIncomplete" = false`,
+       where c."isIncomplete" = false
+         and v.voucher ilike ${pattern}`,
     /**
      * `distinct` because one voucher can appear on several staged rows of the
      * same import, and the resolver groups them anyway.
@@ -59,7 +80,8 @@ export async function listVoucherCandidates(db: Db): Promise<VoucherIndexInput> 
              s."checkNumber"    as "checkNumber",
              s."acumaticaRef"   as "acumaticaRef"
         from "StagedCheck" s
-        cross join lateral unnest(s."apvNumbers") as v(voucher)`,
+        cross join lateral unnest(s."apvNumbers") as v(voucher)
+       where v.voucher ilike ${pattern}`,
   ])
 
   return {
