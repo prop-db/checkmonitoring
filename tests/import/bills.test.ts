@@ -663,6 +663,17 @@ describe('importBills — a workbook of several sheets', () => {
     expect(staged.map((s) => s.sourceSheet)).toEqual([BROKERAGE, SHEET])
   })
 
+  // 150 seconds, against the file default of 30 and the run default of 60.
+  //
+  // Not a flake and not papering over one. This test drives 50 bill rows through
+  // the voucher fallback one at a time, and each is several round trips to Neon in
+  // ap-southeast-1 — it measured 62.7s under full-suite load on 2026-09-10 and
+  // 41s running alone, so it sits either side of the 60s ceiling depending on what
+  // else is talking to the database. Passing alone and failing in the suite is the
+  // worst kind of red: it teaches you to re-run rather than to read.
+  //
+  // Fifty is the real number from the 7 September workbook, so shrinking the
+  // fixture would be dropping the thing the test exists to prove.
   it('resolves fifty mis-keyed rows one at a time, and still refuses a tie', async () => {
     // The voucher fallback was written for ONE row. The 7 September workbook
     // has 50 across two sheets. Scale changes nothing: each row is resolved on
@@ -697,5 +708,5 @@ describe('importBills — a workbook of several sheets', () => {
       })
       expect(bill.check.checkNumber).toBe(`60003530${String(i).padStart(2, '0')}`)
     }
-  }, 60_000)
+  }, 150_000)
 })

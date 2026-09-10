@@ -277,8 +277,42 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
     // to stop being created, and the row is staged for a human.
     let existing: Check | null = exact
     let misfiled: { companyId: string; companyCode: string } | null = null
+    /** The number this cheque used to carry, when Acumatica has re-keyed it. */
+    let renumberedFrom: string | null = null
 
     if (!exact) {
+      /**
+       * THE PAYMENT WE ALREADY HOLD, RENUMBERED IN THE ERP.
+       *
+       * Measured 2026-09-10. The 04:39 sync failed one row with "Unique
+       * constraint failed on the fields: (acumaticaPaymentId)". Payment
+       * CV-A1013045 was here as cheque 17913405552 — eleven digits, where every
+       * other cheque in that book has ten — and the feed now said 1791405552.
+       * Somebody had removed a mis-keyed 3 in Acumatica.
+       *
+       * Both lookups miss when the number changes, so the row fell through to
+       * `create`, and the create collided with the unique index because the payment
+       * was already here under its old number. One error per sync, for ever: the
+       * number never converges on its own.
+       *
+       * `ReferenceNbr` is the ERP's own key for the document and does not change;
+       * a cheque number is a fact a human keys and can therefore re-key. So on a
+       * miss it is the better identity.
+       *
+       * DELIBERATELY AFTER THE EXACT MATCH, never before it. If
+       * `(company, number)` hits while a DIFFERENT row holds this payment id, that
+       * is two rows for one cheque — the condition that stored 1,865 physical
+       * cheques twice — and it wants a human, not whichever lookup ran first.
+       * Ordering it second means this branch can only ever resolve a row the
+       * primary key could not find at all.
+       */
+      const renumbered = row.acumaticaPaymentId
+        ? await tx.check.findUnique({ where: { acumaticaPaymentId: row.acumaticaPaymentId } })
+        : null
+      if (renumbered) {
+        existing = renumbered
+        renumberedFrom = renumbered.checkNumber
+      }
       // `isCheque` on BOTH sides, and it is not decoration.
       //
       // The whole fallback rests on one fact: a bank issues a cheque number to
@@ -295,7 +329,7 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
       // The sync now filters to `PaymentMethod eq 'CHK'`, so such a row should
       // not arrive at all. This is the second lock on that door: the first one
       // is a query filter somebody could widen without ever reading this file.
-      const sameNumber = row.isCheque
+      const sameNumber = !renumbered && row.isCheque
         ? await tx.check.findMany({
             where: { checkNumber, isCheque: true },
             include: { company: { select: { code: true } } },
@@ -456,6 +490,11 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
         // ordinary re-import still never touches the half of the key it looked
         // the row up by.
         companyId: misfiled ? company.id : undefined,
+        // The other half of the identity, written on an update in exactly one case
+        // and for the same reason: Acumatica corrected the number, so the row was
+        // found by its payment reference instead. `undefined` otherwise, so an
+        // ordinary re-import still never rewrites the key it looked the row up by.
+        checkNumber: renumberedFrom ? checkNumber : undefined,
         acumaticaPaymentId: keep(row.acumaticaPaymentId),
         cvNumber: keep(row.cvNumber),
         // `keep()` cannot express this: an empty array is not null, so it would
@@ -509,6 +548,27 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
       },
       remarks: `Updated from ${row.source}; status left at ${existing.status}.`,
     })
+
+    // A cheque number changing is not an ordinary field update. It is what people
+    // search by, quote to a supplier and write on a voucher, so it gets its own
+    // row rather than being folded silently into `import_updated`.
+    if (renumberedFrom !== null && renumberedFrom !== checkNumber) {
+      await writeAudit(tx, {
+        checkId: existing.id,
+        actorType: 'SYSTEM',
+        action: 'renumbered_by_acumatica',
+        details: {
+          from: renumberedFrom,
+          to: checkNumber,
+          acumaticaPaymentId: row.acumaticaPaymentId,
+        },
+        remarks:
+          `Acumatica now states cheque number ${checkNumber} for payment ` +
+          `${row.acumaticaPaymentId}, which this system held as ${renumberedFrom}. ` +
+          'Matched on the payment reference, which the ERP does not re-key, and the ' +
+          'number corrected to follow Acumatica. Nothing else about the identity moved.',
+      })
+    }
 
     await applyVoid(tx, existing.id, existing.status as CheckStatus, row, now)
     return { outcome: 'UPDATED', checkId: existing.id }
