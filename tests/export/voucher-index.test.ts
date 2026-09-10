@@ -76,6 +76,31 @@ describe('resolveVoucherRows — one row per voucher', () => {
     expect(rows[0].remarks).toContain('6000300004')
   })
 
+  it('answers a voucher whose same cheque arrives twice, rather than reporting CONTESTED', () => {
+    const rows = resolveVoucherRows({
+      checks: [
+        candidate({ voucher: 'AP-DUP000001', checkNumber: '6000300007', company: 'STK', status: 'SIGNED' }),
+        candidate({ voucher: 'AP-DUP000001', checkNumber: '6000300007', company: 'STK', status: 'SIGNED' }),
+      ],
+      staged: [],
+    })
+    expect(rows[0].checkNumber).toBe('6000300007')
+    expect(rows[0].status).toBe('SIGNED')
+  })
+
+  it('still reports CONTESTED for the same check number issued by two different companies', () => {
+    const rows = resolveVoucherRows({
+      checks: [
+        candidate({ voucher: 'AP-DUP000002', checkNumber: '6000300008', company: 'STK', status: 'SIGNED' }),
+        candidate({ voucher: 'AP-DUP000002', checkNumber: '6000300008', company: 'A1+', status: 'SIGNED' }),
+      ],
+      staged: [],
+    })
+    expect(rows[0].checkNumber).toBeNull()
+    expect(rows[0].status).toBe(CONTESTED)
+    expect(rows[0].remarks).toContain('6000300008')
+  })
+
   it('still answers when the only cheque was cancelled — 35 measured', () => {
     const rows = resolveVoucherRows({
       checks: [candidate({ voucher: 'AP-HF000123', status: 'CANCELLED' })],
