@@ -5,6 +5,9 @@ import {
   bankLabel, currencyNumberFormat, describeScope, fitColumnWidth,
   statusWords, totalsByCurrency,
 } from './report'
+import {
+  HEADER_FILL, BAND_FILL, GRID, DATE_FORMAT, COUNT_FORMAT, DATE_WIDTH_SAMPLE, styleHeaderCell,
+} from './sheet-style'
 
 /**
  * The Excel export, as a workbook.
@@ -40,13 +43,6 @@ export const HEADER_ROW = TITLE_ROWS + 2
 export const FIRST_DATA_ROW = HEADER_ROW + 1
 
 const AMOUNT_COLUMN = 7
-
-// slate-800 / white, the dashboard's own header, and slate-100 for the banding.
-const HEADER_FILL = 'FF1E293B'
-const BAND_FILL = 'FFF1F5F9'
-const GRID = 'FFE2E8F0'
-const DATE_FORMAT = 'dd mmm yyyy'
-const COUNT_FORMAT = '#,##0'
 
 /**
  * The figures `getSummary` returns, structurally.
@@ -101,9 +97,6 @@ export type ExportInput = {
 function amountAsNumber(amount: string): number {
   return Number(amount)
 }
-
-/** The width a date column needs — every date renders as `01 Sep 2026`. */
-const DATE_WIDTH_SAMPLE = '01 Sep 2026'
 
 /**
  * The four lines above the table.
@@ -163,17 +156,7 @@ function buildRegisterSheet(wb: ExcelJS.Workbook, { rows, meta }: ExportInput) {
 
   const header = ws.getRow(HEADER_ROW)
   REGISTER_HEADERS.forEach((label, i) => {
-    const cell = header.getCell(i + 1)
-    cell.value = label
-    cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 }
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADER_FILL } }
-    cell.alignment = { horizontal: i + 1 === AMOUNT_COLUMN ? 'right' : 'left', vertical: 'middle' }
-    cell.border = {
-      top: { style: 'thin', color: { argb: HEADER_FILL } },
-      bottom: { style: 'thin', color: { argb: HEADER_FILL } },
-      left: { style: 'thin', color: { argb: HEADER_FILL } },
-      right: { style: 'thin', color: { argb: HEADER_FILL } },
-    }
+    styleHeaderCell(header.getCell(i + 1), label, i + 1 === AMOUNT_COLUMN ? 'right' : 'left')
   })
   header.height = 20
 
