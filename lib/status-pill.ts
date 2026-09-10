@@ -1,4 +1,5 @@
 import type { CheckStatus } from '@prisma/client'
+import { CONTESTED, ALL_CANCELLED, NOT_KEYED } from './export/voucher-index'
 
 /**
  * What colour a status pill is.
@@ -53,4 +54,37 @@ export const STATUS_PILL_CLASS: Record<CheckStatus, string> = {
  */
 export function statusPillClass(status: string): string {
   return STATUS_PILL_CLASS[status as CheckStatus] ?? STATUS_PILL_CLASS.GENERATED
+}
+
+/**
+ * The three statuses the voucher screen shows that are not cheque statuses.
+ *
+ * Kept OUT of `STATUS_PILL_CLASS` deliberately: that map is `Record<CheckStatus,
+ * string>` and tested to hold exactly the ladder, so a status that is a fact
+ * about a voucher row rather than about a cheque has no business in it.
+ *
+ * CONTESTED and NOT KEYED are "waiting on a person" — the warning tone the
+ * dashboard gives SIGNATURE PENDING. ALL CANCELLED is "gone wrong", the danger
+ * tone CANCELLED and VOIDED carry, because every cheque behind it is one of
+ * those. Pastel, like everything else: the client's standing note.
+ */
+export const VOUCHER_STATUS_PILL_CLASS: Record<
+  typeof CONTESTED | typeof ALL_CANCELLED | typeof NOT_KEYED, string
+> = {
+  [CONTESTED]:     'bg-warning-bg text-warning-ink',
+  [ALL_CANCELLED]: 'bg-danger-bg text-danger-ink',
+  [NOT_KEYED]:     'bg-warning-bg text-warning-ink',
+}
+
+/**
+ * The class for a status the voucher screen holds — AS WORDS, because
+ * `VoucherRow.status` is already `statusWords` output. A synthetic status has
+ * its own colour; a real one is turned back into the enum spelling and painted
+ * exactly as the dashboard paints it, so `READY FOR RELEASE` is the same green
+ * on both screens.
+ */
+export function voucherStatusPillClass(status: string): string {
+  const synthetic = VOUCHER_STATUS_PILL_CLASS[status as keyof typeof VOUCHER_STATUS_PILL_CLASS]
+  if (synthetic) return synthetic
+  return statusPillClass(status.replace(/ /g, '_'))
 }

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { statusPillClass, STATUS_PILL_CLASS } from '@/lib/status-pill'
+import { statusPillClass, STATUS_PILL_CLASS, voucherStatusPillClass, VOUCHER_STATUS_PILL_CLASS } from '@/lib/status-pill'
 import { ALL_STATUSES } from '@/lib/queries'
+import { CONTESTED, ALL_CANCELLED, NOT_KEYED } from '@/lib/export/voucher-index'
 
 /**
  * Pure. The pill's colour is a lookup, so it is tested here rather than by
@@ -47,5 +48,28 @@ describe('statusPillClass', () => {
 
   it('warns on the statuses that are waiting on a person', () => {
     expect(statusPillClass('SIGNATURE_PENDING')).toContain('warning')
+  })
+})
+
+/**
+ * The voucher screen shows statuses AS WORDS — `READY FOR RELEASE` — because
+ * the resolver has already spelled them out for the Excel index, and three of
+ * them are not cheque statuses at all. This lookup answers for both kinds.
+ */
+describe('voucherStatusPillClass', () => {
+  it('covers exactly the three statuses only the resolver produces', () => {
+    expect(Object.keys(VOUCHER_STATUS_PILL_CLASS).sort())
+      .toEqual([CONTESTED, ALL_CANCELLED, NOT_KEYED].sort())
+  })
+
+  it('paints a real status the colour the dashboard gives it, from its words', () => {
+    expect(voucherStatusPillClass('READY FOR RELEASE')).toBe(statusPillClass('READY_FOR_RELEASE'))
+    expect(voucherStatusPillClass('SIGNATURE PENDING')).toBe(statusPillClass('SIGNATURE_PENDING'))
+  })
+
+  it('warns on a contested or unkeyed voucher and marks all-cancelled as gone wrong', () => {
+    expect(voucherStatusPillClass(CONTESTED)).toContain('warning')
+    expect(voucherStatusPillClass(NOT_KEYED)).toContain('warning')
+    expect(voucherStatusPillClass(ALL_CANCELLED)).toContain('danger')
   })
 })
