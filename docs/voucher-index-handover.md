@@ -19,8 +19,18 @@ Executive Report, before relying on any of the numbers it shows.
    | bank | `=IFERROR(VLOOKUP($C3,'[CHECK BY VOUCHER.xlsx]INDEX'!$A:$J,3,0),"")` |
    | status | `=IFERROR(VLOOKUP($C3,'[CHECK BY VOUCHER.xlsx]INDEX'!$A:$J,5,0),"")` |
 
-   A blank cheque number with a status of `CONTESTED` or `NOT KEYED` is **not** a failure — it means
-   Check Release Monitoring will not guess. The `REMARKS` column (10) says why.
+   **A blank cheque number is not a failure.** It means Check Release Monitoring will not guess,
+   and the `STATUS` column tells you which of three reasons applies. The `REMARKS` column (10)
+   spells it out in words every time.
+
+   | status | what it means | what to do |
+   | --- | --- | --- |
+   | `CONTESTED` | Two live cheques both name this voucher. Naming one of them would tell a supplier the wrong thing. | Settle it in Check Release Monitoring. `REMARKS` names both cheques and their companies. |
+   | `ALL CANCELLED` | Every cheque that named this voucher was cancelled or voided. There is no live cheque to give. | The payable still needs a cheque. `REMARKS` lists the cancelled ones. |
+   | `NOT KEYED` | The old register knew a cheque number for this voucher, but never said which company's cheque it was — and therefore which bank's. | Settle it on the STAGED QUEUE page in Check Release Monitoring. `REMARKS` names the sheet and row. |
+
+   A voucher with **no row at all** is different again, and is the normal case: it means no cheque
+   has been written for that payable yet. The formula returns an empty cell.
 
 4. To show how old the file is anywhere in the workbook:
    `='[CHECK BY VOUCHER.xlsx]INDEX'!$A$2`
