@@ -52,6 +52,7 @@ production database is a real hazard; prefer giving Preview the test database or
 | `ACUMATICA_ODATA_USER` | as in local `.env` |
 | `ACUMATICA_ODATA_PASSWORD` | as in local `.env` |
 | `ACUMATICA_GI_NAME` | as in local `.env` |
+| `CRON_SECRET` | `openssl rand -base64 32`. Vercel presents it as a bearer when it calls `/api/cron/sync` daily at 18:00 Manila; the route refuses to run while it is unset. |
 
 **Do not set `DATABASE_URL_TEST` or `DIRECT_DATABASE_URL_TEST` in Vercel.** Nothing in production
 should be able to reach the test database, and the test-database guard in `tests/helpers/db.ts`
@@ -69,15 +70,16 @@ Because DNS already points at Vercel, verification should complete without a rec
 
 ## Migrations
 
-Vercel does not run migrations. Run them yourself against production, from a machine that has the
-direct URL:
+Vercel does not run migrations. Run them yourself, from a machine that has the direct URL:
 
 ```bash
-npx prisma migrate deploy
+node scripts/migrate.mjs prod --confirm
 ```
 
-The connection string contains `&`, which breaks shell invocations of the Prisma CLI — pass the URL
-as an argv entry with `shell: false` if scripting this, as `scripts/import-workbook.ts` does.
+The connection string contains `&`, which breaks shell invocations of the Prisma CLI; the script
+passes the URL in `argv` with no shell, and prints the host and database it is about to touch.
+`node scripts/migrate.mjs test` does the same to the test database, which every migration must
+reach before the suite is run.
 
 ## After the first deploy — verify, do not assume
 
@@ -87,6 +89,10 @@ as an argv entry with `shell: false` if scripting this, as `scripts/import-workb
 3. Sign in as a real admin; the dashboard renders with the seeded reference data.
 4. Confirm the seeded accounts show as DEACTIVATED.
 5. Trigger a sync from `/admin/sync` and confirm a `SyncRun` row appears with its tenant.
+6. Vercel dashboard → Project → Settings → Cron Jobs lists `/api/cron/sync` at `0 10 * * *`.
+   Trigger it once from there. `/admin/sync` then shows a run per tenant with trigger SCHEDULED.
+   The next evening at 18:00 Manila, two more appear unprompted — and the dashboard's
+   ACUMATICA LAST READ line moves.
 
 ## Known issue: `middleware.ts` does not run
 
