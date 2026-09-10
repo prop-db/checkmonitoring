@@ -1255,9 +1255,55 @@ import { SyncStatusLine } from '@/components/SyncStatusLine'
 
 Update the existing comment that says "These THREE queries feed everything above the table … no fourth query was added for the redesign" to read "These queries feed everything above the table" — it is now four, and the new comment beside the fourth says why.
 
-- [ ] **Step 6: The TRIGGER column**
+- [ ] **Step 6: The TRIGGER column, and what RUN NOT FINISHED now means**
 
-In `app/admin/sync/page.tsx`, in the SYNC LOG table, add a header cell after `MODE`:
+Task 2's review found a contradiction the guard created: `app/admin/sync/page.tsx` shows the
+`RUN NOT FINISHED` pill for any unfinished run younger than `ABANDONED_AFTER_MINUTES` (90), but
+`runSync` now treats an unfinished run older than `SYNC_IN_PROGRESS_MINUTES` (10) as dead and lets a
+new run start. For a run aged 11–89 minutes the screen reads "wait" while SYNC NOW is in fact safe.
+
+In `app/admin/sync/page.tsx`, import the constant:
+
+```ts
+import { SYNC_IN_PROGRESS_MINUTES } from '@/lib/sync/run'
+```
+
+and change the `inFlight` branch of the pill so the two thresholds are both stated. Replace
+
+```tsx
+        ) : t.inFlight ? (
+          <span className="rounded-full bg-warning-bg px-2.5 py-1 text-xs font-semibold tracking-wide text-warning-ink">
+            RUN NOT FINISHED
+          </span>
+        ) : null}
+```
+
+with
+
+```tsx
+        ) : t.inFlight ? (
+          <span
+            className="rounded-full bg-warning-bg px-2.5 py-1 text-xs font-semibold tracking-wide text-warning-ink"
+            title={`A run started and has not reported finishing. SYNC NOW refuses to start another for ${SYNC_IN_PROGRESS_MINUTES} minutes after that; past that it treats the run as dead and will start. Past ${ABANDONED_AFTER_MINUTES} minutes this screen calls it abandoned.`}
+          >
+            RUN NOT FINISHED
+          </span>
+        ) : null}
+```
+
+`ABANDONED_AFTER_MINUTES` is already exported by `lib/admin/sync-overview.ts`; add it to that file's existing import in the page. Then, under the `LAST ATTEMPT` block's `<Counts>` line, add — only when `t.inFlight && !t.abandoned`:
+
+```tsx
+            {t.inFlight && !t.abandoned && (
+              <p className="mt-2 text-xs text-slate-500">
+                Started {Math.floor((Date.now() - t.lastAttempt.startedAt.getTime()) / 60_000)} minutes ago
+                and not finished. SYNC NOW will refuse until {SYNC_IN_PROGRESS_MINUTES} minutes have
+                passed, then treat it as dead and start; the schedule does the same.
+              </p>
+            )}
+```
+
+Then the TRIGGER column. In the SYNC LOG table, add a header cell after `MODE`:
 
 ```tsx
                 <th className="px-4 py-3">TRIGGER</th>
