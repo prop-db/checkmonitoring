@@ -5,7 +5,7 @@ import { getFilterOptions } from '@/lib/queries'
 import { AppHeader } from '@/components/AppHeader'
 import { EmptyState } from '@/components/EmptyState'
 import { ForecastMatrix } from '@/components/ForecastMatrix'
-import { listForecastRows, listBankCodes, countExcludedIncomplete } from '@/lib/forecast/query'
+import { listForecastRows, listPlannedRows, listBankCodes, countExcludedIncomplete } from '@/lib/forecast/query'
 import { buildMatrices } from '@/lib/forecast/matrix'
 import {
   FORECAST_PATH, FORECAST_EXPORT_PATH, STAGE_OPTIONS,
@@ -43,13 +43,16 @@ export default async function ForecastPage({
   // Once per request, so the two matrices and the paragraph above them agree
   // about which day it is.
   const now = new Date()
-  const [rows, incompleteCount] = await Promise.all([
+  const [cheques, incompleteCount, planned] = await Promise.all([
     listForecastRows(prisma, { bankCode: bank, companyId: company?.id, stage }),
     // This report's own exclusion, not the database-wide count of
     // `Check.isIncomplete` — same population, same filters, or the number
     // below is about a different report. See `countExcludedIncomplete`.
     countExcludedIncomplete(prisma, { bankCode: bank, companyId: company?.id, stage }),
+    listPlannedRows(prisma, { bankCode: bank, companyId: company?.id, stage }),
   ])
+  const rows = [...cheques, ...planned]
+  const expectedCount = cheques.filter((c) => c.expectedOutflowDate !== null).length
   const { byBank, byStage } = buildMatrices(rows, now)
 
   const anyFilter = Boolean(bank || company || stage)
@@ -64,7 +67,9 @@ export default async function ForecastPage({
           "presentable from" for "expected on" will carry a wrong number into a
           meeting, and the sentence that prevents it has to be on the page. */}
       <p className="rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">
-        Dates are the cheque&apos;s own date — the day from which it can be presented. A cheque dated in
+        Dates are the cheque&apos;s own date — the day from which it can be presented. A cheque on which
+        Finance has typed an expected outflow date is placed on that date instead. Planned lines —
+        payroll, tax, transfers — sit on their own day. A cheque dated in
         the past can leave on any day; the buckets say how long it has been presentable. No pickup or
         release dates have been recorded yet; as Finance releases through this system, the RELEASED
         view will begin to show actual outflow by day.
@@ -100,7 +105,9 @@ export default async function ForecastPage({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="space-y-1">
           <p className="text-xs font-medium tracking-wide text-slate-600">
-            {rows.length.toLocaleString('en-PH')} CHEQUE{rows.length === 1 ? '' : 'S'} WRITTEN AND NOT YET HANDED OVER
+            {cheques.length.toLocaleString('en-PH')} CHEQUE{cheques.length === 1 ? '' : 'S'} WRITTEN AND NOT YET HANDED OVER
+            {' AND '}{planned.length.toLocaleString('en-PH')} PLANNED LINE{planned.length === 1 ? '' : 'S'}
+            {expectedCount > 0 && ` · ${expectedCount.toLocaleString('en-PH')} PLACED ON AN EXPECTED DATE`}
             {' · '}{describeForecastFilters({ bank, company: company?.code, stage })}
           </p>
           {/* The disclosure, as on the dashboard and /vouchers: the exclusion is
@@ -119,6 +126,9 @@ export default async function ForecastPage({
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-xs text-slate-500">The file holds this view, with these filters.</span>
+          <Link href="/forecast/planned" className="rounded-lg border border-hairline bg-white px-4 py-2 text-sm font-medium tracking-wide text-navy transition hover:bg-ground">
+            PLANNED OUTFLOWS
+          </Link>
           <a
             href={forecastHref(current, FORECAST_EXPORT_PATH)}
             className="rounded-lg bg-navy px-4 py-2 text-sm font-medium tracking-wide text-white transition hover:bg-navy/90"
@@ -129,10 +139,10 @@ export default async function ForecastPage({
       </div>
 
       {rows.length === 0 ? (
-        <EmptyState title={anyFilter ? 'NO CHEQUES MATCH' : 'NOTHING IS WAITING TO BE HANDED OVER'} tone={anyFilter ? 'plain' : 'good'}>
+        <EmptyState title={anyFilter ? 'NOTHING MATCHES' : 'NOTHING IS WAITING TO LEAVE THE BANK'} tone={anyFilter ? 'plain' : 'good'}>
           {anyFilter
-            ? 'No live cheque carries that bank, company and stage together.'
-            : 'Every cheque this system knows has been released, cancelled or voided.'}
+            ? 'No live cheque or planned line carries that bank, company and stage together.'
+            : 'Every cheque has been released, cancelled or voided, and no planned outflow is open.'}
         </EmptyState>
       ) : (
         <>

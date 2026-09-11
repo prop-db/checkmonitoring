@@ -186,7 +186,7 @@ run when `DATABASE_URL_TEST` is unset or equal to `DATABASE_URL`.
 | `lib/import/` | Workbook parsing → `parse.ts`, `field-sniffer.ts`, `company.ts`, `implied-status.ts`, `bills.ts`, and `upsert.ts` — the single write path where duplicate prevention lives. |
 | `lib/integrations/acumatica/` | OData reader and mapper. |
 | `lib/sync/run.ts` | Incremental sync, watermark with a 120-minute overlap. |
-| `lib/forecast/` | Cash outflow by cheque date: `buckets.ts` (the ageing buckets, pure), `query.ts` (the population — live, real, with an amount), `matrix.ts` (bucket × bank and bucket × stage, centavo-exact, pure). `/forecast` and `/api/export/forecast` sit on it. |
+| `lib/forecast/` | Cash outflow by cheque date: `buckets.ts` (the ageing buckets, pure), `query.ts` (the population — live, real, with an amount), `matrix.ts` (bucket × bank and bucket × stage, centavo-exact, pure). `/forecast` and `/api/export/forecast` sit on it. Since 2026-09-12 a cheque's typed `expectedOutflowDate` wins over its cheque date, and `PlannedOutflow` lines (`lib/planned-outflow/`, `/forecast/planned`) join the population as their own PLANNED column. |
 | `lib/normalised-row.ts` | The one shape both ingestion paths converge on. |
 | `docs/superpowers/specs/` | The approved design, and the Supplier Portal API evidence. |
 | `docs/superpowers/plans/` | Plans 1–3. Plan 4 (reports, notifications) not yet written. |
@@ -420,4 +420,7 @@ Production is `check_monitoring_prod` on Neon. Both outstanding migrations were 
    actual outflow by day: that begins the day releases go through the app and `releasedAt` fills.
    The other three reports Finance named — bank reconciliation, hedging, foreign outlook — are not
    buildable here; the voucher-index spec's closing section records why and where their sources
-   actually live.
+   actually live. **Calibrated 2026-09-12:** Finance types the day a cheque is expected to leave the
+   bank (EXPECTED OUT, on the cheque page; the forecast places it there) and planned non-cheque
+   outflows — payroll, tax, loans, transfers — as one-off lines on `/forecast/planned`, open until
+   marked PAID or CANCELLED, never deleted. The daily cash position is no longer cheques only.
