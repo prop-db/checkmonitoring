@@ -323,10 +323,11 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
 
 Plans 1 and 2 complete. Plan 3 (portal automation) still paused: the portal needs an `encoder`
 service account that does not exist, and until it does every `PortalEvent` simply queues.
-**1,048 tests across 61 files** — 1,025 across 59 as of the voucher-index branch, plus 23 added on
-voucher-screen: `voucher-index.test.ts` +2, `voucher-query.test.ts` +3, `tests/status-pill.test.ts`
-+3, and `tests/vouchers-view.test.ts` +15 (a new file, hence the file count moving by one and not
-by four — the other three additions land in files the voucher-index branch already had).
+**1,131 tests across 71 files** — 1,048 across 61 after the voucher screen; then scheduled-sync +21
+(`sync/run` +5, `sync/scheduled` 5, `sync/cron-route` 6, `sync/staleness` 5), the middleware hotfix
++4 (`public-paths`), and the cash-outflow forecast +58 (`forecast/buckets` 19, `forecast/query` 14,
+`forecast/matrix` 8, `forecast-view` 8, `export/forecast-workbook` 6, `export/forecast-route` 3).
+The file count is read off disk (`find tests -name "*.test.ts" | wc -l`, 2026-09-11).
 Arithmetic on two measured figures, not a reading off one full-suite run: the whole suite takes ~20
 minutes because every test crosses to ap-southeast-1, so it is run before a merge, not per change.
 
