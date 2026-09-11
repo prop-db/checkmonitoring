@@ -106,6 +106,13 @@ enum PortalEventKind {
   // draft omitted it because it was written against two of the three
   // portalEvent.create sites that actually exist. Do not remove it.
   RELEASED
+  // A release undone by a FINANCE_ADMIN: the cheque is back at READY_FOR_RELEASE
+  // and the supplier may still collect it. Deliberately NOT `REVERT`, which the
+  // portal reads as "withdrawn for re-upload" (its status REVERTED_FOR_REUPLOADING)
+  // — the opposite of what happened. Delivered, when Plan 3 delivers anything,
+  // through the same `POST /api/checks/:id` that carries RELEASED, with
+  // `status: AVAILABLE_FOR_RELEASE`. Client ruling 2026-09-11.
+  RELEASE_REVERSED
 }
 
 model Company {

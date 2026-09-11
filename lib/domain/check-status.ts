@@ -22,7 +22,13 @@ const TRANSITIONS: Record<CheckStatus, readonly CheckStatus[]> = {
   SIGNED:            ['READY_FOR_RELEASE', 'CANCELLED', 'VOIDED'],
   READY_FOR_RELEASE: ['SCHEDULED', 'RELEASED', 'SIGNED', 'CANCELLED', 'VOIDED'],
   SCHEDULED:         ['RELEASED', 'SIGNED', 'CANCELLED', 'VOIDED'],
-  RELEASED:          ['VOIDED'],
+  // READY_FOR_RELEASE is the reversal: a FINANCE_ADMIN undoing a release that
+  // was ticked by mistake goes back exactly one rung, to where the cheque was
+  // available — never to SIGNED, which would withdraw it from the supplier.
+  // `reverseRelease` in actions.ts refuses it when a receipt is on record or
+  // the bank has cleared the cheque. RELEASED stays CLOSED for every scope;
+  // this edge is a correction, not a stage.
+  RELEASED:          ['READY_FOR_RELEASE', 'VOIDED'],
   CANCELLED:         [],
   VOIDED:            [],
 }

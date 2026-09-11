@@ -41,6 +41,19 @@ describe('release ladder transitions', () => {
     expect(canTransition('CANCELLED', 'SIGNED')).toBe(false)
   })
 
+  /**
+   * The one edge out of RELEASED that is a correction rather than a fact from
+   * the bank. A FINANCE_ADMIN who ticked the wrong row goes back exactly one
+   * rung, to where the cheque was available — not to SIGNED, which would
+   * withdraw it from the supplier. RELEASED is still CLOSED for every scope.
+   */
+  it('allows a release to be reversed back to READY_FOR_RELEASE, and nowhere else', () => {
+    expect(canTransition('RELEASED', 'READY_FOR_RELEASE')).toBe(true)
+    expect(canTransition('RELEASED', 'SIGNED')).toBe(false)
+    expect(canTransition('RELEASED', 'SCHEDULED')).toBe(false)
+    expect(canTransition('RELEASED', 'VOIDED')).toBe(true)
+  })
+
   it('forbids skipping the signature step', () => {
     expect(canTransition('GENERATED', 'READY_FOR_RELEASE')).toBe(false)
   })
