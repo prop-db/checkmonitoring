@@ -19,3 +19,6 @@ probe-*
 # Claude Code worktrees created for parallel sessions — each one can carry its
 # own real .env, and a `git add -A` from the repo root would stage it.
 .claude/worktrees/
+
+# Pre-write snapshots taken by repair scripts. They hold cheque numbers.
+snapshots/
