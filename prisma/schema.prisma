@@ -440,7 +440,8 @@ model StagedCheck {
   // the alternative is a self-join to find out why a row was staged.
   conflictingCompanies String[]
   category        String?
-  clearingRef     String?
+  // The supplier's receipt the register's REMARKS column states ("CR 12345"), carried so promotion keeps it. Was misnamed clearingRef until 2026-09-11.
+  receiptRef      String?
   checkDate       DateTime?
   amount          Decimal?     @db.Decimal(18, 2)
   currency        String?

@@ -27,7 +27,7 @@ function parsed(overrides: Partial<ParsedRow> = {}): ParsedRow {
     checkBook: 'BPI-S-4636',
     cashAccountLabel: null,
     category: 'SUPPLIER',
-    clearingRef: 'CR 12345',
+    receiptRef: 'CR 12345',
     checkDate: new Date('2026-01-19T00:00:00Z'),
     amount: '197715.42',
     currency: null,
@@ -48,7 +48,7 @@ describe('mapParsedRow', () => {
     expect(row.amount).toBe('197715.42')
     expect(row.apvNumbers).toEqual(['APV-ST-009911'])
     expect(row.poNumbers).toEqual(['PO-ST-027363'])
-    expect(row.clearingRef).toBe('CR 12345')
+    expect(row.receiptRef).toBe('CR 12345')
     expect(row.category).toBe('SUPPLIER')
     expect(row.checkBookCode).toBe('BPI-S-4636')
     expect(row.sourceSheet).toBe('BPI RELEASED')

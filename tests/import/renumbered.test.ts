@@ -66,7 +66,7 @@ function row(overrides: Partial<NormalisedRow> = {}): NormalisedRow {
     category: null,
     apvNumbers: [],
     poNumbers: [],
-    clearingRef: null,
+    receiptRef: null,
     isCheque: true,
     voided: false,
     acumaticaDocType: 'Payment',

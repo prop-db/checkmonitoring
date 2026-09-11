@@ -192,7 +192,7 @@ export function mapPayment(row: unknown, tenant: AcumaticaTenant): NormalisedRow
     // already established for the same cheque.
     apvNumbers: [],
     poNumbers: [],
-    clearingRef: null,
+    receiptRef: null,
 
     isCheque,
 

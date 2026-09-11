@@ -1,6 +1,6 @@
 export type FieldKind =
   | 'APV' | 'CV' | 'PO' | 'CHECKBOOK' | 'CHECK_NUMBER'
-  | 'DATE_SERIAL' | 'CATEGORY' | 'CLEARING_REF' | 'AMOUNT' | 'STATUS_WORD'
+  | 'DATE_SERIAL' | 'CATEGORY' | 'RECEIPT_REF' | 'AMOUNT' | 'STATUS_WORD'
   | 'CASH_ACCOUNT' | 'UNKNOWN'
 
 // The client's monitoring workbook has fifteen sheets whose columns do not line
@@ -28,7 +28,14 @@ const CHECKBOOK = /^(BPI|MBT|BDO)-[SA]-\d+$/
 // leaves 337 six-digit and 11,828 ten-digit cheques and sends 44 ambiguous rows
 // to review, which is where a 9- or 11-digit value belongs.
 const CHECK_NUMBER = /^\d{6}$|^\d{10}$/
-const CLEARING_REF = /^CR\s?\d+$/
+// "CR 6336", "CR08970". The register's REMARKS column (column 12 of the
+// RELEASED sheets) carries one on 2,727 rows, and this rule once called it a
+// CLEARING_REF — the bank's reference — on the strength of two letters.
+// Client ruling 2026-09-11: it is the supplier's COLLECTION RECEIPT, the paper
+// handed over at collection. The importer writes it to the receipt columns,
+// never to `crNumber` (rule 11). `scripts/repair-cr-receipts.ts` moved the
+// 2,727 that were filed wrong before this comment existed.
+const RECEIPT_REF = /^CR\s?\d+$/
 // A text-formatted amount. Without this such a cell falls through to UNKNOWN
 // and competes to be the payee — the real register produced vendors named
 // "17187.5" and "3746.25" before this rule existed. Requires a decimal point,
@@ -80,7 +87,7 @@ export function sniff(value: unknown): FieldKind {
   if (APV.test(s)) return 'APV'
   if (CV.test(s)) return 'CV'
   if (PO.test(s)) return 'PO'
-  if (CLEARING_REF.test(s)) return 'CLEARING_REF'
+  if (RECEIPT_REF.test(s)) return 'RECEIPT_REF'
   if (CATEGORIES.has(s)) return 'CATEGORY'
   if (CHECK_NUMBER.test(s)) return 'CHECK_NUMBER'
   if (AMOUNT.test(s.replace(/,/g, ''))) return 'AMOUNT'

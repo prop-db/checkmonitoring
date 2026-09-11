@@ -67,7 +67,7 @@ describe('indexVouchers', () => {
     const i = indexVouchers([{
       sheet: 'BPI RELEASED', row: 2, checkNumber: 'BPI 6000353106', cvNumber: null,
       apvNumbers: ['AP-ST042652'], poNumbers: [], checkBook: null, cashAccountLabel: null,
-      category: null, clearingRef: null, checkDate: null, amount: null, currency: null,
+      category: null, receiptRef: null, checkDate: null, amount: null, currency: null,
       payee: null, unclassified: [],
     }])
     expect([...i.keys()]).toEqual(['6000353106'])

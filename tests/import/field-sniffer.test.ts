@@ -59,9 +59,14 @@ describe('sniff', () => {
     }
   })
 
-  it('identifies clearing references', () => {
+  // The register's REMARKS column carries "CR 6336" on 2,727 released rows.
+  // Client ruling 2026-09-11: that is the supplier's Collection Receipt — the
+  // paper handed over at collection — NOT the bank's clearing reference. Until
+  // this test existed the sniffer called it CLEARING_REF and the importer wrote
+  // it into `crNumber`, where every report reads it as money that cleared.
+  it('identifies the supplier receipt the REMARKS column carries', () => {
     for (const v of ['CR 6336', 'CR08970', 'CR19030']) {
-      expect(sniff(v), v).toBe('CLEARING_REF')
+      expect(sniff(v), v).toBe('RECEIPT_REF')
     }
   })
 

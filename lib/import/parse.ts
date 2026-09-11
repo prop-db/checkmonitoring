@@ -16,7 +16,7 @@ export type ParsedRow = {
   checkBook: string | null
   cashAccountLabel: string | null
   category: string | null
-  clearingRef: string | null
+  receiptRef: string | null
   checkDate: Date | null
   amount: string | null
   // Only set when the register states it inline, as "USD 300000". A bare
@@ -113,7 +113,7 @@ export function parseRows(rows: RawRow[]): { parsed: ParsedRow[]; review: Review
     const r: Draft = {
       sheet: raw.sheet, row: raw.row,
       checkNumber: null, cvNumber: null, apvNumbers: [], poNumbers: [],
-      checkBook: null, cashAccountLabel: null, category: null, clearingRef: null,
+      checkBook: null, cashAccountLabel: null, category: null, receiptRef: null,
       checkDate: null, amount: null, currency: null, payee: null, unclassified: [],
     }
 
@@ -151,7 +151,7 @@ export function parseRows(rows: RawRow[]): { parsed: ParsedRow[]; review: Review
         case 'CHECK_NUMBER': r.checkNumber ??= text; break
         case 'DATE_SERIAL': r.checkDate ??= excelSerialToDate(Number(cell)); break
         case 'CATEGORY': r.category ??= text?.toUpperCase() ?? null; break
-        case 'CLEARING_REF': r.clearingRef ??= text?.toUpperCase() ?? null; break
+        case 'RECEIPT_REF': r.receiptRef ??= text?.toUpperCase() ?? null; break
         // Classified so it cannot compete to be free text or a payee, but not
         // assigned: the amount comes from column J and nowhere else.
         case 'AMOUNT': break

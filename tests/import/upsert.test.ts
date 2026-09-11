@@ -58,7 +58,7 @@ function row(overrides: Partial<NormalisedRow> = {}): NormalisedRow {
     category: null,
     apvNumbers: ['APV-ST-009911'],
     poNumbers: [],
-    clearingRef: 'CR 12345',
+    receiptRef: 'CR 12345',
     isCheque: true,
     voided: false,
     acumaticaDocType: null,
@@ -107,10 +107,22 @@ describe('upsertCheck — creating', () => {
     expect(check.checkDate).toEqual(new Date('2026-01-19T00:00:00Z'))
     expect(check.sourceSheet).toBe('BPI RELEASED')
     expect(check.sourceRow).toBe(412)
-    // The bank's clearing reference the register records, which is what
-    // `crNumber` is. It is set here and never touched again — see the immutable
-    // list, where Finance owns it from that point on.
-    expect(check.crNumber).toBe('CR 12345')
+    // The register's REMARKS "CR 12345" is the supplier's Collection Receipt
+    // (client ruling 2026-09-11). It lands in the receipt columns on create and
+    // never in `crNumber`, which is the BANK's — rule 11.
+    expect(check.orNumber).toBe('CR 12345')
+    expect(check.receiptType).toBe('CR')
+    expect(check.orDate).toBeNull()
+    expect(check.crNumber).toBeNull()
+  })
+
+  it('creates with no receipt when the source states none', async () => {
+    await seedCompany()
+    await upsert(row({ receiptRef: null }))
+    const check = await testDb.check.findFirstOrThrow()
+    expect(check.orNumber).toBeNull()
+    expect(check.receiptType).toBeNull()
+    expect(check.crNumber).toBeNull()
   })
 
   it('writes the vouchers the source states onto the cheque', async () => {
@@ -270,7 +282,7 @@ describe('upsertCheck — re-importing', () => {
 
     await upsert(row({
       sourceSheet: 'CANCELLED', amount: '1.00', payeeName: 'SOMEONE ELSE',
-      clearingRef: 'CR 99999', cvNumber: 'CV-ST-999999',
+      receiptRef: 'CR 99999', cvNumber: 'CV-ST-999999',
     }))
     const after = await testDb.check.findUniqueOrThrow({ where: { id } })
 
@@ -432,7 +444,7 @@ describe('upsertCheck — staging', () => {
     expect(staged.currency).toBe('PHP')
     expect(staged.payeeName).toBe('HENKEL PHILIPPINES INC.')
     expect(staged.apvNumbers).toEqual(['APV-ST-009911'])
-    expect(staged.clearingRef).toBe('CR 12345')
+    expect(staged.receiptRef).toBe('CR 12345')
     expect(staged.checkDate).toEqual(new Date('2026-01-19T00:00:00Z'))
     // The status the sheet implied is kept, so promotion later does not have to
     // re-derive it from a sheet name nobody has any more.
@@ -898,7 +910,7 @@ describe('upsertCheck — staging a payment that came from Acumatica', () => {
     checkBookCode: null,
     apvNumbers: [],
     poNumbers: [],
-    clearingRef: null,
+    receiptRef: null,
     sourceSheet: null,
     sourceRow: null,
     ...overrides,

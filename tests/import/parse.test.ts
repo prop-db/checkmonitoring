@@ -4,6 +4,15 @@ import { parseRows } from '@/lib/import/parse'
 const row = (sheet: string, n: number, cells: unknown[]) => ({ sheet, row: n, cells })
 
 describe('parseRows', () => {
+  it('carries a CR cell as the receipt reference, not as free text', () => {
+    const [r] = parseRows([row('BPI RELEASED', 2, [
+      'PAID', 'W-RDHOT', '6000308584', 'CV-ST011550', 'STARKSON PACKAGING INC.',
+      null, 'BPI-S-4636', 'AP-ST036198', 46014, 7950, 46024, 'CR 6336',
+    ])]).parsed
+    expect(r.receiptRef).toBe('CR 6336')
+    expect(r.unclassified).not.toContain('CR 6336')
+  })
+
   it('finds each field wherever it sits in the row', () => {
     // A BPI RELEASED row: APV in position 7, CV in 3, checkbook in 6.
     const [r] = parseRows([row('BPI RELEASED', 2, [

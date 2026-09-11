@@ -269,7 +269,7 @@ function registerRow(overrides: Partial<ParsedRow> = {}): ParsedRow {
     checkBook: 'BPI-S-4636',
     cashAccountLabel: null,
     category: null,
-    clearingRef: null,
+    receiptRef: null,
     checkDate: new Date('2025-12-23T00:00:00Z'),
     amount: '7950.00',
     currency: null,

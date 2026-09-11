@@ -19,7 +19,7 @@ const TODAY = new Date('2026-09-04T00:00:00Z')
 
 const p = (o: Partial<ParsedRow> & { sheet: string; row: number; checkNumber: string }): ParsedRow => ({
   cvNumber: null, apvNumbers: [], poNumbers: [], checkBook: null, cashAccountLabel: null,
-  category: null, clearingRef: null, checkDate: null, amount: null, currency: null,
+  category: null, receiptRef: null, checkDate: null, amount: null, currency: null,
   payee: null, unclassified: [], ...o,
 })
 

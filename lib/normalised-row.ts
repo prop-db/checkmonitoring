@@ -88,8 +88,12 @@ export type NormalisedRow = {
    */
   apvNumbers: string[]
   poNumbers: string[]
-  /** The bank's clearing reference where the register records one ("CR 12345"). */
-  clearingRef: string | null
+  /**
+   * The supplier's Collection Receipt where the register records one in its
+   * REMARKS column ("CR 12345"). Client ruling 2026-09-11. Written on create
+   * as `orNumber` + `receiptType = CR`; NEVER `crNumber`, which is the bank's.
+   */
+  receiptRef: string | null
 
   /**
    * Not every payment is a cheque. The China offices pay by transfer and their

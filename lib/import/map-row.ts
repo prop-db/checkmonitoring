@@ -90,7 +90,7 @@ export function mapParsedRow(parsed: ParsedRow | UnkeyedRow, ref: CompanyReferen
 
     apvNumbers: parsed.apvNumbers,
     poNumbers: parsed.poNumbers,
-    clearingRef: parsed.clearingRef,
+    receiptRef: parsed.receiptRef,
 
     // The register is a cheque register: every row on it is a physical document
     // somebody signs and hands over. Non-cheque payments are an Acumatica fact

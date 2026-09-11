@@ -393,9 +393,14 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
           // it here would leave a promise to a supplier that no outbox keeps.
           portalSyncStatus: 'NOT_APPLICABLE',
           status: implied.status,
-          // The register's own clearing reference. Set once, at create; from
-          // then on `crNumber` is Finance's, which is why it is immutable below.
-          crNumber: row.clearingRef,
+          // The register's REMARKS "CR 1234" is the supplier's Collection
+          // Receipt (client ruling 2026-09-11), so it lands in the RECEIPT
+          // columns — on create only; both are immutable on update, so a
+          // re-run never overwrites a receipt Finance recorded. `crNumber` is
+          // the BANK's and no import writes it (rule 11). `orDate` stays null:
+          // the register never recorded one.
+          orNumber: row.receiptRef,
+          receiptType: row.receiptRef === null ? null : 'CR',
           sourceSheet: row.sourceSheet,
           sourceRow: row.sourceRow,
           acumaticaDocType: row.acumaticaDocType,
@@ -676,7 +681,7 @@ async function stageRow(
     companyCode: row.companyCode,
     conflictingCompanies: [...conflictingCompanies],
     category: row.category,
-    clearingRef: row.clearingRef,
+    receiptRef: row.receiptRef,
     checkDate: row.checkDate,
     amount: row.amount,
     currency: row.currency,
