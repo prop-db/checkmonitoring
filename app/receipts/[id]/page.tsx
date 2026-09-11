@@ -91,7 +91,8 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
             {fromRegister && (
               <p className="text-xs text-slate-500">
                 FROM THE REGISTER. This number was typed into the register&rsquo;s REMARKS column and
-                reclassified as a Collection Receipt on 2026-09-11; no receipt date was recorded there.
+                reclassified as a Collection Receipt on the client&rsquo;s ruling of 2026-09-11; no
+                receipt date was recorded there.
               </p>
             )}
             {/* Stated, so nobody hunts for an edit control that does not exist.

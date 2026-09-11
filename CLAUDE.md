@@ -111,7 +111,8 @@ These are safety properties, not preferences. Each exists because of a specific 
    abbreviate alike and mean nothing like each other: a receipt number in `crNumber` reads, to every
    report and every reconciliation, as evidence that the money cleared — for a cheque that was
    merely handed across a counter. `markReleased` and `recordReceipt` write only the three receipt
-   columns; `recordClearing` is the only writer of `crNumber`. Pinned by `tests/actions/receipt.test.ts`.
+   columns; `recordClearing` is the only writer of `crNumber` — the one exception is the one-off
+   repair below, which only ever sets it to null. Pinned by `tests/actions/receipt.test.ts`.
    The **type is stored, not parsed back out of the reference** — "OR-000123", "4471" and "CR 88"
    are all references a supplier writes, and a prefix rule over them is a guess dressed as a fact.
    **This hazard happened at scale before the rule existed.** The 9 September load wrote 2,727
@@ -124,6 +125,10 @@ These are safety properties, not preferences. Each exists because of a specific 
    never to `crNumber`. Every `crNumber` in production after the repair is one Finance typed.
 
 ## Things that will catch you out
+
+**A `|` inside `-t` breaks `npx.cmd vitest` under Git Bash.** `npx.cmd vitest run file -t "a|b"`
+mis-tokenises the pipe; `node node_modules/vitest/vitest.mjs run file -t "a|b"` is the same
+runner without the `.cmd` shim and works.
 
 **`npx tsc --noEmit` is not optional.** Vitest transpiles with esbuild, which erases types — this
 project has repeatedly had a fully green suite over unsound types. Overrides spread from a
@@ -337,7 +342,10 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
 
 Plans 1 and 2 complete. Plan 3 (portal automation) still paused: the portal needs an `encoder`
 service account that does not exist, and until it does every `PortalEvent` simply queues.
-**1,176 tests across 77 files** — 1,048 across 61 after the voucher screen; then scheduled-sync +21
+**1,218 tests across 82 files** — 1,176 across 77 before the Finance inputs, which added +42
+(`admin/repair-cr-receipts` 9, `clearing-paste` 9, `domain/details` 6, `actions/update-details` 6,
+`actions/clearing-bulk` 5, `actions/server-actions` +4, `import/parse` +1, `import/upsert` +1,
+`domain/check-status` +1). Before that: 1,048 across 61 after the voucher screen; then scheduled-sync +21
 (`sync/run` +5, `sync/scheduled` 5, `sync/cron-route` 6, `sync/staleness` 5), the middleware hotfix
 +4 (`public-paths`), the cash-outflow forecast +58 (`forecast/buckets` 19, `forecast/query` 14,
 `forecast/matrix` 8, `forecast-view` 8, `export/forecast-workbook` 6, `export/forecast-route` 3),
@@ -384,7 +392,10 @@ Production is `check_monitoring_prod` on Neon. Both outstanding migrations were 
    supplier booked a pickup.
 5. **3,718 staged rows with no owner** — no ageing, no alert, nobody assigned.
 6. **"Acumatica wins" is not enforced in code.** See the amounts note above.
-7. **No snapshot step before a bulk write.** Today’s recovery depended on one taken by hand.
+7. **No general snapshot step before a bulk write.** The 10 September recovery depended on one
+   taken by hand. `scripts/repair-cr-receipts.ts` (2026-09-11) builds its own — a JSON of every
+   affected row under `snapshots/`, written before the first write — and is the pattern for the
+   next repair; nothing yet makes it automatic for `upsertCheck`.
 8. **A release can be reversed** (built 2026-09-11, client design of 2026-09-10). `reverseRelease`
    in `lib/domain/actions.ts`: FINANCE_ADMIN only, mandatory reason, back to READY_FOR_RELEASE with
    the availability kept and the collection cleared, one `release_reversed` audit row recording

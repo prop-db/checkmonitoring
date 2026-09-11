@@ -345,7 +345,7 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
                 <p className="text-sm text-slate-600">
                   <span className="font-semibold text-navy">Cleared by the bank</span>
                   {check.clearedDate ? ` on ${fmtDate(check.clearedDate)}` : ''}
-                  {check.crNumber ? `, reference ${check.crNumber}` : ''}. A clearing is not moved back from here.
+                  {check.crNumber ? `, reference ${check.crNumber}` : ''}. A clearing is not moved back.
                 </p>
               )
             })()}

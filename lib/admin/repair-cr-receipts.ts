@@ -135,7 +135,7 @@ export async function applyRepair(
       const { count } = await tx.check.updateMany({
         where: {
           id: c.id, crNumber: c.crNumber,
-          orNumber: null, receiptType: null, clearingStatus: 'NONE', clearedDate: null,
+          orNumber: null, orDate: null, receiptType: null, clearingStatus: 'NONE', clearedDate: null,
         },
         data: {
           orNumber: receipt.orNumber,

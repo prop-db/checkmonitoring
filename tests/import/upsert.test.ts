@@ -276,13 +276,16 @@ describe('upsertCheck — re-importing', () => {
         clearedDate: new Date('2026-02-08T00:00:00Z'),
         cancelledById: user.id, cancelledAt: new Date('2026-02-09T05:00:00Z'),
         cancelReason: 'a reason a human wrote',
+        // Typed by Finance on the cheque page since 2026-09-11; a re-import
+        // stating a different one below must not win.
+        category: 'PAYROLL',
       },
     })
     const before = await testDb.check.findUniqueOrThrow({ where: { id } })
 
     await upsert(row({
       sourceSheet: 'CANCELLED', amount: '1.00', payeeName: 'SOMEONE ELSE',
-      receiptRef: 'CR 99999', cvNumber: 'CV-ST-999999',
+      receiptRef: 'CR 99999', cvNumber: 'CV-ST-999999', category: 'UTILITIES',
     }))
     const after = await testDb.check.findUniqueOrThrow({ where: { id } })
 
@@ -332,7 +335,7 @@ describe('upsertCheck — re-importing', () => {
     await seedCompany()
     await upsert(row())
     // An Acumatica row for the same cheque: the payments inquiry publishes no
-    // checkbook, no category and no CV-level clearing reference. Null there
+    // checkbook, no category and no receipt reference. Null there
     // means "this feed does not carry it", not "the register was wrong".
     await upsert(row({
       source: 'ACUMATICA', checkBookCode: null, cvNumber: null,

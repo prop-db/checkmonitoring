@@ -33,7 +33,7 @@ const CHECK_NUMBER = /^\d{6}$|^\d{10}$/
 // CLEARING_REF — the bank's reference — on the strength of two letters.
 // Client ruling 2026-09-11: it is the supplier's COLLECTION RECEIPT, the paper
 // handed over at collection. The importer writes it to the receipt columns,
-// never to `crNumber` (rule 11). `scripts/repair-cr-receipts.ts` moved the
+// never to `crNumber` (rule 11). `scripts/repair-cr-receipts.ts` moves the
 // 2,727 that were filed wrong before this comment existed.
 const RECEIPT_REF = /^CR\s?\d+$/
 // A text-formatted amount. Without this such a cell falls through to UNKNOWN

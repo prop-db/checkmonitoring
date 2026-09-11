@@ -24,7 +24,8 @@ export default async function ClearingPage() {
         and you are shown what confirming will do before anything is written. Only a RELEASED cheque
         that is not yet cleared is marked; a number this system does not know, or that two companies
         share, is named and left alone. The reference and date are the bank&rsquo;s — a supplier&rsquo;s
-        receipt is recorded on the cheque itself.
+        receipt is recorded on the cheque itself. A cleared cheque cannot be un-cleared, and its
+        release can no longer be reversed.
       </p>
       <Panel title="MARK CLEARED FROM A STATEMENT">
         <ClearingPaste />
