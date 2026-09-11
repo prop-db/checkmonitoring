@@ -109,22 +109,28 @@ the difference between "nothing changed yet" and "the app is down".
    The next evening at 18:00 Manila, two more appear unprompted — and the dashboard's
    ACUMATICA LAST READ line moves.
 
-## Known issue: `middleware.ts` does not run
+## `middleware.ts` runs on Vercel, not locally
 
-The middleware manifest is empty after a clean build — Node-runtime middleware
-(`export const runtime = 'nodejs'`) is not supported in Next 15.5.25, and the file is silently never
-registered.
+A clean local `next build` leaves the middleware manifest empty — Node-runtime middleware
+(`export const runtime = 'nodejs'`) is not registered by Next 15.5.25's local build. **Vercel's
+build registers it.** Measured 2026-09-11: production answered an unauthenticated
+`GET /api/cron/sync` with 307 to `/login` and NextAuth's cookies, on a route that has no session
+guard of its own.
 
 **The application is protected regardless**, by the page-level `requireUser()` / `requireAdmin()`
 guards that Plan 1 introduced specifically so "a bad matcher edit cannot silently expose pages".
-That decision is now the only thing holding, and it holds.
+That remains the primary control. The middleware is a second layer with one job that matters in
+production: what it waves through. `lib/public-paths.ts` is that list, tested; a route a machine
+calls with a bearer — the scheduled sync — must be on it and must guard itself, or every call is a
+redirect to a login page that the caller reports as success.
 
 **Every request-time control must therefore live in the request path** — a page guard, a server
 action, or the `authorize` callback — never in middleware. A control placed in `middleware.ts` will
 pass tests that import it directly and protect nothing in production.
 
-Decide deliberately: delete the file as dead code, or make it Edge-compatible. Leaving it is the
-worst option, because it reads as protection that is not there.
+Do **not** delete the file as dead code — earlier text here suggested that, on the belief it never
+ran. In production it does, and removing it would drop a working layer. Keep it, keep the page
+guards, and keep `isPublicPath` in step with every machine-called route.
 
 ## The historical load
 

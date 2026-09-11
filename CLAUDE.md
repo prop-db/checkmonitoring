@@ -115,12 +115,22 @@ These are safety properties, not preferences. Each exists because of a specific 
 project has repeatedly had a fully green suite over unsound types. Overrides spread from a
 union-typed `it.each` tuple also escape excess-property checking; that hid a real bug here.
 
-**`middleware.ts` does not run.** The middleware manifest is empty after a clean build:
-`export const runtime = 'nodejs'` is unsupported in Next 15.5.25 and the file is silently never
-registered. The app is protected by the page-level `requireUser()` / `requireAdmin()` guards, which
-Plan 1 added precisely so "a bad matcher edit cannot silently expose pages". **Every request-time
-control must live in the request path** — a page guard, a server action, or `authorize`. A control
-placed in middleware passes tests that import it directly and protects nothing.
+**`middleware.ts` does not run LOCALLY — and DOES run on Vercel.** A clean local `next build` leaves
+the middleware manifest empty (`export const runtime = 'nodejs'`, Next 15.5.25), which is where the
+earlier claim that it never runs came from. **Measured 2026-09-11 against production:** an
+unauthenticated GET of `/api/cron/sync` — a route with no session guard of its own — answered
+**307 to `/login` with NextAuth's `__Host-authjs.csrf-token` cookie set**, and so did the same
+request carrying a bearer. Only the `auth()` middleware wrapper does that. Vercel's build registers
+the file; the local one does not. Two consequences, both binding:
+
+- The page-level `requireUser()` / `requireAdmin()` guards remain the **primary** control and must
+  stay — a local build that drops the middleware must leave the app protected, and a bad matcher
+  edit must not be able to expose a page. **Every request-time control still lives in the request
+  path.**
+- **A route that a machine calls with a bearer and no session must be listed in `isPublicPath`
+  (`lib/public-paths.ts`, tested) and must guard itself.** The scheduled sync was deployed without
+  that and every evening's run would have been a 307 to a login page — reported as success, reading
+  nothing. `tests/public-paths.test.ts` pins `/api/cron/` open and everything else closed.
 
 **One agent at a time against the test database.** All test files share one Neon database and
 `resetDb()` truncates it. Concurrent runs produce `40P01` deadlocks and spurious FK failures, and
