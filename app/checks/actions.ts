@@ -9,6 +9,7 @@ import { isNextControlFlowError } from '@/lib/next-errors'
 import {
   markSigned, markReadyForRelease, revertAvailability,
   markReleased, recordClearing, cancelCheck, deleteIncompleteCheck, recordReceipt,
+  reverseRelease,
 } from '@/lib/domain/actions'
 import { readReceiptFields } from '@/lib/receipt-form'
 
@@ -64,6 +65,24 @@ export async function revertAction(formData: FormData): Promise<ActionResult> {
   }
   const checkId = str(formData, 'checkId')
   return run(checkId, () => revertAvailability(prisma, {
+    checkId, userId: user.id,
+    reason: str(formData, 'reason'), now: new Date(),
+  }))
+}
+
+/**
+ * A release, undone. FINANCE_ADMIN only — the same guard as `revertAction`,
+ * one rung up. The reason is required by the domain; the page requires it too,
+ * but the domain is what enforces it. Refusals for a recorded receipt or a
+ * cleared cheque arrive as `DomainError`s and are shown as their own words.
+ */
+export async function reverseReleaseAction(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser()
+  if (user.role !== 'FINANCE_ADMIN') {
+    return { ok: false, message: 'Only a Finance Admin can reverse a release.' }
+  }
+  const checkId = str(formData, 'checkId')
+  return run(checkId, () => reverseRelease(prisma, {
     checkId, userId: user.id,
     reason: str(formData, 'reason'), now: new Date(),
   }))

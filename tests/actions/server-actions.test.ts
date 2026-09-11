@@ -174,3 +174,49 @@ describe('clearingAction', () => {
     expect(result).toEqual({ ok: false, message: 'Invalid clearing status.' })
   })
 })
+
+describe('reverseReleaseAction', () => {
+  async function releasedCheck() {
+    const { readyForReleaseAction, releaseAction } = await import('@/app/checks/actions')
+    const check = await makeCheck({ status: 'SIGNED' })
+    await readyForReleaseAction(fd({ checkId: check.id, availablePickupDate: '2026-09-03' }))
+    await releaseAction(fd({ checkId: check.id }))
+    return check
+  }
+
+  it('refuses a FINANCE_USER and leaves the release standing', async () => {
+    const { reverseReleaseAction } = await import('@/app/checks/actions')
+    const check = await releasedCheck()
+    const result = await reverseReleaseAction(fd({ checkId: check.id, reason: 'Wrong row' }))
+    expect(result.ok).toBe(false)
+    const after = await testDb.check.findUniqueOrThrow({ where: { id: check.id } })
+    expect(after.status).toBe('RELEASED')
+  })
+
+  it('lets a FINANCE_ADMIN reverse with a reason', async () => {
+    const { reverseReleaseAction } = await import('@/app/checks/actions')
+    const check = await releasedCheck()
+    // The mock's user object is mutable; the role is what the action checks.
+    ;(currentUser as { role: string }).role = 'FINANCE_ADMIN'
+    try {
+      const result = await reverseReleaseAction(fd({ checkId: check.id, reason: 'Wrong row' }))
+      expect(result.ok).toBe(true)
+      const after = await testDb.check.findUniqueOrThrow({ where: { id: check.id } })
+      expect(after.status).toBe('READY_FOR_RELEASE')
+    } finally {
+      ;(currentUser as { role: string }).role = 'FINANCE_USER'
+    }
+  })
+
+  it('refuses a blank reason even for an admin', async () => {
+    const { reverseReleaseAction } = await import('@/app/checks/actions')
+    const check = await releasedCheck()
+    ;(currentUser as { role: string }).role = 'FINANCE_ADMIN'
+    try {
+      const result = await reverseReleaseAction(fd({ checkId: check.id, reason: '' }))
+      expect(result.ok).toBe(false)
+    } finally {
+      ;(currentUser as { role: string }).role = 'FINANCE_USER'
+    }
+  })
+})

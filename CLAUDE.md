@@ -362,14 +362,21 @@ Production is `check_monitoring_prod` on Neon. Both outstanding migrations were 
 5. **3,718 staged rows with no owner** — no ageing, no alert, nobody assigned.
 6. **"Acumatica wins" is not enforced in code.** See the amounts note above.
 7. **No snapshot step before a bulk write.** Today’s recovery depended on one taken by hand.
-8. **A release cannot be reversed.** `RELEASED` -> `VOIDED` is the only edge out, and that means the
-   bank voided the cheque, not that somebody ticked the wrong row. Designed with the client
-   2026-09-10 but **not built**: FINANCE_ADMIN only, mandatory reason, back to READY_FOR_RELEASE,
-   pickup fields cleared, portal REVERT queued — and **refused outright when a receipt already
-   exists**, because a recorded OR/CR is the supplier’s own paper saying they took the cheque.
-   (Reverting availability, READY_FOR_RELEASE -> SIGNED, does exist and was wired to the check
-   detail page on 2026-09-10; it had been a working, guarded, tested server action with no button
-   since Plan 1.)
+8. **A release can be reversed** (built 2026-09-11, client design of 2026-09-10). `reverseRelease`
+   in `lib/domain/actions.ts`: FINANCE_ADMIN only, mandatory reason, back to READY_FOR_RELEASE with
+   the availability kept and the collection cleared, one `release_reversed` audit row recording
+   what was undone. **Refused outright when a receipt is on record** — the supplier's own paper —
+   and, an addition approved the same day, **when any clearing is recorded**: money the bank has
+   paid cannot be un-handed-over. Both refusals live in `lib/domain/reversal.ts`, which the page
+   reads too, so an admin is told why rather than shown a button that would refuse. The portal is
+   told `RELEASE_REVERSED` — a fourth `PortalEventKind`, delivered via `POST /api/checks/:id` with
+   `status: AVAILABLE_FOR_RELEASE` when Plan 3 delivers — and deliberately NOT `REVERT`, which the
+   portal reads as withdrawn for re-upload. Measured before building: none of the 9,594 released
+   cheques carries a receipt, `releasedAt`, or clearing, because `markReleased` has never run in
+   production; both refusals are forward-looking. Migration
+   `20260911000100_portal_event_release_reversed` must reach production before the deploy.
+   (Reverting availability, READY_FOR_RELEASE -> SIGNED, has been on the detail page since
+   2026-09-10.)
 9. The test suite takes ~20 minutes because every test crosses the South China Sea. A local Postgres
    would make it ~2. It is the tax on every deploy.
 10. **The cash-outflow forecast is BUILT** (2026-09-11) — `/forecast`, on the cheque date read as

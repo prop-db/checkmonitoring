@@ -11,7 +11,8 @@ import { ReadyForReleaseForm } from '@/components/ReadyForReleaseForm'
 import { ActionForm } from '@/components/ActionForm'
 import { DeleteIncompleteCheckForm } from '@/components/DeleteIncompleteCheckForm'
 import { checkDeletable } from '@/lib/domain/incomplete'
-import { signAction, releaseAction, revertAction } from '../actions'
+import { checkReleaseReversible } from '@/lib/domain/reversal'
+import { signAction, releaseAction, revertAction, reverseReleaseAction } from '../actions'
 
 /**
  * ONE CHEQUE.
@@ -284,12 +285,52 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
         )}
 
         {check.status === 'RELEASED' && (
-          <p className="rounded-xl bg-success-bg px-4 py-3 text-sm text-success-ink">
-            This cheque has been released
-            {check.releasedBy?.name ? ` by ${check.releasedBy.name}` : ''}
-            {check.releasedAt ? ` on ${fmtDateTime(check.releasedAt)}` : ''}. There is nothing
-            further to do here.
-          </p>
+          <div className="space-y-4">
+            <p className="rounded-xl bg-success-bg px-4 py-3 text-sm text-success-ink">
+              This cheque has been released
+              {check.releasedBy?.name ? ` by ${check.releasedBy.name}` : ''}
+              {check.releasedAt ? ` on ${fmtDateTime(check.releasedAt)}` : ''}.
+            </p>
+
+            {/* The undo for the one action that hands money over. Client design
+                2026-09-10, built 2026-09-11. FINANCE_ADMIN only, matching
+                `reverseReleaseAction`'s own guard: hidden for everyone else,
+                enforced on the server. The same guard the action applies is run
+                here first, so an admin is TOLD why a reversal is refused —
+                a receipt on record, or a cleared cheque — rather than shown a
+                button that would refuse them. */}
+            {user.role === 'FINANCE_ADMIN' && (() => {
+              const reversible = checkReleaseReversible(check)
+              return reversible.ok ? (
+                <ActionForm
+                  action={reverseReleaseAction}
+                  checkId={check.id}
+                  label="REVERSE RELEASE"
+                  className="block rounded-lg border border-hairline bg-white px-4 py-2 text-sm font-medium tracking-wide text-navy transition hover:bg-ground disabled:opacity-50"
+                >
+                  <label className="block text-[11px] font-semibold tracking-widest text-slate-400">
+                    REASON <span className="text-danger-ink">— REQUIRED</span>
+                  </label>
+                  <input name="reason" required placeholder="Ticked the wrong row"
+                    className="h-10 w-full max-w-md rounded-lg border border-hairline bg-white px-3 text-sm text-slate-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy" />
+                  <p className="text-[11px] text-slate-500">
+                    Returns this cheque to READY FOR RELEASE, clears any pickup that was booked, and
+                    tells the supplier portal it is available again. The release stays on the audit
+                    trail with your reason.
+                  </p>
+                </ActionForm>
+              ) : (
+                <p className="text-sm text-slate-600">
+                  <span className="font-semibold text-navy">This release cannot be reversed.</span>{' '}
+                  {reversible.message}
+                </p>
+              )
+            })()}
+
+            {user.role !== 'FINANCE_ADMIN' && (
+              <p className="text-sm text-slate-500">There is nothing further to do here.</p>
+            )}
+          </div>
         )}
 
         {check.status === 'CANCELLED' && (
