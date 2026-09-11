@@ -17,6 +17,12 @@ export const NO_WATERMARK_MESSAGE =
   'No watermark for this tenant. A FULL sync must be started by an admin — from ' +
   'scripts/sync.ts in a terminal for a first read — and is never run on a schedule.'
 
+// `runSync` caps the message it writes onto the `SyncRun` row itself, but
+// `IN_PROGRESS` and `FAILED` here carry a message this wrapper builds directly
+// from `error.message` — an OData failure can hand back a whole HTML error
+// page, and that would otherwise land in Vercel's cron log unbounded.
+const MAX_OUTCOME_MESSAGE = 300
+
 export type ScheduledSyncOutcome =
   | {
       tenant: AcumaticaTenant
@@ -70,7 +76,10 @@ export async function runScheduledSync(
       staged: result.staged, errors: result.errors,
     }
   } catch (error) {
-    if (error instanceof SyncInProgressError) return { tenant, outcome: 'IN_PROGRESS', message: error.message }
-    return { tenant, outcome: 'FAILED', message: error instanceof Error ? error.message : String(error) }
+    if (error instanceof SyncInProgressError) {
+      return { tenant, outcome: 'IN_PROGRESS', message: error.message.slice(0, MAX_OUTCOME_MESSAGE) }
+    }
+    const message = error instanceof Error ? error.message : String(error)
+    return { tenant, outcome: 'FAILED', message: message.slice(0, MAX_OUTCOME_MESSAGE) }
   }
 }

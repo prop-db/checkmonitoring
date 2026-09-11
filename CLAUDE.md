@@ -49,6 +49,8 @@ npm test                       # full suite (Vitest, hits the TEST database)
 npx tsc --noEmit               # REQUIRED before claiming done - see below
 npx next build
 npm run db:migrate             # dev migrations
+node scripts/migrate.mjs test             # apply migrations to the TEST database (URL never touches a shell)
+node scripts/migrate.mjs prod --confirm   # the same against PRODUCTION; migrate BEFORE you deploy
 npm run db:seed                # dev seed, WITH demo cheques and known-password accounts
 npm run db:seed:reference      # production seed: reference data only, no cheques, no accounts
 npm run create-admin           # bootstrap the first FINANCE_ADMIN on a fresh database

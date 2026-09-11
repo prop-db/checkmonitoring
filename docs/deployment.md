@@ -81,6 +81,14 @@ passes the URL in `argv` with no shell, and prints the host and database it is a
 `node scripts/migrate.mjs test` does the same to the test database, which every migration must
 reach before the suite is run.
 
+**Run this before `npx vercel --prod`, not after.** `app/page.tsx` now calls `getSyncOverview`,
+which selects every `SyncRun` column including `trigger`. Deploy the new code against an
+unmigrated database and the dashboard's Prisma client asks for a column that is not there — every
+user gets a broken home page, not a degraded one. The reverse order is harmless: the old client
+running a moment longer against a migrated database simply never asks for `trigger`, and the
+column has a default for the rows it doesn't yet know about. Order is not a preference here; it is
+the difference between "nothing changed yet" and "the app is down".
+
 ## After the first deploy — verify, do not assume
 
 1. `https://checkmonitoring.rclcompanies.com/` redirects to `/login`.
@@ -89,7 +97,14 @@ reach before the suite is run.
 3. Sign in as a real admin; the dashboard renders with the seeded reference data.
 4. Confirm the seeded accounts show as DEACTIVATED.
 5. Trigger a sync from `/admin/sync` and confirm a `SyncRun` row appears with its tenant.
-6. Vercel dashboard → Project → Settings → Cron Jobs lists `/api/cron/sync` at `0 10 * * *`.
+6. Press SYNC NOW once more for EACH tenant on `/admin/sync` before the cron ever fires. The route
+   reads both tenants inside one 60-second function, and on the very first scheduled run the
+   incremental window is as wide as it will ever get — GOLIVE roughly 33 hours behind,
+   MANUFACTURING roughly 3.4 days — with no floor under it: a run the timeout kills never advances
+   its watermark, so the next day's window only gets wider. A manual SYNC NOW per tenant is its own
+   function invocation with its own 60 seconds, so both watermarks are minutes old by the time the
+   schedule first runs, and the first scheduled run has an ordinary window to read.
+7. Vercel dashboard → Project → Settings → Cron Jobs lists `/api/cron/sync` at `0 10 * * *`.
    Trigger it once from there. `/admin/sync` then shows a run per tenant with trigger SCHEDULED.
    The next evening at 18:00 Manila, two more appear unprompted — and the dashboard's
    ACUMATICA LAST READ line moves.

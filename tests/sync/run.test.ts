@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { testDb, resetDb } from '../helpers/db'
 import {
   runSync, lastSyncWatermark, SYNC_OVERLAP_MINUTES,
-  SyncInProgressError, SYNC_IN_PROGRESS_MINUTES,
+  SyncInProgressError, SYNC_IN_PROGRESS_MINUTES, type SyncTrigger,
 } from '@/lib/sync/run'
 import {
   PAYMENTS_FEED, PAYMENT_FIELDS,
@@ -152,7 +152,7 @@ const sync = (
     tenant?: 'GOLIVE' | 'MANUFACTURING'
     since?: Date | null
     now?: Date
-    trigger?: 'MANUAL' | 'SCHEDULED'
+    trigger?: SyncTrigger
   } = {},
 ) => {
   const { client, calls } = fakeFeed(rows)

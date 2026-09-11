@@ -48,8 +48,20 @@ export function SyncStatusLine({ staleness, isAdmin }: { staleness: Staleness; i
   return (
     <div className="rounded-xl bg-warning-bg px-4 py-3 text-sm text-warning-ink ring-1 ring-warning-ink/20">
       <p className="font-semibold tracking-wide">{headline}</p>
+      {/*
+       * NOT "cheques since then are not on this board" — `lastSuccess` requires
+       * `errors = 0`, but `runSync` deliberately tolerates a bad row rather than
+       * aborting a 37,000-row run over one of them. A run that read 500 rows
+       * with one failure leaves `lastSuccess` frozen at the run before it, so
+       * that sentence would say cheques were missing when they were in fact
+       * read — erring loud is the right call, but only when what is said is
+       * true. Say the weaker, honest thing instead: the last CLEAN read is old,
+       * so something MAY be missing, and the detail lives on /admin/sync.
+       */}
       <p className="mt-1">
-        Cheques generated in Acumatica since then are not on this board. {parts.join(' · ')}.{' '}
+        Acumatica has not been read cleanly since then, so cheques generated since may be missing —{' '}
+        <Link href="/admin/sync" className="underline underline-offset-2">/admin/sync</Link> shows
+        what the last attempt reported. {parts.join(' · ')}.{' '}
         {isAdmin ? (
           <>
             Press SYNC NOW on the{' '}
