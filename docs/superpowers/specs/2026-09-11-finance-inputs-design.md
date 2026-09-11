@@ -78,8 +78,11 @@ On the cheque page, for any Finance user, a form for the four free-text facts:
 `updateDetails(db, { checkId, userId, fields, now })` in `lib/domain/actions.ts`: no status change,
 no guard on status (a note can be added to a cancelled cheque), trims and stores empty as null, and
 writes one `details_updated` audit row whose `details` carries `{ field: { from, to } }` for each
-field that changed — nothing when nothing changed (the action returns without writing). All four
-columns are already outside `IMPORT_WRITABLE`; a sync cannot overwrite them.
+field that changed — nothing when nothing changed (the action returns without writing). `remarks`,
+`pointPerson` and `checksPossession` were already outside `IMPORT_WRITABLE`; `category` was IN it
+(found in review), so it moves to `IMMUTABLE_ON_UPDATE` — a create still writes the register's
+category, an update never does, and a typed one cannot be overwritten by a reseed. Acumatica's
+mapper never supplies a category, so no live sync changes behaviour.
 
 ## C. Record clearing
 

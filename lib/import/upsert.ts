@@ -74,6 +74,14 @@ export const IMMUTABLE_ON_UPDATE = [
   // of receipt" for a number it cannot see.
   'orNumber', 'orDate', 'receiptType',
   'clearingStatus', 'crNumber', 'clearedDate', 'cancelledById', 'cancelledAt', 'cancelReason',
+  // Since 2026-09-11 Finance types the category on the cheque page, which
+  // makes it something FINANCE knows rather than something the source states
+  // — the line rule 4 draws. A create still writes the register's category
+  // (the register is the only source that ever carried one; Acumatica's
+  // mapper sends null); an update never touches it, so a reseed cannot
+  // overwrite what somebody typed. No live path changes: the sync's null was
+  // already skipped by `keep()`.
+  'category',
 ] as const satisfies readonly (keyof Check)[]
 
 /**
@@ -102,7 +110,7 @@ export const IMPORT_WRITABLE = [
   // for something to remove one, and nothing does.
   'apvNumbers',
   'acumaticaPaymentId', 'checkNumber', 'cvNumber', 'checkDate', 'amount', 'currency',
-  'isCheque', 'companyId', 'cashAccountId', 'checkBookId', 'payeeName', 'category',
+  'isCheque', 'companyId', 'cashAccountId', 'checkBookId', 'payeeName',
   'eligibility', 'portalDomain', 'portalSyncStatus', 'sourceSheet', 'sourceRow',
   'acumaticaDocType', 'acumaticaStatus', 'acumaticaBranch', 'acumaticaTenant', 'lastModifiedOn',
   // Not a fact the source states — a derivation of `amount`, which is why it is
@@ -521,7 +529,6 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
         cashAccountId: cashAccount?.id,
         checkBookId: checkBook?.id,
         payeeName: keep(row.payeeName),
-        category: keep(row.category),
         eligibility: overridden ? undefined : classified.eligibility,
         portalDomain: overridden ? undefined : route,
         // Only when the cheque has just become INTERNAL, because the CHECK
