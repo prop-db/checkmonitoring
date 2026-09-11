@@ -606,6 +606,16 @@ model AuditLog {
   user      User?     @relation(fields: [userId], references: [id])
 
   @@index([checkId, createdAt])
+
+  // The audit SCREEN (2026-09-11). Until then the only reader was a cheque's
+  // own trail, served by the index above. A newest-first page over 65,269 rows
+  // is a keyset on (createdAt, id); "what did people do" is the actorType
+  // index; the ACTION and USER filters get their own. Offset pagination was
+  // rejected because every page would be a sequential scan.
+  @@index([createdAt, id])
+  @@index([actorType, createdAt])
+  @@index([action, createdAt])
+  @@index([userId, createdAt])
 }
 
 // The outbox. `lib/domain/actions.ts` writes one of these in the same
