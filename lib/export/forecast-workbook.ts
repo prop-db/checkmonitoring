@@ -1,7 +1,7 @@
 import ExcelJS from 'exceljs'
 import { currencyNumberFormat, fitColumnWidth, statusWords } from './report'
 import { BAND_FILL, COUNT_FORMAT, DATE_FORMAT, DATE_WIDTH_SAMPLE, styleHeaderCell } from './sheet-style'
-import { NO_BANK, type Matrix, type BucketedRow } from '@/lib/forecast/matrix'
+import type { Matrix, BucketedRow } from '@/lib/forecast/matrix'
 
 /**
  * The cash outflow forecast, as a workbook. Two sheets: SUMMARY holds the two
@@ -54,46 +54,23 @@ function generatedLine(meta: ForecastMeta): string {
 }
 
 /**
- * How many CHEQUES a currency line's count columns show, per bucket/column and
- * per currency, counted straight off `detail` rather than off `Matrix.Cell`.
+ * One matrix, written from `top` down. Returns the next free row.
  *
- * `Cell.count` (`lib/forecast/matrix.ts`) is ONE number per bucket/column,
- * summed across every currency landing there — correct for the matrix's own
- * purpose (an overall cheque count) but wrong for a currency-split CHEQUES
- * column: a bucket/column holding one PHP cheque and one USD cheque would
- * print `2` on BOTH the PHP line and the USD line. `Cell.totals` already
- * carries a currency-split AMOUNT (each entry sums only its own currency), but
- * carries no matching per-currency count, so the count has to be re-derived
- * here from the same rows the matrix was built from — the one list both are
- * struck over (`lib/forecast/matrix.ts`'s own description of `bucketed`).
+ * Counts and amounts both come straight off the matrix — `Cell.totals` now
+ * carries a count alongside every currency's sum (`lib/forecast/matrix.ts`),
+ * struck from the same accumulator so the two can never disagree. This used
+ * to be re-derived from `detail` instead, because `Cell.count` was one number
+ * across every currency and could not answer a currency-split CHEQUES column.
+ * That workaround was a defect waiting to happen: `detail` is capped at
+ * `EXPORT_ROW_LIMIT` while the matrices are built over the whole population,
+ * so past the cap the re-derived count and the matrix's own amount would have
+ * come from different-sized populations on the same printed line, with
+ * nothing on the sheet saying so. Reading the count off the matrix instead
+ * makes that impossible by construction — the DETAIL cap can only ever
+ * shorten the DETAIL sheet, never disagree with SUMMARY.
  */
-type Counts = {
-  /** `${bucket}|${column}|${currency}` → cheques in that one cell, that currency only. */
-  cell: Map<string, number>
-  /** `${bucket}|${currency}` → cheques in that bucket, every column, that currency only. */
-  rowTotal: Map<string, number>
-  /** `${column}|${currency}` → cheques in that column, every bucket, that currency only. */
-  colTotal: Map<string, number>
-  /** `${currency}` → cheques altogether, that currency only. */
-  grand: Map<string, number>
-}
-
-function buildCounts(detail: readonly BucketedRow[], columnOf: (r: BucketedRow) => string): Counts {
-  const counts: Counts = { cell: new Map(), rowTotal: new Map(), colTotal: new Map(), grand: new Map() }
-  const bump = (m: Map<string, number>, key: string) => m.set(key, (m.get(key) ?? 0) + 1)
-  for (const r of detail) {
-    const col = columnOf(r)
-    bump(counts.cell, `${r.bucket}|${col}|${r.currency}`)
-    bump(counts.rowTotal, `${r.bucket}|${r.currency}`)
-    bump(counts.colTotal, `${col}|${r.currency}`)
-    bump(counts.grand, r.currency)
-  }
-  return counts
-}
-
-/** One matrix, written from `top` down. Returns the next free row. */
 function writeMatrix(
-  ws: ExcelJS.Worksheet, top: number, title: string, m: Matrix, counts: Counts,
+  ws: ExcelJS.Worksheet, top: number, title: string, m: Matrix,
 ): number {
   ws.getCell(top, 1).value = title
   ws.getCell(top, 1).font = { bold: true, size: 12, color: { argb: TITLE_INK } }
@@ -105,25 +82,22 @@ function writeMatrix(
   let r = top + 2
   const writeLine = (
     bucket: string, currency: string, cells: Matrix['rows'][number]['cells'], total: Matrix['rows'][number]['total'],
-    band: boolean, isTotalRow: boolean,
+    band: boolean,
   ) => {
     const row = ws.getRow(r)
     row.getCell(1).value = bucket
     row.getCell(2).value = currency
     let col = 3
     for (const c of m.columns) {
-      const cell = cells[c]
-      const t = cell.totals.find((x) => x.currency === currency)
-      const cellCount = isTotalRow ? counts.colTotal.get(`${c}|${currency}`) : counts.cell.get(`${bucket}|${c}|${currency}`)
-      row.getCell(col).value = t ? (cellCount ?? 0) : null
+      const t = cells[c].totals.find((x) => x.currency === currency)
+      row.getCell(col).value = t ? t.count : null
       row.getCell(col).numFmt = COUNT_FORMAT
       row.getCell(col + 1).value = t ? Number(t.total) : null
       row.getCell(col + 1).numFmt = currencyNumberFormat(currency)
       col += 2
     }
     const tt = total.totals.find((x) => x.currency === currency)
-    const totalCount = isTotalRow ? counts.grand.get(currency) : counts.rowTotal.get(`${bucket}|${currency}`)
-    row.getCell(col).value = tt ? (totalCount ?? 0) : null
+    row.getCell(col).value = tt ? tt.count : null
     row.getCell(col).numFmt = COUNT_FORMAT
     row.getCell(col + 1).value = tt ? Number(tt.total) : null
     row.getCell(col + 1).numFmt = currencyNumberFormat(currency)
@@ -141,12 +115,12 @@ function writeMatrix(
       ws.getRow(r).getCell(2).value = '—'
       r += 1
     } else {
-      for (const currency of currencies) writeLine(line.bucket, currency, line.cells, line.total, band, false)
+      for (const currency of currencies) writeLine(line.bucket, currency, line.cells, line.total, band)
     }
     band = !band
   }
   for (const currency of m.total.total.totals.map((t) => t.currency)) {
-    writeLine('TOTAL', currency, m.total.cells, m.total.total, false, true)
+    writeLine('TOTAL', currency, m.total.cells, m.total.total, false)
     ws.getRow(r - 1).font = { bold: true }
   }
   return r + 1
@@ -176,12 +150,8 @@ export async function buildForecastWorkbook(
     `${count(meta.incompleteCount)} cheque${meta.incompleteCount === 1 ? '' : 's'} with no recorded amount.`
   summary.getCell('A4').font = { size: 10, color: { argb: MUTED_INK } }
 
-  // Counts per currency, computed straight off `detail` — see `buildCounts`
-  // above for why `Cell.count` cannot answer this by itself. Each matrix keys
-  // its columns its own way, so each gets its own count map, built the same
-  // way `buildMatrices` grouped the rows in the first place.
-  let next = writeMatrix(summary, 6, 'BY BANK', byBank, buildCounts(detail, (r) => r.bank ?? NO_BANK))
-  writeMatrix(summary, next, 'BY STAGE', byStage, buildCounts(detail, (r) => statusWords(r.stage)))
+  let next = writeMatrix(summary, 6, 'BY BANK', byBank)
+  writeMatrix(summary, next, 'BY STAGE', byStage)
   summary.getColumn(1).width = 16
   summary.getColumn(2).width = 10
   for (let c = 3; c <= summary.columnCount; c++) summary.getColumn(c).width = 18

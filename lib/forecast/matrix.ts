@@ -16,7 +16,18 @@ import type { ForecastRow } from './query'
 /** A cheque with neither a checkbook nor a cash account. Shown, never dropped: it is still money. */
 export const NO_BANK = '(NO BANK)'
 
-export type Cell = { count: number; totals: { currency: string; total: string }[] }
+/**
+ * `count` is the cell's whole: how many cheques land here, across every
+ * currency. `totals` is per currency, and each entry carries its OWN count
+ * alongside its own sum — a cell holding one PHP cheque and one USD cheque
+ * has `count: 2` but each `totals` entry reads `count: 1`. Counts and amounts
+ * are struck from the same accumulator (`Acc`, below), so a currency-split
+ * count can never drift from the currency-split amount beside it — which is
+ * the whole fix: the workbook used to re-derive a per-currency count from
+ * `detail` rows because this type could not answer the question, and `detail`
+ * is capped while the matrix is not.
+ */
+export type Cell = { count: number; totals: { currency: string; count: number; total: string }[] }
 export type MatrixRow = { bucket: Bucket; cells: Record<string, Cell>; total: Cell }
 export type Matrix = {
   columns: string[]
@@ -26,18 +37,19 @@ export type Matrix = {
 }
 export type BucketedRow = ForecastRow & { bucket: Bucket; days: number | null }
 
-type Acc = { count: number; cents: Map<string, bigint> }
-const acc = (): Acc => ({ count: 0, cents: new Map() })
+type Acc = { count: number; byCurrency: Map<string, { count: number; cents: bigint }> }
+const acc = (): Acc => ({ count: 0, byCurrency: new Map() })
 function add(a: Acc, currency: string, amount: string): void {
   a.count += 1
-  a.cents.set(currency, (a.cents.get(currency) ?? 0n) + toCentavos(amount))
+  const prior = a.byCurrency.get(currency) ?? { count: 0, cents: 0n }
+  a.byCurrency.set(currency, { count: prior.count + 1, cents: prior.cents + toCentavos(amount) })
 }
 function seal(a: Acc): Cell {
   return {
     count: a.count,
-    totals: [...a.cents.entries()]
+    totals: [...a.byCurrency.entries()]
       .sort(([x], [y]) => x.localeCompare(y))
-      .map(([currency, cents]) => ({ currency, total: fromCentavos(cents) })),
+      .map(([currency, { count, cents }]) => ({ currency, count, total: fromCentavos(cents) })),
   }
 }
 

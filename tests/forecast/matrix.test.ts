@@ -20,7 +20,7 @@ describe('buildMatrices', () => {
     ], TODAY)
     const cell = byBank.rows.find((r) => r.bucket === '1–7 DAYS')!.cells.BPI
     expect(cell.count).toBe(2)
-    expect(cell.totals).toEqual([{ currency: 'PHP', total: '0.30' }])
+    expect(cell.totals).toEqual([{ currency: 'PHP', count: 2, total: '0.30' }])
   })
 
   it('never sums two currencies together', () => {
@@ -30,7 +30,20 @@ describe('buildMatrices', () => {
     ], TODAY)
     const cell = byBank.rows.find((r) => r.bucket === '1–7 DAYS')!.cells.BPI
     expect(cell.count).toBe(2)
-    expect(cell.totals).toEqual([{ currency: 'PHP', total: '100.00' }, { currency: 'USD', total: '5.00' }])
+    expect(cell.totals).toEqual([
+      { currency: 'PHP', count: 1, total: '100.00' }, { currency: 'USD', count: 1, total: '5.00' },
+    ])
+  })
+
+  it('counts each currency on its own, apart from the cell\'s whole count', () => {
+    const { byBank } = buildMatrices([
+      row({ id: 'a', amount: '100.00', currency: 'PHP' }),
+      row({ id: 'b', amount: '5.00', currency: 'USD' }),
+    ], TODAY)
+    const cell = byBank.rows.find((r) => r.bucket === '1–7 DAYS')!.cells.BPI
+    expect(cell.count).toBe(2)
+    expect(cell.totals.find((t) => t.currency === 'PHP')!.count).toBe(1)
+    expect(cell.totals.find((t) => t.currency === 'USD')!.count).toBe(1)
   })
 
   it('has a column per bank present, NO BANK last, and an empty cell where a bank has nothing in a bucket', () => {
@@ -58,8 +71,8 @@ describe('buildMatrices', () => {
     const { byBank } = buildMatrices([
       row({ id: 'a', amount: '1.00' }), row({ id: 'b', amount: '2.00', checkDate: daysAgo(100) }),
     ], TODAY)
-    expect(byBank.total.cells.BPI).toEqual({ count: 2, totals: [{ currency: 'PHP', total: '3.00' }] })
-    expect(byBank.total.total).toEqual({ count: 2, totals: [{ currency: 'PHP', total: '3.00' }] })
+    expect(byBank.total.cells.BPI).toEqual({ count: 2, totals: [{ currency: 'PHP', count: 2, total: '3.00' }] })
+    expect(byBank.total.total).toEqual({ count: 2, totals: [{ currency: 'PHP', count: 2, total: '3.00' }] })
   })
 
   it('splits by stage in ladder order, only the stages present', () => {

@@ -77,4 +77,35 @@ describe('buildForecastWorkbook', () => {
     const ws = wb.getWorksheet(SUMMARY_SHEET)!
     expect(String(ws.getCell('A3').value)).toContain('FIRST 1 OF 20,000')
   })
+
+  // Regression: SUMMARY's counts must come from the matrix, never from
+  // `detail`. `detail` is capped at EXPORT_ROW_LIMIT while the matrices are
+  // built over the whole population — before this fix, a bucket's CHEQUES
+  // column was re-derived by counting `detail` rows, so a capped `detail`
+  // silently under-counted the SAME line whose AMOUNT still summed everyone.
+  // Here two cheques land in one bucket but `detail` carries only the first,
+  // the way the cap would in production: the SUMMARY line must still read
+  // CHEQUES = 2 and AMOUNT = 300, because both numbers now come off the
+  // matrix, which never saw the cap.
+  it('reads counts off the matrix, not off the capped detail rows', async () => {
+    const rows = [row({ id: 'a', amount: '100.00' }), row({ id: 'b', amount: '200.00' })]
+    const { byBank, byStage, bucketed } = buildMatrices(rows, TODAY)
+    const buffer = await buildForecastWorkbook({
+      byBank, byStage, detail: bucketed.slice(0, 1),
+      meta: {
+        generatedAt: TODAY, generatedBy: 'Paolo Parcon',
+        filterDescription: 'No filters applied', totalRows: 2, incompleteCount: 129,
+      },
+    })
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(buffer)
+    const ws = wb.getWorksheet(SUMMARY_SHEET)!
+    const lines: string[][] = []
+    ws.eachRow((r) => lines.push(r.values as string[]))
+    const php = lines.find((l) => l[1] === '1–7 DAYS' && l[2] === 'PHP')!
+    // BUCKET, CURRENCY, BPI CHEQUES, BPI AMOUNT, TOTAL CHEQUES, TOTAL AMOUNT
+    expect(php[3]).toBe(2)
+    expect(php[4]).toBe(300)
+    expect(String(ws.getCell('A3').value)).toContain('FIRST 1 OF 2')
+  })
 })

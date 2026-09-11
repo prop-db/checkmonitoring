@@ -15,7 +15,7 @@ function CellView({ cell }: { cell: Cell }) {
     <div className="space-y-0.5">
       {cell.totals.map((t) => (
         <div key={t.currency} className="tabular-nums">
-          <span className="text-slate-500">{cell.count.toLocaleString('en-PH')} · </span>
+          <span className="text-slate-500">{t.count.toLocaleString('en-PH')} · </span>
           {formatMoney(t.total, t.currency)}
         </div>
       ))}
