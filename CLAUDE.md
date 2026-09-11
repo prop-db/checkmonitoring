@@ -336,7 +336,9 @@ Production is `check_monitoring_prod` on Neon. Both outstanding migrations were 
 
 ### What is missing, measured 2026-09-10 — in priority order
 
-1. **The scheduled sync is BUILT and not yet deployed** (2026-09-11). `vercel.json` carries
+1. **The scheduled sync is LIVE** — deployed, `CRON_SECRET` set, production migrated, first
+   scheduled run 2026-09-11 08:42 Manila: both tenants, one second each, 0 errors, 27 rows
+   updated. Item 1 is closed; what follows is how it works and what switching it on took. `vercel.json` carries
    `crons: [{ path: /api/cron/sync, schedule: "0 10 * * *" }]` — 18:00 Manila, daily, which is the
    Hobby plan's ceiling. The route authenticates with `CRON_SECRET` on its first line and refuses
    to run while it is unset; it never runs FULL — no watermark means a recorded refusal on
