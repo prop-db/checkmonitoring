@@ -84,4 +84,24 @@ describe('updateDetails', () => {
     expect(out.clearingStatus).toBe('DEPOSITED')
     expect(out.crNumber).toBe('BPI-1')
   })
+
+  it('sets and clears the expected outflow date, as a day on the trail', async () => {
+    const user = await makeUser()
+    const check = await makeCheck({ status: 'SIGNED' })
+    const set = await updateDetails(testDb, { checkId: check.id, userId: user.id, now: NOW, fields: { expectedOutflowDate: '2026-09-20' } })
+    expect(set.expectedOutflowDate).toEqual(new Date('2026-09-20T00:00:00.000Z'))
+    const cleared = await updateDetails(testDb, { checkId: check.id, userId: user.id, now: NOW, fields: { expectedOutflowDate: '' } })
+    expect(cleared.expectedOutflowDate).toBeNull()
+    const rows = await trail(check.id)
+    expect(rows[0].details).toEqual({ expectedOutflowDate: { from: null, to: '2026-09-20' } })
+    expect(rows[1].details).toEqual({ expectedOutflowDate: { from: '2026-09-20', to: null } })
+  })
+
+  it('refuses a date it cannot read, writing nothing', async () => {
+    const user = await makeUser()
+    const check = await makeCheck({ status: 'SIGNED' })
+    await expect(updateDetails(testDb, { checkId: check.id, userId: user.id, now: NOW, fields: { expectedOutflowDate: 'next week' } }))
+      .rejects.toMatchObject({ code: 'INVALID_DATE' })
+    expect(await trail(check.id)).toHaveLength(0)
+  })
 })

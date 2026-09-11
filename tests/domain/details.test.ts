@@ -1,12 +1,17 @@
 import { describe, it, expect } from 'vitest'
-import { DETAIL_FIELDS, normaliseDetails, diffDetails, type DetailValues } from '@/lib/domain/details'
+import {
+  DETAIL_FIELDS, normaliseDetails, diffDetails, dayToDate, isoDay, isIsoDay, type DetailValues,
+} from '@/lib/domain/details'
+import { DomainError } from '@/lib/domain/errors'
 
-const current: DetailValues = { remarks: 'old', pointPerson: null, checksPossession: 'ANA', category: 'PAYROLL' }
+const current: DetailValues = {
+  remarks: 'old', pointPerson: null, checksPossession: 'ANA', category: 'PAYROLL', expectedOutflowDate: null,
+}
 
 describe('normaliseDetails', () => {
   it('trims, and stores an empty box as null', () => {
     expect(normaliseDetails({ remarks: '  note  ', pointPerson: '   ' }, current))
-      .toEqual({ remarks: 'note', pointPerson: null, checksPossession: 'ANA', category: 'PAYROLL' })
+      .toEqual({ remarks: 'note', pointPerson: null, checksPossession: 'ANA', category: 'PAYROLL', expectedOutflowDate: null })
   })
 
   it('leaves a field the form did not send exactly as it is', () => {
@@ -18,8 +23,24 @@ describe('normaliseDetails', () => {
     expect(normaliseDetails({ category: 'local supplier' }, current).category).toBe('LOCAL SUPPLIER')
   })
 
-  it('names the four register fields and no other', () => {
-    expect([...DETAIL_FIELDS]).toEqual(['remarks', 'pointPerson', 'checksPossession', 'category'])
+  it('names the four register fields and the expected outflow date, and no other', () => {
+    expect([...DETAIL_FIELDS]).toEqual(['remarks', 'pointPerson', 'checksPossession', 'category', 'expectedOutflowDate'])
+  })
+
+  it('keeps the expected outflow date as an ISO day, and refuses anything that is not one', () => {
+    expect(normaliseDetails({ expectedOutflowDate: ' 2026-09-20 ' }, current).expectedOutflowDate).toBe('2026-09-20')
+    expect(normaliseDetails({ expectedOutflowDate: '' }, current).expectedOutflowDate).toBeNull()
+    expect(() => normaliseDetails({ expectedOutflowDate: '20/09/2026' }, current)).toThrow(DomainError)
+    expect(() => normaliseDetails({ expectedOutflowDate: '2026-02-30' }, current)).toThrow(DomainError)
+  })
+})
+
+describe('day helpers', () => {
+  it('round-trips a day through a UTC-midnight instant', () => {
+    expect(dayToDate('2026-09-20').toISOString()).toBe('2026-09-20T00:00:00.000Z')
+    expect(isoDay(dayToDate('2026-09-20'))).toBe('2026-09-20')
+    expect(isoDay(null)).toBeNull()
+    expect(isIsoDay('2026-09-31')).toBe(false)
   })
 })
 

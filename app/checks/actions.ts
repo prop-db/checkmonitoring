@@ -141,6 +141,7 @@ export async function updateDetailsAction(formData: FormData): Promise<ActionRes
       pointPerson: str(formData, 'pointPerson'),
       checksPossession: str(formData, 'checksPossession'),
       category: str(formData, 'category'),
+      expectedOutflowDate: str(formData, 'expectedOutflowDate'),
     },
   }))
 }

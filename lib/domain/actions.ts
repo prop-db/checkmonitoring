@@ -8,7 +8,7 @@ import { portalRoute, type Eligibility } from './eligibility'
 import { checkDeletable } from './incomplete'
 import { checkReceipt, normaliseReceipt, hasReceipt, type Receipt, type ReceiptType } from './receipt'
 import { checkReleaseReversible } from './reversal'
-import { normaliseDetails, diffDetails, type DetailInput, type DetailValues } from './details'
+import { normaliseDetails, diffDetails, dayToDate, isoDay, type DetailInput, type DetailValues } from './details'
 import {
   assertTransition, assertClearing, assertReleasable, checkReadyForRelease,
   type CheckStatus, type ClearingStatus,
@@ -570,14 +570,24 @@ export async function updateDetails(
     const before: DetailValues = {
       remarks: check.remarks, pointPerson: check.pointPerson,
       checksPossession: check.checksPossession, category: check.category,
+      expectedOutflowDate: isoDay(check.expectedOutflowDate),
     }
     const after = normaliseDetails(args.fields, before)
     const changes = diffDetails(before, after)
     const changed = Object.keys(changes) as (keyof typeof changes)[]
     if (changed.length === 0) return check
 
-    const data: Partial<DetailValues> = {}
-    for (const field of changed) data[field] = after[field]
+    // The day string becomes the column's instant here and nowhere else.
+    const data: Prisma.CheckUncheckedUpdateInput = {}
+    for (const field of changed) {
+      switch (field) {
+        case 'expectedOutflowDate':
+          data.expectedOutflowDate = after.expectedOutflowDate === null ? null : dayToDate(after.expectedOutflowDate)
+          break
+        default:
+          data[field] = after[field]
+      }
+    }
     const updated = await tx.check.update({ where: { id: check.id }, data })
     await writeAudit(tx, {
       checkId: check.id, actorType: 'USER', userId: args.userId,

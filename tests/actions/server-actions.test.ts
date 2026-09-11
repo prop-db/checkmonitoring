@@ -246,6 +246,15 @@ describe('updateDetailsAction', () => {
     expect(result).toEqual({ ok: true })
     expect(await testDb.auditLog.count({ where: { checkId: check.id, action: 'details_updated' } })).toBe(0)
   })
+
+  it('reads the expected outflow date from the form', async () => {
+    const { updateDetailsAction } = await import('@/app/checks/actions')
+    const check = await makeCheck({ status: 'SIGNED' })
+    const result = await updateDetailsAction(fd({ checkId: check.id, expectedOutflowDate: '2026-09-20' }))
+    expect(result).toEqual({ ok: true })
+    const after = await testDb.check.findUniqueOrThrow({ where: { id: check.id } })
+    expect(after.expectedOutflowDate).toEqual(new Date('2026-09-20T00:00:00.000Z'))
+  })
 })
 
 describe('clearingAction', () => {

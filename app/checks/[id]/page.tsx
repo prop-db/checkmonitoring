@@ -17,6 +17,7 @@ import { checkDeletable } from '@/lib/domain/incomplete'
 import { checkReleaseReversible } from '@/lib/domain/reversal'
 import { clearingTargets, type ClearingStatus } from '@/lib/domain/check-status'
 import { RECEIPT_TYPE_LABELS } from '@/lib/domain/receipt'
+import { isoDay } from '@/lib/domain/details'
 import { signAction, releaseAction, revertAction, reverseReleaseAction } from '../actions'
 
 /**
@@ -195,6 +196,7 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
           <Field label="PAYEE" value={check.payeeName ?? '—'} />
           <Field label="COMPANY" value={check.company.code} />
           <Field label="CHECK DATE" value={fmtDate(check.checkDate)} />
+          <Field label="EXPECTED OUT" value={fmtDate(check.expectedOutflowDate)} />
           <Field label="AMOUNT" value={formatMoney(check.amount, check.currency)} tabular />
           <Field label="CASH ACCOUNT" value={check.cashAccount?.code ?? '—'} />
           <Field label="CHECK BOOK" value={check.checkBook?.code ?? '—'} />
@@ -247,6 +249,7 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
           values={{
             remarks: check.remarks, pointPerson: check.pointPerson,
             checksPossession: check.checksPossession, category: check.category,
+            expectedOutflowDate: isoDay(check.expectedOutflowDate),
           }}
         />
       </Panel>

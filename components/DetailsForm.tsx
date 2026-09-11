@@ -13,7 +13,10 @@ export function DetailsForm({
   checkId, values,
 }: {
   checkId: string
-  values: { remarks: string | null; pointPerson: string | null; checksPossession: string | null; category: string | null }
+  values: {
+    remarks: string | null; pointPerson: string | null; checksPossession: string | null; category: string | null
+    expectedOutflowDate: string | null
+  }
 }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
@@ -48,6 +51,11 @@ export function DetailsForm({
         <div>
           <label htmlFor="details-category" className={label}>CATEGORY</label>
           <input id="details-category" name="category" defaultValue={values.category ?? ''} placeholder="LOCAL SUPPLIER" disabled={pending} className={field} />
+        </div>
+        <div>
+          <label htmlFor="details-expectedOutflowDate" className={label}>EXPECTED OUT</label>
+          <input id="details-expectedOutflowDate" name="expectedOutflowDate" type="date" defaultValue={values.expectedOutflowDate ?? ''} disabled={pending} className={field} />
+          <p className="mt-1 text-[11px] text-slate-500">The day the money is expected to leave the bank. The forecast places the cheque on it. Clear it to go back to the cheque date.</p>
         </div>
         <div className="md:col-span-2">
           <label htmlFor="details-remarks" className={label}>REMARKS</label>
