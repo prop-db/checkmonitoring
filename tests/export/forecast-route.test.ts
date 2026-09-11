@@ -68,6 +68,6 @@ describe('GET /api/export/forecast — the file', () => {
     await wb.xlsx.load(await res.arrayBuffer())
     const ws = wb.getWorksheet(DETAIL_SHEET)!
     expect(ws.rowCount).toBe(2)
-    expect(ws.getRow(2).getCell(1).value).toBe('2')
+    expect(ws.getRow(2).getCell(2).value).toBe('2') // column 1 is KIND since 2026-09-12
   })
 })
