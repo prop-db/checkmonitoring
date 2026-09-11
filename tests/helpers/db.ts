@@ -37,6 +37,13 @@ export async function resetDb() {
     await tx.notification.deleteMany()
     await tx.checkBill.deleteMany()
     await tx.check.deleteMany()
+    // PlannedOutflow's bankId/companyId/createdById FKs are ON DELETE RESTRICT
+    // (migration 20260912000000), so a row surviving from an earlier test would
+    // block the company/bank/user deletes below with a foreign-key violation —
+    // not a broken assertion, a broken beforeEach. Truncated here for the same
+    // reason stagedCheck and stagedBill are: one file's rows must not become
+    // another file's leftovers.
+    await tx.plannedOutflow.deleteMany()
     // Not a child of Check: a staged row exists precisely because it could not
     // become one. Truncated here all the same, so a test's staging count is its
     // own.
