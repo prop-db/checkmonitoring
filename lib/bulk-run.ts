@@ -1,0 +1,69 @@
+import type { PrismaClient } from '@prisma/client'
+import { revalidatePath } from 'next/cache'
+import { DomainError } from '@/lib/domain/errors'
+import { isNextControlFlowError } from '@/lib/next-errors'
+
+export type BulkOutcome =
+  | { ok: true; checkId: string; checkNumber: string | null }
+  | { ok: false; checkId: string; checkNumber: string | null; message: string }
+
+export type BulkActionResult =
+  | { ok: true; succeeded: number; failed: number; outcomes: BulkOutcome[] }
+  /** The whole batch was refused before anything was written. */
+  | { ok: false; message: string }
+
+// Moved out of app/checks/bulk-actions.ts on 2026-09-11 so /clearing can use it: a 'use server' module may only export async server actions, and this is a helper.
+/**
+ * Runs one domain action over the selection, one cheque at a time.
+ *
+ * Sequential on purpose. Each call opens its own transaction against Neon, and
+ * fifty concurrent interactive transactions is how this project's test suite
+ * learned about `40P01` deadlocks. Fifty round trips is a second or two; a
+ * deadlocked release is a cheque whose state nobody can explain.
+ */
+export async function runEach(
+  db: PrismaClient,
+  checkIds: string[],
+  fn: (checkId: string) => Promise<unknown>,
+): Promise<BulkActionResult> {
+  // Read once, for display only. A cheque number the user can recognise is the
+  // difference between a readable refusal and a list of opaque ids. An id that
+  // matches no row simply has none, and the domain call below reports NOT_FOUND
+  // for it like any other refusal.
+  const rows = await db.check.findMany({
+    where: { id: { in: checkIds } },
+    select: { id: true, checkNumber: true },
+  })
+  const numbers = new Map(rows.map((r) => [r.id, r.checkNumber]))
+
+  const outcomes: BulkOutcome[] = []
+  for (const checkId of checkIds) {
+    const checkNumber = numbers.get(checkId) ?? null
+    try {
+      await fn(checkId)
+      outcomes.push({ ok: true, checkId, checkNumber })
+      revalidatePath(`/checks/${checkId}`)
+    } catch (e) {
+      // Next implements redirect()/notFound() by throwing; these must propagate
+      // rather than be reported as a per-cheque refusal.
+      if (isNextControlFlowError(e)) throw e
+      if (e instanceof DomainError) {
+        outcomes.push({ ok: false, checkId, checkNumber, message: e.message })
+        continue
+      }
+      // Anything else is a bug, and its text could name a connection string or
+      // a constraint. It goes to the server log; the user gets a fixed
+      // sentence, and — because this is a loop — the rest of the batch still
+      // runs.
+      console.error(e)
+      outcomes.push({
+        ok: false, checkId, checkNumber,
+        message: 'Something went wrong with this cheque. Please try again.',
+      })
+    }
+  }
+
+  revalidatePath('/')
+  const succeeded = outcomes.filter((o) => o.ok).length
+  return { ok: true, succeeded, failed: outcomes.length - succeeded, outcomes }
+}
