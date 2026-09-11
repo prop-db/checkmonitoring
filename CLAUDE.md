@@ -357,8 +357,14 @@ Production is `check_monitoring_prod` on Neon. Both outstanding migrations were 
 2. **One active FINANCE_ADMIN**, of three active users. This stopped being housekeeping the moment
    admin-only actions shipped (revert availability; the release reversal below). One forgotten
    password locks administration, and one has already been forgotten on this system.
-3. **The audit trail is write-only.** 2,052 rows were written on 2026-09-10 alone and no screen in
-   the app can read them. `/admin` has users, sync, import and staged — no audit.
+3. **The audit trail can be read** (built 2026-09-11): `/admin/audit`, FINANCE_ADMIN only. It opens
+   on people's actions — measured that day, 4 of 65,269 rows; the rest are imports, backfills and
+   the sync — with SYSTEM ROWS one toggle away, because the 10 September restorations are SYSTEM
+   rows and are the record an auditor asks for. Filters: action (from `SELECT DISTINCT`, never a
+   list), user, cheque number (through the join, so the 17,087 detached rows cannot match it and
+   the page says so), Manila dates. Keyset pagination on `(createdAt, id)`; four indexes in
+   `20260911000200_audit_log_indexes`, which must reach production before the deploy. Excel extract
+   of the filtered range at `/api/export/audit`. `writeAudit` remains the only writer.
 4. **No notifications at all.** A failed sync is silent; nobody is told a cheque is ready or that a
    supplier booked a pickup.
 5. **3,718 staged rows with no owner** — no ageing, no alert, nobody assigned.

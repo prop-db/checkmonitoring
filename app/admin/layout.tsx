@@ -18,6 +18,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     ['/admin/sync', 'SYNC'],
     ['/admin/import', 'IMPORT'],
     ['/admin/staged', 'STAGED QUEUE'],
+    ['/admin/audit', 'AUDIT'],
   ] as const
 
   return (
