@@ -65,7 +65,11 @@ export function AuditTable({ rows }: { rows: readonly AuditRow[] }) {
                     ? <Link href={`/checks/${r.checkId}`} className="underline underline-offset-2">{r.checkNumber}</Link>
                     : r.checkNumber
                       ? <span className="text-slate-500" title="This cheque has since been removed; the number is what the row recorded.">{r.checkNumber}</span>
-                      : <span className="text-slate-400">(cheque removed)</span>}
+                      : r.plannedOutflowId
+                        // Not a cheque at all: a planned outflow line (2026-09-12). Saying
+                        // "(cheque removed)" here would assert a deletion that never happened.
+                        ? <Link href="/forecast/planned" className="text-slate-500 underline underline-offset-2">PLANNED OUTFLOW</Link>
+                        : <span className="text-slate-400">(cheque removed)</span>}
                 </td>
                 <td className="min-w-[16rem] px-4 py-3 text-slate-700">{r.remarks ?? <span className="text-slate-300">—</span>}</td>
                 <td className="min-w-[14rem] px-4 py-3"><Details details={r.details} /></td>

@@ -56,7 +56,7 @@ export async function buildAuditWorkbook({ rows, meta }: { rows: readonly AuditR
       new Date(r.createdAt.getTime() + MANILA_OFFSET_MS),
       r.actorType === 'SYSTEM' ? 'SYSTEM' : r.userName ?? 'UNKNOWN USER',
       actionWords(r.action),
-      r.checkNumber ?? '(cheque removed)',
+      r.checkNumber ?? (r.plannedOutflowId ? 'PLANNED OUTFLOW' : '(cheque removed)'),
       r.remarks,
       r.details === null || r.details === undefined ? null : JSON.stringify(r.details),
     ]

@@ -86,7 +86,9 @@ function writeMatrix(
   ws.getCell(top, 1).font = { bold: true, size: 12, color: { argb: TITLE_INK } }
 
   const header = ws.getRow(top + 1)
-  const labels = ['BUCKET', 'CURRENCY', ...m.columns.flatMap((c) => [`${c} CHEQUES`, `${c} AMOUNT`]), 'TOTAL CHEQUES', 'TOTAL AMOUNT']
+  // COUNT, not CHEQUES: since 2026-09-12 a column can hold planned lines, and
+  // BY STAGE has a PLANNED column of nothing but.
+  const labels = ['BUCKET', 'CURRENCY', ...m.columns.flatMap((c) => [`${c} COUNT`, `${c} AMOUNT`]), 'TOTAL COUNT', 'TOTAL AMOUNT']
   labels.forEach((label, i) => styleHeaderCell(header.getCell(i + 1), label, i >= 2 ? 'right' : 'left'))
 
   let r = top + 2

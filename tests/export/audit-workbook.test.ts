@@ -9,7 +9,7 @@ function row(o: Partial<AuditRow> & { id: string }): AuditRow {
   return {
     createdAt: AT, actorType: 'USER', action: 'release_reversed', remarks: 'Ticked the wrong row',
     details: { releasedAt: '2026-09-10T01:00:00.000Z' }, userName: 'Paolo Parcon',
-    checkId: 'chk1', checkNumber: '6000353106', ...o,
+    checkId: 'chk1', checkNumber: '6000353106', plannedOutflowId: null, ...o,
   }
 }
 
@@ -38,6 +38,15 @@ describe('buildAuditWorkbook', () => {
     const r = ws.getRow(AUDIT_FIRST_DATA_ROW).values as unknown[]
     expect(r[2]).toBe('SYSTEM')
     expect(r[4]).toBe('(cheque removed)')
+  })
+
+  it('names a planned-outflow row as such, never as a removed cheque', async () => {
+    const ws = await build([row({
+      id: 'a', action: 'planned_outflow_paid', checkId: null, checkNumber: null, plannedOutflowId: 'po1',
+      details: { plannedOutflowId: 'po1', description: 'SEPT PAYROLL' },
+    })])
+    const r = ws.getRow(AUDIT_FIRST_DATA_ROW).values as unknown[]
+    expect(r[4]).toBe('PLANNED OUTFLOW')
   })
 
   it('states the filters and the cap in the title block', async () => {

@@ -62,6 +62,16 @@ describe('listAuditRows — the population', () => {
     expect(rows[0].checkId).toBe(check.id)
     expect(rows[1].checkNumber).toBe('6000000001')
     expect(rows[1].checkId).toBeNull()
+    expect(rows[1].plannedOutflowId).toBeNull()
+  })
+
+  it('marks a planned-outflow row as such — no cheque was ever involved', async () => {
+    const u = await makeUser()
+    await row({ action: 'planned_outflow_paid', userId: u.id, createdAt: '2026-09-12T02:00:00Z', details: { plannedOutflowId: 'po1', description: 'SEPT PAYROLL' } })
+    const { rows } = await listAuditRows(testDb, { system: false }, null)
+    expect(rows[0].plannedOutflowId).toBe('po1')
+    expect(rows[0].checkId).toBeNull()
+    expect(rows[0].checkNumber).toBeNull()
   })
 })
 

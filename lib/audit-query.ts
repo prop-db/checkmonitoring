@@ -14,6 +14,12 @@ export type AuditRow = {
   checkId: string | null
   /** The cheque's number; for a detached row, the number its details recorded; else null. */
   checkNumber: string | null
+  /**
+   * Set when the row is about a planned outflow line, not a cheque
+   * (2026-09-12). Such a row has `checkId` null because no cheque was ever
+   * involved — it is NOT a detached row, and must not be shown as one.
+   */
+  plannedOutflowId: string | null
 }
 
 /**
@@ -34,6 +40,14 @@ function whereFor(filters: AuditFilters): Prisma.AuditLogWhereInput {
   if (filters.checkNumber) where.check = { checkNumber: filters.checkNumber }
   if (filters.from || filters.to) where.createdAt = { gte: filters.from, lte: filters.to }
   return where
+}
+
+function detailsPlannedOutflowId(details: unknown): string | null {
+  if (details && typeof details === 'object' && 'plannedOutflowId' in details) {
+    const v = (details as { plannedOutflowId?: unknown }).plannedOutflowId
+    return typeof v === 'string' ? v : null
+  }
+  return null
 }
 
 function detailsCheckNumber(details: unknown): string | null {
@@ -74,6 +88,7 @@ export async function listAuditRows(
     id: r.id, createdAt: r.createdAt, actorType: r.actorType, action: r.action, remarks: r.remarks,
     details: r.details, userName: r.user?.name ?? null, checkId: r.checkId,
     checkNumber: r.check?.checkNumber ?? detailsCheckNumber(r.details),
+    plannedOutflowId: detailsPlannedOutflowId(r.details),
   }))
   return { rows, hasMore: found.length > AUDIT_PAGE_SIZE }
 }
