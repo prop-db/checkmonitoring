@@ -44,6 +44,15 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
   const anyFilter = Boolean(filters.system || filters.action || filters.userId || filters.checkNumber || filters.from || filters.to)
   const last = page.rows[page.rows.length - 1]
 
+  // An admin who narrows by a system-only ACTION (IMPORTED: 26,432 rows) without
+  // ticking SYSTEM ROWS gets zero rows because the population excludes it, not
+  // because the filters disagree with each other. "Nothing carries these filters
+  // together" is false in that case — something does, it is just not a person's
+  // row — so say what actually happened instead of a generic non-match.
+  const filteredEmptyMessage = !filters.system
+    ? "Nothing a person did carries these filters. SYSTEM ROWS is off — most actions in the trail are the system's; tick it to include them."
+    : 'Nothing in the trail carries these filters together.'
+
   return (
     <div className="space-y-6">
       <form className="flex flex-wrap items-center gap-2 rounded-2xl bg-white p-3 ring-1 ring-hairline" method="get">
@@ -93,7 +102,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
       {page.rows.length === 0 ? (
         <EmptyState title={anyFilter ? 'NO ROWS MATCH' : 'NOBODY HAS DONE ANYTHING YET'}>
           {anyFilter
-            ? 'Nothing in the trail carries these filters together.'
+            ? filteredEmptyMessage
             : "No signature, release, reversal or user change has been recorded by a person. Tick SYSTEM ROWS to see what the imports and the sync have done."}
         </EmptyState>
       ) : (

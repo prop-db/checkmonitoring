@@ -75,6 +75,11 @@ describe('describeAuditFilters', () => {
   it('says what the default is', () => {
     expect(describeAuditFilters({ system: false }, {})).toBe("PEOPLE'S ACTIONS ONLY")
   })
+
+  it('keeps saying the default when other filters are set', () => {
+    expect(describeAuditFilters({ system: false, action: 'imported' }, {}))
+      .toBe("PEOPLE'S ACTIONS ONLY  ·  ACTION: IMPORTED")
+  })
 })
 
 describe('words and names', () => {

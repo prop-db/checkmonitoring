@@ -82,9 +82,19 @@ export async function countAuditRows(db: Db, filters: AuditFilters): Promise<num
   return db.auditLog.count({ where: whereFor(filters) })
 }
 
-/** Every action the trail has ever recorded, sorted. Never hard-coded: 21 today, and the next is a code change away. */
+/**
+ * Every action the trail has ever recorded, sorted. Never hard-coded: 21
+ * today, and the next is a code change away.
+ *
+ * A raw query rather than Prisma's `distinct`: Prisma does not document
+ * whether `distinct` executes as SQL DISTINCT or as a full fetch deduplicated
+ * inside the engine, while CLAUDE.md states this select IS a SELECT DISTINCT.
+ * The raw form makes that true by construction and is served by the
+ * (action, createdAt) index; over 65,269 rows, the other strategy would be a
+ * page load rather than a query.
+ */
 export async function listAuditActions(db: Db): Promise<string[]> {
-  const rows = await db.auditLog.findMany({ distinct: ['action'], select: { action: true }, orderBy: { action: 'asc' } })
+  const rows = await db.$queryRaw<{ action: string }[]>`select distinct "action" from "AuditLog" order by "action" asc`
   return rows.map((r) => r.action)
 }
 

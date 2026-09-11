@@ -104,13 +104,19 @@ function manilaDay(d: Date): string {
 
 export function describeAuditFilters(f: AuditFilters, names: { user?: string }): string {
   const parts: string[] = []
-  if (f.system) parts.push('INCLUDING SYSTEM ROWS')
+  // The population (people-only or including the system) is a claim about
+  // what the row count MEANS, not merely a filter among others — it must
+  // survive alongside every other part. Pushing it only when nothing else
+  // was set meant SYSTEM ROWS unticked plus ACTION: IMPORTED (a system-only
+  // action, 26,432 rows) read as "0 ROWS · ACTION: IMPORTED" with no word
+  // that the population was ever narrowed to people in the first place.
+  parts.push(f.system ? 'INCLUDING SYSTEM ROWS' : "PEOPLE'S ACTIONS ONLY")
   if (f.action) parts.push(`ACTION: ${actionWords(f.action)}`)
   if (f.userId) parts.push(`USER: ${names.user ?? f.userId}`)
   if (f.checkNumber) parts.push(`CHECK: ${f.checkNumber}`)
   if (f.from) parts.push(`FROM ${manilaDay(f.from)}`)
   if (f.to) parts.push(`TO ${manilaDay(f.to)}`)
-  return parts.length ? parts.join('  ·  ') : "PEOPLE'S ACTIONS ONLY"
+  return parts.join('  ·  ')
 }
 
 export function auditFilename(generatedAt: Date): string {
