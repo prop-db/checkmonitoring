@@ -165,11 +165,20 @@ export function checkReadyForRelease(input: ReadyGuardInput): GuardResult {
   return { ok: true }
 }
 
+// NONE → CLEARED is legal since 2026-09-11. A bank statement is proof of
+// clearing whether or not a deposit was recorded first; refusing it would make
+// Finance record a DEPOSITED they never observed to reach the rung they did.
+// DEPOSITED and ENCASHED are two ways in, not an order; CLEARED is terminal.
 const CLEARING_TRANSITIONS: Record<ClearingStatus, readonly ClearingStatus[]> = {
-  NONE:      ['DEPOSITED', 'ENCASHED'],
+  NONE:      ['DEPOSITED', 'ENCASHED', 'CLEARED'],
   DEPOSITED: ['CLEARED'],
   ENCASHED:  ['CLEARED'],
   CLEARED:   [],
+}
+
+/** The rungs a cheque's clearing may move to from where it stands. Drives the form. */
+export function clearingTargets(from: ClearingStatus): readonly ClearingStatus[] {
+  return CLEARING_TRANSITIONS[from]
 }
 
 export function canSetClearing(status: CheckStatus, from: ClearingStatus, to: ClearingStatus): boolean {

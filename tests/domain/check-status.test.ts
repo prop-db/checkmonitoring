@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   canTransition, assertTransition, checkReadyForRelease,
-  canSetClearing, assertClearing, assertReleasable,
+  canSetClearing, assertClearing, assertReleasable, clearingTargets,
   isLiveStatus, LIVE_STATUSES, CLOSED_STATUSES,
 } from '@/lib/domain/check-status'
 import type { CheckStatus } from '@/lib/domain/check-status'
@@ -190,9 +190,20 @@ describe('clearing axis', () => {
     expect(canSetClearing('RELEASED', 'ENCASHED', 'CLEARED')).toBe(true)
   })
 
-  it('forbids skipping straight to CLEARED and forbids moving off CLEARED', () => {
-    expect(canSetClearing('RELEASED', 'NONE', 'CLEARED')).toBe(false)
+  // A bank statement is proof of clearing whether or not a deposit was recorded
+  // first. Refusing NONE → CLEARED would make Finance invent a DEPOSITED they
+  // never observed. Decided 2026-09-11.
+  it('allows CLEARED straight from NONE, and never a move off CLEARED', () => {
+    expect(canSetClearing('RELEASED', 'NONE', 'CLEARED')).toBe(true)
     expect(canSetClearing('RELEASED', 'CLEARED', 'DEPOSITED')).toBe(false)
+    expect(canSetClearing('RELEASED', 'CLEARED', 'NONE')).toBe(false)
+    expect(canSetClearing('RELEASED', 'DEPOSITED', 'ENCASHED')).toBe(false)
+  })
+
+  it('lists the forward moves from each rung', () => {
+    expect(clearingTargets('NONE')).toEqual(['DEPOSITED', 'ENCASHED', 'CLEARED'])
+    expect(clearingTargets('DEPOSITED')).toEqual(['CLEARED'])
+    expect(clearingTargets('CLEARED')).toEqual([])
   })
 
   it('assertClearing throws a coded DomainError', () => {

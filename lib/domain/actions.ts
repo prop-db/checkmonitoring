@@ -8,6 +8,7 @@ import { portalRoute, type Eligibility } from './eligibility'
 import { checkDeletable } from './incomplete'
 import { checkReceipt, normaliseReceipt, hasReceipt, type Receipt, type ReceiptType } from './receipt'
 import { checkReleaseReversible } from './reversal'
+import { normaliseDetails, diffDetails, type DetailInput, type DetailValues } from './details'
 import {
   assertTransition, assertClearing, assertReleasable, checkReadyForRelease,
   type CheckStatus, type ClearingStatus,
@@ -549,6 +550,39 @@ export async function recordReceipt(
       checkId: check.id, userId: args.userId, receipt, withRelease: false, now: args.now,
     })
 
+    return updated
+  })
+}
+
+/**
+ * The four register fields — remarks, point person, who is holding the
+ * cheque, category. No status guard: a note can be added to a cancelled
+ * cheque. Writes only the fields that changed, and nothing at all — no row,
+ * no audit — when nothing did, so the trail records edits and not visits.
+ * The audit row's `details` is `{ field: { from, to } }` for each change.
+ */
+export async function updateDetails(
+  db: Db,
+  args: { checkId: string; userId: string; fields: DetailInput; now: Date },
+): Promise<Check> {
+  return inTx(db, async (tx) => {
+    const check = await load(tx, args.checkId)
+    const before: DetailValues = {
+      remarks: check.remarks, pointPerson: check.pointPerson,
+      checksPossession: check.checksPossession, category: check.category,
+    }
+    const after = normaliseDetails(args.fields, before)
+    const changes = diffDetails(before, after)
+    const changed = Object.keys(changes) as (keyof typeof changes)[]
+    if (changed.length === 0) return check
+
+    const data: Partial<DetailValues> = {}
+    for (const field of changed) data[field] = after[field]
+    const updated = await tx.check.update({ where: { id: check.id }, data })
+    await writeAudit(tx, {
+      checkId: check.id, actorType: 'USER', userId: args.userId,
+      action: 'details_updated', details: changes,
+    })
     return updated
   })
 }
