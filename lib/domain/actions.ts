@@ -7,6 +7,7 @@ import { DomainError } from './errors'
 import { portalRoute, type Eligibility } from './eligibility'
 import { checkDeletable } from './incomplete'
 import { checkReceipt, normaliseReceipt, hasReceipt, type Receipt, type ReceiptType } from './receipt'
+import { checkReleaseReversible } from './reversal'
 import {
   assertTransition, assertClearing, assertReleasable, checkReadyForRelease,
   type CheckStatus, type ClearingStatus,
@@ -212,6 +213,86 @@ export async function revertAvailability(
     await writeAudit(tx, {
       checkId: check.id, actorType: 'USER', userId: args.userId,
       action: 'reverted_availability', remarks: args.reason,
+    })
+
+    return updated
+  })
+}
+
+/**
+ * A release, undone. FINANCE_ADMIN only — enforced by the server action, as
+ * `revertAvailability`'s is — with a mandatory reason.
+ *
+ * Client design 2026-09-10, one point settled 2026-09-11: the cheque goes back
+ * ONE rung, to READY_FOR_RELEASE, and stays available to the supplier. The
+ * portal is therefore told the cheque is available again — `RELEASE_REVERSED`,
+ * delivered through the same status endpoint RELEASED uses — and NOT `REVERT`,
+ * which the portal reads as withdrawn for re-upload. Two systems disagreeing
+ * about whether a supplier may collect is the failure this distinction avoids.
+ *
+ * What is cleared: the release itself (`releasedAt`, `releasedById`) and the
+ * collection that did not happen (the scheduled pickup and its confirmation).
+ * What is kept: the availability (`availablePickupDate`, `readyById`,
+ * `readyAt`) and Finance's `remarks`. The reason goes on the audit row, whose
+ * `details` record what was undone, so the trail says more than "reversed".
+ *
+ * Refused — before anything is written — when a receipt is on record or the
+ * bank has cleared the cheque. See `checkReleaseReversible`.
+ */
+export async function reverseRelease(
+  db: Db, args: { checkId: string; userId: string; reason: string; now: Date },
+): Promise<Check> {
+  if (!args.reason || args.reason.trim() === '') {
+    throw new DomainError('REASON_REQUIRED', 'A reason is required to reverse a release.')
+  }
+  return inTx(db, async (tx) => {
+    const check = await load(tx, args.checkId)
+    // `assertTransition` alone cannot tell this reversal apart from the
+    // forward edge `markReadyForRelease` uses: READY_FOR_RELEASE is reachable
+    // from SIGNED just as it is from RELEASED (`check-status.ts`'s ladder).
+    // This action IS the RELEASED -> READY_FOR_RELEASE edge specifically, so
+    // the starting status is checked directly before falling through to the
+    // same ladder check every other action uses.
+    if (check.status !== 'RELEASED') {
+      throw new DomainError('ILLEGAL_TRANSITION', `Cannot move a check from ${check.status} to READY_FOR_RELEASE.`)
+    }
+    assertTransition(check.status as CheckStatus, 'READY_FOR_RELEASE')
+    const guard = checkReleaseReversible(check)
+    if (!guard.ok) throw new DomainError(guard.code, guard.message)
+
+    const route = portalRoute(check.eligibility as Eligibility)
+    const pushes = route !== null
+
+    const updated = await tx.check.update({
+      where: { id: check.id },
+      data: {
+        status: 'READY_FOR_RELEASE',
+        releasedAt: null,
+        releasedById: null,
+        scheduledPickupDate: null,
+        scheduledPickupTime: null,
+        pickupRep: null,
+        portalConfirmedAt: null,
+        portalSyncStatus: pushes ? 'PENDING' : 'NOT_APPLICABLE',
+        portalDomain: route,
+      },
+    })
+
+    if (pushes) {
+      await tx.portalEvent.create({
+        data: {
+          checkId: check.id, direction: 'OUT', kind: 'RELEASE_REVERSED', status: 'PENDING',
+          idempotencyKey: portalEventKey(check.id, 'RELEASE_REVERSED', args.now),
+          payload: { action: 'RELEASE_REVERSED', checkNumber: check.checkNumber },
+        },
+      })
+    }
+
+    await writeAudit(tx, {
+      checkId: check.id, actorType: 'USER', userId: args.userId,
+      action: 'release_reversed', remarks: args.reason,
+      // What was undone, as it stood: the trail must say more than "reversed".
+      details: { releasedAt: check.releasedAt?.toISOString() ?? null, releasedById: check.releasedById },
     })
 
     return updated
