@@ -36,7 +36,11 @@ It follows that:
 - **Anything Finance used to type into the register must be typeable here**, or somebody will
   reach for Excel out of necessity and the two records will diverge again. The register carried
   remarks, point person, who is holding the cheque, and clearing details. The columns exist;
-  each needs to be reachable on screen.
+  each needs to be reachable on screen. **Built 2026-09-11:** remarks, point person, who is
+  holding it and category are edited on the cheque page (FINANCE NOTES); the bank's clearing is
+  recorded there on a RELEASED cheque or in bulk on `/clearing` from pasted statement lines;
+  `NONE → CLEARED` is legal, because a statement is proof of clearing whether or not a deposit was
+  recorded first.
 - Where the two disagreed, **the register was wrong** — 94 amounts and 1,958 company assignments,
   measured below. That is the strongest argument for this decision, and worth repeating to
   anyone who wants the spreadsheet back.
@@ -58,6 +62,8 @@ npx tsx scripts/backfill-incomplete.ts --dry-run   # re-derive Check.isIncomplet
 npx tsx scripts/backfill-apv-numbers.ts "CHECK MONITORING 9.1.2026.xlsx" --dry-run  # fill Check.apvNumbers
 npx tsx scripts/backfill-available.ts --dry-run                     # the approval list IS ready-for-release
 npx tsx scripts/backfill-released-dropped.ts <older> <newer> --dry-run   # dropped off that list = released
+npx tsx scripts/repair-cr-receipts.ts            # dry run: the register's CR numbers out of crNumber
+npx tsx scripts/repair-cr-receipts.ts --apply    # snapshot to snapshots/, then repair, one audit row each
 ```
 
 **On Windows, use `npx.cmd` / `npm.cmd`.** PowerShell's execution policy is `Undefined` (i.e.
@@ -108,6 +114,14 @@ These are safety properties, not preferences. Each exists because of a specific 
    columns; `recordClearing` is the only writer of `crNumber`. Pinned by `tests/actions/receipt.test.ts`.
    The **type is stored, not parsed back out of the reference** — "OR-000123", "4471" and "CR 88"
    are all references a supplier writes, and a prefix rule over them is a guess dressed as a fact.
+   **This hazard happened at scale before the rule existed.** The 9 September load wrote 2,727
+   values shaped `CR 1234` into `crNumber`, taken from the register's column headed **REMARKS** —
+   because the sniffer classified any `CR <digits>` cell as a clearing reference on the prefix
+   alone. Client ruling 2026-09-11: they are the supplier's **Collection Receipts**.
+   `scripts/repair-cr-receipts.ts` moves them to `orNumber` + `receiptType = CR` (`crNumber` back to
+   null, one `receipt_reclassified_from_register` audit row each, a JSON snapshot first), and the
+   sniffer now reads such a cell as `RECEIPT_REF`, written on create to the receipt columns and
+   never to `crNumber`. Every `crNumber` in production after the repair is one Finance typed.
 
 ## Things that will catch you out
 

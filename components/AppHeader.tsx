@@ -18,6 +18,7 @@ import type { SessionUser } from '@/lib/auth'
  */
 export function AppHeader({
   user, title, back, showAdminLink = true, showVouchersLink = true, showForecastLink = true,
+  showClearingLink = true,
 }: {
   user: SessionUser
   title: string
@@ -28,6 +29,8 @@ export function AppHeader({
   showVouchersLink?: boolean
   /** False on the forecast page, which IS the forecast. */
   showForecastLink?: boolean
+  /** False on the clearing page, which IS the clearing screen. */
+  showClearingLink?: boolean
 }) {
   return (
     <header className="flex flex-wrap items-baseline justify-between gap-4">
@@ -49,6 +52,9 @@ export function AppHeader({
         )}
         {showForecastLink && (
           <Link href="/forecast" className="underline underline-offset-2">FORECAST</Link>
+        )}
+        {showClearingLink && (
+          <Link href="/clearing" className="underline underline-offset-2">CLEARING</Link>
         )}
         {/* Shown only to an admin. The route is guarded server-side either way
             (app/admin/layout.tsx); hiding the link keeps a Finance user from
