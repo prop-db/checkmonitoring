@@ -1,7 +1,7 @@
 import { getSessionUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { getFilterOptions } from '@/lib/queries'
-import { listForecastRows } from '@/lib/forecast/query'
+import { listForecastRows, listBankCodes, countExcludedIncomplete } from '@/lib/forecast/query'
 import { buildMatrices } from '@/lib/forecast/matrix'
 import { parseStageParam, describeForecastFilters, forecastFilename } from '@/lib/forecast-view'
 import { buildForecastWorkbook } from '@/lib/export/forecast-workbook'
@@ -34,8 +34,12 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const params = new URL(request.url).searchParams
-  const options = await getFilterOptions(prisma)
-  const bank = params.get('bank')?.trim() || undefined
+  const [options, banks] = await Promise.all([getFilterOptions(prisma), listBankCodes(prisma)])
+  const bankParam = params.get('bank')?.trim() || undefined
+  // Validated against the banks that exist, exactly as the page does — a
+  // hand-edited URL has to read the same on the page and in the file, or the
+  // two disagree about what "No filters applied" means.
+  const bank = bankParam && banks.includes(bankParam) ? bankParam : undefined
   const companyParam = params.get('company')?.trim() || undefined
   // Validated against the companies that exist, as the dashboard does; an
   // unknown id is ignored rather than passed to the query.
@@ -45,7 +49,10 @@ export async function GET(request: Request): Promise<Response> {
   const now = new Date()
   const [rows, incompleteCount] = await Promise.all([
     listForecastRows(prisma, { bankCode: bank, companyId: company?.id, stage }),
-    prisma.check.count({ where: { isIncomplete: true } }),
+    // This report's own exclusion, not the database-wide count of
+    // `Check.isIncomplete` — same population, same filters, or the number in
+    // the title block is about a different report. See `countExcludedIncomplete`.
+    countExcludedIncomplete(prisma, { bankCode: bank, companyId: company?.id, stage }),
   ])
   const { byBank, byStage, bucketed } = buildMatrices(rows, now)
 

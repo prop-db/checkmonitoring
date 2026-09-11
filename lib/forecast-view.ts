@@ -1,6 +1,7 @@
 import type { CheckStatus } from '@prisma/client'
 import { LIVE_STATUSES } from './domain/check-status'
 import { statusWords, slugify } from './export/report'
+import { manilaDay } from './forecast/buckets'
 
 /**
  * The forecast screen's arithmetic — parameters, hrefs, the filter line and
@@ -51,10 +52,14 @@ export function describeForecastFilters(
   return parts.length ? parts.join('  ·  ') : 'No filters applied'
 }
 
-/** `cash-outflow-2026-09-11.xlsx`, dated in LOCAL time like the register export. */
+/**
+ * `cash-outflow-2026-09-11.xlsx`, dated in the MANILA day — the one day this
+ * company operates in, and the same day the title block stamps. Local getters
+ * read the server's clock, which on Vercel is UTC: between 00:00 and 08:00
+ * Manila that named yesterday while the sheet inside said today. `manilaDay`
+ * is the one function both the filename and the title block go through now,
+ * so the name on the download and the date on the page always agree.
+ */
 export function forecastFilename(generatedAt: Date): string {
-  const y = generatedAt.getFullYear()
-  const m = String(generatedAt.getMonth() + 1).padStart(2, '0')
-  const d = String(generatedAt.getDate()).padStart(2, '0')
-  return `${slugify('cash outflow')}-${y}-${m}-${d}.xlsx`
+  return `${slugify('cash outflow')}-${manilaDay(generatedAt)}.xlsx`
 }

@@ -5,7 +5,7 @@ import { getFilterOptions } from '@/lib/queries'
 import { AppHeader } from '@/components/AppHeader'
 import { EmptyState } from '@/components/EmptyState'
 import { ForecastMatrix } from '@/components/ForecastMatrix'
-import { listForecastRows, listBankCodes } from '@/lib/forecast/query'
+import { listForecastRows, listBankCodes, countExcludedIncomplete } from '@/lib/forecast/query'
 import { buildMatrices } from '@/lib/forecast/matrix'
 import {
   FORECAST_PATH, FORECAST_EXPORT_PATH, STAGE_OPTIONS,
@@ -45,7 +45,10 @@ export default async function ForecastPage({
   const now = new Date()
   const [rows, incompleteCount] = await Promise.all([
     listForecastRows(prisma, { bankCode: bank, companyId: company?.id, stage }),
-    prisma.check.count({ where: { isIncomplete: true } }),
+    // This report's own exclusion, not the database-wide count of
+    // `Check.isIncomplete` — same population, same filters, or the number
+    // below is about a different report. See `countExcludedIncomplete`.
+    countExcludedIncomplete(prisma, { bankCode: bank, companyId: company?.id, stage }),
   ])
   const { byBank, byStage } = buildMatrices(rows, now)
 
@@ -101,11 +104,15 @@ export default async function ForecastPage({
             {' · '}{describeForecastFilters({ bank, company: company?.code, stage })}
           </p>
           {/* The disclosure, as on the dashboard and /vouchers: the exclusion is
-              a ruling (2026-09-06), and stating its count is the price of it. */}
+              a ruling (2026-09-06), and stating its count is the price of it.
+              The count is struck over THIS report's own population and filters
+              (`countExcludedIncomplete`) — not the database-wide count of
+              `Check.isIncomplete`, most of which (CANCELLED, RELEASED, VOIDED)
+              were never candidates for this report in the first place. */}
           {incompleteCount > 0 && (
             <p className="text-xs font-medium tracking-wide text-slate-500">
               EXCLUDES {incompleteCount.toLocaleString('en-PH')} CHEQUE{incompleteCount === 1 ? '' : 'S'} WITH NO
-              RECORDED AMOUNT — not in these figures and not in the file.{' '}
+              RECORDED AMOUNT that would otherwise be in these figures and in the file.{' '}
               <Link href="/?incomplete=1" className="underline underline-offset-2">Show them</Link>.
             </p>
           )}

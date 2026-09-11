@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { testDb, resetDb } from '../helpers/db'
 import { makeCheck } from '../helpers/factory'
-import { listForecastRows, listBankCodes } from '@/lib/forecast/query'
+import { listForecastRows, listBankCodes, countExcludedIncomplete } from '@/lib/forecast/query'
 
 beforeEach(resetDb)
 
@@ -89,6 +89,31 @@ describe('listForecastRows — the filters', () => {
     const [row] = await listForecastRows(testDb)
     expect(row.bank).toBe('MBTC-X')
     expect(await listForecastRows(testDb, { bankCode: 'MBTC-X' })).toHaveLength(1)
+  })
+})
+
+describe('countExcludedIncomplete', () => {
+  // Pinned per FIX 1: this report's own exclusion, not the database-wide
+  // `Check.isIncomplete` count — struck over the same population
+  // `listForecastRows` reads, with the amount clause inverted.
+  it('counts a live cheque with no recorded amount', async () => {
+    await makeCheck({ status: 'SIGNED', amount: null })
+    expect(await countExcludedIncomplete(testDb)).toBe(1)
+  })
+
+  it('does not count an incomplete cheque outside the live statuses', async () => {
+    await makeCheck({ status: 'RELEASED', amount: null })
+    expect(await countExcludedIncomplete(testDb)).toBe(0)
+  })
+
+  it('does not count a complete cheque', async () => {
+    await makeCheck({ status: 'SIGNED', amount: '100.00' })
+    expect(await countExcludedIncomplete(testDb)).toBe(0)
+  })
+
+  it('narrows by the same stage filter as the population', async () => {
+    await makeCheck({ status: 'SIGNED', amount: null })
+    expect(await countExcludedIncomplete(testDb, { stage: 'READY_FOR_RELEASE' })).toBe(0)
   })
 })
 

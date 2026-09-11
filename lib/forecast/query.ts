@@ -24,6 +24,33 @@ export type ForecastRow = {
 }
 
 /**
+ * THE POPULATION, minus the amount rule: live statuses (or the one stage
+ * asked for), real cheques, this bank and company — every clause both
+ * `listForecastRows` and `countExcludedIncomplete` need to agree on, because
+ * the exclusion a page states has to be struck over the same rows it is
+ * excluding FROM. `listForecastRows` adds the amount clause on top of this;
+ * `countExcludedIncomplete` adds the opposite one.
+ */
+function populationWhere(filters: ForecastFilters): Prisma.CheckWhereInput {
+  const where: Prisma.CheckWhereInput = {
+    status: filters.stage ? filters.stage : { in: [...LIVE_STATUSES] },
+    isCheque: true,
+  }
+  if (filters.companyId) where.companyId = filters.companyId
+  if (filters.bankCode) {
+    // The bank a cheque draws on is the checkbook's when it has one — 9,072
+    // cheques do — and the cash account's for the 1,342 that carry only that.
+    // The filter says the same thing in Prisma's grammar: a checkbook bank
+    // that matches, or no checkbook at all and a cash-account bank that does.
+    where.OR = [
+      { checkBook: { bank: { code: filters.bankCode } } },
+      { checkBookId: null, cashAccount: { bank: { code: filters.bankCode } } },
+    ]
+  }
+  return where
+}
+
+/**
  * THE POPULATION: written, and not yet handed over.
  *
  * Live statuses only — a released cheque has left the counter, and with
@@ -43,21 +70,9 @@ export type ForecastRow = {
  */
 export async function listForecastRows(db: Db, filters: ForecastFilters = {}): Promise<ForecastRow[]> {
   const where: Prisma.CheckWhereInput = {
-    status: filters.stage ? filters.stage : { in: [...LIVE_STATUSES] },
-    isCheque: true,
+    ...populationWhere(filters),
     isIncomplete: false,
     amount: { not: null },
-  }
-  if (filters.companyId) where.companyId = filters.companyId
-  if (filters.bankCode) {
-    // The bank a cheque draws on is the checkbook's when it has one — 9,072
-    // cheques do — and the cash account's for the 1,342 that carry only that.
-    // The filter says the same thing in Prisma's grammar: a checkbook bank
-    // that matches, or no checkbook at all and a cash-account bank that does.
-    where.OR = [
-      { checkBook: { bank: { code: filters.bankCode } } },
-      { checkBookId: null, cashAccount: { bank: { code: filters.bankCode } } },
-    ]
   }
 
   const checks = await db.check.findMany({
@@ -93,6 +108,24 @@ export async function listForecastRows(db: Db, filters: ForecastFilters = {}): P
       amount: c.amount.toFixed(2),
       checkDate: c.checkDate,
     }]
+  })
+}
+
+/**
+ * THIS REPORT'S OWN EXCLUSION — not the database-wide count of
+ * `Check.isIncomplete`. Most of the 129 incomplete cheques (measured
+ * 2026-09-06: 48 CANCELLED / 29 SIGNATURE_PENDING / 25 RELEASED / 23 SIGNED /
+ * 4 VOIDED) were never candidates for this report — a RELEASED or CANCELLED
+ * cheque is excluded by `populationWhere` anyway, on status, before amount
+ * ever enters it — and the raw count also ignores the bank, company and stage
+ * filters a reader may have applied. Struck over the SAME `populationWhere`
+ * as `listForecastRows`, with the amount clause inverted rather than dropped:
+ * the exclusion a page states must be the exclusion the page actually
+ * applied, or the number on screen is about a different report.
+ */
+export async function countExcludedIncomplete(db: Db, filters: ForecastFilters = {}): Promise<number> {
+  return db.check.count({
+    where: { ...populationWhere(filters), isIncomplete: true },
   })
 }
 

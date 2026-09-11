@@ -47,7 +47,14 @@ describe('describeForecastFilters', () => {
 })
 
 describe('forecastFilename', () => {
-  it('is dated in local time', () => {
-    expect(forecastFilename(new Date(2026, 8, 11, 8, 0))).toBe('cash-outflow-2026-09-11.xlsx')
+  it('is dated in the Manila day, not the server\'s UTC one', () => {
+    // 16:30Z on the 10th is 00:30 on the 11th in Manila (UTC+8) — the case
+    // that would read as yesterday if the filename used local getters on a
+    // UTC server, as it used to.
+    expect(forecastFilename(new Date('2026-09-10T16:30:00Z'))).toBe('cash-outflow-2026-09-11.xlsx')
+  })
+
+  it('agrees with the title block on an ordinary instant too', () => {
+    expect(forecastFilename(new Date('2026-09-11T02:00:00Z'))).toBe('cash-outflow-2026-09-11.xlsx')
   })
 })
