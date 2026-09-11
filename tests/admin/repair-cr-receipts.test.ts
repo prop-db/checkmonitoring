@@ -82,6 +82,11 @@ describe('snapshotOf', () => {
 describe('applyRepair', () => {
   it('moves the number to the receipt columns, blanks crNumber, writes one SYSTEM audit row', async () => {
     const a = await misfiled()
+    // Values on columns the repair must not touch, so a widening of the
+    // `data` object is caught here rather than on 2,727 real cheques.
+    await testDb.check.update({
+      where: { id: a.id }, data: { remarks: 'keep me', apvNumbers: ['AP-ST042652'] },
+    })
     const plan = await planRepair(testDb)
     const out = await applyRepair(testDb, plan)
     expect(out).toEqual({ repaired: 1, raced: 0 })
@@ -92,7 +97,11 @@ describe('applyRepair', () => {
     expect(after.orDate).toBeNull()
     expect(after.crNumber).toBeNull()
     expect(after.clearingStatus).toBe('NONE')
+    expect(after.clearedDate).toBeNull()
     expect(after.status).toBe('RELEASED')
+    expect(after.remarks).toBe('keep me')
+    expect(after.apvNumbers).toEqual(['AP-ST042652'])
+    expect(after.amount?.toString()).toBe(a.amount?.toString())
 
     const rows = await testDb.auditLog.findMany({ where: { checkId: a.id, action: RECEIPT_RECLASSIFIED_ACTION } })
     expect(rows).toHaveLength(1)

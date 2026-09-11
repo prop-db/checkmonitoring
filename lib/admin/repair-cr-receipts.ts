@@ -35,6 +35,16 @@ export const RULING =
   "2026-09-11 client ruling: the CR numbers in the register's REMARKS column are the " +
   "supplier's Collection Receipts, not the bank's clearing reference."
 
+/**
+ * Prisma's interactive-transaction defaults (5s to run, 2s to acquire a
+ * connection) killed the 9 September register load mid-run — see CLAUDE.md.
+ * 2,727 small transactions to ap-southeast-1 will eventually meet one slow
+ * round trip; this is the same override `lib/import/upsert.ts` carries. A
+ * death mid-run is still safe to re-run: a repaired row loses its `crNumber`
+ * and falls out of the next plan.
+ */
+const TX_OPTIONS = { timeout: 30_000, maxWait: 15_000 } as const
+
 export type RepairSkip = 'NOT_CR_SHAPED' | 'RECEIPT_ALREADY_RECORDED' | 'CLEARING_RECORDED'
 
 export type RepairRow = {
@@ -146,7 +156,7 @@ export async function applyRepair(
         },
       })
       repaired++
-    })
+    }, TX_OPTIONS)
   }
   return { repaired, raced }
 }
