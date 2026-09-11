@@ -9,7 +9,7 @@ import { isNextControlFlowError } from '@/lib/next-errors'
 import {
   markSigned, markReadyForRelease, revertAvailability,
   markReleased, recordClearing, cancelCheck, deleteIncompleteCheck, recordReceipt,
-  reverseRelease,
+  reverseRelease, updateDetails,
 } from '@/lib/domain/actions'
 import { readReceiptFields } from '@/lib/receipt-form'
 
@@ -122,6 +122,26 @@ export async function recordReceiptAction(formData: FormData): Promise<ActionRes
     orDate: receipt.orDate,
     receiptType: receipt.receiptType,
     now: new Date(),
+  }))
+}
+
+/**
+ * The register's four free-text fields. Any Finance user, any status: the
+ * domain's `updateDetails` has no status guard by design, and reports success
+ * when nothing changed rather than an error, because "saved, no change" is not
+ * a mistake anyone made.
+ */
+export async function updateDetailsAction(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser()
+  const checkId = str(formData, 'checkId')
+  return run(checkId, () => updateDetails(prisma, {
+    checkId, userId: user.id, now: new Date(),
+    fields: {
+      remarks: str(formData, 'remarks'),
+      pointPerson: str(formData, 'pointPerson'),
+      checksPossession: str(formData, 'checksPossession'),
+      category: str(formData, 'category'),
+    },
   }))
 }
 

@@ -223,3 +223,61 @@ describe('reverseReleaseAction', () => {
     }
   })
 })
+
+describe('updateDetailsAction', () => {
+  it('writes the four fields for any Finance user', async () => {
+    const { updateDetailsAction } = await import('@/app/checks/actions')
+    const check = await makeCheck({ status: 'SIGNED' })
+    const result = await updateDetailsAction(fd({
+      checkId: check.id, remarks: 'hold', pointPerson: 'ANA', checksPossession: 'TREASURY', category: 'payroll',
+    }))
+    expect(result).toEqual({ ok: true })
+    const after = await testDb.check.findUniqueOrThrow({ where: { id: check.id } })
+    expect(after.remarks).toBe('hold')
+    expect(after.pointPerson).toBe('ANA')
+    expect(after.checksPossession).toBe('TREASURY')
+    expect(after.category).toBe('PAYROLL')
+  })
+
+  it('reports success, and writes nothing, when nothing changed', async () => {
+    const { updateDetailsAction } = await import('@/app/checks/actions')
+    const check = await makeCheck({ status: 'SIGNED' })
+    const result = await updateDetailsAction(fd({ checkId: check.id, remarks: '', pointPerson: '', checksPossession: '', category: '' }))
+    expect(result).toEqual({ ok: true })
+    expect(await testDb.auditLog.count({ where: { checkId: check.id, action: 'details_updated' } })).toBe(0)
+  })
+})
+
+describe('clearingAction', () => {
+  async function released() {
+    const { readyForReleaseAction, releaseAction } = await import('@/app/checks/actions')
+    const check = await makeCheck({ status: 'SIGNED' })
+    await readyForReleaseAction(fd({ checkId: check.id, availablePickupDate: '2026-09-03' }))
+    await releaseAction(fd({ checkId: check.id }))
+    return check
+  }
+
+  it('records CLEARED straight from NONE, with the bank reference and the date', async () => {
+    const { clearingAction } = await import('@/app/checks/actions')
+    const check = await released()
+    const result = await clearingAction(fd({
+      checkId: check.id, clearingStatus: 'CLEARED', crNumber: 'BPI 88123', clearedDate: '2026-09-10',
+    }))
+    expect(result).toEqual({ ok: true })
+    const after = await testDb.check.findUniqueOrThrow({ where: { id: check.id } })
+    expect(after.clearingStatus).toBe('CLEARED')
+    expect(after.crNumber).toBe('BPI 88123')
+    expect(after.clearedDate).toEqual(new Date('2026-09-10'))
+    // Rule 11 in the other direction: the bank's reference never becomes a receipt.
+    expect(after.orNumber).toBeNull()
+    expect(after.receiptType).toBeNull()
+  })
+
+  it('refuses a move off CLEARED', async () => {
+    const { clearingAction } = await import('@/app/checks/actions')
+    const check = await released()
+    await clearingAction(fd({ checkId: check.id, clearingStatus: 'CLEARED' }))
+    const result = await clearingAction(fd({ checkId: check.id, clearingStatus: 'DEPOSITED' }))
+    expect(result.ok).toBe(false)
+  })
+})

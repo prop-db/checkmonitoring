@@ -5,6 +5,7 @@ import { prisma } from '@/lib/db'
 import { AppHeader } from '@/components/AppHeader'
 import { ReceiptForm } from '@/components/ReceiptForm'
 import { RECEIPT_TYPE_LABELS } from '@/lib/domain/receipt'
+import { RECEIPT_RECLASSIFIED_ACTION } from '@/lib/admin/repair-cr-receipts'
 
 /**
  * SUPPLIER RECEIPT — the add-it-later page.
@@ -31,6 +32,15 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
     include: { company: true, releasedBy: true },
   })
   if (!check) notFound()
+
+  // A receipt the 2026-09-11 repair moved out of the clearing column — the
+  // register's own REMARKS cell, reclassified on the client's ruling. Stated,
+  // because such a receipt has no date and no recording user, and a reader
+  // should know why.
+  const fromRegister = await prisma.auditLog.findFirst({
+    where: { checkId: check.id, action: RECEIPT_RECLASSIFIED_ACTION },
+    select: { id: true },
+  })
 
   // The same two facts `recordReceipt` tests, read here only to decide what to
   // draw. The action re-checks both — a server action is an HTTP endpoint, and
@@ -78,6 +88,12 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
               )}
             </p>
             <p className="text-sm text-slate-600">RECEIPT DATE {fmtDate(check.orDate)}</p>
+            {fromRegister && (
+              <p className="text-xs text-slate-500">
+                FROM THE REGISTER. This number was typed into the register&rsquo;s REMARKS column and
+                reclassified as a Collection Receipt on 2026-09-11; no receipt date was recorded there.
+              </p>
+            )}
             {/* Stated, so nobody hunts for an edit control that does not exist.
                 A recorded receipt is a fact entered against money that has
                 already moved; replacing one is not something this page does. */}

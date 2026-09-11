@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { requireUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
@@ -10,8 +11,12 @@ import { AuditTrail } from '@/components/AuditTrail'
 import { ReadyForReleaseForm } from '@/components/ReadyForReleaseForm'
 import { ActionForm } from '@/components/ActionForm'
 import { DeleteIncompleteCheckForm } from '@/components/DeleteIncompleteCheckForm'
+import { DetailsForm } from '@/components/DetailsForm'
+import { ClearingForm } from '@/components/ClearingForm'
 import { checkDeletable } from '@/lib/domain/incomplete'
 import { checkReleaseReversible } from '@/lib/domain/reversal'
+import { clearingTargets, type ClearingStatus } from '@/lib/domain/check-status'
+import { RECEIPT_TYPE_LABELS } from '@/lib/domain/receipt'
 import { signAction, releaseAction, revertAction, reverseReleaseAction } from '../actions'
 
 /**
@@ -209,10 +214,41 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
           <Field label="SUPPLIER PICKUP SCHEDULE" value={fmtDate(check.scheduledPickupDate)} />
           <Field label="RELEASED BY" value={check.releasedBy?.name ?? '—'} />
           <Field label="RELEASED DATE/TIME" value={fmtDateTime(check.releasedAt)} />
+          {/* The supplier's paper and the bank's reference, deliberately two
+              rows with two names. They abbreviate alike and mean nothing like
+              each other — rule 11 — and 2,727 cheques had the one in the
+              other's column until 2026-09-11. */}
+          <Field
+            label="SUPPLIER RECEIPT"
+            value={
+              <Link href={`/receipts/${check.id}`} className="underline underline-offset-2">
+                {check.orNumber
+                  ? `${check.orNumber}${check.receiptType ? ` · ${RECEIPT_TYPE_LABELS[check.receiptType]}` : ''}`
+                  : 'None recorded'}
+              </Link>
+            }
+          />
           <Field label="CLEARING STATUS" value={check.clearingStatus} />
-          <Field label="CR NUMBER" value={check.crNumber ?? '—'} />
+          <Field label="BANK CLEARING REF" value={check.crNumber ?? '—'} />
+          <Field label="CLEARED DATE" value={fmtDate(check.clearedDate)} />
+          <Field label="POINT PERSON" value={check.pointPerson ?? '—'} />
+          <Field label="WHO IS HOLDING IT" value={check.checksPossession ?? '—'} />
           <Field label="REMARKS" value={check.remarks ?? '—'} wide />
         </dl>
+      </Panel>
+
+      {/* The register's four free-text fields, typeable here since 2026-09-11.
+          Any status: the columns were 0-populated on every cheque because no
+          screen could write them, and a note belongs on a cancelled cheque as
+          much as on a live one. */}
+      <Panel title="FINANCE NOTES">
+        <DetailsForm
+          checkId={check.id}
+          values={{
+            remarks: check.remarks, pointPerson: check.pointPerson,
+            checksPossession: check.checksPossession, category: check.category,
+          }}
+        />
       </Panel>
 
       {/* The conditionals here are untouched: which action a cheque offers is
@@ -291,6 +327,28 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
               {check.releasedBy?.name ? ` by ${check.releasedBy.name}` : ''}
               {check.releasedAt ? ` on ${fmtDateTime(check.releasedAt)}` : ''}.
             </p>
+
+            {/* The bank's side. Offered while a forward move exists; a CLEARED
+                cheque states its clearing as facts in the panel above. */}
+            {(() => {
+              const targets = clearingTargets(check.clearingStatus as ClearingStatus)
+              return targets.length > 0 ? (
+                <ClearingForm
+                  checkId={check.id}
+                  targets={targets}
+                  current={{
+                    crNumber: check.crNumber,
+                    clearedDate: check.clearedDate ? check.clearedDate.toISOString().slice(0, 10) : null,
+                  }}
+                />
+              ) : (
+                <p className="text-sm text-slate-600">
+                  <span className="font-semibold text-navy">Cleared by the bank</span>
+                  {check.clearedDate ? ` on ${fmtDate(check.clearedDate)}` : ''}
+                  {check.crNumber ? `, reference ${check.crNumber}` : ''}. A clearing is not moved back from here.
+                </p>
+              )
+            })()}
 
             {/* The undo for the one action that hands money over. Client design
                 2026-09-10, built 2026-09-11. FINANCE_ADMIN only, matching
