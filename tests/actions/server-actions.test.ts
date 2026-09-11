@@ -15,6 +15,9 @@ beforeEach(async () => {
   await resetDb()
   const u = await makeUser()
   currentUser.id = u.id
+  // Belt-and-braces against the `finally` blocks below: those restore the role
+  // when a test throws, but not when a test times out and never reaches them.
+  ;(currentUser as { role: string }).role = 'FINANCE_USER'
 })
 
 function fd(entries: Record<string, string>) {

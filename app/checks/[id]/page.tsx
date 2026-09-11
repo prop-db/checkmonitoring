@@ -314,9 +314,13 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
                   <input name="reason" required placeholder="Ticked the wrong row"
                     className="h-10 w-full max-w-md rounded-lg border border-hairline bg-white px-3 text-sm text-slate-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy" />
                   <p className="text-[11px] text-slate-500">
-                    Returns this cheque to READY FOR RELEASE, clears any pickup that was booked, and
-                    tells the supplier portal it is available again. The release stays on the audit
-                    trail with your reason.
+                    Returns this cheque to READY FOR RELEASE, clears any pickup that was booked
+                    {/* Rule 2: an INTERNAL cheque never produces a portal call, and this reversal
+                        is no exception — `reverseRelease` queues nothing for it. Stating the portal
+                        clause anyway would tell Finance something false about a payroll, tax or
+                        inter-company cheque, which does reach RELEASED and does render this form. */}
+                    {check.eligibility !== 'INTERNAL' && ', and tells the supplier portal it is available again'}.
+                    The release stays on the audit trail with your reason.
                   </p>
                 </ActionForm>
               ) : (

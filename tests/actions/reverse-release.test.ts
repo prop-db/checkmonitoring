@@ -151,4 +151,22 @@ describe('reverseRelease — the refusals, and that they write nothing', () => {
       .rejects.toMatchObject({ code: 'ILLEGAL_TRANSITION' })
     expect(await testDb.auditLog.count({ where: { checkId: check.id } })).toBe(0)
   })
+
+  /**
+   * An import-derived row, not one this app could have released itself:
+   * `markReadyForRelease` refuses a non-cheque long before RELEASED, but
+   * Acumatica can still hand the sync a DEBIT ADV or CASH payment that is
+   * already RELEASED. Reversing it would land a non-cheque back at
+   * READY_FOR_RELEASE — a state `markReadyForRelease` itself refuses for one —
+   * so `reverseRelease` must apply the same `assertReleasable` guard every
+   * other status-changing action does.
+   */
+  it('refuses a non-cheque, even one already RELEASED', async () => {
+    const check = await makeCheck({ status: 'RELEASED', isCheque: false })
+    await testDb.check.update({ where: { id: check.id }, data: { releasedAt: NOW } })
+    const admin = await makeUser('FINANCE_ADMIN')
+    await expect(reverseRelease(testDb, { checkId: check.id, userId: admin.id, reason: 'x', now: LATER }))
+      .rejects.toMatchObject({ code: 'NOT_A_CHEQUE' })
+    await expectUntouched(check.id)
+  })
 })

@@ -247,6 +247,11 @@ export async function reverseRelease(
   }
   return inTx(db, async (tx) => {
     const check = await load(tx, args.checkId)
+    // Same guard `markSigned` and `markReleased` apply: an import-derived row
+    // can carry `isCheque: false` with status RELEASED, and reversing one
+    // would land a DEBIT ADV or CASH payment at READY_FOR_RELEASE — a state
+    // `markReadyForRelease` itself refuses for a non-cheque.
+    assertReleasable({ isCheque: check.isCheque })
     // `assertTransition` alone cannot tell this reversal apart from the
     // forward edge `markReadyForRelease` uses: READY_FOR_RELEASE is reachable
     // from SIGNED just as it is from RELEASED (`check-status.ts`'s ladder).

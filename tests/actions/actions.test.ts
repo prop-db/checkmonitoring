@@ -476,10 +476,11 @@ describe('portal event identity', () => {
   // against the database in tests/schema.test.ts, because `TRANSITIONS` blocks
   // a repeat submit before it can ever build an event. See the comment there.
   //
-  // All three of `lib/domain/actions.ts`'s portalEvent.create sites are exercised
-  // here on purpose. The plan was drafted against two of them and `markReleased`
-  // was nearly left without a `kind`; asserting the full set is what would catch
-  // a fourth call site being added without one.
+  // `lib/domain/actions.ts` has four `portalEvent.create` sites. Three are
+  // exercised here on purpose — the plan was drafted against two of them and
+  // `markReleased` was nearly left without a `kind` — and the fourth,
+  // `reverseRelease`'s RELEASE_REVERSED, is covered the same way in
+  // `tests/actions/reverse-release.test.ts` instead of being duplicated here.
   it('stamps a kind and a per-action key on all three call sites, and re-keys a re-ready', async () => {
     const user = await makeUser()
     const check = await makeCheck({ status: 'SIGNED', eligibility: 'SUPPLIER' })
