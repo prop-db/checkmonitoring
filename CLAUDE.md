@@ -167,6 +167,7 @@ run when `DATABASE_URL_TEST` is unset or equal to `DATABASE_URL`.
 | `lib/import/` | Workbook parsing → `parse.ts`, `field-sniffer.ts`, `company.ts`, `implied-status.ts`, `bills.ts`, and `upsert.ts` — the single write path where duplicate prevention lives. |
 | `lib/integrations/acumatica/` | OData reader and mapper. |
 | `lib/sync/run.ts` | Incremental sync, watermark with a 120-minute overlap. |
+| `lib/forecast/` | Cash outflow by cheque date: `buckets.ts` (the ageing buckets, pure), `query.ts` (the population — live, real, with an amount), `matrix.ts` (bucket × bank and bucket × stage, centavo-exact, pure). `/forecast` and `/api/export/forecast` sit on it. |
 | `lib/normalised-row.ts` | The one shape both ingestion paths converge on. |
 | `docs/superpowers/specs/` | The approved design, and the Supplier Portal API evidence. |
 | `docs/superpowers/plans/` | Plans 1–3. Plan 4 (reports, notifications) not yet written. |
@@ -370,8 +371,11 @@ Production is `check_monitoring_prod` on Neon. Both outstanding migrations were 
    since Plan 1.)
 9. The test suite takes ~20 minutes because every test crosses the South China Sea. A local Postgres
    would make it ~2. It is the tax on every deploy.
-10. **The cash-outflow forecast is the next seam, and it is buildable now** — from `READY_FOR_RELEASE`
-   and `SCHEDULED` cheques with `availablePickupDate` / `scheduledPickupDate`, feeding the daily cash
-   position Finance asks for. The other three reports Finance named on 2026-09-10 — bank
-   reconciliation, hedging, foreign outlook — are not: the spec's closing section ("What this is
-   not") records why and where their sources actually live.
+10. **The cash-outflow forecast is BUILT** (2026-09-11) — `/forecast`, on the cheque date read as
+   PRESENTABLE FROM, because no pickup or release date has ever been recorded (measured: null on
+   every row) and a cheque's date is the day from which it can be presented. Live cheques by bank
+   and by stage in Finance's own ageing buckets; the file is the view. What it cannot yet show is
+   actual outflow by day: that begins the day releases go through the app and `releasedAt` fills.
+   The other three reports Finance named — bank reconciliation, hedging, foreign outlook — are not
+   buildable here; the voucher-index spec's closing section records why and where their sources
+   actually live.

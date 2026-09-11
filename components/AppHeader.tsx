@@ -17,7 +17,7 @@ import type { SessionUser } from '@/lib/auth'
  * without this header, and it has nothing to sign out of.
  */
 export function AppHeader({
-  user, title, back, showAdminLink = true, showVouchersLink = true,
+  user, title, back, showAdminLink = true, showVouchersLink = true, showForecastLink = true,
 }: {
   user: SessionUser
   title: string
@@ -26,6 +26,8 @@ export function AppHeader({
   showAdminLink?: boolean
   /** False on the vouchers page, which IS the voucher screen. */
   showVouchersLink?: boolean
+  /** False on the forecast page, which IS the forecast. */
+  showForecastLink?: boolean
 }) {
   return (
     <header className="flex flex-wrap items-baseline justify-between gap-4">
@@ -44,6 +46,9 @@ export function AppHeader({
             pays this voucher — is a Finance user's question, not an admin's. */}
         {showVouchersLink && (
           <Link href="/vouchers" className="underline underline-offset-2">VOUCHERS</Link>
+        )}
+        {showForecastLink && (
+          <Link href="/forecast" className="underline underline-offset-2">FORECAST</Link>
         )}
         {/* Shown only to an admin. The route is guarded server-side either way
             (app/admin/layout.tsx); hiding the link keeps a Finance user from
