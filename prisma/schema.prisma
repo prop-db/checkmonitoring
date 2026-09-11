@@ -125,6 +125,7 @@ model Company {
   cashAccounts CashAccount[]
   checkBooks   CheckBook[]
   checks       Check[]
+  plannedOutflows PlannedOutflow[]
   createdAt    DateTime         @default(now())
 
   @@unique([tenant, branch])
@@ -136,6 +137,7 @@ model Bank {
   name         String
   cashAccounts CashAccount[]
   checkBooks   CheckBook[]
+  plannedOutflows PlannedOutflow[]
 }
 
 model CashAccount {
@@ -274,6 +276,11 @@ model Check {
 
   pointPerson        String?
   checksPossession   String?
+
+  // The day Finance expects the money to leave the bank (2026-09-12). Typed on
+  // the cheque page beside remarks; never imported — neither source can know
+  // it. The forecast buckets on it when set, else on `checkDate`.
+  expectedOutflowDate DateTime?
 
   // BANK CLEARING, not a receipt. `crNumber` is the reference the bank gives
   // when the cheque comes back through the account, and it is written only by
@@ -733,6 +740,50 @@ model User {
   releasedChecks    Check[]   @relation("releasedBy")
   cancelledChecks   Check[]   @relation("cancelledBy")
   overriddenChecks  Check[]   @relation("eligibilityOverriddenBy")
+  plannedOutflowsCreated   PlannedOutflow[] @relation("PlannedOutflowCreatedBy")
+  plannedOutflowsPaid      PlannedOutflow[] @relation("PlannedOutflowPaidBy")
+  plannedOutflowsCancelled PlannedOutflow[] @relation("PlannedOutflowCancelledBy")
+}
+
+/// An outflow that is not a cheque — payroll, a tax remittance, loan
+/// amortisation, a transfer — typed by Finance so the daily cash position is
+/// not cheques only (decided 2026-09-12). One-off: a line is typed each time it
+/// is due. It stays until somebody marks it PAID or CANCELLED; nothing here is
+/// ever deleted, and neither closed status is ever reopened.
+model PlannedOutflow {
+  id            String               @id @default(cuid())
+  /// The day the money leaves the bank. A calendar day at UTC midnight.
+  date          DateTime
+  amount        Decimal              @db.Decimal(18, 2)
+  currency      String               @default("PHP")
+  bankId        String
+  companyId     String
+  description   String
+  /// PAYROLL, TAX, LOAN, TRANSFER — free text, upper-cased on save.
+  category      String?
+  status        PlannedOutflowStatus @default(PLANNED)
+  createdById   String
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  paidById      String?
+  paidAt        DateTime?
+  cancelledById String?
+  cancelledAt   DateTime?
+  cancelReason  String?
+
+  bank        Bank    @relation(fields: [bankId], references: [id])
+  company     Company @relation(fields: [companyId], references: [id])
+  createdBy   User    @relation("PlannedOutflowCreatedBy", fields: [createdById], references: [id])
+  paidBy      User?   @relation("PlannedOutflowPaidBy", fields: [paidById], references: [id])
+  cancelledBy User?   @relation("PlannedOutflowCancelledBy", fields: [cancelledById], references: [id])
+
+  @@index([status, date])
+}
+
+enum PlannedOutflowStatus {
+  PLANNED
+  PAID
+  CANCELLED
 }
 
 model Setting {

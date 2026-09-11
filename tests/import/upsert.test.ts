@@ -309,6 +309,7 @@ describe('upsertCheck — re-importing', () => {
       'eligibilityOverriddenById',  // a Finance override; the import reads it, never sets it
       'portalTradeId',              // the supplier portal's own key — Plan 3
       'remarks', 'pointPerson', 'checksPossession',   // free text Finance maintains
+      'expectedOutflowDate',        // typed by Finance on the cheque page (2026-09-12); neither source can know it
       'isStale',
       'voidedAt',                   // written only through voidCheck, never by a bare update
     ]
