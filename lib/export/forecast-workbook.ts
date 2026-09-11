@@ -21,7 +21,7 @@ export const SUMMARY_SHEET = 'SUMMARY'
 export const DETAIL_SHEET = 'DETAIL'
 
 export const DETAIL_HEADERS = [
-  'CHECK NUMBER', 'PAYEE', 'BANK', 'COMPANY', 'STAGE', 'CHECK DATE',
+  'KIND', 'CHECK NUMBER', 'PAYEE', 'BANK', 'COMPANY', 'STAGE', 'CHECK DATE', 'EXPECTED OUT', 'DATE BASIS',
   'DAYS PRESENTABLE', 'BUCKET', 'CURRENCY', 'AMOUNT',
 ] as const
 
@@ -29,9 +29,13 @@ export type ForecastMeta = {
   generatedAt: Date
   generatedBy: string
   filterDescription: string
-  /** Every cheque in the population before the DETAIL cap. */
+  /** Every cheque and planned line in the population before the DETAIL cap. */
   totalRows: number
   incompleteCount: number
+  /** How many of `totalRows` are planned lines, not cheques. */
+  plannedCount: number
+  /** How many cheques carry an expected outflow date typed by Finance. */
+  expectedCount: number
 }
 
 export type ForecastWorkbookInput = {
@@ -51,6 +55,12 @@ function generatedLine(meta: ForecastMeta): string {
     timeZone: 'Asia/Manila',
   })
   return `Generated ${stamp} by ${meta.generatedBy}`
+}
+
+/** The population in words: cheques and planned lines counted apart, because they are not the same thing. */
+const population = (meta: ForecastMeta) => {
+  const cheques = meta.totalRows - meta.plannedCount
+  return `${count(cheques)} cheque${cheques === 1 ? '' : 's'} and ${count(meta.plannedCount)} planned line${meta.plannedCount === 1 ? '' : 's'}`
 }
 
 /**
@@ -141,12 +151,13 @@ export async function buildForecastWorkbook(
   summary.getCell('A2').value = meta.filterDescription
   summary.getCell('A2').font = { bold: true, size: 12, color: { argb: TITLE_INK } }
   const scope = detail.length < meta.totalRows
-    ? `${generatedLine(meta)}  ·  DETAIL holds the FIRST ${count(detail.length)} OF ${count(meta.totalRows)} cheques`
-    : `${generatedLine(meta)}  ·  ${count(meta.totalRows)} cheque${meta.totalRows === 1 ? '' : 's'}`
+    ? `${generatedLine(meta)}  ·  DETAIL holds the FIRST ${count(detail.length)} OF ${count(meta.totalRows)} rows`
+    : `${generatedLine(meta)}  ·  ${population(meta)}`
   summary.getCell('A3').value = scope
   summary.getCell('A3').font = { size: 10, color: { argb: MUTED_INK } }
   summary.getCell('A4').value =
-    `Dates are the cheque's own date — the day from which it can be presented. Excludes ` +
+    `Dates are the cheque's own date — the day from which it can be presented — unless Finance typed an ` +
+    `expected outflow date (${count(meta.expectedCount)} here), which then places the cheque. Planned lines sit on their own day. Excludes ` +
     `${count(meta.incompleteCount)} cheque${meta.incompleteCount === 1 ? '' : 's'} with no recorded amount.`
   summary.getCell('A4').font = { size: 10, color: { argb: MUTED_INK } }
 
@@ -168,8 +179,8 @@ export async function buildForecastWorkbook(
   detail.forEach((r, i) => {
     const row = ws.getRow(i + 2)
     const values: (string | number | Date | null)[] = [
-      r.checkNumber, r.payee, r.bank, r.company, statusWords(r.stage), r.checkDate,
-      r.days, r.bucket, r.currency, Number(r.amount),
+      r.kind, r.checkNumber, r.payee, r.bank, r.company, statusWords(r.stage), r.checkDate,
+      r.expectedOutflowDate, r.dateBasis, r.days, r.bucket, r.currency, Number(r.amount),
     ]
     values.forEach((v, col) => {
       const cell = row.getCell(col + 1)
@@ -177,8 +188,8 @@ export async function buildForecastWorkbook(
       if (v instanceof Date) cell.numFmt = DATE_FORMAT
       samples[col].push(v === null ? '' : v instanceof Date ? DATE_WIDTH_SAMPLE : String(v))
     })
-    row.getCell(10).numFmt = currencyNumberFormat(r.currency)
-    row.getCell(7).numFmt = COUNT_FORMAT
+    row.getCell(13).numFmt = currencyNumberFormat(r.currency)
+    row.getCell(10).numFmt = COUNT_FORMAT
     if (i % 2 === 1) row.eachCell({ includeEmpty: true }, (c) => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BAND_FILL } } })
   })
   DETAIL_HEADERS.forEach((label, i) => { ws.getColumn(i + 1).width = fitColumnWidth(label, samples[i]) })

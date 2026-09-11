@@ -9,6 +9,7 @@ function row(o: Partial<ForecastRow> & { id: string }): ForecastRow {
   return {
     checkNumber: o.id, payee: 'HENKEL PHILIPPINES INC.', bank: 'BPI', company: 'STK',
     stage: 'SIGNED', currency: 'PHP', amount: '100.00', checkDate: daysAgo(3),
+    kind: 'CHEQUE', expectedOutflowDate: null,
     ...o,
   }
 }
@@ -85,5 +86,35 @@ describe('buildMatrices', () => {
   it('returns every row bucketed, with its days, for the detail sheet', () => {
     const { bucketed } = buildMatrices([row({ id: 'a', checkDate: daysAgo(45) }), row({ id: 'b', checkDate: null })], TODAY)
     expect(bucketed.map((r) => [r.bucket, r.days])).toEqual([['31–60 DAYS', 45], ['NO DATE', null]])
+  })
+})
+
+describe('buildMatrices — expected dates and planned lines', () => {
+  const planned = (o: Partial<ForecastRow> & { id: string }): ForecastRow => row({
+    checkNumber: 'PLANNED', payee: 'SEPT PAYROLL', stage: 'PLANNED', kind: 'PLANNED', ...o,
+  })
+
+  it('places a cheque on its expected date when it has one, and says so', () => {
+    const { byBank, bucketed } = buildMatrices([
+      row({ id: 'a', checkDate: daysAgo(40), expectedOutflowDate: daysAgo(-1) }),
+      row({ id: 'b', checkDate: daysAgo(40) }),
+    ], TODAY)
+    expect(bucketed.find((r) => r.id === 'a')).toMatchObject({ bucket: 'THIS WEEK', dateBasis: 'EXPECTED', days: -1 })
+    expect(bucketed.find((r) => r.id === 'b')).toMatchObject({ bucket: '31–60 DAYS', dateBasis: 'CHEQUE DATE' })
+    expect(byBank.rows.find((r) => r.bucket === '31–60 DAYS')!.cells.BPI.count).toBe(1)
+  })
+
+  it('adds PLANNED as the last stage column only when a line is present, and counts it in the totals', () => {
+    const without = buildMatrices([row({ id: 'a' })], TODAY)
+    expect(without.byStage.columns).toEqual(['SIGNED'])
+    const { byStage, byBank, bucketed } = buildMatrices([
+      row({ id: 'a', amount: '100.00' }),
+      planned({ id: 'p', amount: '250.00', checkDate: daysAgo(0), bank: 'MBTC' }),
+    ], TODAY)
+    expect(byStage.columns).toEqual(['SIGNED', 'PLANNED'])
+    expect(byStage.rows.find((r) => r.bucket === 'TODAY')!.cells.PLANNED.totals).toEqual([{ currency: 'PHP', count: 1, total: '250.00' }])
+    expect(byStage.total.total.totals).toEqual([{ currency: 'PHP', count: 2, total: '350.00' }])
+    expect(byBank.columns).toEqual(['BPI', 'MBTC'])
+    expect(bucketed.find((r) => r.id === 'p')).toMatchObject({ bucket: 'TODAY', dateBasis: 'PLANNED', days: 0 })
   })
 })

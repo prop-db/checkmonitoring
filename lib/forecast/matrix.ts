@@ -1,8 +1,7 @@
-import type { CheckStatus } from '@prisma/client'
 import { LIVE_STATUSES } from '@/lib/domain/check-status'
 import { statusWords, toCentavos, fromCentavos } from '@/lib/export/report'
 import { BUCKETS, bucketFor, daysPresentable, type Bucket } from './buckets'
-import type { ForecastRow } from './query'
+import { PLANNED_STAGE, type ForecastRow, type ForecastStage } from './query'
 
 /**
  * THE TWO MATRICES, struck over one list of rows.
@@ -35,7 +34,19 @@ export type Matrix = {
   /** The column totals. Its `bucket` is meaningless and set to 'NO DATE' only to satisfy the type. */
   total: MatrixRow
 }
-export type BucketedRow = ForecastRow & { bucket: Bucket; days: number | null }
+export type DateBasis = 'EXPECTED' | 'CHEQUE DATE' | 'PLANNED'
+export type BucketedRow = ForecastRow & { bucket: Bucket; days: number | null; dateBasis: DateBasis }
+
+/** The day a row is bucketed on: a planned line's own day; a cheque's expected date when Finance typed one, else its cheque date. */
+export function outflowDate(r: ForecastRow): Date | null {
+  if (r.kind === 'PLANNED') return r.checkDate
+  return r.expectedOutflowDate ?? r.checkDate
+}
+
+function basisOf(r: ForecastRow): DateBasis {
+  if (r.kind === 'PLANNED') return 'PLANNED'
+  return r.expectedOutflowDate ? 'EXPECTED' : 'CHEQUE DATE'
+}
 
 type Acc = { count: number; byCurrency: Map<string, { count: number; cents: bigint }> }
 const acc = (): Acc => ({ count: 0, byCurrency: new Map() })
@@ -84,20 +95,22 @@ export function buildMatrices(
   rows: readonly ForecastRow[],
   today: Date,
 ): { byBank: Matrix; byStage: Matrix; bucketed: BucketedRow[] } {
-  const bucketed: BucketedRow[] = rows.map((r) => ({
-    ...r,
-    bucket: bucketFor(r.checkDate, today),
-    days: r.checkDate ? daysPresentable(r.checkDate, today) : null,
-  }))
+  const bucketed: BucketedRow[] = rows.map((r) => {
+    const on = outflowDate(r)
+    return { ...r, bucket: bucketFor(on, today), days: on ? daysPresentable(on, today) : null, dateBasis: basisOf(r) }
+  })
 
   // Banks: whichever appear, sorted, NO BANK last. Never a hard-coded list —
   // a third bank appears on the report the day its first cheque does.
   const banks = [...new Set(bucketed.map((r) => r.bank ?? NO_BANK))]
     .sort((a, b) => (a === NO_BANK ? 1 : b === NO_BANK ? -1 : a.localeCompare(b)))
 
-  // Stages: ladder order, only those present, spelled as words.
-  const present = new Set<CheckStatus>(bucketed.map((r) => r.stage))
+  // Stages: ladder order, only those present, spelled as words — then PLANNED
+  // last, only when a line is present. A column for nothing is a column that
+  // reads as "no planned outflows" when the truth is "none were typed".
+  const present = new Set<ForecastStage>(bucketed.map((r) => r.stage))
   const stages = LIVE_STATUSES.filter((s) => present.has(s)).map(statusWords)
+  if (present.has(PLANNED_STAGE)) stages.push(PLANNED_STAGE)
 
   return {
     byBank: matrix(bucketed, banks, (r) => r.bank ?? NO_BANK),

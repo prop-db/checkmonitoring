@@ -67,6 +67,10 @@ export async function GET(request: Request): Promise<Response> {
       filterDescription: describeForecastFilters({ bank, company: company?.code, stage }),
       totalRows: bucketed.length,
       incompleteCount,
+      // Placeholder until Task 5 wires the planned lines and the expected-date
+      // count into this route's own query.
+      plannedCount: 0,
+      expectedCount: 0,
     },
   })
 

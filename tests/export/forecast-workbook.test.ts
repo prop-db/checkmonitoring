@@ -12,7 +12,9 @@ const daysAgo = (n: number) => new Date(Date.UTC(2026, 8, 16 - n))
 function row(o: Partial<ForecastRow> & { id: string }): ForecastRow {
   return {
     checkNumber: o.id, payee: 'HENKEL PHILIPPINES INC.', bank: 'BPI', company: 'STK',
-    stage: 'SIGNED', currency: 'PHP', amount: '100.00', checkDate: daysAgo(3), ...o,
+    stage: 'SIGNED', currency: 'PHP', amount: '100.00', checkDate: daysAgo(3),
+    kind: 'CHEQUE', expectedOutflowDate: null,
+    ...o,
   }
 }
 
@@ -23,6 +25,7 @@ async function build(rows: ForecastRow[], totalRows = rows.length) {
     meta: {
       generatedAt: TODAY, generatedBy: 'Paolo Parcon',
       filterDescription: 'No filters applied', totalRows, incompleteCount: 129,
+      plannedCount: 0, expectedCount: 0,
     },
   })
   const wb = new ExcelJS.Workbook()
@@ -66,10 +69,10 @@ describe('buildForecastWorkbook', () => {
     const ws = wb.getWorksheet(DETAIL_SHEET)!
     expect((ws.getRow(1).values as string[]).slice(1)).toEqual([...DETAIL_HEADERS])
     const r = ws.getRow(2).values as unknown[]
-    expect(r[1]).toBe('a')
-    expect(r[7]).toBe(45)
-    expect(r[8]).toBe('31–60 DAYS')
-    expect(r[10]).toBe(100)
+    expect(r[2]).toBe('a')
+    expect(r[10]).toBe(45)
+    expect(r[11]).toBe('31–60 DAYS')
+    expect(r[13]).toBe(100)
   })
 
   it('says so in the title block when the cap bit', async () => {
@@ -95,6 +98,7 @@ describe('buildForecastWorkbook', () => {
       meta: {
         generatedAt: TODAY, generatedBy: 'Paolo Parcon',
         filterDescription: 'No filters applied', totalRows: 2, incompleteCount: 129,
+        plannedCount: 0, expectedCount: 0,
       },
     })
     const wb = new ExcelJS.Workbook()
@@ -107,5 +111,23 @@ describe('buildForecastWorkbook', () => {
     expect(php[3]).toBe(2)
     expect(php[4]).toBe(300)
     expect(String(ws.getCell('A3').value)).toContain('FIRST 1 OF 2')
+  })
+
+  it('writes KIND, EXPECTED OUT and DATE BASIS on DETAIL, for a cheque and a planned line', async () => {
+    const wb = await build([
+      row({ id: 'a', expectedOutflowDate: daysAgo(-2) }),
+      row({ id: 'p', checkNumber: 'PLANNED', payee: 'SEPT PAYROLL', stage: 'PLANNED', kind: 'PLANNED', checkDate: daysAgo(0), amount: '250.00' }),
+    ])
+    const ws = wb.getWorksheet(DETAIL_SHEET)!
+    expect(ws.getRow(1).values).toEqual([undefined, ...DETAIL_HEADERS])
+    const cheque = ws.getRow(2).values as unknown[]
+    expect(cheque[1]).toBe('CHEQUE')
+    expect(cheque[9]).toBe('EXPECTED')
+    expect((cheque[8] as Date).toISOString().slice(0, 10)).toBe('2026-09-18')
+    const line = ws.getRow(3).values as unknown[]
+    expect(line.slice(1, 4)).toEqual(['PLANNED', 'PLANNED', 'SEPT PAYROLL'])
+    expect(line[6]).toBe('PLANNED')
+    expect(line[9]).toBe('PLANNED')
+    expect(line[13]).toBe(250)
   })
 })

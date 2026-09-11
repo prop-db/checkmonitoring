@@ -3,24 +3,33 @@ import { LIVE_STATUSES } from '@/lib/domain/check-status'
 
 type Db = PrismaClient | Prisma.TransactionClient
 
+export const PLANNED_STAGE = 'PLANNED' as const
+export type ForecastStage = CheckStatus | typeof PLANNED_STAGE
+
 export type ForecastFilters = {
   /** A `Bank.code`. Matched against the checkbook's bank, else the cash account's. */
   bankCode?: string
   companyId?: string
-  stage?: CheckStatus
+  /** A live cheque stage, or PLANNED for the non-cheque lines alone. */
+  stage?: ForecastStage
 }
 
-/** One cheque of the population. `amount` is a decimal STRING — rule 8. */
+/** One cheque, or one planned line, of the population. `amount` is a decimal STRING — rule 8. */
 export type ForecastRow = {
   id: string
+  /** The cheque number, or the literal `PLANNED` for a planned line. */
   checkNumber: string
   payee: string | null
   bank: string | null
   company: string
-  stage: CheckStatus
+  stage: ForecastStage
   currency: string
   amount: string
+  /** The cheque's date; for a planned line, the day it leaves the bank. */
   checkDate: Date | null
+  kind: 'CHEQUE' | 'PLANNED'
+  /** Typed by Finance (2026-09-12); the forecast buckets on it when set. Always null on a planned line. */
+  expectedOutflowDate: Date | null
 }
 
 /**
@@ -33,7 +42,7 @@ export type ForecastRow = {
  */
 function populationWhere(filters: ForecastFilters): Prisma.CheckWhereInput {
   const where: Prisma.CheckWhereInput = {
-    status: filters.stage ? filters.stage : { in: [...LIVE_STATUSES] },
+    status: filters.stage && filters.stage !== PLANNED_STAGE ? filters.stage : { in: [...LIVE_STATUSES] },
     isCheque: true,
   }
   if (filters.companyId) where.companyId = filters.companyId
@@ -69,6 +78,7 @@ function populationWhere(filters: ForecastFilters): Prisma.CheckWhereInput {
  * struck over this one list in the pure layer, so they cannot disagree.
  */
 export async function listForecastRows(db: Db, filters: ForecastFilters = {}): Promise<ForecastRow[]> {
+  if (filters.stage === PLANNED_STAGE) return []
   const where: Prisma.CheckWhereInput = {
     ...populationWhere(filters),
     isIncomplete: false,
@@ -80,7 +90,7 @@ export async function listForecastRows(db: Db, filters: ForecastFilters = {}): P
     orderBy: [{ checkDate: { sort: 'asc', nulls: 'last' } }, { checkNumber: 'asc' }],
     select: {
       id: true, checkNumber: true, payeeName: true, currency: true, amount: true,
-      checkDate: true, status: true,
+      checkDate: true, status: true, expectedOutflowDate: true,
       company: { select: { code: true } },
       checkBook: { select: { bank: { select: { code: true } } } },
       cashAccount: { select: { bank: { select: { code: true } } } },
@@ -107,6 +117,8 @@ export async function listForecastRows(db: Db, filters: ForecastFilters = {}): P
       // `tests/admin/backfill-apv-numbers.test.ts` compare the same way.
       amount: c.amount.toFixed(2),
       checkDate: c.checkDate,
+      kind: 'CHEQUE' as const,
+      expectedOutflowDate: c.expectedOutflowDate,
     }]
   })
 }
@@ -124,6 +136,7 @@ export async function listForecastRows(db: Db, filters: ForecastFilters = {}): P
  * applied, or the number on screen is about a different report.
  */
 export async function countExcludedIncomplete(db: Db, filters: ForecastFilters = {}): Promise<number> {
+  if (filters.stage === PLANNED_STAGE) return 0
   return db.check.count({
     where: { ...populationWhere(filters), isIncomplete: true },
   })
@@ -133,4 +146,31 @@ export async function countExcludedIncomplete(db: Db, filters: ForecastFilters =
 export async function listBankCodes(db: Db): Promise<string[]> {
   const banks = await db.bank.findMany({ orderBy: { code: 'asc' }, select: { code: true } })
   return banks.map((b) => b.code)
+}
+
+/**
+ * THE PLANNED LINES, in the same shape, so the matrices and the sheet need no
+ * second path. Open lines only — PAID has left, CANCELLED never will. The bank
+ * and company filters apply on the line's own bank and company; a cheque
+ * stage filter excludes them entirely, and PLANNED alone includes only them.
+ */
+export async function listPlannedRows(db: Db, filters: ForecastFilters = {}): Promise<ForecastRow[]> {
+  if (filters.stage && filters.stage !== PLANNED_STAGE) return []
+  const lines = await db.plannedOutflow.findMany({
+    where: {
+      status: 'PLANNED',
+      ...(filters.companyId ? { companyId: filters.companyId } : {}),
+      ...(filters.bankCode ? { bank: { code: filters.bankCode } } : {}),
+    },
+    orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
+    select: {
+      id: true, date: true, amount: true, currency: true, description: true,
+      bank: { select: { code: true } }, company: { select: { code: true } },
+    },
+  })
+  return lines.map((l) => ({
+    id: l.id, checkNumber: PLANNED_STAGE, payee: l.description, bank: l.bank.code, company: l.company.code,
+    stage: PLANNED_STAGE, kind: 'PLANNED', currency: l.currency, amount: l.amount.toFixed(2),
+    checkDate: l.date, expectedOutflowDate: null,
+  }))
 }

@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { testDb, resetDb } from '../helpers/db'
-import { makeCheck } from '../helpers/factory'
-import { listForecastRows, listBankCodes, countExcludedIncomplete } from '@/lib/forecast/query'
+import { makeCheck, makeUser } from '../helpers/factory'
+import { listForecastRows, listPlannedRows, listBankCodes, countExcludedIncomplete } from '@/lib/forecast/query'
+import { createPlannedOutflow } from '@/lib/planned-outflow/actions'
 
 beforeEach(resetDb)
 
@@ -122,5 +123,55 @@ describe('listBankCodes', () => {
     await testDb.bank.create({ data: { code: 'MBTC', name: 'Metrobank' } })
     await testDb.bank.create({ data: { code: 'BPI', name: 'BPI' } })
     expect(await listBankCodes(testDb)).toEqual(['BPI', 'MBTC'])
+  })
+})
+
+describe('listPlannedRows', () => {
+  async function line(o: { bankCode?: string; companyCode?: string; status?: 'PAID' } = {}) {
+    const user = await makeUser()
+    const company = await testDb.company.create({ data: { code: o.companyCode ?? `C${Math.random().toString(36).slice(2, 7)}`, name: 'Starkson', legalNames: [] } })
+    const bank = await testDb.bank.create({ data: { code: o.bankCode ?? `B${Math.random().toString(36).slice(2, 7)}`, name: 'BPI' } })
+    const l = await createPlannedOutflow(testDb, {
+      input: { date: '2026-09-15', amount: '250', bankId: bank.id, companyId: company.id, description: 'SEPT PAYROLL' },
+      userId: user.id, now: new Date(),
+    })
+    if (o.status === 'PAID') await testDb.plannedOutflow.update({ where: { id: l.id }, data: { status: 'PAID', paidAt: new Date(), paidById: user.id } })
+    return { l, bank, company }
+  }
+
+  it('returns open lines in the forecast row shape, and no closed ones', async () => {
+    const { l, bank, company } = await line()
+    await line({ status: 'PAID' })
+    const rows = await listPlannedRows(testDb)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toEqual({
+      id: l.id, checkNumber: 'PLANNED', payee: 'SEPT PAYROLL', bank: bank.code, company: company.code,
+      stage: 'PLANNED', kind: 'PLANNED', currency: 'PHP', amount: '250.00',
+      checkDate: new Date('2026-09-15T00:00:00.000Z'), expectedOutflowDate: null,
+    })
+  })
+
+  it('narrows by bank and company, and is empty under a cheque stage', async () => {
+    const { bank, company } = await line({ bankCode: 'BPIX' })
+    await line({ bankCode: 'MBTX' })
+    expect((await listPlannedRows(testDb, { bankCode: 'BPIX' })).map((r) => r.bank)).toEqual([bank.code])
+    expect((await listPlannedRows(testDb, { companyId: company.id }))).toHaveLength(1)
+    expect(await listPlannedRows(testDb, { stage: 'SIGNED' })).toHaveLength(0)
+    expect(await listPlannedRows(testDb, { stage: 'PLANNED' })).toHaveLength(2)
+  })
+
+  it('the cheque query is empty, and the exclusion zero, under the PLANNED stage', async () => {
+    await makeCheck({ status: 'SIGNED' })
+    await makeCheck({ status: 'SIGNED', amount: null })
+    expect(await listForecastRows(testDb, { stage: 'PLANNED' })).toHaveLength(0)
+    expect(await countExcludedIncomplete(testDb, { stage: 'PLANNED' })).toBe(0)
+  })
+
+  it('carries the expected outflow date on a cheque', async () => {
+    const c = await makeCheck({ status: 'SIGNED' })
+    await testDb.check.update({ where: { id: c.id }, data: { expectedOutflowDate: new Date('2026-09-20T00:00:00.000Z') } })
+    const [row] = await listForecastRows(testDb)
+    expect(row.kind).toBe('CHEQUE')
+    expect(row.expectedOutflowDate).toEqual(new Date('2026-09-20T00:00:00.000Z'))
   })
 })

@@ -2,6 +2,7 @@ import type { CheckStatus } from '@prisma/client'
 import { LIVE_STATUSES } from './domain/check-status'
 import { statusWords, slugify } from './export/report'
 import { manilaDay } from './forecast/buckets'
+import { PLANNED_STAGE, type ForecastStage } from './forecast/query'
 
 /**
  * The forecast screen's arithmetic — parameters, hrefs, the filter line and
@@ -12,21 +13,24 @@ import { manilaDay } from './forecast/buckets'
 export const FORECAST_PATH = '/forecast'
 export const FORECAST_EXPORT_PATH = '/api/export/forecast'
 
-/** The STAGE select: the live statuses, ladder order, as words. Read from the ladder, not restated. */
-export const STAGE_OPTIONS: readonly { value: CheckStatus; label: string }[] =
-  LIVE_STATUSES.map((s) => ({ value: s, label: statusWords(s) }))
+/** The STAGE select: the live statuses, ladder order, as words — then PLANNED. Read from the ladder, not restated. */
+export const STAGE_OPTIONS: readonly { value: ForecastStage; label: string }[] = [
+  ...LIVE_STATUSES.map((s) => ({ value: s as ForecastStage, label: statusWords(s) })),
+  { value: PLANNED_STAGE, label: 'PLANNED' },
+]
 
 export type ForecastParams = { bank?: string; company?: string; stage?: string }
 
 /**
- * `?stage=` as the screen reads it: words or underscores, any case, LIVE only.
- * A closed status is refused rather than honoured — the population is what is
- * not yet handed over, and a filter to RELEASED would show an empty table that
- * looks like a broken one.
+ * `?stage=` as the screen reads it: words or underscores, any case, LIVE only
+ * — or PLANNED for the planned lines alone. A closed status is refused rather
+ * than honoured — the population is what is not yet handed over, and a filter
+ * to RELEASED would show an empty table that looks like a broken one.
  */
-export function parseStageParam(value: string | undefined): CheckStatus | undefined {
+export function parseStageParam(value: string | undefined): ForecastStage | undefined {
   if (!value) return undefined
   const key = value.trim().toUpperCase().replace(/ /g, '_')
+  if (key === PLANNED_STAGE) return PLANNED_STAGE
   return (LIVE_STATUSES as readonly string[]).includes(key) ? (key as CheckStatus) : undefined
 }
 
@@ -43,7 +47,7 @@ export function forecastHref(params: ForecastParams, path: string = FORECAST_PAT
 
 /** The filters in force, in words, for the page and the workbook's title block. */
 export function describeForecastFilters(
-  f: { bank?: string | null; company?: string | null; stage?: CheckStatus | null },
+  f: { bank?: string | null; company?: string | null; stage?: ForecastStage | null },
 ): string {
   const parts: string[] = []
   if (f.bank) parts.push(`BANK: ${f.bank}`)

@@ -6,7 +6,7 @@ import {
 
 describe('STAGE_OPTIONS', () => {
   it('offers the live statuses as words, in ladder order', () => {
-    expect(STAGE_OPTIONS.map((o) => o.value)).toEqual(['GENERATED', 'SIGNATURE_PENDING', 'SIGNED', 'READY_FOR_RELEASE', 'SCHEDULED'])
+    expect(STAGE_OPTIONS.map((o) => o.value)).toEqual(['GENERATED', 'SIGNATURE_PENDING', 'SIGNED', 'READY_FOR_RELEASE', 'SCHEDULED', 'PLANNED'])
     expect(STAGE_OPTIONS.find((o) => o.value === 'READY_FOR_RELEASE')!.label).toBe('READY FOR RELEASE')
   })
 })
@@ -21,6 +21,10 @@ describe('parseStageParam', () => {
     expect(parseStageParam('RELEASED')).toBeUndefined()
     expect(parseStageParam('DELIVERED')).toBeUndefined()
     expect(parseStageParam(undefined)).toBeUndefined()
+  })
+
+  it('accepts PLANNED', () => {
+    expect(parseStageParam('planned')).toBe('PLANNED')
   })
 })
 
