@@ -1,0 +1,59 @@
+import { describe, it, expect, beforeEach } from 'vitest'
+import { testDb, resetDb } from '../helpers/db'
+import { makeCheck } from '../helpers/factory'
+import { listOutstandingCandidates, countExcludedIncomplete } from '@/lib/recon/query'
+
+beforeEach(resetDb)
+
+describe('listOutstandingCandidates — the population', () => {
+  it('holds RELEASED real cheques with an amount, whatever their clearing, and nothing else', async () => {
+    await makeCheck({ status: 'RELEASED', checkNumber: '1' })
+    const cleared = await makeCheck({ status: 'RELEASED', checkNumber: '2' })
+    await testDb.check.update({ where: { id: cleared.id }, data: { clearingStatus: 'CLEARED', clearedDate: new Date('2026-09-01') } })
+    await makeCheck({ status: 'SIGNED', checkNumber: '3' })
+    await makeCheck({ status: 'VOIDED', checkNumber: '4' })
+    await makeCheck({ status: 'RELEASED', checkNumber: '5', amount: null })
+    await makeCheck({ status: 'RELEASED', checkNumber: '6', isCheque: false })
+    const rows = await listOutstandingCandidates(testDb)
+    expect(rows.map((r) => r.checkNumber).sort()).toEqual(['1', '2'])
+    const two = rows.find((r) => r.checkNumber === '2')!
+    expect(two.clearingStatus).toBe('CLEARED')
+    expect(two.clearedDate).toEqual(new Date('2026-09-01'))
+  })
+
+  it('carries the account, bank, company and a decimal-string amount', async () => {
+    const c = await makeCheck({ status: 'RELEASED', amount: '1234.50' })
+    const account = await testDb.cashAccount.findUniqueOrThrow({ where: { id: c.cashAccountId! }, include: { bank: true, company: true } })
+    const [row] = await listOutstandingCandidates(testDb)
+    expect(row).toMatchObject({
+      id: c.id, accountId: account.id, account: account.code, bank: account.bank.code,
+      company: account.company.code, currency: 'PHP', amount: '1234.50', status: 'RELEASED',
+    })
+    expect(typeof row.amount).toBe('string')
+  })
+
+  it('narrows by bank, company and account', async () => {
+    const a = await makeCheck({ status: 'RELEASED', checkNumber: '1' })
+    const b = await makeCheck({ status: 'RELEASED', checkNumber: '2' })
+    const accA = await testDb.cashAccount.findUniqueOrThrow({ where: { id: a.cashAccountId! }, include: { bank: true } })
+    expect((await listOutstandingCandidates(testDb, { bankCode: accA.bank.code })).map((r) => r.checkNumber)).toEqual(['1'])
+    expect((await listOutstandingCandidates(testDb, { companyId: b.companyId })).map((r) => r.checkNumber)).toEqual(['2'])
+    expect((await listOutstandingCandidates(testDb, { cashAccountId: accA.id })).map((r) => r.checkNumber)).toEqual(['1'])
+  })
+
+  it('keeps a released cheque with no cash account, with the bank from its checkbook if any', async () => {
+    const c = await makeCheck({ status: 'RELEASED', checkNumber: '9' })
+    await testDb.check.update({ where: { id: c.id }, data: { cashAccountId: null } })
+    const [row] = await listOutstandingCandidates(testDb)
+    expect(row).toMatchObject({ checkNumber: '9', accountId: null, account: null, bank: null })
+  })
+})
+
+describe('countExcludedIncomplete', () => {
+  it('counts released cheques with no amount under the same filters', async () => {
+    await makeCheck({ status: 'RELEASED', amount: null })
+    await makeCheck({ status: 'SIGNED', amount: null })
+    await makeCheck({ status: 'RELEASED' })
+    expect(await countExcludedIncomplete(testDb)).toBe(1)
+  })
+})
