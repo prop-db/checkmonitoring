@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 import type { AcumaticaClient } from '@/lib/integrations/acumatica/client'
 import type { AcumaticaTenant } from '@/lib/integrations/acumatica/companies'
+import { loadSettings } from '@/lib/settings/read'
 import { lastSyncWatermark, runSync, SyncInProgressError, type SyncMode } from './run'
 
 type Db = PrismaClient | Prisma.TransactionClient
@@ -57,6 +58,7 @@ export async function runScheduledSync(
 ): Promise<ScheduledSyncOutcome> {
   const { tenant, now } = args
   try {
+    const settings = await loadSettings(db)
     const since = await lastSyncWatermark(db, tenant)
     if (since === null) {
       const run = await db.syncRun.create({
@@ -69,7 +71,10 @@ export async function runScheduledSync(
       return { tenant, outcome: 'REFUSED_NO_WATERMARK', syncRunId: run.id }
     }
 
-    const result = await runSync(db, { client: args.client(), tenant, since, now, trigger: 'SCHEDULED' })
+    const result = await runSync(db, {
+      client: args.client(), tenant, since, now, trigger: 'SCHEDULED',
+      inProgressMinutes: settings.values['sync.inProgressMinutes'],
+    })
     return {
       tenant, outcome: 'RAN', syncRunId: result.syncRunId, mode: result.mode,
       fetched: result.fetched, imported: result.imported, updated: result.updated,

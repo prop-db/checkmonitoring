@@ -1,7 +1,7 @@
 import { Prisma, type PrismaClient, type Role } from '@prisma/client'
 import { writeAudit } from '@/lib/audit'
 import { DomainError } from '@/lib/domain/errors'
-import { loginFailureSummary, type LoginFailureState } from '@/lib/login-throttle'
+import { loginFailureSummary, type LoginFailureState, type ThrottleLimits } from '@/lib/login-throttle'
 import { hashPassword, validatePasswordStrength } from '@/lib/password'
 
 /**
@@ -187,14 +187,17 @@ async function loadTarget(tx: Prisma.TransactionClient, userId: string): Promise
 export async function listUsers(
   db: PrismaClient,
   now: Date = new Date(),
+  limits?: ThrottleLimits,
 ): Promise<AdminUserRow[]> {
   const rows = await db.user.findMany({
     select: ROW_SELECT,
     orderBy: [{ active: 'desc' }, { email: 'asc' }],
   })
   // `now` is a parameter so a test can pin a lockout deadline exactly rather
-  // than racing the clock across a Neon round trip. The page passes nothing.
-  const failures = await loginFailureSummary(db, { emails: rows.map((r) => r.email), now })
+  // than racing the clock across a Neon round trip. `limits` is the throttle's
+  // own settings, read by the page and passed here so this screen agrees with
+  // the gate about who is locked; a test that passes neither gets the default.
+  const failures = await loginFailureSummary(db, { emails: rows.map((r) => r.email), now, limits })
   return rows.map((u) => toRow(u, failures.get(u.email)))
 }
 

@@ -9,6 +9,7 @@ import { Panel } from '@/components/Panel'
 import { EmptyState } from '@/components/EmptyState'
 import { PlannedOutflowForm } from '@/components/PlannedOutflowForm'
 import { PlannedOutflowList } from '@/components/PlannedOutflowList'
+import { loadSettings } from '@/lib/settings/read'
 
 /**
  * PLANNED OUTFLOWS — the money that leaves the bank and is not a cheque.
@@ -27,10 +28,11 @@ export default async function PlannedOutflowsPage({
   const user = await requireUser()
   const params = await searchParams
   const includeClosed = params.closed === '1'
-  const [rows, banks, options] = await Promise.all([
+  const [rows, banks, options, settings] = await Promise.all([
     listPlannedOutflows(prisma, { includeClosed }),
     listBanks(prisma),
     getFilterOptions(prisma),
+    loadSettings(prisma),
   ])
   const openCount = rows.filter((r) => r.status === 'PLANNED').length
 
@@ -45,7 +47,7 @@ export default async function PlannedOutflowsPage({
       </p>
 
       <Panel title="ADD A LINE">
-        <PlannedOutflowForm banks={banks} companies={options.companies} />
+        <PlannedOutflowForm banks={banks} companies={options.companies} categories={settings.values.categories} />
       </Panel>
 
       <Panel
@@ -62,7 +64,10 @@ export default async function PlannedOutflowsPage({
             <EmptyState title="NO PLANNED OUTFLOWS" tone="plain">Add the first one above. It will appear on the forecast at once.</EmptyState>
           </div>
         ) : (
-          <PlannedOutflowList rows={rows} banks={banks} companies={options.companies} today={manilaDay(new Date())} />
+          <PlannedOutflowList
+            rows={rows} banks={banks} companies={options.companies} today={manilaDay(new Date())}
+            categories={settings.values.categories}
+          />
         )}
       </Panel>
     </main>

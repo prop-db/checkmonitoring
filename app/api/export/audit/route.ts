@@ -1,9 +1,9 @@
 import { getSessionUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
-import { EXPORT_ROW_LIMIT } from '@/lib/export/report'
 import { listAuditRows, countAuditRows, listAuditUsers, type AuditRow } from '@/lib/audit-query'
 import { parseAuditParams, describeAuditFilters, auditFilename } from '@/lib/audit-view'
 import { buildAuditWorkbook } from '@/lib/export/audit-workbook'
+import { loadSettings } from '@/lib/settings/read'
 
 /**
  * EXPORT THE AUDIT TRAIL — the filtered range the admin is looking at.
@@ -33,11 +33,14 @@ export async function GET(request: Request): Promise<Response> {
     system: read('system'), action: read('action'), user: read('user'), check: read('check'), from: read('from'), to: read('to'),
   })
 
+  const settings = await loadSettings(prisma)
+  const exportRowLimit = settings.values['caps.exportRows']
+
   // Newest first, page by page through the same keyset the screen uses, up to
   // the cap. The cap is stated in the title block, as every export states it.
   const rows: AuditRow[] = []
   let cursor = null as { createdAt: Date; id: string } | null
-  while (rows.length < EXPORT_ROW_LIMIT) {
+  while (rows.length < exportRowLimit) {
     const page = await listAuditRows(prisma, filters, cursor)
     rows.push(...page.rows)
     if (!page.hasMore) break
@@ -48,7 +51,7 @@ export async function GET(request: Request): Promise<Response> {
   const now = new Date()
 
   const workbook = await buildAuditWorkbook({
-    rows: rows.slice(0, EXPORT_ROW_LIMIT),
+    rows: rows.slice(0, exportRowLimit),
     meta: {
       generatedAt: now, generatedBy: user.name, totalRows: total,
       filterDescription: describeAuditFilters(filters, { user: users.find((u) => u.id === filters.userId)?.name }),

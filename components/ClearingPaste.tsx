@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { previewClearingAction, confirmClearingAction, type ClearingPreviewResult } from '@/app/clearing/actions'
 import type { BulkActionResult } from '@/lib/bulk-run'
 import type { PreviewVerdict } from '@/lib/clearing-preview'
-import { MAX_CLEARING_LINES } from '@/lib/clearing-paste'
 
 const VERDICT: Record<PreviewVerdict, { words: string; tone: string }> = {
   WILL_CLEAR: { words: 'WILL BE CLEARED', tone: 'text-success-ink' },
@@ -23,7 +22,7 @@ const fmtDate = (d: Date | null) =>
  * says per line what CONFIRM will do. The text is re-sent on confirm and the
  * server decides again; this component holds no ids.
  */
-export function ClearingPaste() {
+export function ClearingPaste({ maxLines }: { maxLines: number }) {
   const [pending, startTransition] = useTransition()
   const [text, setText] = useState('')
   const [preview, setPreview] = useState<ClearingPreviewResult | null>(null)
@@ -83,7 +82,7 @@ export function ClearingPaste() {
         onChange={(e) => { setText(e.target.value); setPreview(null) }}
         placeholder={'6000319079\n6000319080, 2026-09-10, BPI 88123'} className={field} />
       <p className="text-[11px] text-slate-500">
-        Up to {MAX_CLEARING_LINES} lines at a time. Dates as YYYY-MM-DD or DD/MM/YYYY. Nothing is written until you confirm.
+        Up to {maxLines} lines at a time. Dates as YYYY-MM-DD or DD/MM/YYYY. Nothing is written until you confirm.
       </p>
 
       <div className="flex flex-wrap items-center gap-3">

@@ -18,6 +18,7 @@ import { importRows, type ImportSummary } from '@/lib/import/upsert'
 import { readWorkbook } from '@/lib/import/workbook'
 import { createClientForTenant } from '@/lib/integrations/acumatica/from-env'
 import { lastSyncWatermark, runSync } from '@/lib/sync/run'
+import { loadSettings } from '@/lib/settings/read'
 
 /**
  * The two Finance Admin actions.
@@ -97,6 +98,7 @@ export async function syncNowAction(formData: FormData): Promise<SyncNowResult> 
   }
 
   try {
+    const settings = await loadSettings(prisma)
     const since = await lastSyncWatermark(prisma, tenant.data)
     const result = await runSync(prisma, {
       client: createClientForTenant(tenant.data),
@@ -104,6 +106,7 @@ export async function syncNowAction(formData: FormData): Promise<SyncNowResult> 
       since,
       now: new Date(),
       trigger: 'MANUAL',
+      inProgressMinutes: settings.values['sync.inProgressMinutes'],
     })
     revalidatePath('/admin/sync')
     revalidatePath('/')

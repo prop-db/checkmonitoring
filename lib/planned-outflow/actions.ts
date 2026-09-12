@@ -6,6 +6,7 @@ import {
   checkPlannedOutflowInput, normalisePlannedOutflow, diffPlannedOutflow,
   type PlannedOutflowInput, type PlannedOutflowValues,
 } from '@/lib/domain/planned-outflow'
+import { loadSettings } from '@/lib/settings/read'
 
 /**
  * The four things that happen to a planned line. Each is one transaction that
@@ -47,8 +48,8 @@ async function assertRefsExist(tx: Prisma.TransactionClient, v: PlannedOutflowVa
   }
 }
 
-function validated(input: PlannedOutflowInput): PlannedOutflowValues {
-  const guard = checkPlannedOutflowInput(input)
+function validated(input: PlannedOutflowInput, categories: readonly string[]): PlannedOutflowValues {
+  const guard = checkPlannedOutflowInput(input, { categories })
   if (!guard.ok) throw new DomainError(guard.code, guard.message)
   return normalisePlannedOutflow(input)
 }
@@ -56,8 +57,9 @@ function validated(input: PlannedOutflowInput): PlannedOutflowValues {
 export async function createPlannedOutflow(
   db: PrismaClient, args: { input: PlannedOutflowInput; userId: string; now: Date },
 ): Promise<PlannedOutflow> {
-  const v = validated(args.input)
   return db.$transaction(async (tx) => {
+    const { values } = await loadSettings(tx)
+    const v = validated(args.input, values.categories)
     await assertRefsExist(tx, v)
     const line = await tx.plannedOutflow.create({
       data: {
@@ -77,8 +79,9 @@ export async function createPlannedOutflow(
 export async function updatePlannedOutflow(
   db: PrismaClient, args: { id: string; input: PlannedOutflowInput; userId: string; now: Date },
 ): Promise<PlannedOutflow> {
-  const after = validated(args.input)
   return db.$transaction(async (tx) => {
+    const { values } = await loadSettings(tx)
+    const after = validated(args.input, values.categories)
     const line = await loadLine(tx, args.id)
     assertPlanned(line)
     const changes = diffPlannedOutflow(valuesOf(line), after)

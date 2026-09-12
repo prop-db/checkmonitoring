@@ -3,9 +3,10 @@
 import { prisma } from '@/lib/db'
 import { requireUser } from '@/lib/auth'
 import { recordClearing } from '@/lib/domain/actions'
-import { parseClearingPaste, MAX_CLEARING_LINES, type PastedLine, type PasteError } from '@/lib/clearing-paste'
+import { parseClearingPaste, type PastedLine, type PasteError } from '@/lib/clearing-paste'
 import { previewClearing, type PreviewRow } from '@/lib/clearing-preview'
 import { runEach, type BulkActionResult } from '@/lib/bulk-run'
+import { loadSettings } from '@/lib/settings/read'
 
 /**
  * Bulk mark-cleared from pasted statement lines. Any Finance user.
@@ -24,15 +25,15 @@ export type ClearingPreviewResult =
 
 type Parsed = { ok: true; lines: PastedLine[]; errors: PasteError[] } | { ok: false; message: string }
 
-function parse(formData: FormData): Parsed {
+function parse(formData: FormData, cap: number): Parsed {
   const text = String(formData.get('lines') ?? '')
   const { lines, errors } = parseClearingPaste(text)
   const total = lines.length + errors.length
   if (total === 0) return { ok: false, message: 'Paste at least one cheque number, one per line.' }
-  if (total > MAX_CLEARING_LINES) {
+  if (total > cap) {
     return {
       ok: false,
-      message: `Up to ${MAX_CLEARING_LINES} lines at a time; ${total} were pasted. Split the list and try again.`,
+      message: `Up to ${cap} lines at a time; ${total} were pasted. Split the list and try again.`,
     }
   }
   return { ok: true, lines, errors }
@@ -40,7 +41,8 @@ function parse(formData: FormData): Parsed {
 
 export async function previewClearingAction(formData: FormData): Promise<ClearingPreviewResult> {
   await requireUser()
-  const parsed = parse(formData)
+  const settings = await loadSettings(prisma)
+  const parsed = parse(formData, settings.values['caps.bulkSelection'])
   if (!parsed.ok) return parsed
   const rows = await previewClearing(prisma, parsed.lines)
   return { ok: true, rows, errors: parsed.errors }
@@ -48,7 +50,8 @@ export async function previewClearingAction(formData: FormData): Promise<Clearin
 
 export async function confirmClearingAction(formData: FormData): Promise<BulkActionResult> {
   const user = await requireUser()
-  const parsed = parse(formData)
+  const settings = await loadSettings(prisma)
+  const parsed = parse(formData, settings.values['caps.bulkSelection'])
   if (!parsed.ok) return parsed
   const rows = await previewClearing(prisma, parsed.lines)
   const willClear = rows.filter((r) => r.verdict === 'WILL_CLEAR' && r.checkId !== null)

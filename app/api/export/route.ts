@@ -3,7 +3,8 @@ import { prisma } from '@/lib/db'
 import { getFilterOptions, listChecks, countChecks, toTableRow, getSummary } from '@/lib/queries'
 import { resolveDashboardQuery } from '@/lib/dashboard-params'
 import { buildExportWorkbook } from '@/lib/export/workbook'
-import { EXPORT_ROW_LIMIT, exportFilename } from '@/lib/export/report'
+import { exportFilename } from '@/lib/export/report'
+import { loadSettings } from '@/lib/settings/read'
 
 /**
  * EXPORT TO EXCEL.
@@ -55,7 +56,7 @@ export async function GET(request: Request): Promise<Response> {
   // Loaded before the filters are resolved because the company and cash-account
   // ids are validated against the rows the dashboard's dropdowns actually
   // offer — the same list, so the two cannot disagree about what is selectable.
-  const options = await getFilterOptions(prisma)
+  const [options, settings] = await Promise.all([getFilterOptions(prisma), loadSettings(prisma)])
 
   const query = resolveDashboardQuery({
     q: read('q'),
@@ -75,7 +76,7 @@ export async function GET(request: Request): Promise<Response> {
      * rather than a slow one. `matching` is read alongside and written into the
      * sheet's title block, so a capped file always states what it left out.
      */
-    listChecks(prisma, query.filters, EXPORT_ROW_LIMIT),
+    listChecks(prisma, query.filters, settings.values['caps.exportRows']),
     countChecks(prisma, query.filters),
     // No filters, exactly as the dashboard's summary cards are counted: a total
     // that quietly reported the filtered subset would read as the whole. The

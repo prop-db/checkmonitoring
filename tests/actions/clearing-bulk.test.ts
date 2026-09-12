@@ -65,6 +65,13 @@ describe('previewClearingAction', () => {
     const { previewClearingAction } = await import('@/app/clearing/actions')
     expect((await previewClearingAction(fd('\n \n'))).ok).toBe(false)
   })
+
+  it('reads the paste cap from settings', async () => {
+    const { previewClearingAction } = await import('@/app/clearing/actions')
+    await testDb.setting.create({ data: { key: 'caps.bulkSelection', value: '2' } })
+    const result = await previewClearingAction(fd('6000000001\n6000000002\n6000000003'))
+    expect(result.ok).toBe(false)
+  })
 })
 
 describe('confirmClearingAction', () => {

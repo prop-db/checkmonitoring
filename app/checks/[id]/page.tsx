@@ -18,6 +18,7 @@ import { checkReleaseReversible } from '@/lib/domain/reversal'
 import { clearingTargets, type ClearingStatus } from '@/lib/domain/check-status'
 import { RECEIPT_TYPE_LABELS } from '@/lib/domain/receipt'
 import { isoDay } from '@/lib/domain/details'
+import { loadSettings } from '@/lib/settings/read'
 import { signAction, releaseAction, revertAction, reverseReleaseAction } from '../actions'
 
 /**
@@ -70,6 +71,8 @@ function Notice({
 export default async function CheckDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser()
   const { id } = await params
+
+  const settings = await loadSettings(prisma)
 
   const check = await prisma.check.findUnique({
     where: { id },
@@ -251,6 +254,7 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
             checksPossession: check.checksPossession, category: check.category,
             expectedOutflowDate: isoDay(check.expectedOutflowDate),
           }}
+          categories={settings.values.categories}
         />
       </Panel>
 

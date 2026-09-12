@@ -2,8 +2,9 @@ import { randomBytes } from 'node:crypto'
 import type { NextAuthConfig, User } from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
 import { prisma } from '@/lib/db'
-import { clientIp, loginLockout, recordLoginAttempt } from '@/lib/login-throttle'
+import { clientIp, loginLockout, recordLoginAttempt, type ThrottleLimits } from '@/lib/login-throttle'
 import { hashPassword, verifyPassword } from '@/lib/password'
+import { loadSettings } from '@/lib/settings/read'
 
 // Computed once, lazily, from a value nobody knows. Used to equalise the cost
 // of rejecting a login, so response time cannot be used to enumerate accounts.
@@ -54,9 +55,17 @@ export async function authorizeCredentials(
 
   // Read together: the lockout is a decision about this request, taken from
   // rows written before it, so it does not matter that the user lookup runs
-  // alongside it — and one round trip to Neon is cheaper than two.
+  // alongside it — and one round trip to Neon is cheaper than two. Settings are
+  // loaded first (one extra query per sign-in) so the throttle's own limits —
+  // themselves settings — are known before the lockout is computed.
+  const settings = await loadSettings(prisma)
+  const limits: ThrottleLimits = {
+    windowMinutes: settings.values['login.windowMinutes'],
+    emailFreeFailures: settings.values['login.emailFreeFailures'],
+    ipFreeFailures: settings.values['login.ipFreeFailures'],
+  }
   const [lockout, user] = await Promise.all([
-    loginLockout(prisma, { email, ip, now }),
+    loginLockout(prisma, { email, ip, now, limits }),
     prisma.user.findUnique({ where: { email } }),
   ])
 

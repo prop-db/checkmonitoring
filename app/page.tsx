@@ -19,6 +19,7 @@ import { CheckTable } from '@/components/CheckTable'
 import { getSyncOverview } from '@/lib/admin/sync-overview'
 import { describeStaleness } from '@/lib/sync/staleness'
 import { SyncStatusLine } from '@/components/SyncStatusLine'
+import { loadSettings } from '@/lib/settings/read'
 
 /**
  * THE DASHBOARD.
@@ -79,21 +80,28 @@ export default async function DashboardPage({
   //
   // These queries feed everything above the table. The KPI row's value
   // line and the timeline's five counts are both read off what is already here.
-  const [summary, options, todaysRelease, syncOverview] = await Promise.all([
+  const [summary, options, todaysRelease, settings] = await Promise.all([
     getSummary(prisma),
     getFilterOptions(prisma),
     getTodaysRelease(prisma),
-    // A fourth query, added for the staleness line. Two cheap findFirsts per
-    // tenant on an indexed column; the comment above about "no fourth query"
-    // was about the redesign of the KPI row, and this is not that.
-    getSyncOverview(prisma),
+    // Loaded alongside them so the sync overview's own thresholds — read next,
+    // once this resolves — come from the same settings every other screen
+    // reads rather than a hard-coded default nobody can change.
+    loadSettings(prisma),
   ])
+
+  // A fifth query, added for the staleness line. Two cheap findFirsts per
+  // tenant on an indexed column; the comment above about "no fourth query"
+  // was about the redesign of the KPI row, and this is not that. It reads
+  // `settings` above, so it cannot join the `Promise.all` those four run in.
+  const syncOverview = await getSyncOverview(prisma, undefined, settings.values['sync.abandonedAfterMinutes'])
 
   const staleness = describeStaleness(
     // The latest run that finished with no failed row — `lastSuccess` — is the
     // read; a run that never reached the feed read nothing.
     syncOverview.tenants.map((t) => ({ tenant: t.tenant, lastReadAt: t.lastSuccess?.startedAt ?? null })),
     new Date(),
+    settings.values['sync.staleAfterHours'],
   )
 
   /**
@@ -252,7 +260,11 @@ export default async function DashboardPage({
       {/* Mapped, not passed straight through: the table is a client component
           and a Prisma Decimal cannot be serialised across that boundary. See
           toTableRow in lib/queries.ts. */}
-      <CheckTable rows={rows.map(toTableRow)} canRelease={user.role === 'FINANCE_ADMIN'} />
+      <CheckTable
+        rows={rows.map(toTableRow)}
+        canRelease={user.role === 'FINANCE_ADMIN'}
+        bulkCap={settings.values['caps.bulkSelection']}
+      />
     </main>
   )
 }

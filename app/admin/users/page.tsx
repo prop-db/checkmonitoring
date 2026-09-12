@@ -1,7 +1,8 @@
 import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { listUsers } from '@/lib/admin/users'
-import { BACKOFF_MINUTES, EMAIL_FREE_FAILURES, WINDOW_MINUTES } from '@/lib/login-throttle'
+import { BACKOFF_MINUTES, type ThrottleLimits } from '@/lib/login-throttle'
+import { loadSettings } from '@/lib/settings/read'
 import { CreateUserForm } from '@/components/CreateUserForm'
 import { UserRowActions } from '@/components/UserRowActions'
 
@@ -31,7 +32,13 @@ const fmtTime = (d: Date) =>
 
 export default async function UsersPage() {
   const me = await requireAdmin()
-  const users = await listUsers(prisma)
+  const settings = await loadSettings(prisma)
+  const limits: ThrottleLimits = {
+    windowMinutes: settings.values['login.windowMinutes'],
+    emailFreeFailures: settings.values['login.emailFreeFailures'],
+    ipFreeFailures: settings.values['login.ipFreeFailures'],
+  }
+  const users = await listUsers(prisma, new Date(), limits)
 
   const activeAdmins = users.filter((u) => u.active && u.role === 'FINANCE_ADMIN')
   const liveSeeded = users.filter((u) => u.isSeededTestAccount && u.active)
@@ -163,9 +170,9 @@ export default async function UsersPage() {
       </p>
 
       <p className="max-w-4xl rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">
-        FAILED SIGN-INS counts wrong passwords for that address in the last {WINDOW_MINUTES}{' '}
+        FAILED SIGN-INS counts wrong passwords for that address in the last {limits.windowMinutes}{' '}
         minutes, and resets the moment the account signs in successfully. Past{' '}
-        {EMAIL_FREE_FAILURES} failures the login is refused for a minute, then longer, up to a
+        {limits.emailFreeFailures} failures the login is refused for a minute, then longer, up to a
         maximum of {BACKOFF_MINUTES[BACKOFF_MINUTES.length - 1]} minutes. A lockout releases
         itself — there is nothing to press here, and nobody needs to be called. The same throttle
         counts failures per client address, so an attacker cannot spread guesses across accounts

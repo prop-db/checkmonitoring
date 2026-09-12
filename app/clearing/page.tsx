@@ -1,4 +1,6 @@
 import { requireUser } from '@/lib/auth'
+import { prisma } from '@/lib/db'
+import { loadSettings } from '@/lib/settings/read'
 import { AppHeader } from '@/components/AppHeader'
 import { Panel } from '@/components/Panel'
 import { ClearingPaste } from '@/components/ClearingPaste'
@@ -16,6 +18,7 @@ import { ClearingPaste } from '@/components/ClearingPaste'
  */
 export default async function ClearingPage() {
   const user = await requireUser()
+  const settings = await loadSettings(prisma)
   return (
     <main className="mx-auto max-w-5xl space-y-6 p-8">
       <AppHeader user={user} title="BANK CLEARING" back={{ href: '/', label: '← DASHBOARD' }} showClearingLink={false} />
@@ -28,7 +31,7 @@ export default async function ClearingPage() {
         release can no longer be reversed.
       </p>
       <Panel title="MARK CLEARED FROM A STATEMENT">
-        <ClearingPaste />
+        <ClearingPaste maxLines={settings.values['caps.bulkSelection']} />
       </Panel>
     </main>
   )

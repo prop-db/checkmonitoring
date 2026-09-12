@@ -33,7 +33,13 @@ const OPTIONAL_COLUMNS = COLUMN_KEYS.filter(
   (key) => !(ALWAYS_ON as readonly ColumnKey[]).includes(key),
 )
 
-export function CheckTable({ rows, canRelease }: { rows: CheckTableRow[]; canRelease: boolean }) {
+export function CheckTable({
+  rows, canRelease, bulkCap,
+}: {
+  rows: CheckTableRow[]
+  canRelease: boolean
+  bulkCap: number
+}) {
   const router = useRouter()
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
 
@@ -267,6 +273,7 @@ export function CheckTable({ rows, canRelease }: { rows: CheckTableRow[]; canRel
         <BulkActionBar
           checkIds={selectedIds}
           canRelease={canRelease}
+          cap={bulkCap}
           onDone={() => setSelected(new Set())}
         />
       )}

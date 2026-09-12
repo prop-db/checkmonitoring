@@ -1,9 +1,9 @@
 import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/db'
-import { getSyncOverview, ABANDONED_AFTER_MINUTES, type TenantSync } from '@/lib/admin/sync-overview'
-import { SYNC_IN_PROGRESS_MINUTES } from '@/lib/sync/run'
+import { getSyncOverview, type TenantSync } from '@/lib/admin/sync-overview'
 import { EmptyState } from '@/components/EmptyState'
 import { SyncNowButton } from '@/components/SyncNowButton'
+import { loadSettings } from '@/lib/settings/read'
 
 // Spec §11's wording: "Last Sync: September 1, 2026 — 10:45 AM".
 const fmtDateTime = (d: Date | null) =>
@@ -33,7 +33,13 @@ function Counts({ run }: { run: NonNullable<TenantSync['lastAttempt']> }) {
   )
 }
 
-function TenantCard({ t }: { t: TenantSync }) {
+function TenantCard({
+  t, inProgressMinutes, abandonedAfterMinutes,
+}: {
+  t: TenantSync
+  inProgressMinutes: number
+  abandonedAfterMinutes: number
+}) {
   const lastSuccess = fmtDateTime(t.lastSuccess?.startedAt ?? null)
   const lastAttempt = fmtDateTime(t.lastAttempt?.startedAt ?? null)
 
@@ -56,7 +62,7 @@ function TenantCard({ t }: { t: TenantSync }) {
         ) : t.inFlight ? (
           <span
             className="rounded-full bg-warning-bg px-2.5 py-1 text-xs font-semibold tracking-wide text-warning-ink"
-            title={`A run started and has not reported finishing. SYNC NOW refuses to start another for ${SYNC_IN_PROGRESS_MINUTES} minutes after that; past that it treats the run as dead and will start. Past ${ABANDONED_AFTER_MINUTES} minutes this screen calls it abandoned.`}
+            title={`A run started and has not reported finishing. SYNC NOW refuses to start another for ${inProgressMinutes} minutes after that; past that it treats the run as dead and will start. Past ${abandonedAfterMinutes} minutes this screen calls it abandoned.`}
           >
             RUN NOT FINISHED
           </span>
@@ -104,7 +110,7 @@ function TenantCard({ t }: { t: TenantSync }) {
             {t.inFlight && !t.abandoned && (
               <p className="mt-2 text-xs text-slate-500">
                 Started {Math.floor((Date.now() - t.lastAttempt.startedAt.getTime()) / 60_000)} minutes ago
-                and not finished. SYNC NOW will refuse until {SYNC_IN_PROGRESS_MINUTES} minutes have
+                and not finished. SYNC NOW will refuse until {inProgressMinutes} minutes have
                 passed, then treat it as dead and start; the schedule does the same.
               </p>
             )}
@@ -135,8 +141,9 @@ function TenantCard({ t }: { t: TenantSync }) {
 export default async function SyncPage() {
   await requireAdmin()
 
+  const settings = await loadSettings(prisma)
   const [overview, recent] = await Promise.all([
-    getSyncOverview(prisma),
+    getSyncOverview(prisma, new Date(), settings.values['sync.abandonedAfterMinutes']),
     prisma.syncRun.findMany({ orderBy: { startedAt: 'desc' }, take: 25 }),
   ])
 
@@ -147,7 +154,13 @@ export default async function SyncPage() {
           Starkson Paper and Plastic; a "last sync" across both would be a
           number about nothing. */}
       <div className="grid gap-4 lg:grid-cols-2">
-        {overview.tenants.map((t) => <TenantCard key={t.tenant} t={t} />)}
+        {overview.tenants.map((t) => (
+          <TenantCard
+            key={t.tenant} t={t}
+            inProgressMinutes={settings.values['sync.inProgressMinutes']}
+            abandonedAfterMinutes={settings.values['sync.abandonedAfterMinutes']}
+          />
+        ))}
       </div>
 
       {overview.untenantedRuns > 0 && (

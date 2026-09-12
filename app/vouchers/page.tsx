@@ -10,9 +10,10 @@ import {
   resolveVoucherRows, VOUCHER_INDEX_HREF, CONTESTED, ALL_CANCELLED, NOT_KEYED,
 } from '@/lib/export/voucher-index'
 import {
-  VOUCHERS_PATH, VOUCHER_SCREEN_ROW_LIMIT, VOUCHER_STATUS_OPTIONS,
+  VOUCHERS_PATH, VOUCHER_STATUS_OPTIONS,
   parseVoucherStatusParam, filterByStatus, describeVoucherView,
 } from '@/lib/vouchers-view'
+import { loadSettings } from '@/lib/settings/read'
 
 /**
  * The empty state used to say, unconditionally, "A voucher no cheque has been
@@ -72,12 +73,13 @@ export default async function VouchersPage({
   // filtered by `q` or `status` — it always states the whole exclusion, the
   // same way `summary.incomplete` does on the dashboard — because the point
   // is to tell a reader the rule exists at all, not to recompute it per search.
-  const [candidates, incompleteCount] = await Promise.all([
+  const [candidates, incompleteCount, settings] = await Promise.all([
     listVoucherCandidates(prisma, { voucher: q || undefined }),
     prisma.check.count({ where: { isIncomplete: true } }),
+    loadSettings(prisma),
   ])
   const matching = filterByStatus(resolveVoucherRows(candidates), status)
-  const rows = matching.slice(0, VOUCHER_SCREEN_ROW_LIMIT)
+  const rows = matching.slice(0, settings.values['caps.voucherScreenRows'])
 
   const anyFilter = Boolean(q || status)
   const field = 'h-10 rounded-lg border border-hairline bg-white px-3 text-sm text-slate-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy'

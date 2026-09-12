@@ -10,13 +10,14 @@ import { updateDetailsAction, type ActionResult } from '@/app/checks/actions'
  * Any status — a note belongs on a cancelled cheque as much as a live one.
  */
 export function DetailsForm({
-  checkId, values,
+  checkId, values, categories,
 }: {
   checkId: string
   values: {
     remarks: string | null; pointPerson: string | null; checksPossession: string | null; category: string | null
     expectedOutflowDate: string | null
   }
+  categories: readonly string[]
 }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
@@ -50,7 +51,13 @@ export function DetailsForm({
         </div>
         <div>
           <label htmlFor="details-category" className={label}>CATEGORY</label>
-          <input id="details-category" name="category" defaultValue={values.category ?? ''} placeholder="LOCAL SUPPLIER" disabled={pending} className={field} />
+          <select id="details-category" name="category" defaultValue={values.category ?? ''} disabled={pending} className={field}>
+            <option value="">—</option>
+            {values.category && !categories.includes(values.category) && (
+              <option value={values.category} disabled>{values.category} (no longer on the list)</option>
+            )}
+            {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
         </div>
         <div>
           <label htmlFor="details-expectedOutflowDate" className={label}>EXPECTED OUT</label>

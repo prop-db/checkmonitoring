@@ -5,7 +5,7 @@ import { listForecastRows, listPlannedRows, listBankCodes, countExcludedIncomple
 import { buildMatrices } from '@/lib/forecast/matrix'
 import { parseStageParam, describeForecastFilters, forecastFilename } from '@/lib/forecast-view'
 import { buildForecastWorkbook } from '@/lib/export/forecast-workbook'
-import { EXPORT_ROW_LIMIT } from '@/lib/export/report'
+import { loadSettings } from '@/lib/settings/read'
 
 /**
  * EXPORT THE FORECAST. The file is the view: the same filters as the page,
@@ -34,7 +34,9 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const params = new URL(request.url).searchParams
-  const [options, banks] = await Promise.all([getFilterOptions(prisma), listBankCodes(prisma)])
+  const [options, banks, settings] = await Promise.all([
+    getFilterOptions(prisma), listBankCodes(prisma), loadSettings(prisma),
+  ])
   const bankParam = params.get('bank')?.trim() || undefined
   // Validated against the banks that exist, exactly as the page does — a
   // hand-edited URL has to read the same on the page and in the file, or the
@@ -62,7 +64,7 @@ export async function GET(request: Request): Promise<Response> {
     byBank, byStage,
     // Capped after bucketing, so the matrices are struck over every cheque
     // and only the DETAIL listing is cut — and the title block says so.
-    detail: bucketed.slice(0, EXPORT_ROW_LIMIT),
+    detail: bucketed.slice(0, settings.values['caps.exportRows']),
     meta: {
       generatedAt: now,
       generatedBy: user.name,

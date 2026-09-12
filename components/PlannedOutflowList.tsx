@@ -18,13 +18,14 @@ const isoDay = (d: Date) => d.toISOString().slice(0, 10)
  * arrives as a decimal string and is formatted here — never parsed.
  */
 export function PlannedOutflowList({
-  rows, banks, companies, today,
+  rows, banks, companies, today, categories,
 }: {
   rows: PlannedOutflowRow[]
   banks: { id: string; code: string }[]
   companies: { id: string; code: string; name: string }[]
   /** Today's Manila day, YYYY-MM-DD, for the PAID ON default. */
   today: string
+  categories: readonly string[]
 }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
@@ -80,7 +81,7 @@ export function PlannedOutflowList({
 
             {open && editing === r.id && (
               <PlannedOutflowForm
-                id={r.id} banks={banks} companies={companies} onDone={() => setEditing(null)}
+                id={r.id} banks={banks} companies={companies} categories={categories} onDone={() => setEditing(null)}
                 initial={{
                   date: isoDay(r.date), amount: r.amount, currency: r.currency, bankId: r.bankId,
                   companyId: r.companyId, description: r.description, category: r.category ?? '',

@@ -3,7 +3,6 @@
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { MAX_BULK_SELECTION } from '@/lib/bulk'
 import { ReceiptFields, EMPTY_RECEIPT, receiptTypeMissing, type ReceiptValue } from './ReceiptFields'
 import {
   bulkSignAction, bulkReadyForReleaseAction, bulkReleaseAction,
@@ -28,10 +27,11 @@ import {
  * out before pressing one rather than after.
  */
 export function BulkActionBar({
-  checkIds, canRelease, onDone,
+  checkIds, canRelease, cap, onDone,
 }: {
   checkIds: string[]
   canRelease: boolean
+  cap: number
   /** Called after a batch that changed something, so the table can clear itself. */
   onDone: () => void
 }) {
@@ -47,7 +47,7 @@ export function BulkActionBar({
    */
   const [receiptPending, setReceiptPending] = useState<string | null>(null)
 
-  const overCap = checkIds.length > MAX_BULK_SELECTION
+  const overCap = checkIds.length > cap
   const disabled = pending || overCap
 
   /**
@@ -189,7 +189,7 @@ export function BulkActionBar({
 
       {overCap && (
         <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
-          {checkIds.length} CHEQUES ARE SELECTED. A bulk action is limited to {MAX_BULK_SELECTION}
+          {checkIds.length} CHEQUES ARE SELECTED. A bulk action is limited to {cap}
           {' '}at a time — untick some before continuing.
         </p>
       )}

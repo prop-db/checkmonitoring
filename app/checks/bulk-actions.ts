@@ -7,6 +7,7 @@ import { parseSelection, chunkSelection } from '@/lib/bulk'
 import { listTodaysReleaseIds } from '@/lib/queries'
 import { readReceiptFields, receiptWasTyped } from '@/lib/receipt-form'
 import { runEach, type BulkOutcome, type BulkActionResult } from '@/lib/bulk-run'
+import { loadSettings } from '@/lib/settings/read'
 
 export type { BulkOutcome, BulkActionResult }
 
@@ -42,7 +43,8 @@ const str = (f: FormData, k: string) => String(f.get(k) ?? '').trim()
 
 export async function bulkSignAction(formData: FormData): Promise<BulkActionResult> {
   const user = await requireUser()
-  const selection = parseSelection(ids(formData))
+  const settings = await loadSettings(prisma)
+  const selection = parseSelection(ids(formData), settings.values['caps.bulkSelection'])
   if (!selection.ok) return { ok: false, message: selection.message }
 
   // One timestamp for the batch: these cheques were signed in one act, and the
@@ -54,7 +56,8 @@ export async function bulkSignAction(formData: FormData): Promise<BulkActionResu
 
 export async function bulkReadyForReleaseAction(formData: FormData): Promise<BulkActionResult> {
   const user = await requireUser()
-  const selection = parseSelection(ids(formData))
+  const settings = await loadSettings(prisma)
+  const selection = parseSelection(ids(formData), settings.values['caps.bulkSelection'])
   if (!selection.ok) return { ok: false, message: selection.message }
 
   // The pickup date is one field shared by the whole batch, so a missing or
@@ -110,7 +113,8 @@ export async function bulkReleaseAction(formData: FormData): Promise<BulkActionR
   if (user.role !== 'FINANCE_ADMIN') {
     return { ok: false, message: 'Only a Finance Admin can mark a cheque RELEASED.' }
   }
-  const selection = parseSelection(ids(formData))
+  const settings = await loadSettings(prisma)
+  const selection = parseSelection(ids(formData), settings.values['caps.bulkSelection'])
   if (!selection.ok) return { ok: false, message: selection.message }
 
   const receipt = readReceiptFields(formData)
@@ -209,6 +213,8 @@ export async function releaseAllReadyAction(
     }
   }
 
+  const settings = await loadSettings(prisma)
+  const cap = settings.values['caps.bulkSelection']
   const checkIds = await listTodaysReleaseIds(prisma)
 
   if (checkIds.length === 0) {
@@ -244,8 +250,8 @@ export async function releaseAllReadyAction(
    */
   const now = new Date()
   const outcomes: BulkOutcome[] = []
-  for (const batch of chunkSelection(checkIds)) {
-    const selection = parseSelection(batch)
+  for (const batch of chunkSelection(checkIds, cap)) {
+    const selection = parseSelection(batch, cap)
     // Unreachable: `chunkSelection` de-duplicates, drops blanks and splits at
     // the cap. Handled rather than asserted, because the alternative to a
     // returned refusal is a thrown one half way through a release.

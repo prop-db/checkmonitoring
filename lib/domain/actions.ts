@@ -3,6 +3,7 @@ import type {
   ClearingStatus as PrismaClearing,
 } from '@prisma/client'
 import { writeAudit } from '@/lib/audit'
+import { loadSettings } from '@/lib/settings/read'
 import { DomainError } from './errors'
 import { portalRoute, type Eligibility } from './eligibility'
 import { checkDeletable } from './incomplete'
@@ -566,13 +567,14 @@ export async function updateDetails(
   args: { checkId: string; userId: string; fields: DetailInput; now: Date },
 ): Promise<Check> {
   return inTx(db, async (tx) => {
+    const { values } = await loadSettings(tx)
     const check = await load(tx, args.checkId)
     const before: DetailValues = {
       remarks: check.remarks, pointPerson: check.pointPerson,
       checksPossession: check.checksPossession, category: check.category,
       expectedOutflowDate: isoDay(check.expectedOutflowDate),
     }
-    const after = normaliseDetails(args.fields, before)
+    const after = normaliseDetails(args.fields, before, { categories: values.categories })
     const changes = diffDetails(before, after)
     const changed = Object.keys(changes) as (keyof typeof changes)[]
     if (changed.length === 0) return check

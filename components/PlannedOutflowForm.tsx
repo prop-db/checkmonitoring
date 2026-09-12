@@ -16,12 +16,13 @@ const EMPTY: PlannedOutflowFormValues = { date: '', amount: '', currency: 'PHP',
  * as the string the user typed and is validated as money there.
  */
 export function PlannedOutflowForm({
-  id, initial, banks, companies, onDone,
+  id, initial, banks, companies, categories, onDone,
 }: {
   id?: string
   initial?: PlannedOutflowFormValues
   banks: { id: string; code: string }[]
   companies: { id: string; code: string; name: string }[]
+  categories: readonly string[]
   onDone?: () => void
 }) {
   const router = useRouter()
@@ -81,7 +82,13 @@ export function PlannedOutflowForm({
         </div>
         <div>
           <label htmlFor={`${p}-category`} className={label}>CATEGORY</label>
-          <input id={`${p}-category`} name="category" placeholder="PAYROLL" defaultValue={v.category} disabled={pending} className={field} />
+          <select id={`${p}-category`} name="category" defaultValue={v.category} disabled={pending} className={field}>
+            <option value="">—</option>
+            {v.category && !categories.includes(v.category) && (
+              <option value={v.category} disabled>{v.category} (no longer on the list)</option>
+            )}
+            {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
         </div>
         <div className="md:col-span-3">
           <label htmlFor={`${p}-description`} className={label}>DESCRIPTION</label>
