@@ -195,6 +195,7 @@ category not on it.
 | `lib/integrations/acumatica/` | OData reader and mapper. |
 | `lib/sync/run.ts` | Incremental sync, watermark with a 120-minute overlap. |
 | `lib/forecast/` | Cash outflow by cheque date: `buckets.ts` (the ageing buckets, pure), `query.ts` (the population — live, real, with an amount), `matrix.ts` (bucket × bank and bucket × stage, centavo-exact, pure). `/forecast` and `/api/export/forecast` sit on it. Since 2026-09-12 a cheque's typed `expectedOutflowDate` wins over its cheque date, and `PlannedOutflow` lines (`lib/planned-outflow/`, `/forecast/planned`) join the population as their own PLANNED column. |
+| `lib/recon/` | Outstanding cheques: `outstanding.ts` (the as-of rule, pure), `summary.ts` (per account, centavo-exact, pure), `query.ts` (the released population). `/recon` and `/api/export/recon` sit on it. |
 | `lib/normalised-row.ts` | The one shape both ingestion paths converge on. |
 | `lib/settings/` | The ten settings: `registry.ts` (pure — defaults from the constants, bounds, parsing), `read.ts` (one query per request, never cached), `actions.ts` (admin-only writes, audited). `/admin/settings`. |
 | `docs/superpowers/specs/` | The approved design, and the Supplier Portal API evidence. |
@@ -433,9 +434,12 @@ Production is `check_monitoring_prod` on Neon. Both outstanding migrations were 
    every row) and a cheque's date is the day from which it can be presented. Live cheques by bank
    and by stage in Finance's own ageing buckets; the file is the view. What it cannot yet show is
    actual outflow by day: that begins the day releases go through the app and `releasedAt` fills.
-   The other three reports Finance named — bank reconciliation, hedging, foreign outlook — are not
-   buildable here; the voucher-index spec's closing section records why and where their sources
-   actually live. **Calibrated 2026-09-12:** Finance types the day a cheque is expected to leave the
+   Of the other three reports Finance named, **the bank reconciliation's cheque side is built**
+   (2026-09-12): `/recon` gives every cash account's outstanding cheques — released and not
+   cleared — as of a day, the OC column of the Cash Balance sheet, with its extract; deposits in
+   transit and the balances stay with the bank statement, whose import waits for a sample export.
+   Hedging and the foreign outlook are not buildable here; the voucher-index spec's closing section
+   records why. **Calibrated 2026-09-12:** Finance types the day a cheque is expected to leave the
    bank (EXPECTED OUT, on the cheque page; the forecast places it there) and planned non-cheque
    outflows — payroll, tax, loans, transfers — as one-off lines on `/forecast/planned`, open until
    marked PAID or CANCELLED, never deleted. The daily cash position is no longer cheques only.

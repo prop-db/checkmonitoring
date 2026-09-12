@@ -1,0 +1,114 @@
+import Link from 'next/link'
+import { requireUser } from '@/lib/auth'
+import { prisma } from '@/lib/db'
+import { getFilterOptions } from '@/lib/queries'
+import { listBankCodes } from '@/lib/forecast/query'
+import { listOutstandingCandidates, countExcludedIncomplete } from '@/lib/recon/query'
+import { summariseByAccount } from '@/lib/recon/summary'
+import { RECON_PATH, RECON_EXPORT_PATH, parseAsOf, reconHref, describeReconFilters } from '@/lib/recon-view'
+import { AppHeader } from '@/components/AppHeader'
+import { EmptyState } from '@/components/EmptyState'
+import { ReconTable } from '@/components/ReconTable'
+import { OutstandingList } from '@/components/OutstandingList'
+
+/**
+ * OUTSTANDING CHEQUES — the cheque side of the bank reconciliation.
+ *
+ * For a day, every cash account's released-and-not-cleared cheques: the OC
+ * column of Finance's Cash Balance sheet, computed from what this system
+ * records (built 2026-09-12). Everything shown is decided in `lib/recon/`;
+ * the page reads parameters, runs one query, and renders. The export runs
+ * the same query with the same day and filters, so the file and the screen
+ * agree.
+ */
+export default async function ReconPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ asOf?: string; bank?: string; company?: string; account?: string }>
+}) {
+  const user = await requireUser()
+  const params = await searchParams
+  const now = new Date()
+  const asOfDay = parseAsOf(params.asOf, now)
+
+  const [options, banks] = await Promise.all([getFilterOptions(prisma), listBankCodes(prisma)])
+  const bank = banks.includes(params.bank?.trim() ?? '') ? params.bank!.trim() : undefined
+  const company = options.companies.find((c) => c.id === params.company?.trim())
+  const account = options.cashAccounts.find((a) => a.id === params.account?.trim())
+  const filters = { bankCode: bank, companyId: company?.id, cashAccountId: account?.id }
+
+  const [rows, incompleteCount] = await Promise.all([
+    listOutstandingCandidates(prisma, filters),
+    countExcludedIncomplete(prisma, filters),
+  ])
+  const summary = summariseByAccount(rows, asOfDay)
+
+  const current = { asOf: asOfDay, bank, company: company?.id, account: account?.id }
+  const anyFilter = Boolean(bank || company || account || params.asOf)
+  const field = 'h-10 rounded-lg border border-hairline bg-white px-3 text-sm text-slate-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy'
+
+  return (
+    <main className="mx-auto max-w-[1600px] space-y-6 p-8">
+      <AppHeader user={user} title="OUTSTANDING CHEQUES" back={{ href: '/', label: '← DASHBOARD' }} showReconLink={false} />
+
+      <p className="rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">
+        Outstanding means released and not yet cleared by the bank as of the date. Where no release date
+        was recorded, the cheque date stands in. Record clearing on the cheque or on{' '}
+        <Link href="/clearing" className="underline underline-offset-2">CLEARING</Link> to move a cheque off this list.
+      </p>
+
+      <form className="flex flex-wrap items-center gap-2 rounded-2xl bg-white p-3 ring-1 ring-hairline" method="get">
+        <label htmlFor="recon-asOf" className="text-[11px] font-semibold tracking-widest text-slate-400">AS OF</label>
+        <input id="recon-asOf" name="asOf" type="date" defaultValue={asOfDay} className={field} />
+        <label className="sr-only" htmlFor="recon-bank">BANK</label>
+        <select id="recon-bank" name="bank" defaultValue={bank ?? ''} className={field}>
+          <option value="">ANY BANK</option>
+          {banks.map((b) => <option key={b} value={b}>{b}</option>)}
+        </select>
+        <label className="sr-only" htmlFor="recon-company">COMPANY</label>
+        <select id="recon-company" name="company" defaultValue={company?.id ?? ''} className={field}>
+          <option value="">ANY COMPANY</option>
+          {options.companies.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
+        </select>
+        {account && <input type="hidden" name="account" value={account.id} />}
+        <button type="submit" className="h-10 rounded-lg bg-navy px-4 text-sm font-medium tracking-wide text-white transition hover:bg-navy/90">APPLY</button>
+        {anyFilter && <Link href={RECON_PATH} className="text-sm text-slate-500 underline underline-offset-2">RESET</Link>}
+      </form>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="space-y-1">
+          <p className="text-xs font-medium tracking-wide text-slate-600">
+            {summary.lines.length.toLocaleString('en-PH')} CHEQUE{summary.lines.length === 1 ? '' : 'S'} OUTSTANDING AS OF {asOfDay}
+            {' · '}{describeReconFilters({ bank, company: company?.code, account: account?.code })}
+          </p>
+          {incompleteCount > 0 && (
+            <p className="text-xs font-medium tracking-wide text-slate-500">
+              EXCLUDES {incompleteCount.toLocaleString('en-PH')} RELEASED CHEQUE{incompleteCount === 1 ? '' : 'S'} WITH NO RECORDED AMOUNT.{' '}
+              <Link href="/?incomplete=1" className="underline underline-offset-2">Show them</Link>.
+            </p>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-xs text-slate-500">The file holds this view, as of this day.</span>
+          <a href={reconHref(current, RECON_EXPORT_PATH)} className="rounded-lg bg-navy px-4 py-2 text-sm font-medium tracking-wide text-white transition hover:bg-navy/90">EXPORT EXCEL</a>
+        </div>
+      </div>
+
+      {summary.lines.length === 0 ? (
+        <EmptyState title="NOTHING OUTSTANDING" tone={anyFilter ? 'plain' : 'good'}>
+          {anyFilter ? 'No released cheque under these filters was uncleared on that day.' : 'Every released cheque has cleared.'}
+        </EmptyState>
+      ) : (
+        <>
+          <ReconTable summary={summary} params={current} />
+          {account && (
+            <>
+              <h2 className="text-[11px] font-semibold tracking-widest text-slate-400">{account.code} — THE CHEQUES</h2>
+              <OutstandingList lines={summary.lines} />
+            </>
+          )}
+        </>
+      )}
+    </main>
+  )
+}

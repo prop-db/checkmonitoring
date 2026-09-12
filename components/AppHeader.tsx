@@ -18,7 +18,7 @@ import type { SessionUser } from '@/lib/auth'
  */
 export function AppHeader({
   user, title, back, showAdminLink = true, showVouchersLink = true, showForecastLink = true,
-  showClearingLink = true,
+  showClearingLink = true, showReconLink = true,
 }: {
   user: SessionUser
   title: string
@@ -31,6 +31,8 @@ export function AppHeader({
   showForecastLink?: boolean
   /** False on the clearing page, which IS the clearing screen. */
   showClearingLink?: boolean
+  /** False on the recon page, which IS the recon screen. */
+  showReconLink?: boolean
 }) {
   return (
     <header className="flex flex-wrap items-baseline justify-between gap-4">
@@ -55,6 +57,9 @@ export function AppHeader({
         )}
         {showClearingLink && (
           <Link href="/clearing" className="underline underline-offset-2">CLEARING</Link>
+        )}
+        {showReconLink && (
+          <Link href="/recon" className="underline underline-offset-2">RECON</Link>
         )}
         {/* Shown only to an admin. The route is guarded server-side either way
             (app/admin/layout.tsx); hiding the link keeps a Finance user from
