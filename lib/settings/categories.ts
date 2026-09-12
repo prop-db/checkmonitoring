@@ -2,12 +2,11 @@
  * THE CATEGORY LIST'S LEAF.
  *
  * Both the registry (which declares the `categories` setting) and the domain
- * (which refuses a category not on the list) need these two things, and they
- * must not reach each other for them: the registry imports the sync module for
- * a constant, the sync module imports the importer, the importer imports the
- * domain — so a domain file importing the registry closes a cycle in which the
- * registry's `SETTINGS` could be built before the sync module's constant is
- * initialised. Found in review 2026-09-12. This file imports nothing.
+ * (which refuses a category not on the list) need these two things. The
+ * domain imports this leaf, never the registry, and the registry itself
+ * imports only leaves (see ./defaults.ts for why) — so no path from
+ * lib/domain/ can reach a server module through settings. This file imports
+ * nothing.
  */
 
 /** The importer's own set, which is also what a fresh database offers. */

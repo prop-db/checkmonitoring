@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@prisma/client'
+import { DEFAULT_WINDOW_MINUTES, DEFAULT_EMAIL_FREE_FAILURES, DEFAULT_IP_FREE_FAILURES } from '@/lib/settings/defaults'
 
 /**
  * Login rate limiting and lockout (`LoginAttempt`, `authorize` in auth.config.ts).
@@ -31,7 +32,7 @@ import type { PrismaClient } from '@prisma/client'
  * How far back a failure still counts. Also the outer bound on recovery: stop
  * trying for this long and the counter is empty again, whatever it reached.
  */
-export const WINDOW_MINUTES = 15
+export const WINDOW_MINUTES = DEFAULT_WINDOW_MINUTES
 
 /**
  * Failures against one address before the first lock. The fifth is the first
@@ -42,7 +43,7 @@ export const WINDOW_MINUTES = 15
  * genuine mistype all fit inside it with a spare. The attacker is bounded by
  * the schedule below, not by this.
  */
-export const EMAIL_FREE_FAILURES = 4
+export const EMAIL_FREE_FAILURES = DEFAULT_EMAIL_FREE_FAILURES
 
 /**
  * Failures from one client address before the first lock, counted across every
@@ -53,7 +54,7 @@ export const EMAIL_FREE_FAILURES = 4
  * honest mistakes. Twenty covers that with room, and the cost of reaching it is
  * a sixty-second wait, not a call to an administrator.
  */
-export const IP_FREE_FAILURES = 20
+export const IP_FREE_FAILURES = DEFAULT_IP_FREE_FAILURES
 
 /**
  * Minutes of lockout for the 1st, 2nd, 3rd and 4th-or-later failure past an

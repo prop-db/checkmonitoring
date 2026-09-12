@@ -1,10 +1,35 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+// Deliberately FIRST: the heaviest server module that reaches the domain. If
+// the registry ever again imports a server module, this load order is the one
+// in which a module-scope default could be read before it is initialised.
+import '@/lib/domain/actions'
 import {
   SETTINGS, SETTING_KEYS, DEFAULTS, settingDef, isSettingKey, parseSettingText, formatSettingText, isCategory,
 } from '@/lib/settings/registry'
 import { STALE_AFTER_HOURS } from '@/lib/sync/staleness'
 import { MAX_BULK_SELECTION } from '@/lib/bulk'
 import { EMAIL_FREE_FAILURES } from '@/lib/login-throttle'
+
+describe('the registry imports only leaves', () => {
+  // Found twice in review on 2026-09-12: the registry once imported
+  // lib/sync/run.ts for one number; run.ts reaches the domain through the
+  // importer; and the domain reads settings — a cycle in which the registry
+  // built SETTINGS before run.ts had initialised its constant. Pinned
+  // structurally: the registry's imports are the two leaves and nothing else.
+  it('imports nothing but ./defaults and ./categories', () => {
+    const source = readFileSync('lib/settings/registry.ts', 'utf8')
+    const froms = [...source.matchAll(/from '([^']+)'/g)].map((m) => m[1])
+    expect(froms.sort()).toEqual(['./categories', './defaults'])
+  })
+
+  it('has every default initialised even when the domain was loaded first', () => {
+    for (const d of SETTINGS) {
+      if (d.kind === 'int') expect(typeof DEFAULTS[d.key], d.key).toBe('number')
+    }
+    expect(DEFAULTS['sync.inProgressMinutes']).toBe(10)
+  })
+})
 
 describe('the registry', () => {
   it('declares ten settings, each key once', () => {

@@ -1,10 +1,17 @@
-import { STALE_AFTER_HOURS } from '@/lib/sync/staleness'
-import { ABANDONED_AFTER_MINUTES } from '@/lib/admin/sync-overview'
-import { SYNC_IN_PROGRESS_MINUTES } from '@/lib/sync/run'
-import { MAX_BULK_SELECTION } from '@/lib/bulk'
-import { EXPORT_ROW_LIMIT } from '@/lib/export/report'
-import { VOUCHER_SCREEN_ROW_LIMIT } from '@/lib/vouchers-view'
-import { WINDOW_MINUTES, EMAIL_FREE_FAILURES, IP_FREE_FAILURES } from '@/lib/login-throttle'
+// Leaves only. The numbers live in ./defaults and each consumer module defines
+// its own named constant FROM them, so this file never imports a server module
+// and can never close a cycle through one — see ./defaults.ts.
+import {
+  DEFAULT_STALE_AFTER_HOURS as STALE_AFTER_HOURS,
+  DEFAULT_ABANDONED_AFTER_MINUTES as ABANDONED_AFTER_MINUTES,
+  DEFAULT_SYNC_IN_PROGRESS_MINUTES as SYNC_IN_PROGRESS_MINUTES,
+  DEFAULT_MAX_BULK_SELECTION as MAX_BULK_SELECTION,
+  DEFAULT_EXPORT_ROW_LIMIT as EXPORT_ROW_LIMIT,
+  DEFAULT_VOUCHER_SCREEN_ROW_LIMIT as VOUCHER_SCREEN_ROW_LIMIT,
+  DEFAULT_WINDOW_MINUTES as WINDOW_MINUTES,
+  DEFAULT_EMAIL_FREE_FAILURES as EMAIL_FREE_FAILURES,
+  DEFAULT_IP_FREE_FAILURES as IP_FREE_FAILURES,
+} from './defaults'
 import { DEFAULT_CATEGORIES, isCategory } from './categories'
 
 // Re-exported so existing importers keep working; the domain imports the leaf directly.

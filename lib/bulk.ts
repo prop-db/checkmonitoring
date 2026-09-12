@@ -1,3 +1,4 @@
+import { DEFAULT_MAX_BULK_SELECTION } from '@/lib/settings/defaults'
 /**
  * The selection a bulk action is allowed to act on.
  *
@@ -17,7 +18,7 @@
  * before pressing the button, and the refusal below tells them how many they
  * actually selected so they can see the mistake.
  */
-export const MAX_BULK_SELECTION = 50
+export const MAX_BULK_SELECTION = DEFAULT_MAX_BULK_SELECTION
 
 export type SelectionResult =
   | { ok: true; checkIds: string[] }

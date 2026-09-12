@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient, SyncRun } from '@prisma/client'
 import type { AcumaticaTenant } from '@/lib/integrations/acumatica/companies'
+import { DEFAULT_ABANDONED_AFTER_MINUTES } from '@/lib/settings/defaults'
 
 type Db = PrismaClient | Prisma.TransactionClient
 
@@ -52,7 +53,7 @@ export type TenantSync = {
  * as dead. Anything a serverless request could produce is dead long before
  * this: Vercel's own ceiling is minutes.
  */
-export const ABANDONED_AFTER_MINUTES = 90
+export const ABANDONED_AFTER_MINUTES = DEFAULT_ABANDONED_AFTER_MINUTES
 
 export type SyncOverview = {
   tenants: TenantSync[]

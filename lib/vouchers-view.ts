@@ -1,6 +1,7 @@
 import { ALL_STATUSES } from './queries'
 import { statusWords } from './export/report'
 import { CONTESTED, ALL_CANCELLED, NOT_KEYED, type VoucherRow } from './export/voucher-index'
+import { DEFAULT_VOUCHER_SCREEN_ROW_LIMIT } from '@/lib/settings/defaults'
 
 /**
  * The voucher screen's arithmetic: what its URL means, what its select offers,
@@ -19,7 +20,7 @@ export const VOUCHERS_PATH = '/vouchers'
  * reason the dashboard caps at 200: a voucher is found by searching for it,
  * not by paging to it.
  */
-export const VOUCHER_SCREEN_ROW_LIMIT = 200
+export const VOUCHER_SCREEN_ROW_LIMIT = DEFAULT_VOUCHER_SCREEN_ROW_LIMIT
 
 /**
  * The three statuses that are facts about a ROW rather than about a cheque.

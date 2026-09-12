@@ -1,3 +1,4 @@
+import { DEFAULT_STALE_AFTER_HOURS } from '@/lib/settings/defaults'
 /**
  * When the dashboard should say Acumatica has not been read.
  *
@@ -13,7 +14,7 @@
  * cry wolf every afternoon; not much longer, or a missed run would go a whole
  * second day unremarked.
  */
-export const STALE_AFTER_HOURS = 30
+export const STALE_AFTER_HOURS = DEFAULT_STALE_AFTER_HOURS
 
 export type TenantRead = { tenant: string; lastReadAt: Date | null }
 export type TenantStaleness = TenantRead & { hoursAgo: number | null; stale: boolean }

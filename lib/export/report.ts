@@ -1,4 +1,5 @@
 import type { CheckStatus } from '@prisma/client'
+import { DEFAULT_EXPORT_ROW_LIMIT } from '@/lib/settings/defaults'
 
 /**
  * The arithmetic behind the Excel export. Pure: no ExcelJS, no database, no
@@ -31,7 +32,7 @@ import type { CheckStatus } from '@prisma/client'
  * truncation into the title block of the sheet itself, so a short file cannot
  * be mistaken for a small result.
  */
-export const EXPORT_ROW_LIMIT = 10_000
+export const EXPORT_ROW_LIMIT = DEFAULT_EXPORT_ROW_LIMIT
 
 /**
  * Column widths, in Excel's character units.

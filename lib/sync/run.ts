@@ -11,6 +11,7 @@ import {
 import type { AcumaticaTenant } from '@/lib/integrations/acumatica/companies'
 import { collapseVoidPairs, mapPayment } from '@/lib/integrations/acumatica/map'
 import type { NormalisedRow } from '@/lib/normalised-row'
+import { DEFAULT_SYNC_IN_PROGRESS_MINUTES } from '@/lib/settings/defaults'
 
 type Db = PrismaClient | Prisma.TransactionClient
 
@@ -58,7 +59,7 @@ export const SYNC_OVERLAP_MINUTES = 120
  * an hour, and the screen must not libel it. This one governs whether a NEW
  * run may start, and nothing that runs on a schedule takes an hour.
  */
-export const SYNC_IN_PROGRESS_MINUTES = 10
+export const SYNC_IN_PROGRESS_MINUTES = DEFAULT_SYNC_IN_PROGRESS_MINUTES
 
 /**
  * Thrown before anything is written. A `DomainError`, so the admin action shows
