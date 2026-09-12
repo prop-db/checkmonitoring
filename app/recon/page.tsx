@@ -44,7 +44,11 @@ export default async function ReconPage({
   const summary = summariseByAccount(rows, asOfDay)
 
   const current = { asOf: asOfDay, bank, company: company?.id, account: account?.id }
-  const anyFilter = Boolean(bank || company || account || params.asOf)
+  // Two questions: is anything NARROWING the population (the empty state's
+  // wording), and is anything set at all (whether RESET is offered). A day
+  // alone narrows nothing — the count line says "No filters applied" for it.
+  const narrowed = Boolean(bank || company || account)
+  const anyFilter = narrowed || Boolean(params.asOf)
   const field = 'h-10 rounded-lg border border-hairline bg-white px-3 text-sm text-slate-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy'
 
   return (
@@ -89,14 +93,14 @@ export default async function ReconPage({
           )}
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <span className="text-xs text-slate-500">The file holds this view, as of this day.</span>
+          <span className="text-xs text-slate-500">The file holds this view, as of this day, with these filters.</span>
           <a href={reconHref(current, RECON_EXPORT_PATH)} className="rounded-lg bg-navy px-4 py-2 text-sm font-medium tracking-wide text-white transition hover:bg-navy/90">EXPORT EXCEL</a>
         </div>
       </div>
 
       {summary.lines.length === 0 ? (
-        <EmptyState title="NOTHING OUTSTANDING" tone={anyFilter ? 'plain' : 'good'}>
-          {anyFilter ? 'No released cheque under these filters was uncleared on that day.' : 'Every released cheque has cleared.'}
+        <EmptyState title="NOTHING OUTSTANDING" tone={narrowed ? 'plain' : 'good'}>
+          {narrowed ? 'No released cheque under these filters was uncleared on that day.' : `No released cheque was uncleared as of ${asOfDay}.`}
         </EmptyState>
       ) : (
         <>
