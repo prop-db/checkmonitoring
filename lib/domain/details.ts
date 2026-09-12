@@ -1,5 +1,5 @@
 import { DomainError } from './errors'
-import { DEFAULT_CATEGORIES, isCategory } from '@/lib/settings/registry'
+import { DEFAULT_CATEGORIES, isCategory } from '@/lib/settings/categories'
 
 /**
  * THE FOUR THINGS FINANCE TYPED INTO THE REGISTER — AND ONE IT NEVER COULD.

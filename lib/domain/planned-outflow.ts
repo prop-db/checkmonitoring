@@ -1,6 +1,6 @@
 import type { GuardResult } from './check-status'
 import { isIsoDay } from './details'
-import { DEFAULT_CATEGORIES, isCategory } from '@/lib/settings/registry'
+import { DEFAULT_CATEGORIES, isCategory } from '@/lib/settings/categories'
 
 /**
  * A PLANNED OUTFLOW THAT IS NOT A CHEQUE.

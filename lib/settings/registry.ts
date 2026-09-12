@@ -5,6 +5,10 @@ import { MAX_BULK_SELECTION } from '@/lib/bulk'
 import { EXPORT_ROW_LIMIT } from '@/lib/export/report'
 import { VOUCHER_SCREEN_ROW_LIMIT } from '@/lib/vouchers-view'
 import { WINDOW_MINUTES, EMAIL_FREE_FAILURES, IP_FREE_FAILURES } from '@/lib/login-throttle'
+import { DEFAULT_CATEGORIES, isCategory } from './categories'
+
+// Re-exported so existing importers keep working; the domain imports the leaf directly.
+export { DEFAULT_CATEGORIES, isCategory }
 
 /**
  * THE TEN KNOBS, DECLARED ONCE.
@@ -40,10 +44,6 @@ export type ListSettingDef = {
 }
 export type SettingDef = IntSettingDef | ListSettingDef
 
-/** The importer's own set, which is also what a fresh database offers. */
-export const DEFAULT_CATEGORIES: readonly string[] = [
-  'LOCAL SUPPLIER', 'PAYROLL', 'UTILITIES', 'TAX', 'FUND TRANSFER', 'BROKERS', 'SALARIES', 'FTP', 'TRANSPO,GAS AND OIL',
-]
 
 export const SETTINGS: readonly SettingDef[] = [
   { kind: 'int', key: 'sync.staleAfterHours', group: 'SYNC', label: 'ACUMATICA READ IS STALE AFTER', unit: 'hours',
@@ -137,6 +137,3 @@ export function parseStoredText(def: SettingDef, stored: string): { ok: true; va
   }
 }
 
-export function isCategory(list: readonly string[], value: string): boolean {
-  return list.includes(value.trim().toUpperCase())
-}
