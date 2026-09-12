@@ -64,7 +64,11 @@ export function normaliseDetails(
     }
     if (field === 'category' && cleaned !== null) {
       const upper = cleaned.toUpperCase()
-      if (!isCategory(opts.categories ?? DEFAULT_CATEGORIES, upper)) {
+      // The record's CURRENT category is always allowed, changed or not:
+      // removing one from the list stops it being chosen from now on, and
+      // must not make every other field on the cheque uneditable.
+      const allowed = upper === current.category
+      if (!allowed && !isCategory(opts.categories ?? DEFAULT_CATEGORIES, upper)) {
         throw new DomainError(
           'UNKNOWN_CATEGORY',
           `${upper} is not a category. Add it under ADMINISTRATION → SETTINGS first.`,

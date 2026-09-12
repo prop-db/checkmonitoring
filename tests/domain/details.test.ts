@@ -34,6 +34,13 @@ describe('normaliseDetails', () => {
     expect(() => normaliseDetails({ expectedOutflowDate: '2026-02-30' }, current)).toThrow(DomainError)
   })
 
+  it('keeps a category that has since left the list, as long as it is unchanged', () => {
+    const withOld: DetailValues = { ...current, category: 'RENT' }
+    expect(normaliseDetails({ category: 'RENT', remarks: 'note' }, withOld, { categories: ['PAYROLL'] }))
+      .toMatchObject({ category: 'RENT', remarks: 'note' })
+    expect(() => normaliseDetails({ category: 'RENT' }, current, { categories: ['PAYROLL'] })).toThrow(DomainError)
+  })
+
   it('refuses a category that is not on the list, and accepts one that is', () => {
     expect(() => normaliseDetails({ category: 'RENT' }, current)).toThrow(DomainError)
     expect(normaliseDetails({ category: 'rent' }, current, { categories: ['RENT'] }).category).toBe('RENT')

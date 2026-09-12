@@ -81,9 +81,11 @@ export async function updatePlannedOutflow(
 ): Promise<PlannedOutflow> {
   return db.$transaction(async (tx) => {
     const { values } = await loadSettings(tx)
-    const after = validated(args.input, values.categories)
     const line = await loadLine(tx, args.id)
     assertPlanned(line)
+    // The line's own category stays allowed even if the list dropped it —
+    // removing a category must not freeze the lines that carry it.
+    const after = validated(args.input, line.category ? [...values.categories, line.category] : values.categories)
     const changes = diffPlannedOutflow(valuesOf(line), after)
     if (Object.keys(changes).length === 0) return line
     await assertRefsExist(tx, after)

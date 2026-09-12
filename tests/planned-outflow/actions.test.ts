@@ -77,6 +77,16 @@ describe('updatePlannedOutflow', () => {
     expect(await trail(line.id, 'planned_outflow_updated')).toHaveLength(0)
   })
 
+  it('keeps a category the list has since dropped, but refuses a new one off the list', async () => {
+    const { user, company, bank } = await refs()
+    const line = await createPlannedOutflow(testDb, { input: input(bank.id, company.id), userId: user.id, now: NOW })
+    await testDb.setting.create({ data: { key: 'categories', value: '["TAX"]' } })
+    const kept = await updatePlannedOutflow(testDb, { id: line.id, input: input(bank.id, company.id, { amount: '99' }), userId: user.id, now: NOW })
+    expect(kept.category).toBe('PAYROLL')
+    await expect(updatePlannedOutflow(testDb, { id: line.id, input: input(bank.id, company.id, { category: 'rent' }), userId: user.id, now: NOW }))
+      .rejects.toMatchObject({ code: 'UNKNOWN_CATEGORY' })
+  })
+
   it('refuses to edit a line that is not PLANNED', async () => {
     const { user, company, bank } = await refs()
     const line = await createPlannedOutflow(testDb, { input: input(bank.id, company.id), userId: user.id, now: NOW })
