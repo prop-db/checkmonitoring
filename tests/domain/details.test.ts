@@ -33,6 +33,12 @@ describe('normaliseDetails', () => {
     expect(() => normaliseDetails({ expectedOutflowDate: '20/09/2026' }, current)).toThrow(DomainError)
     expect(() => normaliseDetails({ expectedOutflowDate: '2026-02-30' }, current)).toThrow(DomainError)
   })
+
+  it('refuses a category that is not on the list, and accepts one that is', () => {
+    expect(() => normaliseDetails({ category: 'RENT' }, current)).toThrow(DomainError)
+    expect(normaliseDetails({ category: 'rent' }, current, { categories: ['RENT'] }).category).toBe('RENT')
+    expect(normaliseDetails({ category: '' }, current).category).toBeNull()
+  })
 })
 
 describe('day helpers', () => {

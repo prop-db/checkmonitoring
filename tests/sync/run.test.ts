@@ -153,6 +153,7 @@ const sync = (
     since?: Date | null
     now?: Date
     trigger?: SyncTrigger
+    inProgressMinutes?: number
   } = {},
 ) => {
   const { client, calls } = fakeFeed(rows)
@@ -164,6 +165,7 @@ const sync = (
       since: opts.since ?? null,
       now: opts.now ?? NOW,
       trigger: opts.trigger ?? 'MANUAL',
+      inProgressMinutes: opts.inProgressMinutes,
     }),
   }
 }
@@ -856,6 +858,13 @@ describe('runSync — one run per tenant at a time', () => {
     await seedBothTenantsST()
     await unfinished('MANUFACTURING', minutesBefore(5))
     const result = await sync([feedRow()], { tenant: 'GOLIVE' }).result
+    expect(result.imported).toBe(1)
+  })
+
+  it('takes the in-progress window as a parameter', async () => {
+    await seedBothTenantsST()
+    await unfinished('GOLIVE', minutesBefore(5))
+    const result = await sync([feedRow()], { inProgressMinutes: 2 }).result
     expect(result.imported).toBe(1)
   })
 })

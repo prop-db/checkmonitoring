@@ -1,5 +1,6 @@
 import type { GuardResult } from './check-status'
 import { isIsoDay } from './details'
+import { DEFAULT_CATEGORIES, isCategory } from '@/lib/settings/registry'
 
 /**
  * A PLANNED OUTFLOW THAT IS NOT A CHEQUE.
@@ -39,7 +40,10 @@ export type PlannedOutflowValues = {
 
 const blank = (s: string | null | undefined) => (s ?? '').trim() === ''
 
-export function checkPlannedOutflowInput(input: PlannedOutflowInput): GuardResult {
+export function checkPlannedOutflowInput(
+  input: PlannedOutflowInput,
+  opts: { categories?: readonly string[] } = {},
+): GuardResult {
   if (!isIsoDay((input.date ?? '').trim())) {
     return { ok: false, code: 'INVALID_DATE', message: 'DATE must be a day, YYYY-MM-DD.' }
   }
@@ -50,6 +54,14 @@ export function checkPlannedOutflowInput(input: PlannedOutflowInput): GuardResul
   if (blank(input.description)) return { ok: false, code: 'DESCRIPTION_REQUIRED', message: 'Describe the outflow — what it is for.' }
   if (blank(input.bankId)) return { ok: false, code: 'BANK_REQUIRED', message: 'Choose the bank it leaves from.' }
   if (blank(input.companyId)) return { ok: false, code: 'COMPANY_REQUIRED', message: 'Choose the company it belongs to.' }
+  const category = (input.category ?? '').trim()
+  if (category !== '' && !isCategory(opts.categories ?? DEFAULT_CATEGORIES, category)) {
+    return {
+      ok: false,
+      code: 'UNKNOWN_CATEGORY',
+      message: `${category.toUpperCase()} is not a category. Add it under ADMINISTRATION → SETTINGS first.`,
+    }
+  }
   return { ok: true }
 }
 

@@ -31,6 +31,12 @@ describe('checkPlannedOutflowInput', () => {
     expect(checkPlannedOutflowInput({ ...good, bankId: '' })).toMatchObject({ ok: false, code: 'BANK_REQUIRED' })
     expect(checkPlannedOutflowInput({ ...good, companyId: '' })).toMatchObject({ ok: false, code: 'COMPANY_REQUIRED' })
   })
+
+  it('refuses a category that is not on the list', () => {
+    expect(checkPlannedOutflowInput({ ...good, category: 'RENT' })).toMatchObject({ ok: false, code: 'UNKNOWN_CATEGORY' })
+    expect(checkPlannedOutflowInput({ ...good, category: 'RENT' }, { categories: ['RENT'] })).toEqual({ ok: true })
+    expect(checkPlannedOutflowInput({ ...good, category: '' })).toEqual({ ok: true })
+  })
 })
 
 describe('normalisePlannedOutflow', () => {

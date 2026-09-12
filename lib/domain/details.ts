@@ -1,4 +1,5 @@
 import { DomainError } from './errors'
+import { DEFAULT_CATEGORIES, isCategory } from '@/lib/settings/registry'
 
 /**
  * THE FOUR THINGS FINANCE TYPED INTO THE REGISTER — AND ONE IT NEVER COULD.
@@ -48,7 +49,11 @@ function clean(value: string | null): string | null {
   return s === '' ? null : s
 }
 
-export function normaliseDetails(input: DetailInput, current: DetailValues): DetailValues {
+export function normaliseDetails(
+  input: DetailInput,
+  current: DetailValues,
+  opts: { categories?: readonly string[] } = {},
+): DetailValues {
   const out: DetailValues = { ...current }
   for (const field of DETAIL_FIELDS) {
     const v = input[field]
@@ -57,7 +62,18 @@ export function normaliseDetails(input: DetailInput, current: DetailValues): Det
     if (field === 'expectedOutflowDate' && cleaned !== null && !isIsoDay(cleaned)) {
       throw new DomainError('INVALID_DATE', 'EXPECTED OUT must be a date, YYYY-MM-DD.')
     }
-    out[field] = field === 'category' && cleaned !== null ? cleaned.toUpperCase() : cleaned
+    if (field === 'category' && cleaned !== null) {
+      const upper = cleaned.toUpperCase()
+      if (!isCategory(opts.categories ?? DEFAULT_CATEGORIES, upper)) {
+        throw new DomainError(
+          'UNKNOWN_CATEGORY',
+          `${upper} is not a category. Add it under ADMINISTRATION → SETTINGS first.`,
+        )
+      }
+      out[field] = upper
+      continue
+    }
+    out[field] = cleaned
   }
   return out
 }

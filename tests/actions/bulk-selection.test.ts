@@ -53,6 +53,12 @@ describe('parseSelection', () => {
     const result = parseSelection([...many, 'id-0', 'id-1'])
     expect(result).toEqual({ ok: true, checkIds: many })
   })
+
+  it('takes the cap as a parameter', () => {
+    expect(parseSelection(['a', 'b', 'c'], 2)).toMatchObject({ ok: false })
+    expect(parseSelection(['a', 'b'], 2)).toEqual({ ok: true, checkIds: ['a', 'b'] })
+    expect(chunkSelection(['a', 'b', 'c'], 2)).toEqual([['a', 'b'], ['c']])
+  })
 })
 
 /**

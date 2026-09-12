@@ -241,6 +241,13 @@ describe('loginLockout, on the email', () => {
     const lockout = await loginLockout(testDb, { email: VICTIM, ip: ATTACKER_IP, now: NOW })
     expect(lockout.locked).toBe(true)
   })
+
+  it('takes the limits as a parameter', async () => {
+    await failTimes(3)
+    const limits = { windowMinutes: WINDOW_MINUTES, emailFreeFailures: 2, ipFreeFailures: IP_FREE_FAILURES }
+    expect((await loginLockout(testDb, { email: VICTIM, ip: ATTACKER_IP, now: NOW, limits })).locked).toBe(true)
+    expect((await loginLockout(testDb, { email: VICTIM, ip: ATTACKER_IP, now: NOW })).locked).toBe(false)
+  })
 })
 
 describe('loginLockout, on the address', () => {

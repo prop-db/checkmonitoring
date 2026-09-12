@@ -65,6 +65,13 @@ describe('getSyncOverview', () => {
     expect(t.inFlight).toBe(true)
   })
 
+  it('takes the abandoned threshold as a parameter', async () => {
+    await run({ startedAt: '2026-09-12T08:00:00Z', finishedAt: null })
+    const now = new Date('2026-09-12T08:30:00Z')
+    expect(forTenant(await getSyncOverview(testDb, now), 'GOLIVE').abandoned).toBe(false)
+    expect(forTenant(await getSyncOverview(testDb, now, 20), 'GOLIVE').abandoned).toBe(true)
+  })
+
   it('surfaces runs recorded before the tenant column existed rather than hiding them', async () => {
     await run({ tenant: null, startedAt: '2026-09-01T10:00:00Z' })
     const overview = await getSyncOverview(testDb)

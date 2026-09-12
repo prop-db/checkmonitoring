@@ -34,18 +34,18 @@ export type SelectionResult =
  * A truncation is deliberately not offered. Silently acting on the first fifty
  * of sixty would leave ten cheques untouched with nothing on screen saying so.
  */
-export function parseSelection(raw: readonly string[]): SelectionResult {
+export function parseSelection(raw: readonly string[], cap: number = MAX_BULK_SELECTION): SelectionResult {
   const checkIds = [...new Set(raw.map((v) => v.trim()).filter((v) => v !== ''))]
 
   if (checkIds.length === 0) {
     return { ok: false, message: 'Select at least one cheque first.' }
   }
 
-  if (checkIds.length > MAX_BULK_SELECTION) {
+  if (checkIds.length > cap) {
     return {
       ok: false,
       message:
-        `A bulk action is limited to ${MAX_BULK_SELECTION} cheques at a time; ` +
+        `A bulk action is limited to ${cap} cheques at a time; ` +
         `${checkIds.length} are selected. Narrow the selection and try again.`,
     }
   }
@@ -75,12 +75,12 @@ export function parseSelection(raw: readonly string[]): SelectionResult {
  * gives: the same id twice is one cheque released, then a spurious refusal for
  * the transition the first release just made.
  */
-export function chunkSelection(raw: readonly string[]): string[][] {
+export function chunkSelection(raw: readonly string[], cap: number = MAX_BULK_SELECTION): string[][] {
   const ids = [...new Set(raw.map((v) => v.trim()).filter((v) => v !== ''))]
 
   const batches: string[][] = []
-  for (let i = 0; i < ids.length; i += MAX_BULK_SELECTION) {
-    batches.push(ids.slice(i, i + MAX_BULK_SELECTION))
+  for (let i = 0; i < ids.length; i += cap) {
+    batches.push(ids.slice(i, i + cap))
   }
   // An empty set produces no batches at all, so a caller looping over the
   // result does nothing rather than submitting a batch of none.

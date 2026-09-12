@@ -66,26 +66,31 @@ export const SYNC_IN_PROGRESS_MINUTES = 10
  * from a failure — a sync that declined to double up is not a sync that broke.
  */
 export class SyncInProgressError extends DomainError {
-  constructor(tenant: AcumaticaTenant, startedAt: Date) {
+  constructor(tenant: AcumaticaTenant, startedAt: Date, minutes: number) {
     super(
       'SYNC_IN_PROGRESS',
       `A ${tenant} sync started at ${startedAt.toISOString()} has not finished. ` +
-        `Wait for it, or ${SYNC_IN_PROGRESS_MINUTES} minutes, before starting another.`,
+        `Wait for it, or ${minutes} minutes, before starting another.`,
     )
   }
 }
 
-async function assertNoRunInProgress(db: Db, tenant: AcumaticaTenant, now: Date): Promise<void> {
+async function assertNoRunInProgress(
+  db: Db,
+  tenant: AcumaticaTenant,
+  now: Date,
+  inProgressMinutes: number,
+): Promise<void> {
   const open = await db.syncRun.findFirst({
     where: {
       tenant,
       finishedAt: null,
-      startedAt: { gt: new Date(now.getTime() - SYNC_IN_PROGRESS_MINUTES * 60_000) },
+      startedAt: { gt: new Date(now.getTime() - inProgressMinutes * 60_000) },
     },
     orderBy: { startedAt: 'desc' },
     select: { startedAt: true },
   })
-  if (open) throw new SyncInProgressError(tenant, open.startedAt)
+  if (open) throw new SyncInProgressError(tenant, open.startedAt, inProgressMinutes)
 }
 
 /**
@@ -120,6 +125,8 @@ export type SyncArgs = {
    * somebody remembered and which because nobody had to.
    */
   trigger: SyncTrigger
+  /** Settings `sync.inProgressMinutes`; the constant when a caller passes nothing. */
+  inProgressMinutes?: number
 }
 
 export type SyncRunResult = {
@@ -243,6 +250,7 @@ export async function lastSyncWatermark(db: Db, tenant: AcumaticaTenant): Promis
  */
 export async function runSync(db: Db, args: SyncArgs): Promise<SyncRunResult> {
   const { client, tenant, since, now, trigger } = args
+  const inProgressMinutes = args.inProgressMinutes ?? SYNC_IN_PROGRESS_MINUTES
   const mode: SyncMode = since ? 'INCREMENTAL' : 'FULL'
 
   // Before the row, so a refused start leaves no trace of its own. The check
@@ -250,7 +258,7 @@ export async function runSync(db: Db, args: SyncArgs): Promise<SyncRunResult> {
   // between two clicks a millisecond apart would let both through, and the
   // upserts are idempotent so the cost of that is wasted work, not a wrong
   // cheque. What this stops is the common case: a cron landing on a SYNC NOW.
-  await assertNoRunInProgress(db, tenant, now)
+  await assertNoRunInProgress(db, tenant, now, inProgressMinutes)
 
   // Written BEFORE the feed is read, and finished in every exit path below. A
   // run with `finishedAt` null is therefore one that is still going or whose

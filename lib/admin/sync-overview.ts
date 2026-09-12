@@ -72,7 +72,11 @@ export type SyncOverview = {
 // last known-good read either, because somebody has to look at those three.
 const SUCCESS: Prisma.SyncRunWhereInput = { finishedAt: { not: null }, errors: 0 }
 
-export async function getSyncOverview(db: Db, now: Date = new Date()): Promise<SyncOverview> {
+export async function getSyncOverview(
+  db: Db,
+  now: Date = new Date(),
+  abandonedAfterMinutes: number = ABANDONED_AFTER_MINUTES,
+): Promise<SyncOverview> {
   const [tenants, untenantedRuns] = await Promise.all([
     Promise.all(
       SYNC_TENANTS.map(async (tenant): Promise<TenantSync> => {
@@ -89,7 +93,7 @@ export async function getSyncOverview(db: Db, now: Date = new Date()): Promise<S
           // Measured from startedAt, not from any progress signal: runSync reports
           // its counts only at the end, so a killed run and a working one look
           // identical until the threshold passes.
-          abandoned: inFlight && now.getTime() - lastAttempt!.startedAt.getTime() > ABANDONED_AFTER_MINUTES * 60_000,
+          abandoned: inFlight && now.getTime() - lastAttempt!.startedAt.getTime() > abandonedAfterMinutes * 60_000,
         }
       }),
     ),

@@ -106,6 +106,14 @@ export const UNKNOWN_IP = 'unknown'
 
 const MINUTE = 60_000
 
+export type ThrottleLimits = { windowMinutes: number; emailFreeFailures: number; ipFreeFailures: number }
+
+export const DEFAULT_THROTTLE: ThrottleLimits = {
+  windowMinutes: WINDOW_MINUTES,
+  emailFreeFailures: EMAIL_FREE_FAILURES,
+  ipFreeFailures: IP_FREE_FAILURES,
+}
+
 export type Lockout = {
   locked: boolean
   /** The deadline currently in force, or null when nothing is in force. */
@@ -196,8 +204,8 @@ export function clientIp(headers: Headers): string {
 // Counting.
 // ---------------------------------------------------------------------------
 
-function windowStart(now: Date): Date {
-  return new Date(now.getTime() - WINDOW_MINUTES * MINUTE)
+function windowStart(now: Date, windowMinutes: number): Date {
+  return new Date(now.getTime() - windowMinutes * MINUTE)
 }
 
 function retentionCutoff(now: Date): Date {
@@ -219,8 +227,10 @@ type FailureCount = { failures: number; lastFailureAt: Date | null }
  * break-in, and it is the only record of one anybody will ever have. Do not
  * "tidy" this into a `deleteMany`.
  */
-async function emailFailures(db: PrismaClient, email: string, now: Date): Promise<FailureCount> {
-  const start = windowStart(now)
+async function emailFailures(
+  db: PrismaClient, email: string, now: Date, windowMinutes: number,
+): Promise<FailureCount> {
+  const start = windowStart(now, windowMinutes)
 
   const lastSuccess = await db.loginAttempt.findFirst({
     where: { email, success: true, createdAt: { gte: start } },
@@ -250,9 +260,11 @@ async function emailFailures(db: PrismaClient, email: string, now: Date): Promis
  * needs cleared; the address bucket is what stops a spray, and nothing an
  * attacker can do should clear it.
  */
-async function ipFailures(db: PrismaClient, ip: string, now: Date): Promise<FailureCount> {
+async function ipFailures(
+  db: PrismaClient, ip: string, now: Date, windowMinutes: number,
+): Promise<FailureCount> {
   const agg = await db.loginAttempt.aggregate({
-    where: { ip, success: false, createdAt: { gte: windowStart(now) } },
+    where: { ip, success: false, createdAt: { gte: windowStart(now, windowMinutes) } },
     _count: { _all: true },
     _max: { createdAt: true },
   })
@@ -287,15 +299,16 @@ function deadline(count: FailureCount, allowance: number): Date | null {
  */
 export async function loginLockout(
   db: PrismaClient,
-  args: { email: string; ip: string; now: Date },
+  args: { email: string; ip: string; now: Date; limits?: ThrottleLimits },
 ): Promise<Lockout> {
+  const limits = args.limits ?? DEFAULT_THROTTLE
   const [byEmail, byIp] = await Promise.all([
-    emailFailures(db, args.email, args.now),
-    ipFailures(db, args.ip, args.now),
+    emailFailures(db, args.email, args.now, limits.windowMinutes),
+    ipFailures(db, args.ip, args.now, limits.windowMinutes),
   ])
 
-  const emailUntil = deadline(byEmail, EMAIL_FREE_FAILURES)
-  const ipUntil = deadline(byIp, IP_FREE_FAILURES)
+  const emailUntil = deadline(byEmail, limits.emailFreeFailures)
+  const ipUntil = deadline(byIp, limits.ipFreeFailures)
 
   const at = args.now.getTime()
   const emailLocked = emailUntil !== null && emailUntil.getTime() > at
@@ -374,13 +387,14 @@ export async function pruneLoginAttempts(
  */
 export async function loginFailureSummary(
   db: PrismaClient,
-  args: { emails: string[]; now: Date },
+  args: { emails: string[]; now: Date; limits?: ThrottleLimits },
 ): Promise<Map<string, LoginFailureState>> {
+  const limits = args.limits ?? DEFAULT_THROTTLE
   const at = args.now.getTime()
   const states = await Promise.all(
     args.emails.map(async (email) => {
-      const count = await emailFailures(db, email, args.now)
-      const until = deadline(count, EMAIL_FREE_FAILURES)
+      const count = await emailFailures(db, email, args.now, limits.windowMinutes)
+      const until = deadline(count, limits.emailFreeFailures)
       return [
         email,
         {
