@@ -46,7 +46,7 @@ export async function GET(request: Request): Promise<Response> {
     meta: {
       asOfDay, generatedAt: now, generatedBy: user.name,
       filterDescription: describeReconFilters({ bank, company: company?.code, account: account?.code }),
-      totalRows: summary.lines.length, incompleteCount,
+      totalRows: summary.lines.length, incompleteCount, notYetIssuedCount: summary.notYetIssued,
     },
   })
 

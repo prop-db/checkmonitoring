@@ -46,6 +46,20 @@ describe('summariseByAccount', () => {
     expect(s.accounts[3]).toMatchObject({ accountId: null, bank: 'BDO', count: 1 })
   })
 
+  it('blanks BANK and COMPANY on a group whose cheques disagree, and counts the post-dated separately', () => {
+    const s = summariseByAccount([
+      row({ id: 'a', accountId: null, account: null, bank: 'BDO' }),
+      row({ id: 'b', accountId: null, account: null, bank: 'BPI', company: 'A1+' }),
+      row({ id: 'c', checkDate: d('2026-09-20') }),
+      row({ id: 'd', checkDate: d('2026-09-20'), clearingStatus: 'CLEARED', clearedDate: d('2026-09-21') }),
+      row({ id: 'e', checkDate: d('2026-09-20'), clearingStatus: 'CLEARED' }),
+    ], '2026-09-12')
+    const none = s.accounts.find((x) => x.accountId === null)!
+    expect(none).toMatchObject({ account: NO_ACCOUNT, bank: null, company: null, count: 2 })
+    expect(s.notYetIssued).toBe(2)
+    expect(s.lines.map((l) => l.id)).toEqual(['a', 'b'])
+  })
+
   it('carries the issue day, its basis and the days outstanding on each line', () => {
     const s = summariseByAccount([
       row({ id: 'a' }),
@@ -59,6 +73,6 @@ describe('summariseByAccount', () => {
 
   it('is empty, not broken, with nothing outstanding', () => {
     const s = summariseByAccount([], '2026-09-12')
-    expect(s).toEqual({ accounts: [], totals: [], lines: [] })
+    expect(s).toEqual({ accounts: [], totals: [], lines: [], notYetIssued: 0 })
   })
 })

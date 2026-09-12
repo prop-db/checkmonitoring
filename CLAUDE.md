@@ -352,7 +352,9 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
 
 Plans 1 and 2 complete. Plan 3 (portal automation) still paused: the portal needs an `encoder`
 service account that does not exist, and until it does every `PortalEvent` simply queues.
-**1,290 tests across 89 files** — 1,254 across 85 before the settings, which added +36
+**1,327 tests across 95 files** — 1,290 across 89 before the outstanding-cheques report, which added +37
+(`recon/outstanding` 12, `recon/query` 7, `recon/summary` 6, `recon-view` 5, `export/recon-workbook` 4,
+`export/recon-route` 3). Before that: 1,254 across 85, then the settings +36
 (`settings/registry` 12, `settings/actions` 7, `settings/read` 5, `actions/settings-actions` 3, one case in each
 of six consumer files, `actions/clearing-bulk` +1, `domain/details` +1, `planned-outflow/actions` +1).
 Before that: 1,218 across 82, then the forecast calibration +36

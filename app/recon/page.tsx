@@ -57,7 +57,8 @@ export default async function ReconPage({
 
       <p className="rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">
         Outstanding means released and not yet cleared by the bank as of the date. Where no release date
-        was recorded, the cheque date stands in. Record clearing on the cheque or on{' '}
+        was recorded, the cheque date stands in — so a released cheque dated after the day is not counted, and
+        the line below says how many. Record clearing on the cheque or on{' '}
         <Link href="/clearing" className="underline underline-offset-2">CLEARING</Link> to move a cheque off this list.
       </p>
 
@@ -85,6 +86,11 @@ export default async function ReconPage({
             {summary.lines.length.toLocaleString('en-PH')} CHEQUE{summary.lines.length === 1 ? '' : 'S'} OUTSTANDING AS OF {asOfDay}
             {' · '}{describeReconFilters({ bank, company: company?.code, account: account?.code })}
           </p>
+          {summary.notYetIssued > 0 && (
+            <p className="text-xs font-medium tracking-wide text-slate-500">
+              NOT COUNTED: {summary.notYetIssued.toLocaleString('en-PH')} RELEASED CHEQUE{summary.notYetIssued === 1 ? '' : 'S'} DATED AFTER {asOfDay} — not yet presentable on that day.
+            </p>
+          )}
           {incompleteCount > 0 && (
             <p className="text-xs font-medium tracking-wide text-slate-500">
               EXCLUDES {incompleteCount.toLocaleString('en-PH')} RELEASED CHEQUE{incompleteCount === 1 ? '' : 'S'} WITH NO RECORDED AMOUNT.{' '}

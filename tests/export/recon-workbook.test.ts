@@ -18,7 +18,7 @@ async function build(rows: OutstandingRow[], totalRows?: number) {
     summary, detail: summary.lines,
     meta: {
       asOfDay: '2026-09-12', generatedAt: new Date('2026-09-12T02:00:00Z'), generatedBy: 'Paolo Parcon',
-      filterDescription: 'No filters applied', totalRows: totalRows ?? summary.lines.length, incompleteCount: 25,
+      filterDescription: 'No filters applied', totalRows: totalRows ?? summary.lines.length, incompleteCount: 25, notYetIssuedCount: 3,
     },
   })
   const wb = new ExcelJS.Workbook()
@@ -34,6 +34,7 @@ describe('buildReconWorkbook', () => {
     expect(String(ws.getCell('A1').value)).toContain('OUTSTANDING CHEQUES AS OF 2026-09-12')
     expect(String(ws.getCell('A2').value)).toContain('No filters applied')
     expect(String(ws.getCell('A4').value)).toContain('25')
+    expect(String(ws.getCell('A4').value)).toContain('3 released cheques dated after the day')
   })
 
   it('writes one account line per currency with numeric amounts, then totals', async () => {

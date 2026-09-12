@@ -1,6 +1,6 @@
 import type { CheckStatus, ClearingStatus } from '@/lib/domain/check-status'
 import { toCentavos, fromCentavos } from '@/lib/export/report'
-import { issuedOn, isOutstandingAsOf, type IssueBasis } from './outstanding'
+import { issuedOn, isOutstandingAsOf, clearedOn, type IssueBasis } from './outstanding'
 
 /**
  * The account table and the list behind it, struck over one set of rows so
@@ -29,8 +29,20 @@ export type OutstandingRow = {
 
 export type OutstandingLine = OutstandingRow & { issuedDay: string | null; basis: IssueBasis | null; days: number | null }
 export type AccountTotal = { currency: string; count: number; total: string }
-export type AccountLine = { accountId: string | null; account: string; bank: string | null; company: string; count: number; totals: AccountTotal[] }
-export type ReconSummary = { accounts: AccountLine[]; totals: AccountTotal[]; lines: OutstandingLine[] }
+/** `bank` and `company` are null when the group's cheques disagree — a total that spans two banks must not wear one bank's name. */
+export type AccountLine = { accountId: string | null; account: string; bank: string | null; company: string | null; count: number; totals: AccountTotal[] }
+export type ReconSummary = {
+  accounts: AccountLine[]
+  totals: AccountTotal[]
+  lines: OutstandingLine[]
+  /**
+   * Released cheques with an amount, not cleared by the day, whose issue day is
+   * AFTER the day — a post-dated cheque already handed over. Not in the figure
+   * (it could not have been presented yet) and stated on screen, because a
+   * cheque that vanished from an OC total in silence is an understated OC.
+   */
+  notYetIssued: number
+}
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const instant = (day: string) => Date.parse(`${day}T00:00:00Z`)
@@ -64,19 +76,32 @@ export function summariseByAccount(rows: readonly OutstandingRow[], asOfDay: str
 
   // Grouped by account id; the rows with none share one group. The key is
   // the id, not the code, so two accounts could never fold on a shared label.
-  const groups = new Map<string, { line: Omit<AccountLine, 'count' | 'totals'>; acc: Acc; count: number }>()
+  const groups = new Map<string, { line: Omit<AccountLine, 'count' | 'totals'>; acc: Acc; count: number; banks: Set<string | null>; companies: Set<string> }>()
   const grand: Acc = new Map()
   for (const l of lines) {
     const key = l.accountId ?? NO_ACCOUNT
     const g = groups.get(key) ?? {
       line: { accountId: l.accountId, account: l.account ?? NO_ACCOUNT, bank: l.bank, company: l.company },
-      acc: new Map(), count: 0,
+      acc: new Map(), count: 0, banks: new Set<string | null>(), companies: new Set<string>(),
     }
     add(g.acc, l.currency, l.amount)
     add(grand, l.currency, l.amount)
     g.count += 1
+    g.banks.add(l.bank)
+    g.companies.add(l.company)
+    // One label only when every cheque in the group agrees; else none.
+    g.line.bank = g.banks.size === 1 ? l.bank : null
+    g.line.company = g.companies.size === 1 ? l.company : null
     groups.set(key, g)
   }
+
+  const notYetIssued = rows.filter((r) => {
+    if (r.status !== 'RELEASED' || r.amount === null) return false
+    const issued = issuedOn(r)
+    if (!issued || issued.day <= asOfDay) return false
+    const cleared = clearedOn(r)
+    return cleared === null || (cleared !== 'UNKNOWN' && cleared > asOfDay)
+  }).length
 
   // Bank, then account code — the Cash Balance sheet's own order. No-account
   // rows last, whatever their bank.
@@ -88,5 +113,5 @@ export function summariseByAccount(rows: readonly OutstandingRow[], asOfDay: str
       return (a.bank ?? '').localeCompare(b.bank ?? '') || a.account.localeCompare(b.account)
     })
 
-  return { accounts, totals: seal(grand), lines }
+  return { accounts, totals: seal(grand), lines, notYetIssued }
 }

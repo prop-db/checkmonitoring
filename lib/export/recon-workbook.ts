@@ -25,6 +25,8 @@ export type ReconMeta = {
   filterDescription: string
   totalRows: number
   incompleteCount: number
+  /** Released, uncleared, dated after the day — stated, not counted. */
+  notYetIssuedCount: number
 }
 
 const TITLE_INK = 'FF0F172A'
@@ -59,7 +61,8 @@ export async function buildReconWorkbook(
   ws.getCell('A4').value =
     `Outstanding means released and not cleared by the bank as of the day. Where no release date was ` +
     `recorded, the cheque date stands in. Excludes ${count(meta.incompleteCount)} released ` +
-    `cheque${meta.incompleteCount === 1 ? '' : 's'} with no recorded amount.`
+    `cheque${meta.incompleteCount === 1 ? '' : 's'} with no recorded amount, and ${count(meta.notYetIssuedCount)} released ` +
+    `cheque${meta.notYetIssuedCount === 1 ? '' : 's'} dated after the day (not yet presentable).`
   ws.getCell('A4').font = { size: 10, color: { argb: MUTED_INK } }
 
   const header = ws.getRow(6)
@@ -67,11 +70,11 @@ export async function buildReconWorkbook(
 
   let r = 7
   let band = false
-  const writeLine = (account: string, bank: string | null, company: string, t: { currency: string; count: number; total: string }, bold: boolean) => {
+  const writeLine = (account: string, bank: string | null, company: string | null, t: { currency: string; count: number; total: string }, bold: boolean) => {
     const row = ws.getRow(r)
     row.getCell(1).value = account
     row.getCell(2).value = bank
-    row.getCell(3).value = company
+    row.getCell(3).value = company ?? (account === 'TOTAL' ? '' : '—')
     row.getCell(4).value = t.currency
     row.getCell(5).value = t.count
     row.getCell(5).numFmt = COUNT_FORMAT
@@ -85,7 +88,7 @@ export async function buildReconWorkbook(
     for (const t of a.totals) writeLine(a.account, a.bank, a.company, t, false)
     band = !band
   }
-  for (const t of summary.totals) writeLine('TOTAL', null, '', t, true)
+  for (const t of summary.totals) writeLine('TOTAL', null, null, t, true)
   ws.getColumn(1).width = 22
   ws.getColumn(2).width = 10
   ws.getColumn(3).width = 12

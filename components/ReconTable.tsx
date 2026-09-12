@@ -36,7 +36,7 @@ export function ReconTable({ summary, params }: { summary: ReconSummary; params:
                   : a.account}
               </td>
               <td className="px-4 py-3">{a.bank ?? '—'}</td>
-              <td className="px-4 py-3">{a.company}</td>
+              <td className="px-4 py-3">{a.company ?? '—'}</td>
               <td className="px-4 py-3 text-right"><Totals totals={a.totals} /></td>
             </tr>
           ))}
