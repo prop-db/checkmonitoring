@@ -14,7 +14,7 @@ import { SETTINGS, type SettingGroup } from '@/lib/settings/registry'
 const GROUPS: { group: SettingGroup; title: string; note?: string }[] = [
   { group: 'SYNC', title: 'ACUMATICA SYNC' },
   { group: 'CAPS', title: 'CAPS' },
-  { group: 'LOGIN', title: 'SIGN-IN THROTTLE', note: 'These can be tightened freely; they cannot be loosened past the floor shown.' },
+  { group: 'LOGIN', title: 'SIGN-IN THROTTLE', note: 'These can be tightened freely; they cannot be loosened past the bound shown — a shorter window, or more free failures, is as far as it goes.' },
   { group: 'CATEGORIES', title: 'CATEGORIES', note: 'Removing a category does not change what is already recorded; it stops it being chosen from now on.' },
 ]
 
@@ -33,7 +33,10 @@ export default async function SettingsPage() {
             const text = def.kind === 'int' ? String(value) : (value as readonly string[]).join('\n')
             return (
               <SettingsForm
-                key={def.key}
+                // Keyed on the value too: the fields are uncontrolled, and React does
+                // not re-apply a changed `defaultValue` to a mounted input. Without this,
+                // RESET TO DEFAULT cleared the badge and left the old number on screen.
+                key={`${def.key}:${text}`}
                 def={def}
                 text={text}
                 overridden={settings.overridden.has(def.key)}
