@@ -38,7 +38,7 @@ export default async function PlannedOutflowsPage({
 
   return (
     <main className="mx-auto max-w-5xl space-y-6 p-8">
-      <AppHeader user={user} title="PLANNED OUTFLOWS" back={{ href: '/forecast', label: '← CASH OUTFLOW' }} showForecastLink={false} />
+      <AppHeader user={user} title="PLANNED OUTFLOWS" back={{ href: '/forecast', label: '← CASH OUTFLOW' }} />
 
       <p className="rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">
         Outflows that are not cheques — payroll, tax, loan amortisation, transfers — typed with the day

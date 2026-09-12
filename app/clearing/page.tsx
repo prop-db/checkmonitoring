@@ -21,7 +21,7 @@ export default async function ClearingPage() {
   const settings = await loadSettings(prisma)
   return (
     <main className="mx-auto max-w-5xl space-y-6 p-8">
-      <AppHeader user={user} title="BANK CLEARING" back={{ href: '/', label: '← DASHBOARD' }} showClearingLink={false} />
+      <AppHeader user={user} title="BANK CLEARING" back={{ href: '/', label: '← DASHBOARD' }} />
       <p className="rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">
         Paste the cheque lines from a bank statement. Each line is checked against the cheques here
         and you are shown what confirming will do before anything is written. Only a RELEASED cheque

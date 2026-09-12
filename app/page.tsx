@@ -142,7 +142,7 @@ export default async function DashboardPage({
 
   return (
     <main className="mx-auto max-w-[1600px] space-y-6 p-8">
-      <AppHeader user={user} title="CHECK RELEASE MONITORING" />
+      <AppHeader user={user} title="CHECK RELEASE" />
 
       {/* When Acumatica was last read. Above the cards, because every number
           on them is only as current as this line says. */}

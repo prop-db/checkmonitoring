@@ -24,12 +24,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   return (
     <main className="mx-auto max-w-[1600px] space-y-6 p-8">
-      {/* `showAdminLink={false}`: these ARE the administration pages. */}
       <AppHeader
         user={user}
         title="ADMINISTRATION"
         back={{ href: '/', label: '← DASHBOARD' }}
-        showAdminLink={false}
       />
 
       {/* Which tab you are on is a browser fact, so the tabs are a client

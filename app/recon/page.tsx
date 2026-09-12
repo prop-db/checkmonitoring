@@ -53,7 +53,7 @@ export default async function ReconPage({
 
   return (
     <main className="mx-auto max-w-[1600px] space-y-6 p-8">
-      <AppHeader user={user} title="OUTSTANDING CHEQUES" back={{ href: '/', label: '← DASHBOARD' }} showReconLink={false} />
+      <AppHeader user={user} title="OUTSTANDING CHEQUES" back={{ href: '/', label: '← DASHBOARD' }} />
 
       <p className="rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">
         Outstanding means released and not yet cleared by the bank as of the date. Where no release date

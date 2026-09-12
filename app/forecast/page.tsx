@@ -61,7 +61,7 @@ export default async function ForecastPage({
 
   return (
     <main className="mx-auto max-w-[1600px] space-y-6 p-8">
-      <AppHeader user={user} title="CASH OUTFLOW" back={{ href: '/', label: '← DASHBOARD' }} showForecastLink={false} />
+      <AppHeader user={user} title="CASH OUTFLOW" back={{ href: '/', label: '← DASHBOARD' }} />
 
       {/* The premise, stated once and always. Not a tooltip: a reader who takes
           "presentable from" for "expected on" will carry a wrong number into a

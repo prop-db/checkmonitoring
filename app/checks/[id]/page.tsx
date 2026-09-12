@@ -102,7 +102,7 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
     <main className="mx-auto max-w-5xl space-y-6 p-8">
       <AppHeader
         user={user}
-        title="CHECK RELEASE MONITORING"
+        title="CHEQUE"
         back={{ href: '/', label: '← BACK TO DASHBOARD' }}
       />
 

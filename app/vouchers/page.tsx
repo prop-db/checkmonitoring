@@ -90,7 +90,6 @@ export default async function VouchersPage({
         user={user}
         title="VOUCHERS"
         back={{ href: '/', label: '← DASHBOARD' }}
-        showVouchersLink={false}
       />
 
       <form className="flex flex-wrap items-center gap-2 rounded-2xl bg-white p-3 ring-1 ring-hairline" method="get">
