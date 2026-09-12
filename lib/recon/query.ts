@@ -6,8 +6,10 @@ type Db = PrismaClient | Prisma.TransactionClient
 export type ReconFilters = { bankCode?: string; companyId?: string; cashAccountId?: string }
 
 /**
- * THE POPULATION the as-of rule is applied to: every released real cheque
- * with a recorded amount, whatever its clearing — the rule in
+ * THE POPULATION the as-of rule is applied to, minus the amount rule: every
+ * released real cheque, whatever its clearing — `listOutstandingCandidates`
+ * adds the amount clause and `countExcludedIncomplete` the opposite one, so
+ * the exclusion a page states is struck over the same rows. The rule in
  * `lib/recon/outstanding.ts` decides per day, and it runs in the pure layer
  * so the page and the extract are struck over the same rows.
  *
