@@ -178,6 +178,14 @@ the protocol postgresql://"*. `scripts/set-vercel-env.mjs` strips them.
 **Tests must never point at the application database.** `tests/helpers/test-db-url.ts` refuses to
 run when `DATABASE_URL_TEST` is unset or equal to `DATABASE_URL`.
 
+**A threshold is a setting, and the constant is only its default.** Since 2026-09-12 `STALE_AFTER_HOURS`,
+`ABANDONED_AFTER_MINUTES`, `SYNC_IN_PROGRESS_MINUTES`, `MAX_BULK_SELECTION`, `EXPORT_ROW_LIMIT`,
+`VOUCHER_SCREEN_ROW_LIMIT` and the three login-throttle allowances are the DEFAULTS in
+`lib/settings/registry.ts`; the value in force comes from `loadSettings` at request time, and every
+function that uses one takes it as a parameter. A new call site that reads the constant directly
+silently ignores the admin's setting. The category list is a setting too, and the domain refuses a
+category not on it.
+
 ## Layout
 
 | Path | Responsibility |
@@ -188,6 +196,7 @@ run when `DATABASE_URL_TEST` is unset or equal to `DATABASE_URL`.
 | `lib/sync/run.ts` | Incremental sync, watermark with a 120-minute overlap. |
 | `lib/forecast/` | Cash outflow by cheque date: `buckets.ts` (the ageing buckets, pure), `query.ts` (the population — live, real, with an amount), `matrix.ts` (bucket × bank and bucket × stage, centavo-exact, pure). `/forecast` and `/api/export/forecast` sit on it. Since 2026-09-12 a cheque's typed `expectedOutflowDate` wins over its cheque date, and `PlannedOutflow` lines (`lib/planned-outflow/`, `/forecast/planned`) join the population as their own PLANNED column. |
 | `lib/normalised-row.ts` | The one shape both ingestion paths converge on. |
+| `lib/settings/` | The ten settings: `registry.ts` (pure — defaults from the constants, bounds, parsing), `read.ts` (one query per request, never cached), `actions.ts` (admin-only writes, audited). `/admin/settings`. |
 | `docs/superpowers/specs/` | The approved design, and the Supplier Portal API evidence. |
 | `docs/superpowers/plans/` | Plans 1–3. Plan 4 (reports, notifications) not yet written. |
 | `docs/deployment.md` | Vercel procedure and blockers. |
