@@ -1,0 +1,142 @@
+import { STALE_AFTER_HOURS } from '@/lib/sync/staleness'
+import { ABANDONED_AFTER_MINUTES } from '@/lib/admin/sync-overview'
+import { SYNC_IN_PROGRESS_MINUTES } from '@/lib/sync/run'
+import { MAX_BULK_SELECTION } from '@/lib/bulk'
+import { EXPORT_ROW_LIMIT } from '@/lib/export/report'
+import { VOUCHER_SCREEN_ROW_LIMIT } from '@/lib/vouchers-view'
+import { WINDOW_MINUTES, EMAIL_FREE_FAILURES, IP_FREE_FAILURES } from '@/lib/login-throttle'
+
+/**
+ * THE TEN KNOBS, DECLARED ONCE.
+ *
+ * Each default is the constant the code already exports, so the paragraph of
+ * reasoning beside each constant stays where it was written and the `Setting`
+ * table holds only overrides. Bounds are set here and nowhere else: the screen
+ * shows them, the parser enforces them, and a stored value that falls outside
+ * them (a bound tightened in code after it was saved) is reported, not obeyed.
+ *
+ * The LOGIN bounds are floors as much as ceilings. Client decision 2026-09-12:
+ * the throttle is a setting, and the guardrail is that an admin can tighten it
+ * freely and cannot loosen it past the floor. `BACKOFF_MINUTES` and
+ * `RETENTION_DAYS` are the throttle's shape, not knobs, and are not here.
+ *
+ * Pure. Imports only constants.
+ */
+
+export type SettingGroup = 'SYNC' | 'CAPS' | 'LOGIN' | 'CATEGORIES'
+
+export type IntKey =
+  | 'sync.staleAfterHours' | 'sync.abandonedAfterMinutes' | 'sync.inProgressMinutes'
+  | 'caps.bulkSelection' | 'caps.exportRows' | 'caps.voucherScreenRows'
+  | 'login.windowMinutes' | 'login.emailFreeFailures' | 'login.ipFreeFailures'
+export type SettingKey = IntKey | 'categories'
+
+export type IntSettingDef = {
+  kind: 'int'; key: IntKey; group: SettingGroup; label: string; help: string; unit: string
+  default: number; min: number; max: number
+}
+export type ListSettingDef = {
+  kind: 'list'; key: 'categories'; group: 'CATEGORIES'; label: string; help: string; default: readonly string[]
+}
+export type SettingDef = IntSettingDef | ListSettingDef
+
+/** The importer's own set, which is also what a fresh database offers. */
+export const DEFAULT_CATEGORIES: readonly string[] = [
+  'LOCAL SUPPLIER', 'PAYROLL', 'UTILITIES', 'TAX', 'FUND TRANSFER', 'BROKERS', 'SALARIES', 'FTP', 'TRANSPO,GAS AND OIL',
+]
+
+export const SETTINGS: readonly SettingDef[] = [
+  { kind: 'int', key: 'sync.staleAfterHours', group: 'SYNC', label: 'ACUMATICA READ IS STALE AFTER', unit: 'hours',
+    help: 'The dashboard warns once the last successful read is older than this. The scheduled run is daily; 30 gives it a night of slack.',
+    default: STALE_AFTER_HOURS, min: 1, max: 168 },
+  { kind: 'int', key: 'sync.abandonedAfterMinutes', group: 'SYNC', label: 'A RUNNING SYNC IS CALLED ABANDONED AFTER', unit: 'minutes',
+    help: 'The SYNC screen stops describing an unfinished run as in progress after this long. A first full read from a terminal legitimately takes an hour.',
+    default: ABANDONED_AFTER_MINUTES, min: 10, max: 1440 },
+  { kind: 'int', key: 'sync.inProgressMinutes', group: 'SYNC', label: 'SYNC NOW REFUSES TO OVERLAP A RUN YOUNGER THAN', unit: 'minutes',
+    help: 'A new sync will not start while one this recent has not finished. Past it, the unfinished run is treated as dead.',
+    default: SYNC_IN_PROGRESS_MINUTES, min: 1, max: 120 },
+  { kind: 'int', key: 'caps.bulkSelection', group: 'CAPS', label: 'CHEQUES PER BULK ACTION, AND LINES PER CLEARING PASTE', unit: 'cheques',
+    help: 'How much money one click may move. Each cheque is its own transaction either way; the cap stops a select-all over a filter.',
+    default: MAX_BULK_SELECTION, min: 1, max: 500 },
+  { kind: 'int', key: 'caps.exportRows', group: 'CAPS', label: 'ROWS PER EXCEL EXTRACT', unit: 'rows',
+    help: 'A workbook is built in memory in a serverless function. A capped file states the cap in its title block.',
+    default: EXPORT_ROW_LIMIT, min: 100, max: 100000 },
+  { kind: 'int', key: 'caps.voucherScreenRows', group: 'CAPS', label: 'ROWS ON THE VOUCHERS SCREEN', unit: 'rows',
+    help: 'Beyond this the screen says to narrow the search or take the file.',
+    default: VOUCHER_SCREEN_ROW_LIMIT, min: 50, max: 2000 },
+  { kind: 'int', key: 'login.windowMinutes', group: 'LOGIN', label: 'FAILED SIGN-INS COUNT FOR', unit: 'minutes',
+    help: 'How far back a wrong password still counts against an address or an account.',
+    default: WINDOW_MINUTES, min: 5, max: 60 },
+  { kind: 'int', key: 'login.emailFreeFailures', group: 'LOGIN', label: 'FREE FAILURES PER EMAIL BEFORE A LOCK', unit: 'failures',
+    help: 'The next failure locks the account for a minute, then longer on the published schedule.',
+    default: EMAIL_FREE_FAILURES, min: 3, max: 10 },
+  { kind: 'int', key: 'login.ipFreeFailures', group: 'LOGIN', label: 'FREE FAILURES PER ADDRESS BEFORE A LOCK', unit: 'failures',
+    help: 'Counted across every account one client address tries. Higher than the email allowance because one address may be a whole office.',
+    default: IP_FREE_FAILURES, min: 10, max: 100 },
+  { kind: 'list', key: 'categories', group: 'CATEGORIES', label: 'CATEGORIES',
+    help: 'What a cheque or a planned outflow may be filed under. One per line. Anything else is refused on the form.',
+    default: DEFAULT_CATEGORIES },
+]
+
+export const SETTING_KEYS: readonly SettingKey[] = SETTINGS.map((s) => s.key)
+
+export type SettingsValues = Record<IntKey, number> & { categories: readonly string[] }
+
+export const DEFAULTS: SettingsValues = Object.fromEntries(
+  SETTINGS.map((s) => [s.key, s.default]),
+) as SettingsValues
+
+export function settingDef(key: string): SettingDef | undefined {
+  return SETTINGS.find((s) => s.key === key)
+}
+
+export function isSettingKey(key: string): key is SettingKey {
+  return settingDef(key) !== undefined
+}
+
+const WHOLE = /^\d+$/
+
+export function parseSettingText(
+  def: SettingDef, text: string,
+): { ok: true; value: number | string[] } | { ok: false; message: string } {
+  if (def.kind === 'int') {
+    const s = text.trim()
+    if (!WHOLE.test(s)) return { ok: false, message: `${def.label} must be a whole number of ${def.unit}.` }
+    const n = Number(s)
+    if (n < def.min || n > def.max) {
+      return { ok: false, message: `${def.label} must be between ${def.min} and ${def.max} ${def.unit}.` }
+    }
+    return { ok: true, value: n }
+  }
+  const items = text.split(/\r?\n/).map((l) => l.trim().toUpperCase()).filter((l) => l !== '')
+  if (items.length === 0) return { ok: false, message: 'At least one category is required.' }
+  const dupe = items.find((c, i) => items.indexOf(c) !== i)
+  if (dupe) return { ok: false, message: `${dupe} is listed twice.` }
+  return { ok: true, value: items }
+}
+
+/** What the table stores and the form shows. An int as digits; the list as a JSON array. */
+export function formatSettingText(def: SettingDef, value: number | readonly string[]): string {
+  return def.kind === 'int' ? String(value) : JSON.stringify(value)
+}
+
+/** Parses what the TABLE holds (not what a form sends): the list is JSON there. */
+export function parseStoredText(def: SettingDef, stored: string): { ok: true; value: number | string[] } | { ok: false } {
+  if (def.kind === 'int') {
+    const r = parseSettingText(def, stored)
+    return r.ok ? r : { ok: false }
+  }
+  try {
+    const parsed: unknown = JSON.parse(stored)
+    if (!Array.isArray(parsed) || parsed.length === 0 || !parsed.every((x) => typeof x === 'string' && x.trim() !== '')) return { ok: false }
+    const items = parsed.map((x: string) => x.trim().toUpperCase())
+    if (new Set(items).size !== items.length) return { ok: false }
+    return { ok: true, value: items }
+  } catch {
+    return { ok: false }
+  }
+}
+
+export function isCategory(list: readonly string[], value: string): boolean {
+  return list.includes(value.trim().toUpperCase())
+}
