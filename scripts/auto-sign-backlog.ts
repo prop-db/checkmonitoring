@@ -83,6 +83,8 @@ async function main(): Promise<void> {
     line('signed', run.signed)
     line('skipped: changed since listed', run.skipped)
     console.log('')
+
+    if (run.outcome === 'FAILED') process.exitCode = 1
   } finally {
     await db.$disconnect()
   }

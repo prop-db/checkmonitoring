@@ -82,7 +82,11 @@ export async function GET(request: Request): Promise<Response> {
 
   // After both tenants, whether or not either failed: cheques already in the
   // app keep ageing, and a failed read delays new cheques, not old ones.
-  const autoSign = await runAutoSign(prisma, { now })
+  // A 50s budget, inside the route's 60s ceiling: it leaves room for the
+  // response to be written and stops the run cleanly, as FAILED with a
+  // record of what is left, rather than being killed by the platform with
+  // nothing written at all.
+  const autoSign = await runAutoSign(prisma, { now, deadline: new Date(now.getTime() + 50_000) })
 
   const failed = outcomes.some((o) => o.outcome === 'FAILED') || autoSign.outcome === 'FAILED'
   return json({ ranAt: now.toISOString(), outcomes, autoSign }, failed ? 500 : 200)

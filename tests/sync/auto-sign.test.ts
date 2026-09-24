@@ -72,6 +72,19 @@ describe('runAutoSign', () => {
     expect(await getLastAutoSign(testDb)).toBeNull()
   })
 
+  it('records FAILED with what is left when the time budget is already spent', async () => {
+    await pending(4)
+    await pending(5)
+    const run = await runAutoSign(testDb, { now, deadline: new Date(0) })
+    expect(run).toMatchObject({ outcome: 'FAILED', signed: 0 })
+    expect(run.error).toContain('2 cheque(s) still due')
+    const statuses = await testDb.check.findMany({ where: { status: 'SIGNATURE_PENDING' } })
+    expect(statuses).toHaveLength(2)
+    const rows = await testDb.auditLog.findMany({ where: { action: AUTO_SIGN_RUN_ACTION } })
+    expect(rows).toHaveLength(1)
+    expect(rows[0].details).toMatchObject({ outcome: 'FAILED' })
+  })
+
   it('skips a cheque deleted between listing and signing instead of failing the whole run', async () => {
     // `a` is older, so listAutoSignCandidates (ordered by createdAt asc) visits
     // it first; deleting it inside the first $transaction call makes autoSign's
