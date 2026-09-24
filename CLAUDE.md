@@ -44,6 +44,20 @@ It follows that:
 - Where the two disagreed, **the register was wrong** — 94 amounts and 1,958 company assignments,
   measured below. That is the strongest argument for this decision, and worth repeating to
   anyone who wants the spreadsheet back.
+- **Finance kept filling the register anyway, and one catch-up has been run.** Measured
+  2026-09-24: `CHECK MONITORING 9.24.2026.xlsx` records **698 pick-ups since 9 September** that
+  were never ticked here. On the user's request, `scripts/backfill-released-from-register.ts`
+  (`lib/admin/register-releases.ts`) moved **940 cheques to RELEASED** — 398 SIGNED, 359
+  SIGNATURE_PENDING, 183 READY_FOR_RELEASE; Acumatica said 528 Closed, 403 Balanced, 9 unknown.
+  Status only, one `backfilled_released_from_register` audit row each carrying the sheet, row
+  and the register's DATE RELEASED verbatim; `releasedAt`/`releasedById` stay null; snapshots in
+  `snapshots/`. It left 61 CANCELLED/VOIDED here and **252 cheque numbers the app does not hold
+  at all** (mostly STK P&P / MBTC P&P RELEASED) — nobody has yet found out why the sync never
+  brought them. **Matching is on cheque number; the register's company only breaks a tie** —
+  1,690 of its released numbers exist here exactly once under the company Acumatica assigned
+  (STPP→STK 681, A1+→STK 536, A1PP→A1+ 322), and letting the register's company veto them
+  matched only 312 of the 940. This is a catch-up, not a routine: every further run means
+  releases are still happening outside the app, which is the problem to fix, not the script.
 
 ## Commands
 
@@ -64,6 +78,8 @@ npx tsx scripts/backfill-available.ts --dry-run                     # the approv
 npx tsx scripts/backfill-released-dropped.ts <older> <newer> --dry-run   # dropped off that list = released
 npx tsx scripts/repair-cr-receipts.ts            # dry run: the register's CR numbers out of crNumber
 npx tsx scripts/repair-cr-receipts.ts --apply    # snapshot to snapshots/, then repair, one audit row each
+npx tsx scripts/backfill-released-from-register.ts "CHECK MONITORING 9.24.2026.xlsx"   # dry run: register pick-ups not yet RELEASED
+npx tsx scripts/backfill-released-from-register.ts "<register>.xlsx" --apply           # snapshot, then status only, one audit row each
 ```
 
 **On Windows, use `npx.cmd` / `npm.cmd`.** PowerShell's execution policy is `Undefined` (i.e.
@@ -352,7 +368,7 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
 
 Plans 1 and 2 complete. Plan 3 (portal automation) still paused: the portal needs an `encoder`
 service account that does not exist, and until it does every `PortalEvent` simply queues.
-**1,332 tests across 96 files** — 1,327 across 95 before the module bar (`module-nav` 5); before that 1,290 across 89, then the outstanding-cheques report +37
+**1,344 tests across 97 files** — 1,332 across 96 before the register catch-up (`admin/register-releases` 12); 1,327 across 95 before the module bar (`module-nav` 5); before that 1,290 across 89, then the outstanding-cheques report +37
 (`recon/outstanding` 12, `recon/query` 7, `recon/summary` 6, `recon-view` 5, `export/recon-workbook` 4,
 `export/recon-route` 3). Before that: 1,254 across 85, then the settings +36
 (`settings/registry` 12, `settings/actions` 7, `settings/read` 5, `actions/settings-actions` 3, one case in each
