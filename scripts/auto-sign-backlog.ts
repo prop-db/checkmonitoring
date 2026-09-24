@@ -8,14 +8,15 @@ import { listAutoSignCandidates, runAutoSign } from '../lib/sync/auto-sign'
 /**
  * The cheques already waiting when auto-sign went live (spec 2026-09-25): the
  * same rule the 18:00 run applies, run once from a terminal so the first
- * scheduled run signs one day's intake rather than the whole backlog.
+ * scheduled run signs one day's intake rather than the whole backlog. A second
+ * run is safe: it will sign only cheques that have become due since.
  *
  *   npx.cmd tsx scripts/auto-sign-backlog.ts            # dry run: counts only
  *   npx.cmd tsx scripts/auto-sign-backlog.ts --apply    # snapshot, then sign
  *
  * `--apply` writes snapshots/auto-sign-backlog-<ts>.json first. Prints counts
  * only — never a payee, never an amount. Reads DATABASE_URL, which on the
- * developer machine is PRODUCTION. Idempotent: a second run finds nothing due.
+ * developer machine is PRODUCTION.
  */
 
 const APPLY = process.argv.includes('--apply')
@@ -36,7 +37,7 @@ async function main(): Promise<void> {
     const pending = await db.check.count({ where: { status: 'SIGNATURE_PENDING' } })
     line('at SIGNATURE_PENDING', pending)
     line('DUE — will be signed', due.length)
-    line('  not yet due, or register-only, or not a cheque, or Voided', pending - due.length)
+    line('  not due / register-only / not cheque / Voided', pending - due.length)
 
     const byMonth = new Map<string, number>()
     const byCompany = new Map<string, number>()
@@ -63,6 +64,20 @@ async function main(): Promise<void> {
     console.log(`\nSnapshot written: ${file}`)
 
     const run = await runAutoSign(db, { now })
+
+    if (run.days !== days) {
+      console.log('\nWARNING: autoSign.afterDays changed from', days, 'to', run.days, 'while this ran;')
+      console.log('the snapshot lists the cheques due at', days, 'days.')
+      console.log('Check the auto_signed audit rows for what was actually signed.')
+      process.exitCode = 1
+    }
+
+    if (run.signed + run.skipped > due.length) {
+      console.log('\nWARNING: more cheques were processed (' + (run.signed + run.skipped) + ') than listed in snapshot (' + due.length + ').')
+      console.log('Check the auto_signed audit rows to confirm all were signed correctly.')
+      process.exitCode = 1
+    }
+
     console.log('\nDONE')
     console.log(`  outcome ${run.outcome}${run.error ? ` — ${run.error}` : ''}`)
     line('signed', run.signed)
