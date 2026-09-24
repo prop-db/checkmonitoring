@@ -3,7 +3,6 @@ import { testDb, resetDb } from '../helpers/db'
 import { makeCheck } from '../helpers/factory'
 import { runAutoSign, listAutoSignCandidates, getLastAutoSign } from '@/lib/sync/auto-sign'
 import { AUTO_SIGN_RUN_ACTION } from '@/lib/domain/auto-sign'
-import { DomainError } from '@/lib/domain/errors'
 
 const DAY = 86_400_000
 const now = new Date('2026-09-25T10:00:00Z')
@@ -74,13 +73,24 @@ describe('runAutoSign', () => {
   })
 
   it('skips a cheque deleted between listing and signing instead of failing the whole run', async () => {
-    await pending(3)
-    await pending(4)
+    // `a` is older, so listAutoSignCandidates (ordered by createdAt asc) visits
+    // it first; deleting it inside the first $transaction call makes autoSign's
+    // own load() throw the real DomainError('NOT_FOUND'), rather than mocking
+    // the throw directly.
+    const a = await pending(4)
+    const b = await pending(3)
 
-    const spy = vi.spyOn(testDb, '$transaction').mockRejectedValueOnce(new DomainError('NOT_FOUND', 'gone'))
+    const real = testDb.$transaction.bind(testDb)
+    const spy = vi.spyOn(testDb, '$transaction').mockImplementationOnce((async (fn: any, opts: any) => {
+      await testDb.check.delete({ where: { id: a.id } })
+      return real(fn, opts)
+    }) as any)
+
     const run = await runAutoSign(testDb, { now })
     spy.mockRestore()
 
     expect(run).toEqual({ outcome: 'OK', signed: 1, skipped: 1, days: 3 })
+    expect((await testDb.check.findUnique({ where: { id: b.id } }))?.status).toBe('SIGNED')
+    expect(await testDb.check.findUnique({ where: { id: a.id } })).toBeNull()
   })
 })
