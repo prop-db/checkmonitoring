@@ -4,9 +4,19 @@
  *
  * The clock is `createdAt` — when the sync first wrote the cheque — because
  * Acumatica publishes no creation timestamp and its one date, PaymentDate, is
- * post-dated on some cheques. Calendar days, as elapsed time: first read at
- * 18:00 Monday, due at 18:00 Thursday. The number of days is the
- * `autoSign.afterDays` setting; 0 or less switches the rule off.
+ * post-dated on some cheques.
+ *
+ * Manila CALENDAR days, not elapsed time: a cheque is due when its Manila
+ * calendar day is `days` days at or before today's Manila calendar day. A
+ * cheque inserted a few minutes into Monday's 18:00 run is not yet 72 hours
+ * old at Thursday's run — Vercel fires anywhere within the hour — so counting
+ * elapsed hours would slip it to Friday. "Generated Monday, SIGNED Thursday"
+ * is a statement about calendar days, and that is what this counts. The
+ * number of days is the `autoSign.afterDays` setting; 0 or less switches the
+ * rule off.
+ *
+ * The Philippines is UTC+8 with no daylight saving, so a fixed offset is
+ * exact, not an approximation.
  *
  * Pure. No database, no clock: the caller passes `now`.
  */
@@ -15,6 +25,7 @@ export const AUTO_SIGNED_ACTION = 'auto_signed'
 export const AUTO_SIGN_RUN_ACTION = 'auto_sign_run'
 
 const DAY_MS = 86_400_000
+const MANILA_OFFSET_MS = 8 * 3_600_000
 
 export type AutoSignFacts = {
   status: string
@@ -24,9 +35,18 @@ export type AutoSignFacts = {
   createdAt: Date
 }
 
-/** A cheque that reached the app at or before this instant has waited `days`. */
+/** The Manila calendar day index (days since the epoch, in UTC+8) an instant falls on. */
+function dayIndex(t: number): number {
+  return Math.floor((t + MANILA_OFFSET_MS) / DAY_MS)
+}
+
+/**
+ * The first instant (UTC) of the Manila calendar day `days` days before
+ * `now`'s Manila day. A cheque is due when `createdAt` falls strictly before
+ * this instant — i.e. its own Manila day is at or before that day.
+ */
 export function dueBefore(now: Date, days: number): Date {
-  return new Date(now.getTime() - days * DAY_MS)
+  return new Date((dayIndex(now.getTime()) - days + 1) * DAY_MS - MANILA_OFFSET_MS)
 }
 
 export function isDueForAutoSign(c: AutoSignFacts, now: Date, days: number): boolean {
@@ -38,5 +58,5 @@ export function isDueForAutoSign(c: AutoSignFacts, now: Date, days: number): boo
   if (!c.isCheque) return false
   // A voided payment is the sync's or a person's to settle, not the clock's.
   if (c.acumaticaStatus === 'Voided') return false
-  return c.createdAt.getTime() <= dueBefore(now, days).getTime()
+  return c.createdAt.getTime() < dueBefore(now, days).getTime()
 }

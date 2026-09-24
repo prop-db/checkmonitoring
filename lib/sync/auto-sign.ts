@@ -43,7 +43,7 @@ export async function listAutoSignCandidates(db: PrismaClient, now: Date, days: 
       isCheque: true,
       // `{ not: 'Voided' }` alone would drop the nulls: SQL's <> never matches NULL.
       OR: [{ acumaticaStatus: null }, { acumaticaStatus: { not: 'Voided' } }],
-      createdAt: { lte: dueBefore(now, days) },
+      createdAt: { lt: dueBefore(now, days) },
     },
     select: { id: true, checkNumber: true, createdAt: true, company: { select: { code: true } } },
     orderBy: { createdAt: 'asc' },
@@ -51,7 +51,9 @@ export async function listAutoSignCandidates(db: PrismaClient, now: Date, days: 
   return rows.map((r) => ({ id: r.id, checkNumber: r.checkNumber, createdAt: r.createdAt, companyCode: r.company.code }))
 }
 
-export async function runAutoSign(db: PrismaClient, args: { now: Date }): Promise<AutoSignRun> {
+export async function runAutoSign(
+  db: PrismaClient, args: { now: Date; deadline?: Date },
+): Promise<AutoSignRun> {
   let run: AutoSignRun = { outcome: 'OK', signed: 0, skipped: 0, days: null }
   try {
     const days = (await loadSettings(db)).values['autoSign.afterDays']
@@ -59,7 +61,20 @@ export async function runAutoSign(db: PrismaClient, args: { now: Date }): Promis
     if (days <= 0) {
       run.outcome = 'DISABLED'
     } else {
-      for (const c of await listAutoSignCandidates(db, args.now, days)) {
+      const candidates = await listAutoSignCandidates(db, args.now, days)
+      for (let i = 0; i < candidates.length; i++) {
+        // Checked before each cheque. Vercel's 60s ceiling can cut a run off
+        // mid-backlog; when it does, the run must still leave a record rather
+        // than being killed silently — FAILED, with what is left still due,
+        // so the next scheduled run is known to continue rather than to have
+        // caught everything.
+        if (args.deadline && Date.now() >= args.deadline.getTime()) {
+          const left = candidates.length - i
+          run.outcome = 'FAILED'
+          run.error = `time budget reached with ${left} cheque(s) still due; the next run continues`
+          break
+        }
+        const c = candidates[i]
         try {
           const signed = await db.$transaction((tx) => autoSign(tx, { checkId: c.id, now: args.now, days }), TX_OPTIONS)
           if (signed) run.signed++

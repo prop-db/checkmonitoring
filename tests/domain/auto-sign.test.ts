@@ -10,18 +10,36 @@ const pending = (o: Partial<AutoSignFacts> = {}): AutoSignFacts => ({
 })
 
 describe('dueBefore', () => {
-  it('is now minus whole calendar days of elapsed time', () => {
-    expect(dueBefore(now, 3).toISOString()).toBe('2026-09-22T10:00:00.000Z')
+  it('is the first instant of the Manila calendar day N days before now', () => {
+    // now = 2026-09-25T10:00Z = 18:00 Manila, 25 Sep. 3 days before -> 00:00
+    // Manila on 23 Sep, expressed in UTC.
+    expect(dueBefore(now, 3).toISOString()).toBe('2026-09-22T16:00:00.000Z')
   })
 })
 
 describe('isDueForAutoSign', () => {
-  it('is due at exactly three days, and not one minute before', () => {
-    expect(isDueForAutoSign(pending(), now, 3)).toBe(true)
-    expect(isDueForAutoSign(pending({ createdAt: new Date(now.getTime() - 3 * DAY + 60_000) }), now, 3)).toBe(false)
+  it('is due when created a few minutes into Monday\'s run and checked Thursday', () => {
+    // Created Monday 2026-09-21T10:05Z (18:05 Manila) — a few minutes into
+    // that run. Elapsed time would not reach 72h at Thursday's 18:00 run, but
+    // Monday's Manila day is 3 calendar days before Thursday's, so it is due.
+    const createdAt = new Date('2026-09-21T10:05:00Z')
+    const checkedThursday = new Date('2026-09-24T10:00:00Z')
+    expect(isDueForAutoSign(pending({ createdAt }), checkedThursday, 3)).toBe(true)
   })
 
-  it('counts the weekend: in the app Friday 18:00, due Monday 18:00', () => {
+  it('is due at the last minute of Monday and checked just after midnight Thursday', () => {
+    const createdAt = new Date('2026-09-21T15:59:00Z') // 23:59 Manila Monday
+    const checkedAt = new Date('2026-09-23T16:01:00Z') // 00:01 Manila Thursday
+    expect(isDueForAutoSign(pending({ createdAt }), checkedAt, 3)).toBe(true)
+  })
+
+  it('is NOT due when created just after midnight Tuesday and checked just before midnight Thursday', () => {
+    const createdAt = new Date('2026-09-21T16:01:00Z') // 00:01 Manila Tuesday
+    const checkedAt = new Date('2026-09-24T15:59:00Z') // 23:59 Manila Thursday
+    expect(isDueForAutoSign(pending({ createdAt }), checkedAt, 3)).toBe(false)
+  })
+
+  it('counts the weekend: generated Friday 18:00 Manila, due Monday 18:00 Manila', () => {
     const friday = new Date('2026-09-18T10:00:00Z')
     expect(isDueForAutoSign(pending({ createdAt: friday }), new Date('2026-09-21T10:00:00Z'), 3)).toBe(true)
   })
