@@ -22,3 +22,5 @@ export const DEFAULT_VOUCHER_SCREEN_ROW_LIMIT = 200
 export const DEFAULT_WINDOW_MINUTES = 15
 export const DEFAULT_EMAIL_FREE_FAILURES = 4
 export const DEFAULT_IP_FREE_FAILURES = 20
+/** Days an Acumatica cheque waits at SIGNATURE_PENDING before it is signed automatically. 0 = off. */
+export const DEFAULT_AUTO_SIGN_AFTER_DAYS = 3

@@ -32,9 +32,17 @@ describe('the registry imports only leaves', () => {
 })
 
 describe('the registry', () => {
-  it('declares ten settings, each key once', () => {
-    expect(SETTINGS).toHaveLength(10)
-    expect(new Set(SETTING_KEYS).size).toBe(10)
+  it('declares eleven settings, each key once', () => {
+    expect(SETTINGS).toHaveLength(11)
+    expect(new Set(SETTING_KEYS).size).toBe(11)
+  })
+
+  it('declares auto-sign as a WORKFLOW setting, 3 days by default, 0 to switch it off', () => {
+    const def = settingDef('autoSign.afterDays')
+    expect(def).toMatchObject({ kind: 'int', group: 'WORKFLOW', unit: 'days', default: 3, min: 0, max: 30 })
+    expect(DEFAULTS['autoSign.afterDays']).toBe(3)
+    expect(parseSettingText(def!, '0')).toEqual({ ok: true, value: 0 })
+    expect(parseSettingText(def!, '31').ok).toBe(false)
   })
 
   it('takes every default from the constant the code already uses', () => {

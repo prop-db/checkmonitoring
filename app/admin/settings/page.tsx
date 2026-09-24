@@ -15,6 +15,7 @@ const GROUPS: { group: SettingGroup; title: string; note?: string }[] = [
   { group: 'SYNC', title: 'ACUMATICA SYNC' },
   { group: 'CAPS', title: 'CAPS' },
   { group: 'LOGIN', title: 'SIGN-IN THROTTLE', note: 'These can be tightened freely; they cannot be loosened past the bound shown — a shorter window, or more free failures, is as far as it goes.' },
+  { group: 'WORKFLOW', title: 'WORKFLOW', note: 'Auto-signing runs once a day at 18:00 Manila, after the Acumatica sync. Set 0 to pause it.' },
   { group: 'CATEGORIES', title: 'CATEGORIES', note: 'Removing a category does not change what is already recorded; it stops it being chosen from now on.' },
 ]
 
