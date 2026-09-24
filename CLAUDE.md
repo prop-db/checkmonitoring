@@ -58,6 +58,21 @@ It follows that:
   (STPP→STK 681, A1+→STK 536, A1PP→A1+ 322), and letting the register's company veto them
   matched only 312 of the 940. This is a catch-up, not a routine: every further run means
   releases are still happening outside the app, which is the problem to fix, not the script.
+- **The for-release list changed shape on 2026-09-24, and `lib/import/bills.ts` cannot read it.**
+  `FOR RELEASE 9.25.2026.xlsx` has `Detail1` (pivot drill-down, header on row 3, 939 vouchers all
+  remarked AVAILABLE, no cheque number), `LOCAL` (BANK column first, header on row 2, 192),
+  `BROKERS` (register-shaped, 42 cheques) and `PIVOT`. `isBillSheet` reads none of them.
+  **User ruling 2026-09-24: all three sheets are the list.** `scripts/mark-ready-from-release-list.ts`
+  (`lib/admin/release-list.ts`) finds a voucher or CHECK NUMBER header in rows 1-3 of each sheet,
+  resolves each voucher to **exactly one live cheque** via `apvNumbers` (or the broker row's cheque
+  number), and moved **522 cheques to READY_FOR_RELEASE** (387 SIGNED, 135 SIGNATURE_PENDING) — 572
+  ready after. Status only; no `readyAt`/`readyById`/pickup date, no portal event, **no `CheckBill`
+  row** — so **never run `scripts/backfill-available.ts` after it**: that script reads "has a bill"
+  as "on the list" and would demote all 522. Left alone: 336 vouchers naming no cheque, 14 naming
+  only cancelled/voided ones, 5 naming two live cheques, and **24 the list calls available that the
+  9.24 register shows released on 21-22 September** — kept RELEASED; a stale list does not pull a
+  release back. Nothing was demoted: the one READY_FOR_RELEASE cheque off the list (`6000352027`)
+  was not released in the 9.24 register, and the user's instruction was to demote only on that.
 
 ## Commands
 
@@ -80,6 +95,8 @@ npx tsx scripts/repair-cr-receipts.ts            # dry run: the register's CR nu
 npx tsx scripts/repair-cr-receipts.ts --apply    # snapshot to snapshots/, then repair, one audit row each
 npx tsx scripts/backfill-released-from-register.ts "CHECK MONITORING 9.24.2026.xlsx"   # dry run: register pick-ups not yet RELEASED
 npx tsx scripts/backfill-released-from-register.ts "<register>.xlsx" --apply           # snapshot, then status only, one audit row each
+npx tsx scripts/mark-ready-from-release-list.ts "FOR RELEASE 9.25.2026.xlsx"            # dry run: listed cheques not yet READY_FOR_RELEASE
+npx tsx scripts/mark-ready-from-release-list.ts "<for-release>.xlsx" --apply            # snapshot, then status only; never follow with backfill-available
 ```
 
 **On Windows, use `npx.cmd` / `npm.cmd`.** PowerShell's execution policy is `Undefined` (i.e.
@@ -368,7 +385,7 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
 
 Plans 1 and 2 complete. Plan 3 (portal automation) still paused: the portal needs an `encoder`
 service account that does not exist, and until it does every `PortalEvent` simply queues.
-**1,344 tests across 97 files** — 1,332 across 96 before the register catch-up (`admin/register-releases` 12); 1,327 across 95 before the module bar (`module-nav` 5); before that 1,290 across 89, then the outstanding-cheques report +37
+**1,350 tests across 98 files** — 1,344 across 97 before the for-release list (`admin/release-list` 6); 1,332 across 96 before the register catch-up (`admin/register-releases` 12); 1,327 across 95 before the module bar (`module-nav` 5); before that 1,290 across 89, then the outstanding-cheques report +37
 (`recon/outstanding` 12, `recon/query` 7, `recon/summary` 6, `recon-view` 5, `export/recon-workbook` 4,
 `export/recon-route` 3). Before that: 1,254 across 85, then the settings +36
 (`settings/registry` 12, `settings/actions` 7, `settings/read` 5, `actions/settings-actions` 3, one case in each
