@@ -1,6 +1,7 @@
 import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { getSyncOverview, type TenantSync } from '@/lib/admin/sync-overview'
+import { getLastAutoSign } from '@/lib/sync/auto-sign'
 import { EmptyState } from '@/components/EmptyState'
 import { SyncNowButton } from '@/components/SyncNowButton'
 import { loadSettings } from '@/lib/settings/read'
@@ -142,9 +143,10 @@ export default async function SyncPage() {
   await requireAdmin()
 
   const settings = await loadSettings(prisma)
-  const [overview, recent] = await Promise.all([
+  const [overview, recent, lastAutoSign] = await Promise.all([
     getSyncOverview(prisma, new Date(), settings.values['sync.abandonedAfterMinutes']),
     prisma.syncRun.findMany({ orderBy: { startedAt: 'desc' }, take: 25 }),
+    getLastAutoSign(prisma),
   ])
 
   return (
@@ -162,6 +164,26 @@ export default async function SyncPage() {
           />
         ))}
       </div>
+
+      {/* The daily auto-sign (lib/sync/auto-sign.ts) records each run as one
+          audit row; this is the latest. A FAILED run is shown the way a failed
+          sync is, because a silent failure here is a pile of unsigned cheques. */}
+      <section className="rounded-2xl bg-white p-6 ring-1 ring-hairline">
+        <h2 className="text-[11px] font-semibold tracking-widest text-slate-400">LAST AUTO-SIGN</h2>
+        {lastAutoSign === null ? (
+          <p className="mt-2 text-sm text-slate-600">
+            Auto-sign has not run yet. It runs daily at 18:00 Manila, after the sync.
+          </p>
+        ) : (
+          <p className={`mt-2 text-sm ${lastAutoSign.outcome === 'FAILED' ? 'font-semibold text-danger-ink' : 'text-slate-600'}`}>
+            {fmtDateTime(lastAutoSign.at)} — {lastAutoSign.outcome}
+            {lastAutoSign.outcome === 'OK' && <>: {n(lastAutoSign.signed)} cheque(s) signed after {lastAutoSign.days} day(s)</>}
+            {lastAutoSign.skipped > 0 && <>, {n(lastAutoSign.skipped)} skipped because they changed first</>}
+            {lastAutoSign.outcome === 'DISABLED' && <>: the setting is 0 — change it on SETTINGS to switch auto-sign on</>}
+            {lastAutoSign.error && <>: {lastAutoSign.error}</>}
+          </p>
+        )}
+      </section>
 
       {overview.untenantedRuns > 0 && (
         <p className="rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">
