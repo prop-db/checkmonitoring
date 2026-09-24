@@ -37,7 +37,7 @@ async function main(): Promise<void> {
     const pending = await db.check.count({ where: { status: 'SIGNATURE_PENDING' } })
     line('at SIGNATURE_PENDING', pending)
     line('DUE — will be signed', due.length)
-    line('  not due / register-only / not cheque / Voided', pending - due.length)
+    line('  excluded (not due, no Acumatica, etc.)', pending - due.length)
 
     const byMonth = new Map<string, number>()
     const byCompany = new Map<string, number>()
@@ -65,7 +65,7 @@ async function main(): Promise<void> {
 
     const run = await runAutoSign(db, { now })
 
-    if (run.days !== days) {
+    if (run.outcome !== 'FAILED' && run.days !== days) {
       console.log('\nWARNING: autoSign.afterDays changed from', days, 'to', run.days, 'while this ran;')
       console.log('the snapshot lists the cheques due at', days, 'days.')
       console.log('Check the auto_signed audit rows for what was actually signed.')
