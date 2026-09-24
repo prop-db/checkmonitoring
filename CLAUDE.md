@@ -97,6 +97,8 @@ npx tsx scripts/backfill-released-from-register.ts "CHECK MONITORING 9.24.2026.x
 npx tsx scripts/backfill-released-from-register.ts "<register>.xlsx" --apply           # snapshot, then status only, one audit row each
 npx tsx scripts/mark-ready-from-release-list.ts "FOR RELEASE 9.25.2026.xlsx"            # dry run: listed cheques not yet READY_FOR_RELEASE
 npx tsx scripts/mark-ready-from-release-list.ts "<for-release>.xlsx" --apply            # snapshot, then status only; never follow with backfill-available
+npx tsx scripts/auto-sign-backlog.ts              # dry run: Acumatica cheques pending past autoSign.afterDays
+npx tsx scripts/auto-sign-backlog.ts --apply      # snapshot, then sign them (the 18:00 run does the rest daily)
 ```
 
 **On Windows, use `npx.cmd` / `npm.cmd`.** PowerShell's execution policy is `Undefined` (i.e.
@@ -385,7 +387,9 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
 
 Plans 1 and 2 complete. Plan 3 (portal automation) still paused: the portal needs an `encoder`
 service account that does not exist, and until it does every `PortalEvent` simply queues.
-**1,350 tests across 98 files** — 1,344 across 97 before the for-release list (`admin/release-list` 6); 1,332 across 96 before the register catch-up (`admin/register-releases` 12); 1,327 across 95 before the module bar (`module-nav` 5); before that 1,290 across 89, then the outstanding-cheques report +37
+**1,369 tests across 101 files** — 1,350 across 98 before auto-sign (`domain/auto-sign` 6,
+`actions/auto-sign` 3, `sync/auto-sign` 6 — five from the plan plus a NOT_FOUND-skip case,
+`sync/cron-route` +3, `settings/registry` +1 and one case renamed); 1,344 across 97 before the for-release list (`admin/release-list` 6); 1,332 across 96 before the register catch-up (`admin/register-releases` 12); 1,327 across 95 before the module bar (`module-nav` 5); before that 1,290 across 89, then the outstanding-cheques report +37
 (`recon/outstanding` 12, `recon/query` 7, `recon/summary` 6, `recon-view` 5, `export/recon-workbook` 4,
 `export/recon-route` 3). Before that: 1,254 across 85, then the settings +36
 (`settings/registry` 12, `settings/actions` 7, `settings/read` 5, `actions/settings-actions` 3, one case in each
@@ -428,6 +432,13 @@ Production is `check_monitoring_prod` on Neon. Both outstanding migrations were 
    **To go live:** set `CRON_SECRET` in Vercel, `node scripts/migrate.mjs prod --confirm`,
    `npx vercel --prod`, then trigger the job once from the Vercel dashboard and confirm two
    SCHEDULED rows on `/admin/sync`. Until that is done, item 1 is still open in production.
+   **Auto-sign rides on the same run** (built 2026-09-25, spec `2026-09-25-auto-sign-design.md`).
+   After both syncs, an Acumatica cheque (`acumaticaPaymentId` set, `isCheque`, not Voided) still at
+   SIGNATURE_PENDING `autoSign.afterDays` calendar days (default 3; 0 = off) after `createdAt`
+   becomes SIGNED — `signedById` null, one `auto_signed` audit row, no portal event. Every run
+   writes one `auto_sign_run` audit row with no `checkId`, read by LAST AUTO-SIGN on `/admin/sync`;
+   a FAILED run turns the cron response 500. It runs even when a tenant's sync failed. Rule 4 is
+   untouched: the sync still never writes status — auto-sign is its own step, in `lib/domain/actions.ts`.
 2. **One active FINANCE_ADMIN**, of three active users. This stopped being housekeeping the moment
    admin-only actions shipped (revert availability; the release reversal below). One forgotten
    password locks administration, and one has already been forgotten on this system.

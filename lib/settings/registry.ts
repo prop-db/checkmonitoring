@@ -19,7 +19,7 @@ import { DEFAULT_CATEGORIES, isCategory } from './categories'
 export { DEFAULT_CATEGORIES, isCategory }
 
 /**
- * THE TEN KNOBS, DECLARED ONCE.
+ * THE ELEVEN KNOBS, DECLARED ONCE.
  *
  * Each default is the constant the code already exports, so the paragraph of
  * reasoning beside each constant stays where it was written and the `Setting`

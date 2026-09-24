@@ -24,7 +24,7 @@ const MAX_ERROR = 300
 export type AutoSignRun = {
   outcome: 'OK' | 'DISABLED' | 'FAILED'
   signed: number
-  /** Listed as due, then found changed inside its own transaction. */
+  /** Listed as due, then found changed inside its own transaction, or deleted before it could be signed. */
   skipped: number
   /** The setting in force; null only when it could not be read. */
   days: number | null
