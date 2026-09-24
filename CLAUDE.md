@@ -215,7 +215,7 @@ run when `DATABASE_URL_TEST` is unset or equal to `DATABASE_URL`.
 
 **A threshold is a setting, and the constant is only its default.** Since 2026-09-12 `STALE_AFTER_HOURS`,
 `ABANDONED_AFTER_MINUTES`, `SYNC_IN_PROGRESS_MINUTES`, `MAX_BULK_SELECTION`, `EXPORT_ROW_LIMIT`,
-`VOUCHER_SCREEN_ROW_LIMIT` and the three login-throttle allowances are the DEFAULTS in
+`VOUCHER_SCREEN_ROW_LIMIT`, `autoSign.afterDays` and the three login-throttle allowances are the DEFAULTS in
 `lib/settings/registry.ts`; the value in force comes from `loadSettings` at request time, and every
 function that uses one takes it as a parameter. A new call site that reads the constant directly
 silently ignores the admin's setting. The category list is a setting too, and the domain refuses a
@@ -232,7 +232,7 @@ category not on it.
 | `lib/forecast/` | Cash outflow by cheque date: `buckets.ts` (the ageing buckets, pure), `query.ts` (the population — live, real, with an amount), `matrix.ts` (bucket × bank and bucket × stage, centavo-exact, pure). `/forecast` and `/api/export/forecast` sit on it. Since 2026-09-12 a cheque's typed `expectedOutflowDate` wins over its cheque date, and `PlannedOutflow` lines (`lib/planned-outflow/`, `/forecast/planned`) join the population as their own PLANNED column. |
 | `lib/recon/` | Outstanding cheques: `outstanding.ts` (the as-of rule, pure), `summary.ts` (per account, centavo-exact, pure), `query.ts` (the released population). `/recon` and `/api/export/recon` sit on it. |
 | `lib/normalised-row.ts` | The one shape both ingestion paths converge on. |
-| `lib/settings/` | The ten settings: `registry.ts` (pure — defaults from the constants, bounds, parsing), `read.ts` (one query per request, never cached), `actions.ts` (admin-only writes, audited). `/admin/settings`. |
+| `lib/settings/` | The eleven settings: `registry.ts` (pure — defaults from the constants, bounds, parsing), `read.ts` (one query per request, never cached), `actions.ts` (admin-only writes, audited). `/admin/settings`. |
 | `docs/superpowers/specs/` | The approved design, and the Supplier Portal API evidence. |
 | `docs/superpowers/plans/` | Plans 1–3. Plan 4 (reports, notifications) not yet written. |
 | `docs/deployment.md` | Vercel procedure and blockers. |
@@ -434,10 +434,15 @@ Production is `check_monitoring_prod` on Neon. Both outstanding migrations were 
    SCHEDULED rows on `/admin/sync`. Until that is done, item 1 is still open in production.
    **Auto-sign rides on the same run** (built 2026-09-25, spec `2026-09-25-auto-sign-design.md`).
    After both syncs, an Acumatica cheque (`acumaticaPaymentId` set, `isCheque`, not Voided) still at
-   SIGNATURE_PENDING `autoSign.afterDays` calendar days (default 3; 0 = off) after `createdAt`
-   becomes SIGNED — `signedById` null, one `auto_signed` audit row, no portal event. Every run
-   writes one `auto_sign_run` audit row with no `checkId`, read by LAST AUTO-SIGN on `/admin/sync`;
-   a FAILED run turns the cron response 500. It runs even when a tenant's sync failed. Rule 4 is
+   SIGNATURE_PENDING becomes SIGNED once its Manila calendar day is `autoSign.afterDays` days
+   (default 3; 0 = off) at or before today's Manila calendar day — the cheque's own Manila day
+   compared against `createdAt`, not elapsed hours, because a cheque read a few minutes into
+   Monday's 18:00 run must still be due at Thursday's run rather than slipping to Friday. `signedById`
+   null, one `auto_signed` audit row, no portal event. Every run writes one `auto_sign_run` audit row
+   with no `checkId`, read by LAST AUTO-SIGN on `/admin/sync`; a FAILED run turns the cron response
+   500. The route gives the run a 50-second time budget (inside its 60s ceiling): a run cut off
+   mid-backlog still leaves a FAILED record naming how many cheques are still due, rather than being
+   killed by the platform with nothing written. It runs even when a tenant's sync failed. Rule 4 is
    untouched: the sync still never writes status — auto-sign is its own step, in `lib/domain/actions.ts`.
 2. **One active FINANCE_ADMIN**, of three active users. This stopped being housekeeping the moment
    admin-only actions shipped (revert availability; the release reversal below). One forgotten

@@ -25,9 +25,14 @@ A cheque is signed automatically when **all** hold:
 3. `isCheque = true`. DEBIT ADV and CASH are not signed by anyone and never offer a SIGN button;
    `assertReleasable` already refuses them in `markSigned`.
 4. `acumaticaStatus` is not `Voided`. A voided payment waits for the sync or a person to settle it.
-5. `createdAt <= now - N days`, N being the setting below (default 3). Elapsed time, not calendar
-   dates in Manila: a cheque first read at 18:00 Monday is due at 18:00 Thursday, and the daily run
-   at 18:00 picks it up then.
+5. The cheque's Manila calendar day is at or before today's Manila calendar day minus N, N being
+   the setting below (default 3). **Manila calendar days, not elapsed time.** A cheque first read a
+   few minutes into Monday's 18:00 run is not yet 72 hours old at Thursday's 18:00 run — Vercel fires
+   the cron anywhere within the hour, not at the exact minute — so counting elapsed hours would slip
+   it to Friday. "Generated Monday, SIGNED Thursday" is a statement about calendar days in a fixed
+   timezone (the Philippines, UTC+8, no daylight saving), and `dueBefore` in
+   `lib/domain/auto-sign.ts` computes it that way: the first instant of the Manila day `N` days
+   before now, and a cheque is due when `createdAt` falls strictly before it.
 
 Pure predicate in `lib/domain/auto-sign.ts` — `isDueForAutoSign(check, now, days)` — no database,
 no clock; the caller passes `now`.
@@ -73,6 +78,12 @@ tenants' syncs:
   makes the response 500**, as a failed sync does, so the Vercel cron log shows red.
 - No second cron job: the Hobby plan allows it, but it would be a second thing to watch and would not
   run more often.
+- **A 50-second time budget**, inside the route's 60-second ceiling (`maxDuration`). `runAutoSign`
+  takes an optional `deadline`; the route passes `now + 50s`. Checked before each cheque: past the
+  deadline, the run stops, is recorded `FAILED` with an error naming how many cheques are still due,
+  and leaves what it already signed standing. The next scheduled run picks up where it left off —
+  the candidates are listed fresh every time — so a run cut short by the platform is a delay, not a
+  loss.
 
 Expected daily volume is the sync's intake — 110–140 cheques on the GOLIVE tenant on 21–22 September.
 From `sin1` to Neon's ap-southeast-1 that fits comfortably inside the function's time limit.
