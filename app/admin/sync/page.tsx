@@ -174,13 +174,23 @@ export default async function SyncPage() {
           <p className="mt-2 text-sm text-slate-600">
             Auto-sign has not run yet. It runs daily at 18:00 Manila, after the sync.
           </p>
+        ) : lastAutoSign.outcome === 'FAILED' ? (
+          <div className="mt-2 space-y-2 rounded-xl bg-danger-bg p-4 ring-1 ring-danger-ink/20">
+            <p className="text-sm font-medium text-danger-ink">
+              {fmtDateTime(lastAutoSign.at)} — FAILED
+              {/* Shown here too: a run that hit its time budget mid-backlog may
+                  still have signed some cheques before it stopped, and that is
+                  worth knowing even though the run did not finish. */}
+              {lastAutoSign.signed > 0 && <>: {n(lastAutoSign.signed)} cheque(s) signed</>}
+            </p>
+            {lastAutoSign.error && <p className="text-sm text-danger-ink/90">{lastAutoSign.error}</p>}
+          </div>
         ) : (
-          <p className={`mt-2 text-sm ${lastAutoSign.outcome === 'FAILED' ? 'font-semibold text-danger-ink' : 'text-slate-600'}`}>
+          <p className="mt-2 text-sm text-slate-600">
             {fmtDateTime(lastAutoSign.at)} — {lastAutoSign.outcome}
             {lastAutoSign.outcome === 'OK' && <>: {n(lastAutoSign.signed)} cheque(s) signed after {lastAutoSign.days} day(s)</>}
             {lastAutoSign.skipped > 0 && <>, {n(lastAutoSign.skipped)} skipped because they changed first</>}
             {lastAutoSign.outcome === 'DISABLED' && <>: the setting is 0 — change it on SETTINGS to switch auto-sign on</>}
-            {lastAutoSign.error && <>: {lastAutoSign.error}</>}
           </p>
         )}
       </section>

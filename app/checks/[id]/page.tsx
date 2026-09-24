@@ -211,7 +211,10 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
 
       <Panel title="RELEASE MONITORING">
         <dl className="grid grid-cols-2 gap-x-6 gap-y-5 md:grid-cols-3">
-          <Field label="SIGNED BY" value={check.signedBy?.name ?? '—'} />
+          <Field
+            label="SIGNED BY"
+            value={check.signedBy?.name ?? (check.signedAt ? 'AUTOMATIC' : '—')}
+          />
           <Field label="SIGNED DATE/TIME" value={fmtDateTime(check.signedAt)} />
           <Field label="READY BY" value={check.readyBy?.name ?? '—'} />
           <Field label="READY DATE/TIME" value={fmtDateTime(check.readyAt)} />
