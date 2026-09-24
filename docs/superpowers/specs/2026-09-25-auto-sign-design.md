@@ -31,8 +31,10 @@ A cheque is signed automatically when **all** hold:
    the cron anywhere within the hour, not at the exact minute — so counting elapsed hours would slip
    it to Friday. "Generated Monday, SIGNED Thursday" is a statement about calendar days in a fixed
    timezone (the Philippines, UTC+8, no daylight saving), and `dueBefore` in
-   `lib/domain/auto-sign.ts` computes it that way: the first instant of the Manila day `N` days
-   before now, and a cheque is due when `createdAt` falls strictly before it.
+   `lib/domain/auto-sign.ts` computes it that way: the first instant (UTC) of the Manila day AFTER
+   the one `N` days before today — so a cheque is due when `createdAt` falls strictly before it,
+   i.e. its Manila day is today minus `N` or earlier (on 25 Sep with 3 days: 23 Sep 00:00 Manila,
+   so 22 Sep and earlier are due).
 
 Pure predicate in `lib/domain/auto-sign.ts` — `isDueForAutoSign(check, now, days)` — no database,
 no clock; the caller passes `now`.

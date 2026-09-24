@@ -41,9 +41,10 @@ function dayIndex(t: number): number {
 }
 
 /**
- * The first instant (UTC) of the Manila calendar day `days` days before
- * `now`'s Manila day. A cheque is due when `createdAt` falls strictly before
- * this instant — i.e. its own Manila day is at or before that day.
+ * The first instant (UTC) of the Manila day AFTER the one `days` days before
+ * today — so a cheque is due when `createdAt` falls strictly before it, i.e.
+ * its Manila day is today minus `days` or earlier. (On 25 Sep with 3 days:
+ * 23 Sep 00:00 Manila, so 22 Sep and earlier are due.)
  */
 export function dueBefore(now: Date, days: number): Date {
   return new Date((dayIndex(now.getTime()) - days + 1) * DAY_MS - MANILA_OFFSET_MS)
