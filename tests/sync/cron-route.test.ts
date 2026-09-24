@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
   dbTouches: 0,
   requested: [] as string[],
   failFor: null as string | null,
+  failAutoSign: false,
 }))
 
 vi.mock('@/lib/db', async () => {
@@ -34,6 +35,17 @@ vi.mock('@/lib/integrations/acumatica/from-env', () => ({
     return { fetchAll: async () => [], fetchPage: async () => [] }
   },
 }))
+
+vi.mock('@/lib/sync/auto-sign', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/lib/sync/auto-sign')>()
+  return {
+    ...real,
+    runAutoSign: async (...args: Parameters<typeof real.runAutoSign>) =>
+      state.failAutoSign
+        ? { outcome: 'FAILED' as const, signed: 0, skipped: 0, days: 3, error: 'forced' }
+        : real.runAutoSign(...args),
+  }
+})
 
 const SECRET = 'test-cron-secret'
 
@@ -59,6 +71,7 @@ beforeEach(async () => {
   state.dbTouches = 0
   state.requested = []
   state.failFor = null
+  state.failAutoSign = false
 })
 
 describe('GET /api/cron/sync — the guard', () => {
@@ -118,5 +131,44 @@ describe('GET /api/cron/sync — the run', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.outcomes.map((o: { outcome: string }) => o.outcome)).toEqual(['RAN', 'REFUSED_NO_WATERMARK'])
+  })
+})
+
+describe('GET /api/cron/sync — auto-sign after the syncs', () => {
+  async function duePending() {
+    const { makeCheck } = await import('../helpers/factory')
+    const c = await makeCheck({ status: 'SIGNATURE_PENDING' })
+    return testDb.check.update({
+      where: { id: c.id },
+      data: { acumaticaPaymentId: `PAY-${c.id}`, acumaticaStatus: 'Balanced', createdAt: new Date(Date.now() - 4 * 86_400_000) },
+    })
+  }
+
+  it('signs the due cheques and reports it', async () => {
+    await watermarked('GOLIVE'); await watermarked('MANUFACTURING')
+    const c = await duePending()
+    const res = await get(`Bearer ${SECRET}`)
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body.autoSign).toMatchObject({ outcome: 'OK', signed: 1, days: 3 })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('SIGNED')
+  })
+
+  it('still auto-signs when a tenant sync failed', async () => {
+    await watermarked('GOLIVE'); await watermarked('MANUFACTURING')
+    state.failFor = 'GOLIVE'
+    const c = await duePending()
+    const res = await get(`Bearer ${SECRET}`)
+    expect(res.status).toBe(500)
+    expect((await res.json()).autoSign.outcome).toBe('OK')
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('SIGNED')
+  })
+
+  it('answers 500 when auto-sign fails, even though both syncs ran', async () => {
+    await watermarked('GOLIVE'); await watermarked('MANUFACTURING')
+    state.failAutoSign = true
+    const res = await get(`Bearer ${SECRET}`)
+    expect(res.status).toBe(500)
+    expect((await res.json()).autoSign).toMatchObject({ outcome: 'FAILED', error: 'forced' })
   })
 })

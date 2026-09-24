@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db'
 import { createClientForTenant } from '@/lib/integrations/acumatica/from-env'
 import { SYNC_TENANTS } from '@/lib/admin/sync-overview'
 import { runScheduledSync, type ScheduledSyncOutcome } from '@/lib/sync/scheduled'
+import { runAutoSign } from '@/lib/sync/auto-sign'
 
 /**
  * THE SCHEDULED SYNC. Vercel calls this once a day — `crons` in vercel.json,
@@ -26,6 +27,11 @@ import { runScheduledSync, type ScheduledSyncOutcome } from '@/lib/sync/schedule
  * one tenant's trouble never skips the other. 500 if any tenant FAILED, so
  * Vercel's cron log shows the failure; a refusal for want of a watermark or a
  * run already in progress is recorded and is not a failure of the cron.
+ *
+ * Then AUTO-SIGN (lib/sync/auto-sign.ts): an Acumatica cheque still at
+ * SIGNATURE_PENDING `autoSign.afterDays` days after it reached the app becomes
+ * SIGNED. It runs even when a tenant failed, and its own failure also turns the
+ * response 500.
  */
 
 // ExcelJS is not involved, but the Prisma client is Node-only all the same.
@@ -74,6 +80,10 @@ export async function GET(request: Request): Promise<Response> {
     )
   }
 
-  const failed = outcomes.some((o) => o.outcome === 'FAILED')
-  return json({ ranAt: now.toISOString(), outcomes }, failed ? 500 : 200)
+  // After both tenants, whether or not either failed: cheques already in the
+  // app keep ageing, and a failed read delays new cheques, not old ones.
+  const autoSign = await runAutoSign(prisma, { now })
+
+  const failed = outcomes.some((o) => o.outcome === 'FAILED') || autoSign.outcome === 'FAILED'
+  return json({ ranAt: now.toISOString(), outcomes, autoSign }, failed ? 500 : 200)
 }
