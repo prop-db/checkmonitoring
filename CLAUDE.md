@@ -387,8 +387,9 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
 
 Plans 1 and 2 complete. Plan 3 (portal automation) still paused: the portal needs an `encoder`
 service account that does not exist, and until it does every `PortalEvent` simply queues.
-**1,369 tests across 101 files** — 1,350 across 98 before auto-sign (`domain/auto-sign` 6,
-`actions/auto-sign` 3, `sync/auto-sign` 6 — five from the plan plus a NOT_FOUND-skip case,
+**1,374 tests across 101 files** — 1,350 across 98 before auto-sign (`domain/auto-sign` 9 —
+Manila calendar days and the exact boundary, `actions/auto-sign` 3, `sync/auto-sign` 8 — the plan's
+five plus NOT_FOUND-skip, time budget and the calendar-vs-72h list case,
 `sync/cron-route` +3, `settings/registry` +1 and one case renamed); 1,344 across 97 before the for-release list (`admin/release-list` 6); 1,332 across 96 before the register catch-up (`admin/register-releases` 12); 1,327 across 95 before the module bar (`module-nav` 5); before that 1,290 across 89, then the outstanding-cheques report +37
 (`recon/outstanding` 12, `recon/query` 7, `recon/summary` 6, `recon-view` 5, `export/recon-workbook` 4,
 `export/recon-route` 3). Before that: 1,254 across 85, then the settings +36
