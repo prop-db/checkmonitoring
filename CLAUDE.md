@@ -89,6 +89,22 @@ It follows that:
   The same day, on the user's instruction, the two LOCAL cheques READY here but `Voided` in
   Acumatica (`6000353108`, 6,000.00; `1791404779`, no amount) were voided through `voidCheck`,
   snapshot first. Available after: 142, 13,916,609.81.
+  **User ruling 2026-09-25 on the 90 LOCAL vouchers with no cheque here: leave them.** They are
+  most likely not yet processed in Acumatica — no cheque generated — and the sync will bring the
+  cheque when one exists. Do not chase them as a sync defect.
+  `6000352027` (2,180.36, on no sheet of the 9.25 list) was confirmed released by the user and set
+  RELEASED — status only, `released_confirmed_by_user` audit row, snapshot first. Available after:
+  141, 13,914,429.45 — every one of them on LOCAL or BROKERS. Then `6000353477` (Voided in
+  Acumatica) was voided, and its re-issue `6000353478` and `1791404780` — the live cheques of the
+  two LOCAL vouchers that had named two — were moved SIGNED → READY_FOR_RELEASE on the user's
+  instruction. Available after: 143, 14,168,302.31. **LOCAL's own total is wrong**: S1's
+  11,001,510.80 sums `O3:O185` while the data runs to row 194, missing 9 BPI P&P vouchers
+  (656,310.21); the true total is 11,657,821.01, which the PIVOT agrees with. BROKERS row 29
+  (`6000353108`, 6,000.00) is a cheque Acumatica voided — the list still calls it available.
+  **User ruling 2026-09-25: follow Acumatica on voids.** `scripts/void-acumatica-voided.ts --apply`
+  (run by the user) voided the 35 cheques Acumatica reported Voided that were still live or
+  RELEASED here — 18 SIGNED, 17 RELEASED (all imported from the register at RELEASED;
+  `6000089687` keeps its supplier receipt and a `voided_after_release` row). 0 left after.
 
 ## Commands
 
