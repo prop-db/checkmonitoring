@@ -48,7 +48,7 @@ export function VoucherTable({ rows }: { rows: readonly VoucherRow[] }) {
               <td className="whitespace-nowrap px-4 py-3">
                 {r.checkId && r.checkNumber
                   ? (
-                    <Link href={`/checks/${r.checkId}`} className="underline underline-offset-2">
+                    <Link prefetch={false} href={`/checks/${r.checkId}`} className="underline underline-offset-2">
                       {r.checkNumber}
                     </Link>
                   )

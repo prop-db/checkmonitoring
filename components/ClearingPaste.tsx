@@ -60,7 +60,7 @@ export function ClearingPaste({ maxLines }: { maxLines: number }) {
         <ul className="divide-y divide-hairline rounded-xl bg-white ring-1 ring-hairline">
           {result.outcomes.map((o) => (
             <li key={o.checkId} className="flex items-baseline justify-between gap-4 px-4 py-2 text-sm">
-              <Link href={`/checks/${o.checkId}`} className="tabular-nums underline underline-offset-2">{o.checkNumber ?? o.checkId}</Link>
+              <Link prefetch={false} href={`/checks/${o.checkId}`} className="tabular-nums underline underline-offset-2">{o.checkNumber ?? o.checkId}</Link>
               <span className={o.ok ? 'text-success-ink' : 'text-danger-ink'}>{o.ok ? 'CLEARED' : o.message}</span>
             </li>
           ))}
@@ -126,7 +126,7 @@ export function ClearingPaste({ maxLines }: { maxLines: number }) {
                   <td className="px-4 py-2 tabular-nums text-slate-500">{r.line}</td>
                   <td className="px-4 py-2 tabular-nums">
                     {r.checkId
-                      ? <Link href={`/checks/${r.checkId}`} className="underline underline-offset-2">{r.checkNumber}</Link>
+                      ? <Link prefetch={false} href={`/checks/${r.checkId}`} className="underline underline-offset-2">{r.checkNumber}</Link>
                       : r.checkNumber}
                     {r.companyCode && <span className="ml-2 text-xs text-slate-500">{r.companyCode}</span>}
                   </td>

@@ -21,7 +21,7 @@ export function OutstandingList({ lines }: { lines: readonly OutstandingLine[] }
         <tbody>
           {lines.map((l) => (
             <tr key={l.id} className="border-b border-slate-100 odd:bg-white even:bg-ground">
-              <td className="px-4 py-3 tabular-nums"><Link href={`/checks/${l.id}`} className="underline underline-offset-2">{l.checkNumber}</Link></td>
+              <td className="px-4 py-3 tabular-nums"><Link prefetch={false} href={`/checks/${l.id}`} className="underline underline-offset-2">{l.checkNumber}</Link></td>
               <td className="px-4 py-3">{l.payee ?? '—'}</td>
               <td className="px-4 py-3">{fmtDay(l.checkDate)}</td>
               <td className="px-4 py-3">

@@ -62,7 +62,7 @@ export function AuditTable({ rows }: { rows: readonly AuditRow[] }) {
                 <td className="whitespace-nowrap px-4 py-3 font-semibold text-navy">{actionWords(r.action)}</td>
                 <td className="whitespace-nowrap px-4 py-3">
                   {r.checkId && r.checkNumber
-                    ? <Link href={`/checks/${r.checkId}`} className="underline underline-offset-2">{r.checkNumber}</Link>
+                    ? <Link prefetch={false} href={`/checks/${r.checkId}`} className="underline underline-offset-2">{r.checkNumber}</Link>
                     : r.checkNumber
                       ? <span className="text-slate-500" title="This cheque has since been removed; the number is what the row recorded.">{r.checkNumber}</span>
                       : r.plannedOutflowId

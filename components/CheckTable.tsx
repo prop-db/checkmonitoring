@@ -334,7 +334,7 @@ export function CheckTable({
                   )}
                 </td>
                 <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                  <Link href={`/checks/${r.id}`} className="text-sm font-medium text-slate-900 underline underline-offset-2">
+                  <Link prefetch={false} href={`/checks/${r.id}`} className="text-sm font-medium text-slate-900 underline underline-offset-2">
                     OPEN
                   </Link>
                 </td>
