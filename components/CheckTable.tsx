@@ -4,7 +4,10 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { formatMoney } from '@/lib/money'
-import { isLiveStatus } from '@/lib/domain/check-status'
+import { RECEIPT_TYPES } from '@/lib/domain/receipt'
+import {
+  isTickable, takesReceipt, draftTypeMissing, EMPTY_DRAFT, type ReceiptDraft,
+} from '@/lib/row-receipts'
 import {
   COLUMN_KEYS, COLUMN_LABELS, ALWAYS_ON, DEFAULT_COLUMNS, COLUMN_STORAGE_KEY,
   normaliseColumns, parseColumnPreference, serialiseColumnPreference,
@@ -18,16 +21,17 @@ const fmtDate = (d: Date | null) =>
   d ? d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
 
 /**
- * A cheque can be ticked only if a bulk action could conceivably apply to it: a
- * real cheque that has not left the release ladder. `isLiveStatus` is the same
- * predicate the dashboard filters on — restating the list here is how the two
- * would drift.
+ * A cheque can be ticked if a bulk action could conceivably apply to it: a
+ * live cheque, as before, or a RELEASED one still waiting for its receipt — a
+ * late receipt is typed by ticking the row and filling its OR box.
+ * `isTickable` (`lib/row-receipts.ts`) is the same predicate the domain and the
+ * server actions share — restating the list here is how the two would drift.
  *
  * This is presentation, not a control. Every refusal is re-decided by
  * `lib/domain/actions.ts` on the server, which is why a hidden checkbox can
  * never be the reason a cheque was not released.
  */
-const selectable = (r: CheckTableRow) => r.isCheque && isLiveStatus(r.status)
+const selectable = isTickable
 
 const OPTIONAL_COLUMNS = COLUMN_KEYS.filter(
   (key) => !(ALWAYS_ON as readonly ColumnKey[]).includes(key),
@@ -42,6 +46,11 @@ export function CheckTable({
 }) {
   const router = useRouter()
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  // Keyed by check id. A row's draft is read back on release and on SAVE
+  // RECEIPTS (`lib/row-receipts.ts`'s `receiptEntries`), which is what lets a
+  // batch carry more than one supplier's receipt safely — each has exactly one
+  // owner, the row it was typed in.
+  const [drafts, setDrafts] = useState<Record<string, ReceiptDraft>>({})
 
   /**
    * Which columns to draw.
@@ -94,11 +103,29 @@ export function CheckTable({
 
   const toggle = (id: string) => setSelected((prev) => {
     const next = new Set(prev)
-    if (!next.delete(id)) next.add(id)
+    if (next.delete(id)) {
+      // Unticking a row throws away whatever it had typed. Left ticked, its
+      // box is closed too — clearing on tick, not on close, keeps the box's
+      // contents attached to the tick that opened it.
+      setDrafts((d) => {
+        if (!(id in d)) return d
+        const { [id]: _omit, ...rest } = d
+        return rest
+      })
+    } else {
+      next.add(id)
+    }
     return next
   })
 
-  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(selectableRows.map((r) => r.id)))
+  const toggleAll = () => {
+    if (allSelected) {
+      setSelected(new Set())
+      setDrafts({})
+    } else {
+      setSelected(new Set(selectableRows.map((r) => r.id)))
+    }
+  }
 
   const open = (id: string) => router.push(`/checks/${id}`)
 
@@ -174,6 +201,7 @@ export function CheckTable({
               <th className="px-4 py-3">{COLUMN_LABELS.status}</th>
               {shows('availablePickupDate') && <th className="px-4 py-3">{COLUMN_LABELS.availablePickupDate}</th>}
               {shows('scheduledPickupDate') && <th className="px-4 py-3">{COLUMN_LABELS.scheduledPickupDate}</th>}
+              <th className="px-4 py-3">OR / CR</th>
               <th className="px-4 py-3">{COLUMN_LABELS.action}</th>
             </tr>
           </thead>
@@ -258,6 +286,37 @@ export function CheckTable({
                 {shows('scheduledPickupDate') && (
                   <td className="px-4 py-3 text-slate-600">{fmtDate(r.scheduledPickupDate)}</td>
                 )}
+                {/* The supplier's receipt. A ticked row that can carry one gets
+                    its own box, which is what lets a batch carry receipts safely:
+                    every reference has exactly one cheque. Keys and clicks stop
+                    here so typing never opens the cheque (the row navigates on
+                    click and on Enter). */}
+                <td className="px-4 py-3" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+                  {selected.has(r.id) && takesReceipt(r) ? (
+                    <div className="flex items-center gap-2">
+                      <select
+                        aria-label={`Receipt type for check ${r.checkNumber}`}
+                        value={(drafts[r.id] ?? EMPTY_DRAFT).receiptType}
+                        onChange={(e) => setDrafts((d) => ({ ...d, [r.id]: { ...(d[r.id] ?? EMPTY_DRAFT), receiptType: e.target.value as ReceiptDraft['receiptType'] } }))}
+                        className={`rounded-lg border px-2 py-1 text-sm ${draftTypeMissing(drafts[r.id] ?? EMPTY_DRAFT) ? 'border-amber-500' : 'border-slate-300'}`}
+                      >
+                        <option value="">OR / CR</option>
+                        {RECEIPT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                      <input
+                        aria-label={`Receipt reference for check ${r.checkNumber}`}
+                        value={(drafts[r.id] ?? EMPTY_DRAFT).orNumber}
+                        placeholder="Reference"
+                        onChange={(e) => setDrafts((d) => ({ ...d, [r.id]: { ...(d[r.id] ?? EMPTY_DRAFT), orNumber: e.target.value } }))}
+                        className="w-32 rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                      />
+                    </div>
+                  ) : r.orNumber ? (
+                    <span>{r.orNumber} <span className="text-xs text-slate-500">({r.receiptType ?? '?'})</span></span>
+                  ) : (
+                    <span className="text-slate-400">—</span>
+                  )}
+                </td>
                 <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                   <Link href={`/checks/${r.id}`} className="text-sm font-medium text-slate-900 underline underline-offset-2">
                     OPEN
@@ -271,10 +330,11 @@ export function CheckTable({
 
       {selectedIds.length > 0 && (
         <BulkActionBar
-          checkIds={selectedIds}
+          selectedRows={rows.filter((r) => selected.has(r.id))}
+          drafts={drafts}
           canRelease={canRelease}
           cap={bulkCap}
-          onDone={() => setSelected(new Set())}
+          onDone={() => { setSelected(new Set()); setDrafts({}) }}
         />
       )}
     </div>

@@ -1,11 +1,13 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ReceiptFields, EMPTY_RECEIPT, receiptTypeMissing, type ReceiptValue } from './ReceiptFields'
 import {
-  bulkSignAction, bulkReadyForReleaseAction, bulkReleaseAction,
+  liveIds, releasedIds, draftTypeMissing, receiptEntries, EMPTY_DRAFT,
+  type RowFacts, type ReceiptDraft,
+} from '@/lib/row-receipts'
+import {
+  bulkSignAction, bulkReadyForReleaseAction, bulkReleaseAction, bulkRecordReceiptsAction,
   type BulkActionResult, type BulkOutcome,
 } from '@/app/checks/bulk-actions'
 
@@ -25,11 +27,21 @@ import {
  * **The cap is enforced here only as a courtesy.** `parseSelection` refuses an
  * oversized selection server-side; this disables the buttons so the user finds
  * out before pressing one rather than after.
+ *
+ * **Each action acts on its own subset of the ticked rows, and carries only
+ * that subset's own receipts.** SIGN, READY FOR RELEASE and RELEASE act on the
+ * live ones (`liveIds`); SAVE RECEIPTS acts on the RELEASED ones (`releasedIds`).
+ * Ticking a released cheque alongside a live one no longer blocks anything —
+ * each button reaches only the rows it applies to. The receipt itself is no
+ * longer typed here: since 2026-09-25 every ticked row that can carry one has
+ * its own OR/CR box in the table, and this bar only reads what was typed there
+ * (`drafts`, keyed by check id) back onto the matching action.
  */
 export function BulkActionBar({
-  checkIds, canRelease, cap, onDone,
+  selectedRows, drafts, canRelease, cap, onDone,
 }: {
-  checkIds: string[]
+  selectedRows: RowFacts[]
+  drafts: Readonly<Record<string, ReceiptDraft>>
   canRelease: boolean
   cap: number
   /** Called after a batch that changed something, so the table can clear itself. */
@@ -39,50 +51,30 @@ export function BulkActionBar({
   const [pending, startTransition] = useTransition()
   const [result, setResult] = useState<BulkActionResult | null>(null)
   const [pickupDate, setPickupDate] = useState('')
-  const [receipt, setReceipt] = useState<ReceiptValue>(EMPTY_RECEIPT)
-  /**
-   * The cheque just released with an empty box, so the offer to record its
-   * receipt can be made at the moment "I'll do it later" is decided — rather
-   * than left to somebody remembering the page exists.
-   */
-  const [receiptPending, setReceiptPending] = useState<string | null>(null)
 
-  const overCap = checkIds.length > cap
+  const live = liveIds(selectedRows)
+  const released = releasedIds(selectedRows)
+  const total = selectedRows.length
+  const overCap = total > cap
   const disabled = pending || overCap
-
-  /**
-   * The receipt box appears for ONE ticked cheque, which is the client's own
-   * shape for it: one supplier at the counter, one receipt. `bulkReleaseAction`
-   * refuses a receipt typed against a larger selection, so this is the courtesy
-   * and that is the control. A batch releases with no box at all, which is what
-   * makes the receipt optional.
-   */
-  const single = checkIds.length === 1
-  const typeMissing = receiptTypeMissing(receipt)
+  const missingType = selectedRows.some((r) => draftTypeMissing(drafts[r.id] ?? EMPTY_DRAFT))
+  const releasedTyped = receiptEntries(released, drafts).length > 0
 
   const submit = (
     action: (fd: FormData) => Promise<BulkActionResult>,
-    extra: Record<string, string> = {},
-    onSuccess?: () => void,
+    ids: string[],
+    extra: [string, string][] = [],
   ) => {
     const formData = new FormData()
-    for (const id of checkIds) formData.append('checkId', id)
-    for (const [k, v] of Object.entries(extra)) formData.append(k, v)
+    for (const id of ids) formData.append('checkId', id)
+    for (const [k, v] of extra) formData.append(k, v)
     startTransition(async () => {
       const r = await action(formData)
       setResult(r)
       if (r.ok && r.succeeded > 0) {
-        // Cleared first, so a sign or a ready-for-release never leaves the
-        // previous release's receipt offer standing over an unrelated cheque.
-        setReceiptPending(null)
-        onSuccess?.()
         // Refresh before clearing: the rows the user is looking at have new
         // statuses, and the result panel below stays on screen to say which.
         router.refresh()
-        // Emptied with the selection. A reference left in the box would be
-        // offered again against the next cheque ticked, which is the one way
-        // this control could put a supplier's receipt on the wrong cheque.
-        setReceipt(EMPTY_RECEIPT)
         onDone()
       }
     })
@@ -98,12 +90,12 @@ export function BulkActionBar({
     <div className="sticky bottom-0 z-10 mt-4 rounded-2xl bg-white p-4 shadow-lg ring-1 ring-slate-300">
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-sm font-semibold tracking-wide text-slate-900">
-          {checkIds.length} SELECTED
+          {total} SELECTED
         </span>
 
         <button
-          type="button" disabled={disabled}
-          onClick={() => submit(bulkSignAction)}
+          type="button" disabled={disabled || live.length === 0}
+          onClick={() => submit(bulkSignAction, live)}
           className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
         >
           {pending ? 'WORKING…' : 'MARK SIGNED'}
@@ -119,10 +111,10 @@ export function BulkActionBar({
             className="rounded-lg border border-slate-300 px-2 py-1 text-sm"
           />
           <button
-            type="button" disabled={disabled || pickupDate === ''}
+            type="button" disabled={disabled || live.length === 0 || pickupDate === ''}
             onClick={() => {
-              if (!confirm(`Mark ${checkIds.length} cheque(s) READY FOR RELEASE?`)) return
-              submit(bulkReadyForReleaseAction, { availablePickupDate: pickupDate })
+              if (!confirm(`Mark ${live.length} cheque(s) READY FOR RELEASE?`)) return
+              submit(bulkReadyForReleaseAction, live, [['availablePickupDate', pickupDate]])
             }}
             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
@@ -132,64 +124,53 @@ export function BulkActionBar({
 
         {canRelease && (
           <button
-            type="button" disabled={disabled || typeMissing}
+            type="button" disabled={disabled || live.length === 0 || missingType}
             onClick={() => {
               // The highest-risk action in the system: the cheque physically
               // leaves the building and RELEASED leads only to VOIDED.
+              const entries = receiptEntries(live, drafts)
+              const withReceipt = entries.length > 0 ? ` (${entries.length / 2} with a supplier receipt)` : ''
               if (!confirm(
-                `Mark ${checkIds.length} cheque(s) RELEASED? This records that the cheques have ` +
-                'been physically handed over and cannot be undone.',
+                `Mark ${live.length} cheque(s) RELEASED${withReceipt}? This records that the cheques ` +
+                'have been physically handed over and cannot be undone.',
               )) return
-              // The receipt travels only with a single cheque. For a batch the
-              // box is not even drawn, and the server refuses one anyway.
-              const withReceipt = single && receipt.orNumber.trim() !== ''
-              const releasedId = single ? checkIds[0] : null
-              submit(
-                bulkReleaseAction,
-                single ? {
-                  orNumber: receipt.orNumber,
-                  orDate: receipt.orDate,
-                  receiptType: receipt.receiptType,
-                } : {},
-                () => setReceiptPending(withReceipt ? null : releasedId),
-              )
+              submit(bulkReleaseAction, live, entries)
             }}
             className="rounded-lg bg-rose-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             MARK RELEASED
           </button>
         )}
+
+        {released.length > 0 && (
+          <button
+            type="button" disabled={disabled || missingType || !releasedTyped}
+            onClick={() => submit(bulkRecordReceiptsAction, released, receiptEntries(released, drafts))}
+            className="rounded-lg bg-navy px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
+            SAVE RECEIPTS
+          </button>
+        )}
       </div>
 
-      {canRelease && single && (
-        <div className="mt-3 rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200">
-          <p className="text-xs font-semibold tracking-widest text-slate-600">
-            SUPPLIER RECEIPT — OPTIONAL
-          </p>
-          <p className="mt-1 text-xs text-slate-500">
-            The Official or Collection Receipt the supplier hands over. Leave it empty to release
-            now and record the receipt later.
-          </p>
-          <div className="mt-3">
-            <ReceiptFields
-              value={receipt} onChange={setReceipt} idPrefix="bulk-receipt" disabled={pending}
-            />
-          </div>
-        </div>
+      {missingType && (
+        <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+          Choose OR or CR for every receipt reference you typed.
+        </p>
       )}
 
-      {canRelease && !single && checkIds.length > 1 && (
-        // Said rather than left to be discovered by a refusal. The box is not
-        // drawn for a batch, and a reader who expected it should know why.
+      {released.length > 0 && (
+        // Said rather than left to be discovered by a refusal. The receipt
+        // box lives in the row now, not here.
         <p className="mt-3 text-xs text-slate-500">
-          A RECEIPT REFERENCE BELONGS TO ONE CHEQUE. Tick a single cheque to record one, or release
-          these together and add each receipt afterwards.
+          A ticked RELEASED cheque takes its receipt in the OR / CR column. SAVE RECEIPTS records
+          every one typed there.
         </p>
       )}
 
       {overCap && (
         <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
-          {checkIds.length} CHEQUES ARE SELECTED. A bulk action is limited to {cap}
+          {total} CHEQUES ARE SELECTED. A bulk action is limited to {cap}
           {' '}at a time — untick some before continuing.
         </p>
       )}
@@ -203,20 +184,6 @@ export function BulkActionBar({
           {result.succeeded > 0 && (
             <p className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">
               {result.succeeded} CHEQUE{result.succeeded === 1 ? '' : 'S'} UPDATED.
-              {receiptPending && (
-                // The offer, at the moment "later" is chosen. Without it, "add
-                // the receipt later" means remembering that a page exists.
-                <>
-                  {' '}
-                  <Link
-                    href={`/receipts/${receiptPending}`}
-                    className="font-semibold underline underline-offset-2"
-                  >
-                    RECORD THE SUPPLIER RECEIPT
-                  </Link>
-                  {' when the paper reaches you.'}
-                </>
-              )}
             </p>
           )}
           {failures.length > 0 && (
