@@ -56,11 +56,6 @@ export function readReceiptFields(formData: FormData): ReceiptFormResult {
   }
 }
 
-/** True when the user typed anything into the receipt box at all. */
-export function receiptWasTyped(fields: ReceiptFormFields): boolean {
-  return fields.orNumber !== undefined || fields.orDate !== undefined || fields.receiptType !== null
-}
-
 export type RowReceipt = { orNumber: string; receiptType: ReceiptType }
 
 export type RowReceiptsResult =
