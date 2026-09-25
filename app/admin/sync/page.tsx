@@ -182,6 +182,7 @@ export default async function SyncPage() {
                   still have signed some cheques before it stopped, and that is
                   worth knowing even though the run did not finish. */}
               {lastAutoSign.signed > 0 && <>: {n(lastAutoSign.signed)} cheque(s) signed</>}
+              {lastAutoSign.skipped > 0 && <>, {n(lastAutoSign.skipped)} skipped because they changed first</>}
             </p>
             {lastAutoSign.error && <p className="text-sm text-danger-ink/90">{lastAutoSign.error}</p>}
           </div>

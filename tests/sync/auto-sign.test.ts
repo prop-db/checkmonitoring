@@ -19,6 +19,15 @@ async function pending(daysInApp: number, o: { acumatica?: boolean; acumaticaSta
   })
 }
 
+/** Same shape as `pending`, but at an exact `createdAt` rather than N days back. */
+async function pendingAt(createdAt: Date) {
+  const c = await makeCheck({ status: 'SIGNATURE_PENDING' })
+  return testDb.check.update({
+    where: { id: c.id },
+    data: { acumaticaPaymentId: `PAY-${c.id}`, acumaticaStatus: 'Balanced', createdAt },
+  })
+}
+
 beforeEach(resetDb)
 
 describe('listAutoSignCandidates', () => {
@@ -30,6 +39,20 @@ describe('listAutoSignCandidates', () => {
     await pending(9, { acumatica: false })
     const ids = (await listAutoSignCandidates(testDb, now, 3)).map((c) => c.id).sort()
     expect(ids).toEqual([due.id, dueNullStatus.id].sort())
+  })
+
+  it('is the Manila calendar-day rule, not the old 72-hour one', async () => {
+    // Monday 18:05 Manila — a few minutes into that run. Elapsed time would
+    // not reach 72h by Thursday 18:00, but Monday's Manila day is 3 calendar
+    // days before Thursday's, so it is listed.
+    const mondayRun = await pendingAt(new Date('2026-09-21T10:05:00Z'))
+    // Tuesday 00:01 Manila — not due yet at the same Thursday check, because
+    // its Manila day is only 2 days before Thursday's.
+    const tuesdayJustAfterMidnight = await pendingAt(new Date('2026-09-21T16:01:00Z'))
+    const checkedThursday = new Date('2026-09-24T10:00:00Z') // 18:00 Manila Thursday
+    const ids = (await listAutoSignCandidates(testDb, checkedThursday, 3)).map((c) => c.id)
+    expect(ids).toEqual([mondayRun.id])
+    expect(ids).not.toContain(tuesdayJustAfterMidnight.id)
   })
 })
 

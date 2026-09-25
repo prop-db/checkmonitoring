@@ -435,9 +435,9 @@ Production is `check_monitoring_prod` on Neon. Both outstanding migrations were 
    **Auto-sign rides on the same run** (built 2026-09-25, spec `2026-09-25-auto-sign-design.md`).
    After both syncs, an Acumatica cheque (`acumaticaPaymentId` set, `isCheque`, not Voided) still at
    SIGNATURE_PENDING becomes SIGNED once its Manila calendar day is `autoSign.afterDays` days
-   (default 3; 0 = off) at or before today's Manila calendar day — the cheque's own Manila day
-   compared against `createdAt`, not elapsed hours, because a cheque read a few minutes into
-   Monday's 18:00 run must still be due at Thursday's run rather than slipping to Friday. `signedById`
+   (default 3; 0 = off) at or before today's Manila calendar day — the Manila calendar day of
+   `createdAt`, not elapsed hours, because a cheque read a few minutes into Monday's 18:00 run must
+   still be due at Thursday's run rather than slipping to Friday. `signedById`
    null, one `auto_signed` audit row, no portal event. Every run writes one `auto_sign_run` audit row
    with no `checkId`, read by LAST AUTO-SIGN on `/admin/sync`; a FAILED run turns the cron response
    500. The route gives the run a 50-second time budget (inside its 60s ceiling): a run cut off

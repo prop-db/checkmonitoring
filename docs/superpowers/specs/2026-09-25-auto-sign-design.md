@@ -74,8 +74,9 @@ tenants' syncs:
 
 - It runs **whether or not a sync failed.** Cheques already in the app keep ageing; a failed read
   delays new ones, not old ones.
-- `runAutoSign(db, { now, days })` in `lib/sync/auto-sign.ts` lists the candidates in one query, then
-  calls `autoSign` for each. `TX_OPTIONS` as elsewhere (30s / 15s).
+- `runAutoSign(db, { now, deadline? })` in `lib/sync/auto-sign.ts` reads `days` from settings itself,
+  lists the candidates in one query, then calls `autoSign` for each. `TX_OPTIONS` as elsewhere
+  (30s / 15s).
 - The route's JSON gains `autoSign: { outcome, signed, skipped, days, error? }`. **A failed auto-sign
   makes the response 500**, as a failed sync does, so the Vercel cron log shows red.
 - No second cron job: the Hobby plan allows it, but it would be a second thing to watch and would not
@@ -85,7 +86,10 @@ tenants' syncs:
   deadline, the run stops, is recorded `FAILED` with an error naming how many cheques are still due,
   and leaves what it already signed standing. The next scheduled run picks up where it left off —
   the candidates are listed fresh every time — so a run cut short by the platform is a delay, not a
-  loss.
+  loss. The budget is checked **between** cheques, not inside one, so a single cheque already in its
+  own transaction (up to 15s to acquire it, 30s to run) could in principle still push the route past
+  its 60s ceiling; in practice a cheque's transaction takes well under a second, so this is a
+  theoretical edge rather than an observed one.
 
 Expected daily volume is the sync's intake — 110–140 cheques on the GOLIVE tenant on 21–22 September.
 From `sin1` to Neon's ap-southeast-1 that fits comfortably inside the function's time limit.

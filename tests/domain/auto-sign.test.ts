@@ -10,10 +10,17 @@ const pending = (o: Partial<AutoSignFacts> = {}): AutoSignFacts => ({
 })
 
 describe('dueBefore', () => {
-  it('is the first instant of the Manila calendar day N days before now', () => {
-    // now = 2026-09-25T10:00Z = 18:00 Manila, 25 Sep. 3 days before -> 00:00
-    // Manila on 23 Sep, expressed in UTC.
+  it('is the first instant of the Manila day after the one N days before today', () => {
+    // now = 2026-09-25T10:00Z = 18:00 Manila, 25 Sep. 3 days before is 22 Sep,
+    // so this is 00:00 Manila on 23 Sep (expressed in UTC) — 22 Sep and
+    // earlier are due.
     expect(dueBefore(now, 3).toISOString()).toBe('2026-09-22T16:00:00.000Z')
+  })
+
+  it('pins the exact boundary: created at dueBefore is not due, one ms earlier is', () => {
+    const boundary = dueBefore(now, 3)
+    expect(isDueForAutoSign(pending({ createdAt: boundary }), now, 3)).toBe(false)
+    expect(isDueForAutoSign(pending({ createdAt: new Date(boundary.getTime() - 1) }), now, 3)).toBe(true)
   })
 })
 
