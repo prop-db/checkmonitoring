@@ -445,6 +445,28 @@ export async function markReleased(
     assertReleasable({ isCheque: check.isCheque })
     assertTransition(check.status as CheckStatus, 'RELEASED')
 
+    /**
+     * A receipt already on record must never be wiped or replaced by a
+     * release. Before this guard, an empty box on a cheque that already
+     * carried a receipt (possible via `recordReceipt` on a re-release path,
+     * or any future caller) would write `orNumber: undefined`-normalised-to-
+     * `null` over it — WIPING it — and a typed one would REPLACE it. Both are
+     * the exact hazard rule 11 exists to prevent, just arriving through
+     * `markReleased` instead of `recordReceipt`. The fix mirrors
+     * `recordReceipt`'s own refusal: a typed receipt against an already-
+     * recorded one is refused outright, naming what is there, rather than
+     * silently discarded; an empty box against one already recorded simply
+     * leaves the three receipt columns untouched.
+     */
+    const alreadyHasReceipt = check.orNumber !== null
+    if (alreadyHasReceipt && hasReceipt(receipt)) {
+      throw new DomainError(
+        'RECEIPT_ALREADY_RECORDED',
+        `This cheque already records receipt ${check.orNumber}. A recorded receipt is not ` +
+        'overwritten from here — if it is wrong, raise it with a Finance Admin.',
+      )
+    }
+
     const route = portalRoute(check.eligibility as Eligibility)
     const pushes = route !== null
 
@@ -454,9 +476,12 @@ export async function markReleased(
         status: 'RELEASED',
         releasedById: args.userId,
         releasedAt: args.now,
-        orNumber: receipt.orNumber,
-        orDate: receipt.orDate,
-        receiptType: receipt.receiptType,
+        // Only written when this release actually carries a receipt, or the
+        // cheque has none yet. Never written when the cheque already has one
+        // and this release's box was empty — see the guard above.
+        ...(alreadyHasReceipt
+          ? {}
+          : { orNumber: receipt.orNumber, orDate: receipt.orDate, receiptType: receipt.receiptType }),
         remarks: args.remarks ?? check.remarks,
         portalSyncStatus: pushes ? 'PENDING' : 'NOT_APPLICABLE',
       },
