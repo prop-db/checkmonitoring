@@ -100,7 +100,7 @@ export function dashboardScreen(sel: DashboardSelection): DashboardScreen {
 }
 ```
 
-Before relying on the comment's claim, check `lib/dashboard-params.ts` around line 95: `base` must drop empty values (it filters `Object.entries(...)`). If it keeps empty strings, filter them in `dashboardScreen` with `Object.values(sel.base).some((v) => v !== '')` instead, and say so in the report.
+`resolveDashboardQuery` builds `base` with `.filter(([, v]) => v !== '')` (`lib/dashboard-params.ts:95-102`), so an empty value never reaches this function.
 
 - [ ] **Step 4: Run it to confirm it passes.** The same command passes. Then run `npx.cmd tsc --noEmit`, which must be clean.
 
@@ -250,8 +250,6 @@ git commit -m "feat(dashboard): two screens - totals by default, the full-width 
     expect(b).toMatchObject({ orNumber: null, receiptType: null, hasReceipt: false })
   })
 ```
-
-If `CheckFilters` has no `statusIn`, use the filter shape `listChecks` accepts for "these statuses". The `viewStatusFilter` return in `lib/dashboard-view.ts` shows it. Say which you used.
 
 - [ ] **Step 2: Run it to confirm it fails.** `node node_modules/vitest/vitest.mjs run tests/queries.test.ts -t "carries the supplier receipt"` fails.
 
@@ -759,7 +757,7 @@ export async function bulkRecordReceiptsAction(formData: FormData): Promise<Bulk
 }
 ```
 
-- [ ] **Step 4: Run them to confirm they pass.** Run `node node_modules/vitest/vitest.mjs run tests/actions/bulk-actions.test.ts tests/actions/receipt.test.ts`; both files must pass, and `receipt.test.ts` is unchanged. Then `npx.cmd tsc --noEmit` must be clean. Components may still import the removed single-box behaviour until Task 6. If tsc fails only on `components/BulkActionBar.tsx`, keep that component compiling by passing its existing fields (the server now refuses them with "out of date"), and note it for Task 6.
+- [ ] **Step 4: Run them to confirm they pass.** Run `node node_modules/vitest/vitest.mjs run tests/actions/bulk-actions.test.ts tests/actions/receipt.test.ts`; both files must pass, and `receipt.test.ts` is unchanged. Then `npx.cmd tsc --noEmit` must be clean. Between this task and Task 6, the bar still sends the old single-box fields, and the server now refuses them with "out of date". That is expected, and Task 6 removes them.
 
 - [ ] **Step 5: Commit.**
 
