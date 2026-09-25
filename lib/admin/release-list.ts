@@ -19,7 +19,12 @@ import { canonicalCheckNumber, cleanCell } from '@/lib/import/normalise'
  *
  * THE RULE is the client's of 2026-09-04: the for-release list IS the
  * ready-for-release set. On 2026-09-24 the user ruled that all three sheets are
- * the list.
+ * the list; on 2026-09-25 they narrowed it to LOCAL + BROKERS — the two sheets
+ * the workbook's own PIVOT sums. `Detail1` is the pivot's DRILL-DOWN ("Details
+ * for Sum of Detail Total - FINANCE REMARKS: AVAILABLE"): every bill Acumatica
+ * remarks AVAILABLE, 939 vouchers and 117.8M, not the release list. Reading it
+ * promoted 428 cheques (57.2M) that `scripts/revert-detail1-ready.ts` put back.
+ * A drill-down sheet is recognised by that title on row 1 and skipped.
  *
  * EXACTLY ONE LIVE CHEQUE or nothing. A voucher naming no cheque, or more than
  * one live one, is reported and left — the same "exactly one match or stage it"
@@ -55,6 +60,8 @@ const CHEQUE_HEADERS = ['CHECK NUMBER']
 const HEADER_SEARCH_ROWS = 3
 /** `AP-ST043681`, `STPP-AP-000021`, `A1PP-AP-000014`. */
 const VOUCHER = /^([A-Z0-9]+-)?AP-[A-Z0-9-]+$/
+/** Excel's title for a pivot drill-down sheet. Not the list — see the header. */
+const DRILL_DOWN = /^DETAILS FOR /
 
 export type ListEntry = {
   sheet: string
@@ -84,6 +91,7 @@ export function readReleaseList(sheets: { name: string; rows: unknown[][] }[]): 
   const entries: ListEntry[] = []
   const reports: SheetReport[] = []
   for (const { name, rows } of sheets) {
+    if (DRILL_DOWN.test(text(rows[0]?.[0])?.toUpperCase() ?? '')) { reports.push({ sheet: name, read: false, entries: 0 }); continue }
     let headerRow = -1
     let vCol = -1
     let cCol = -1

@@ -73,6 +73,22 @@ It follows that:
   9.24 register shows released on 21-22 September** — kept RELEASED; a stale list does not pull a
   release back. Nothing was demoted: the one READY_FOR_RELEASE cheque off the list (`6000352027`)
   was not released in the 9.24 register, and the user's instruction was to demote only on that.
+  **Superseded 2026-09-25: the list is LOCAL + BROKERS only.** The 71.08M the app then showed as
+  available did not match Finance's 20.47M, because `Detail1` is the PIVOT's drill-down ("Details
+  for Sum of Detail Total - FINANCE REMARKS: AVAILABLE" — every bill Acumatica remarks AVAILABLE,
+  117.8M), not the list; the PIVOT sums only LOCAL (11,657,821.01) and BROKERS (9,469,750.00).
+  Finance's 20,471,260.80 uses LOCAL's row-1 11,001,510.80, the sum of the four overdue buckets
+  only. The 428 cheques named only by `Detail1` (57,160,884.23) were NOT released — all sat on the
+  9.24 register's AVAIL./unreleased sheets, 409 Balanced in Acumatica — and
+  `scripts/revert-detail1-ready.ts` returned them to their prior status (352 SIGNED, 76
+  SIGNATURE_PENDING; one `ready_reverted_detail1_not_release_list` audit row each, snapshot in
+  `snapshots/`). After: 143 available, 13,922,609.81. `readReleaseList` now skips a sheet titled
+  "Details for …". The rest of the gap to the list: 90 LOCAL vouchers (6.91M) name no cheque here,
+  2 (256,160.00) name two live cheques. 11 of the 428 carry a `CheckBill`, so
+  `scripts/backfill-available.ts` would re-promote them — another reason never to run it.
+  The same day, on the user's instruction, the two LOCAL cheques READY here but `Voided` in
+  Acumatica (`6000353108`, 6,000.00; `1791404779`, no amount) were voided through `voidCheck`,
+  snapshot first. Available after: 142, 13,916,609.81.
 
 ## Commands
 
@@ -97,6 +113,7 @@ npx tsx scripts/backfill-released-from-register.ts "CHECK MONITORING 9.24.2026.x
 npx tsx scripts/backfill-released-from-register.ts "<register>.xlsx" --apply           # snapshot, then status only, one audit row each
 npx tsx scripts/mark-ready-from-release-list.ts "FOR RELEASE 9.25.2026.xlsx"            # dry run: listed cheques not yet READY_FOR_RELEASE
 npx tsx scripts/mark-ready-from-release-list.ts "<for-release>.xlsx" --apply            # snapshot, then status only; never follow with backfill-available
+npx tsx scripts/revert-detail1-ready.ts "<for-release>.xlsx" <ready-from-list snapshot> [--apply]  # Detail1-only READY back to prior status (run 2026-09-25)
 npx tsx scripts/auto-sign-backlog.ts              # dry run: Acumatica cheques pending past autoSign.afterDays
 npx tsx scripts/auto-sign-backlog.ts --apply      # snapshot, then sign them (the 18:00 run does the rest daily)
 ```

@@ -21,6 +21,7 @@ const LOCAL = {
     [null, null, null, 1000],
     ['BANK', 'Date', 'Post Period', { richText: [{ text: 'Reference Nbr.' }] }],
     ['BPI P&P', null, '09-2026', 'STPP-AP-000021'],
+    ['BPI P&P', null, '09-2026', 'AP-ST000001'],
   ],
 }
 const BROKERS = {
@@ -34,17 +35,17 @@ const BROKERS = {
 const PIVOT = { name: 'PIVOT', rows: [[null, 'BANK', 'MBTC P&P'], ['Row Labels', 'Sum']] }
 
 describe('readReleaseList', () => {
-  it('finds the header on rows 1-3 of each sheet, skips a pivot, and reads vouchers and cheque numbers', () => {
+  it('finds the header on rows 1-3 of each sheet, skips a pivot and its drill-down, and reads vouchers and cheque numbers', () => {
     const r = readReleaseList([DETAIL1, LOCAL, BROKERS, PIVOT])
     expect(r.sheets).toEqual([
-      { sheet: 'Detail1', read: true, entries: 1 },
-      { sheet: 'LOCAL', read: true, entries: 1 },
+      { sheet: 'Detail1', read: false, entries: 0 },
+      { sheet: 'LOCAL', read: true, entries: 2 },
       { sheet: 'BROKERS', read: true, entries: 2 },
       { sheet: 'PIVOT', read: false, entries: 0 },
     ])
     expect(r.entries).toEqual([
-      { sheet: 'Detail1', row: 4, voucher: 'AP-ST000001', checkNumber: null },
       { sheet: 'LOCAL', row: 3, voucher: 'STPP-AP-000021', checkNumber: null },
+      { sheet: 'LOCAL', row: 4, voucher: 'AP-ST000001', checkNumber: null },
       { sheet: 'BROKERS', row: 2, voucher: 'AP-ST000002', checkNumber: '6000400001' },
       { sheet: 'BROKERS', row: 3, voucher: null, checkNumber: '6000400002' },
     ])
@@ -104,7 +105,7 @@ describe('plan and apply', () => {
 
     const audit = await testDb.auditLog.findMany({ where: { action: READY_FROM_LIST_ACTION, checkId: byVoucher.id } })
     expect(audit).toHaveLength(1)
-    expect(audit[0].details).toMatchObject({ from: 'SIGNED', to: 'READY_FOR_RELEASE', listRows: [{ sheet: 'Detail1', row: 4 }] })
+    expect(audit[0].details).toMatchObject({ from: 'SIGNED', to: 'READY_FOR_RELEASE', listRows: [{ sheet: 'LOCAL', row: 4 }] })
     expect(await testDb.portalEvent.count()).toBe(0)
 
     const again = await planReady(testDb, 'FOR RELEASE.xlsx', list)
@@ -114,7 +115,7 @@ describe('plan and apply', () => {
 
   it('skips a cheque that moved between the plan and the write', async () => {
     const c = await makeCheck({ status: 'SIGNED', checkNumber: '7100000009', apvNumbers: ['AP-ST000001'] })
-    const plan = await planReady(testDb, 'F.xlsx', readReleaseList([DETAIL1]))
+    const plan = await planReady(testDb, 'F.xlsx', readReleaseList([LOCAL]))
     await testDb.check.update({ where: { id: c.id }, data: { status: 'CANCELLED' } })
     expect(await applyReady(testDb, plan)).toEqual({ promoted: 0, raced: 1 })
   })
