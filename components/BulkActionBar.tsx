@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  liveIds, releasedIds, draftTypeMissing, receiptEntries, EMPTY_DRAFT,
+  liveIds, releasedIds, draftTypeMissing, receiptEntries, takesReceipt, EMPTY_DRAFT,
   type RowFacts, type ReceiptDraft,
 } from '@/lib/row-receipts'
 import {
@@ -40,7 +40,7 @@ import {
 export function BulkActionBar({
   selectedRows, drafts, canRelease, cap, onDone,
 }: {
-  selectedRows: RowFacts[]
+  selectedRows: (RowFacts & { checkNumber: string })[]
   drafts: Readonly<Record<string, ReceiptDraft>>
   canRelease: boolean
   cap: number
@@ -51,23 +51,36 @@ export function BulkActionBar({
   const [pending, startTransition] = useTransition()
   const [result, setResult] = useState<BulkActionResult | null>(null)
   const [pickupDate, setPickupDate] = useState('')
+  // Set only by SAVE RECEIPTS, and only meaningful alongside its own result —
+  // reset to null by every other action so a stale count never survives onto
+  // a different button's outcome.
+  const [skippedReceipts, setSkippedReceipts] = useState<number | null>(null)
 
   const live = liveIds(selectedRows)
   const released = releasedIds(selectedRows)
   const total = selectedRows.length
   const overCap = total > cap
   const disabled = pending || overCap
-  const missingType = selectedRows.some((r) => draftTypeMissing(drafts[r.id] ?? EMPTY_DRAFT))
+  // Only a row whose box is actually SHOWN can have a missing type disable a
+  // button — a hidden draft (a live row when the viewer cannot release, or
+  // any row not tickable) must never block anything. `CheckTable` opens the
+  // box under exactly this condition (`lib/row-receipts.ts`'s `takesReceipt`,
+  // gated the same way there).
+  const boxShown = (r: RowFacts) => takesReceipt(r) && (r.status === 'RELEASED' || canRelease)
+  const invalidRows = selectedRows.filter((r) => boxShown(r) && draftTypeMissing(drafts[r.id] ?? EMPTY_DRAFT))
+  const missingType = invalidRows.length > 0
   const releasedTyped = receiptEntries(released, drafts).length > 0
 
   const submit = (
     action: (fd: FormData) => Promise<BulkActionResult>,
     ids: string[],
     extra: [string, string][] = [],
+    skipped: number | null = null,
   ) => {
     const formData = new FormData()
     for (const id of ids) formData.append('checkId', id)
     for (const [k, v] of extra) formData.append(k, v)
+    setSkippedReceipts(skipped)
     startTransition(async () => {
       const r = await action(formData)
       setResult(r)
@@ -145,7 +158,17 @@ export function BulkActionBar({
         {released.length > 0 && (
           <button
             type="button" disabled={disabled || missingType || !releasedTyped}
-            onClick={() => submit(bulkRecordReceiptsAction, released, receiptEntries(released, drafts))}
+            onClick={() => {
+              // Skipped, not refused: a ticked RELEASED row with an empty box
+              // is left alone by `bulkRecordReceiptsAction` rather than
+              // failed, so the count has to be worked out here to be shown at
+              // all.
+              const typed = released.filter((id) => (drafts[id]?.orNumber ?? '').trim() !== '')
+              submit(
+                bulkRecordReceiptsAction, released, receiptEntries(released, drafts),
+                released.length - typed.length,
+              )
+            }}
             className="rounded-lg bg-navy px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             SAVE RECEIPTS
@@ -155,7 +178,7 @@ export function BulkActionBar({
 
       {missingType && (
         <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
-          Choose OR or CR for every receipt reference you typed.
+          Choose OR or CR for the receipt on {invalidRows.map((r) => r.checkNumber).join(', ')}.
         </p>
       )}
 
@@ -184,6 +207,12 @@ export function BulkActionBar({
           {result.succeeded > 0 && (
             <p className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">
               {result.succeeded} CHEQUE{result.succeeded === 1 ? '' : 'S'} UPDATED.
+              {/* SAVE RECEIPTS skips a ticked RELEASED row with an empty box
+                  rather than failing it, so the count would otherwise vanish
+                  into `succeeded` with nothing to show for it. */}
+              {skippedReceipts !== null && skippedReceipts > 0 && (
+                <> {skippedReceipts} SKIPPED — NO REFERENCE TYPED.</>
+              )}
             </p>
           )}
           {failures.length > 0 && (

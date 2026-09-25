@@ -30,9 +30,16 @@ export function isTickable(r: RowFacts): boolean {
   return r.isCheque && (isLiveStatus(r.status) || releasedWithoutReceipt(r))
 }
 
-/** Only where a supplier's receipt can exist: at the counter, or after it. */
+/**
+ * Only where a supplier's receipt can exist: at the counter, or after it —
+ * and only where none is recorded yet. A row that already carries a receipt
+ * (READY_FOR_RELEASE or SCHEDULED can, in principle, via `recordReceipt`'s own
+ * rules; RELEASED always might) must never be offered a box that would
+ * suggest one can still be typed and then be silently dropped or refused by
+ * the server.
+ */
 export function takesReceipt(r: RowFacts): boolean {
-  return r.status === 'READY_FOR_RELEASE' || r.status === 'SCHEDULED' || releasedWithoutReceipt(r)
+  return !r.hasReceipt && (r.status === 'READY_FOR_RELEASE' || r.status === 'SCHEDULED' || r.status === 'RELEASED')
 }
 
 /** The ticked rows SIGN / READY / RELEASE act on: the live ones, as before. */

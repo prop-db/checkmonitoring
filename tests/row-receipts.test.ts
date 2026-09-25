@@ -31,6 +31,11 @@ describe('takesReceipt', () => {
     expect(takesReceipt(row({ status: 'SIGNED' }))).toBe(false)
     expect(takesReceipt(row({ status: 'SIGNATURE_PENDING' }))).toBe(false)
   })
+
+  it('never opens a box on a row that already carries a receipt, whatever its status', () => {
+    expect(takesReceipt(row({ status: 'READY_FOR_RELEASE', hasReceipt: true }))).toBe(false)
+    expect(takesReceipt(row({ status: 'SCHEDULED', hasReceipt: true }))).toBe(false)
+  })
 })
 
 describe('liveIds / releasedIds', () => {

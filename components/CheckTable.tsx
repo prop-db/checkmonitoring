@@ -101,9 +101,18 @@ export function CheckTable({
   const selectedIds = rows.filter((r) => selected.has(r.id)).map((r) => r.id)
   const allSelected = selectableRows.length > 0 && selectedIds.length === selectableRows.length
 
-  const toggle = (id: string) => setSelected((prev) => {
-    const next = new Set(prev)
-    if (next.delete(id)) {
+  const toggle = (id: string) => {
+    // Read outside the updater: a `setSelected` updater must stay pure, and
+    // React can invoke it twice in development, which would fire the
+    // `setDrafts` side effect below twice for one click.
+    const wasSelected = selected.has(id)
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (wasSelected) next.delete(id)
+      else next.add(id)
+      return next
+    })
+    if (wasSelected) {
       // Unticking a row throws away whatever it had typed. Left ticked, its
       // box is closed too — clearing on tick, not on close, keeps the box's
       // contents attached to the tick that opened it.
@@ -112,11 +121,8 @@ export function CheckTable({
         const { [id]: _omit, ...rest } = d
         return rest
       })
-    } else {
-      next.add(id)
     }
-    return next
-  })
+  }
 
   const toggleAll = () => {
     if (allSelected) {
@@ -227,7 +233,11 @@ export function CheckTable({
                 {/* The tick-box must not navigate. Stopping the event on the
                     cell, not just the input, keeps the generous click target
                     the padding gives it. */}
-                <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                <td
+                  className="px-4 py-3"
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => e.stopPropagation()}
+                >
                   {selectable(r) ? (
                     <input
                       type="checkbox"
@@ -292,10 +302,16 @@ export function CheckTable({
                     here so typing never opens the cheque (the row navigates on
                     click and on Enter). */}
                 <td className="px-4 py-3" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-                  {selected.has(r.id) && takesReceipt(r) ? (
+                  {/* A live (READY/SCHEDULED) row's box is useful only to
+                      someone who can press MARK RELEASED — that is the only
+                      action that reads it. A RELEASED row keeps its box for
+                      everyone, because SAVE RECEIPTS is open to any Finance
+                      user. */}
+                  {selected.has(r.id) && takesReceipt(r) && (r.status === 'RELEASED' || canRelease) ? (
                     <div className="flex items-center gap-2">
                       <select
                         aria-label={`Receipt type for check ${r.checkNumber}`}
+                        aria-invalid={draftTypeMissing(drafts[r.id] ?? EMPTY_DRAFT)}
                         value={(drafts[r.id] ?? EMPTY_DRAFT).receiptType}
                         onChange={(e) => setDrafts((d) => ({ ...d, [r.id]: { ...(d[r.id] ?? EMPTY_DRAFT), receiptType: e.target.value as ReceiptDraft['receiptType'] } }))}
                         className={`rounded-lg border px-2 py-1 text-sm ${draftTypeMissing(drafts[r.id] ?? EMPTY_DRAFT) ? 'border-amber-500' : 'border-slate-300'}`}
