@@ -2,10 +2,10 @@
 
 import { prisma } from '@/lib/db'
 import { requireUser } from '@/lib/auth'
-import { markSigned, markReadyForRelease, markReleased } from '@/lib/domain/actions'
+import { markSigned, markReadyForRelease, markReleased, recordReceipt } from '@/lib/domain/actions'
 import { parseSelection, chunkSelection } from '@/lib/bulk'
 import { listTodaysReleaseIds } from '@/lib/queries'
-import { readReceiptFields, receiptWasTyped } from '@/lib/receipt-form'
+import { readRowReceipts } from '@/lib/receipt-form'
 import { runEach, type BulkOutcome, type BulkActionResult } from '@/lib/bulk-run'
 import { loadSettings } from '@/lib/settings/read'
 
@@ -91,22 +91,22 @@ export async function bulkReadyForReleaseAction(formData: FormData): Promise<Bul
  * whether or not a button points at it, so this test is the control and the
  * hidden button in `BulkActionBar` is only a courtesy.
  *
- * **THE RECEIPT BOX, AND WHY IT IS ONE CHEQUE ONLY.**
- * The client's requirement is about ticking — "Check released can be ticked and
- * once ticked it should have a box for OR or CR reference and marked as
- * RELEASED" — so this is where the box lives. One ticked cheque is one supplier
- * at the counter handing over one receipt, and it is the only shape in which a
- * reference has an owner.
+ * **THE RECEIPT BOX, ONE PER ROW.**
+ * Since 2026-09-25 every ticked row carries its own OR/CR box
+ * (`lib/row-receipts.ts`), so a typed receipt always has exactly one owner —
+ * the cheque whose row it was typed in. The old refusal of one box shared by a
+ * whole batch is REPLACED by this, not loosened: a receipt still cannot land
+ * on a cheque its supplier never issued it for, it is just that "which cheque"
+ * is now answered by the row rather than by the size of the selection.
  *
- * A receipt typed against a SELECTION is refused outright, before anything is
- * released. Spreading one reference over a batch would write the supplier's
- * number against cheques they never issued it for, and afterwards every one of
- * them would be indistinguishable from a recorded fact. Refusing costs a
- * Finance user one untick; the alternative costs a receipt number that means
- * nothing on cheques nobody can now tell apart.
+ * `readRowReceipts` refuses the whole release, before anything is written,
+ * for a receipt keyed to a cheque that is not ticked, a reference typed with
+ * no type chosen, an invalid type, or the old unkeyed `orNumber`/`receiptType`
+ * fields a stale page would still send.
  *
- * A batch with an EMPTY box releases exactly as it always did. That is what
- * makes the receipt optional, and RELEASE ALL at the counter depends on it.
+ * A ticked cheque with an EMPTY box releases exactly as it always did. That is
+ * what makes the receipt optional, and RELEASE ALL at the counter depends on
+ * it.
  */
 export async function bulkReleaseAction(formData: FormData): Promise<BulkActionResult> {
   const user = await requireUser()
@@ -117,24 +117,51 @@ export async function bulkReleaseAction(formData: FormData): Promise<BulkActionR
   const selection = parseSelection(ids(formData), settings.values['caps.bulkSelection'])
   if (!selection.ok) return { ok: false, message: selection.message }
 
-  const receipt = readReceiptFields(formData)
-  if (!receipt.ok) return { ok: false, message: receipt.message }
-  if (receiptWasTyped(receipt) && selection.checkIds.length !== 1) {
-    return {
-      ok: false,
-      message:
-        'A receipt reference belongs to one cheque, and ' +
-        `${selection.checkIds.length} are ticked. Untick the rest, or release them together and ` +
-        'add each receipt afterwards.',
-    }
+  const read = readRowReceipts(formData, selection.checkIds)
+  if (!read.ok) return { ok: false, message: read.message }
+
+  const now = new Date()
+  return runEach(prisma, selection.checkIds, (checkId) => {
+    const receipt = read.receipts.get(checkId)
+    return markReleased(prisma, {
+      checkId, userId: user.id, now,
+      orNumber: receipt?.orNumber, orDate: undefined, receiptType: receipt?.receiptType ?? null,
+    })
+  })
+}
+
+/**
+ * SAVE RECEIPTS — the late receipts, typed in the rows of ticked RELEASED
+ * cheques (client, 2026-09-25: "i dont need to click the checks").
+ *
+ * Open to any signed-in Finance user, like `recordReceiptAction`: it records a
+ * reference against a hand-over that already happened, moves no status and
+ * cannot overwrite a receipt (`recordReceipt` refuses). Rows left blank are not
+ * sent to the domain at all. Each typed row is its own transaction, so one
+ * refusal — released by nobody, receipt added a moment ago — names that cheque
+ * and the rest still save.
+ */
+export async function bulkRecordReceiptsAction(formData: FormData): Promise<BulkActionResult> {
+  const user = await requireUser()
+  const settings = await loadSettings(prisma)
+  const selection = parseSelection(ids(formData), settings.values['caps.bulkSelection'])
+  if (!selection.ok) return { ok: false, message: selection.message }
+
+  const read = readRowReceipts(formData, selection.checkIds)
+  if (!read.ok) return { ok: false, message: read.message }
+
+  const typed = selection.checkIds.filter((id) => read.receipts.has(id))
+  if (typed.length === 0) {
+    return { ok: false, message: 'Type a receipt reference on at least one ticked cheque before saving.' }
   }
 
   const now = new Date()
-  return runEach(prisma, selection.checkIds, (checkId) =>
-    markReleased(prisma, {
-      checkId, userId: user.id, now,
-      orNumber: receipt.orNumber, orDate: receipt.orDate, receiptType: receipt.receiptType,
-    }))
+  return runEach(prisma, typed, (checkId) => {
+    const receipt = read.receipts.get(checkId)!
+    return recordReceipt(prisma, {
+      checkId, userId: user.id, orNumber: receipt.orNumber, receiptType: receipt.receiptType, now,
+    })
+  })
 }
 
 /**

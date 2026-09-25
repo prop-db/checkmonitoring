@@ -31,6 +31,9 @@ function fd(checkIds: string[], extra: Record<string, string> = {}) {
   return f
 }
 
+const rk = (id: string, orNumber: string, receiptType: string) =>
+  ({ [`orNumber:${id}`]: orNumber, [`receiptType:${id}`]: receiptType })
+
 // A per-cheque outcome, found by id. Every assertion below goes through this so
 // a reordering of the outcomes array can never make a test pass by accident.
 function outcomeFor(result: unknown, checkId: string) {
@@ -252,23 +255,55 @@ describe('bulkReleaseAction', () => {
    * one receipt, and that is the only shape in which a receipt reference has an
    * owner.
    */
-  it('records the receipt when exactly one cheque is ticked', async () => {
+  it('releases each ticked cheque with its OWN receipt, a blank box with none, and never touches crNumber', async () => {
     const { bulkReleaseAction } = await import('@/app/checks/bulk-actions')
     currentUser.role = 'FINANCE_ADMIN'
     const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
+    const b = await makeCheck({ status: 'READY_FOR_RELEASE' })
+    const c = await makeCheck({ status: 'READY_FOR_RELEASE' })
 
-    const result = await bulkReleaseAction(
-      fd([a.id], { orNumber: 'OR-000123', receiptType: 'OR', orDate: '2026-09-10' }),
-    )
+    const result = await bulkReleaseAction(fd([a.id, b.id, c.id], {
+      ...rk(a.id, 'OR-000123', 'OR'), ...rk(b.id, 'CR 88', 'CR'), ...rk(c.id, '', ''),
+    }))
 
-    expect(result.ok).toBe(true)
-    const after = await testDb.check.findUniqueOrThrow({ where: { id: a.id } })
-    expect(after.status).toBe('RELEASED')
-    expect(after.orNumber).toBe('OR-000123')
-    expect(after.receiptType).toBe('OR')
-    // Never the bank clearing reference.
-    expect(after.crNumber).toBeNull()
-    expect(after.clearingStatus).toBe('NONE')
+    expect(result.ok && result.succeeded).toBe(3)
+    const [ra, rb, rc] = await Promise.all([a, b, c].map((x) => testDb.check.findUniqueOrThrow({ where: { id: x.id } })))
+    expect(ra).toMatchObject({ status: 'RELEASED', orNumber: 'OR-000123', receiptType: 'OR', crNumber: null, clearingStatus: 'NONE' })
+    expect(rb).toMatchObject({ status: 'RELEASED', orNumber: 'CR 88', receiptType: 'CR', crNumber: null })
+    expect(rc).toMatchObject({ status: 'RELEASED', orNumber: null, receiptType: null, crNumber: null })
+  })
+
+  it('refuses a reference with no OR/CR before releasing anything', async () => {
+    const { bulkReleaseAction } = await import('@/app/checks/bulk-actions')
+    currentUser.role = 'FINANCE_ADMIN'
+    const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
+    const b = await makeCheck({ status: 'READY_FOR_RELEASE' })
+
+    const result = await bulkReleaseAction(fd([a.id, b.id], { [`orNumber:${a.id}`]: '4471' }))
+
+    expect(result).toEqual({ ok: false, message: 'Choose OR or CR for every receipt reference you typed. Nothing was saved.' })
+    for (const id of [a.id, b.id]) {
+      expect((await testDb.check.findUniqueOrThrow({ where: { id } })).status).toBe('READY_FOR_RELEASE')
+    }
+  })
+
+  it('rejects a receipt type that is neither OR nor CR', async () => {
+    const { bulkReleaseAction } = await import('@/app/checks/bulk-actions')
+    currentUser.role = 'FINANCE_ADMIN'
+    const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
+    const result = await bulkReleaseAction(fd([a.id], rk(a.id, 'X', 'CRN')))
+    expect(result).toEqual({ ok: false, message: 'Invalid receipt type.' })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('READY_FOR_RELEASE')
+  })
+
+  it('refuses a receipt keyed to a cheque that is not ticked', async () => {
+    const { bulkReleaseAction } = await import('@/app/checks/bulk-actions')
+    currentUser.role = 'FINANCE_ADMIN'
+    const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
+    const other = await makeCheck({ status: 'READY_FOR_RELEASE' })
+    const result = await bulkReleaseAction(fd([a.id], rk(other.id, 'OR-1', 'OR')))
+    expect(result.ok).toBe(false)
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('READY_FOR_RELEASE')
   })
 
   // Rule 5: RELEASE ALL and the multi-select release keep working, unprompted.
@@ -290,57 +325,63 @@ describe('bulkReleaseAction', () => {
     }
   })
 
-  /**
-   * One receipt cannot belong to several cheques. Stamping the same reference
-   * across a batch would put a number against cheques the supplier never issued
-   * it for, and every one of them would afterwards look like a recorded fact.
-   * Refused before anything is released, so the user can untick and try again
-   * rather than discover it afterwards.
-   */
-  it('refuses a receipt typed against more than one ticked cheque, and releases none of them', async () => {
-    const { bulkReleaseAction } = await import('@/app/checks/bulk-actions')
-    currentUser.role = 'FINANCE_ADMIN'
-    const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
-    const b = await makeCheck({ status: 'READY_FOR_RELEASE' })
+})
 
-    const result = await bulkReleaseAction(
-      fd([a.id, b.id], { orNumber: 'OR-000123', receiptType: 'OR' }),
-    )
+describe('bulkRecordReceiptsAction', () => {
+  it('records each typed receipt on its own released cheque, skips blanks, and any Finance user may', async () => {
+    const { bulkRecordReceiptsAction } = await import('@/app/checks/bulk-actions')
+    const a = await makeCheck({ status: 'RELEASED' })
+    const b = await makeCheck({ status: 'RELEASED' })
+    const blank = await makeCheck({ status: 'RELEASED' })
 
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.message).toContain('one cheque')
-    for (const id of [a.id, b.id]) {
-      expect((await testDb.check.findUniqueOrThrow({ where: { id } })).status)
-        .toBe('READY_FOR_RELEASE')
-    }
-  })
-
-  it('refuses a reference with no type chosen, and releases nothing', async () => {
-    const { bulkReleaseAction } = await import('@/app/checks/bulk-actions')
-    currentUser.role = 'FINANCE_ADMIN'
-    const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
-
-    const result = await bulkReleaseAction(fd([a.id], { orNumber: 'OR-000123' }))
+    const result = await bulkRecordReceiptsAction(fd([a.id, b.id, blank.id], {
+      ...rk(a.id, 'OR-000123', 'OR'), ...rk(b.id, 'CR 88', 'CR'), ...rk(blank.id, '', ''),
+    }))
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.succeeded).toBe(0)
-    expect(outcomeFor(result, a.id).message).toContain('Official Receipt')
-    expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status)
-      .toBe('READY_FOR_RELEASE')
+    expect(result.succeeded).toBe(2)
+    expect(result.outcomes.map((o) => o.checkId).sort()).toEqual([a.id, b.id].sort())
+    expect(await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).toMatchObject({ orNumber: 'OR-000123', receiptType: 'OR', crNumber: null })
+    expect(await testDb.check.findUniqueOrThrow({ where: { id: b.id } })).toMatchObject({ orNumber: 'CR 88', receiptType: 'CR', crNumber: null })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: blank.id } })).orNumber).toBeNull()
   })
 
-  it('rejects a receipt type that is neither OR nor CR', async () => {
-    const { bulkReleaseAction } = await import('@/app/checks/bulk-actions')
-    currentUser.role = 'FINANCE_ADMIN'
-    const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
+  it('refuses by name a cheque that already has a receipt, and saves the rest', async () => {
+    const { bulkRecordReceiptsAction } = await import('@/app/checks/bulk-actions')
+    const done = await makeCheck({ status: 'RELEASED' })
+    await testDb.check.update({ where: { id: done.id }, data: { orNumber: 'OR-OLD', receiptType: 'OR' } })
+    const fresh = await makeCheck({ status: 'RELEASED' })
 
-    const result = await bulkReleaseAction(fd([a.id], { orNumber: 'X', receiptType: 'CRN' }))
+    const result = await bulkRecordReceiptsAction(fd([done.id, fresh.id], {
+      ...rk(done.id, 'OR-NEW', 'OR'), ...rk(fresh.id, 'OR-2', 'OR'),
+    }))
 
-    expect(result).toEqual({ ok: false, message: 'Invalid receipt type.' })
-    expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status)
-      .toBe('READY_FOR_RELEASE')
+    expect(result.ok && result.succeeded).toBe(1)
+    expect(outcomeFor(result, done.id).ok).toBe(false)
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: done.id } })).orNumber).toBe('OR-OLD')
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: fresh.id } })).orNumber).toBe('OR-2')
+  })
+
+  it('refuses a cheque that is not released', async () => {
+    const { bulkRecordReceiptsAction } = await import('@/app/checks/bulk-actions')
+    const ready = await makeCheck({ status: 'READY_FOR_RELEASE' })
+    const result = await bulkRecordReceiptsAction(fd([ready.id], rk(ready.id, 'OR-1', 'OR')))
+    expect(result.ok && result.succeeded).toBe(0)
+    expect(outcomeFor(result, ready.id).ok).toBe(false)
+  })
+
+  it('refuses when nothing was typed', async () => {
+    const { bulkRecordReceiptsAction } = await import('@/app/checks/bulk-actions')
+    const a = await makeCheck({ status: 'RELEASED' })
+    expect(await bulkRecordReceiptsAction(fd([a.id])))
+      .toEqual({ ok: false, message: 'Type a receipt reference on at least one ticked cheque before saving.' })
+  })
+
+  it('holds the bulk cap', async () => {
+    const { bulkRecordReceiptsAction } = await import('@/app/checks/bulk-actions')
+    const tooMany = Array.from({ length: MAX_BULK_SELECTION + 1 }, (_, i) => `id-${i}`)
+    expect((await bulkRecordReceiptsAction(fd(tooMany))).ok).toBe(false)
   })
 })
 
