@@ -477,6 +477,14 @@ export type CheckTableRow = {
   isCheque: boolean
   availablePickupDate: Date | null
   scheduledPickupDate: Date | null
+  /**
+   * The supplier's receipt (rule 11: never `crNumber`). Shown in the OR column,
+   * and `hasReceipt` decides whether a RELEASED row may be ticked to add one:
+   * a receipt is never overwritten.
+   */
+  orNumber: string | null
+  receiptType: 'OR' | 'CR' | null
+  hasReceipt: boolean
 }
 
 export function toTableRow(r: CheckRow): CheckTableRow {
@@ -511,5 +519,8 @@ export function toTableRow(r: CheckRow): CheckTableRow {
     isCheque: r.isCheque,
     availablePickupDate: r.availablePickupDate,
     scheduledPickupDate: r.scheduledPickupDate,
+    orNumber: r.orNumber,
+    receiptType: r.receiptType,
+    hasReceipt: r.orNumber !== null,
   }
 }

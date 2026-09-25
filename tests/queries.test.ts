@@ -383,6 +383,19 @@ describe('toTableRow', () => {
     expect((await listChecks(testDb, { q: 'ap-st042652' })).map((r) => r.checkNumber))
       .toEqual(['6000353106'])
   })
+
+  it('carries the supplier receipt, and says whether one is recorded', async () => {
+    const withReceipt = await makeCheck({ status: 'RELEASED' })
+    await testDb.check.update({ where: { id: withReceipt.id }, data: { orNumber: 'OR-000123', receiptType: 'OR' } })
+    await makeCheck({ status: 'RELEASED' })
+
+    const rows = (await listChecks(testDb, { statusIn: ['RELEASED'] })).map(toTableRow)
+    const a = rows.find((r) => r.id === withReceipt.id)!
+    const b = rows.find((r) => r.id !== withReceipt.id)!
+
+    expect(a).toMatchObject({ orNumber: 'OR-000123', receiptType: 'OR', hasReceipt: true })
+    expect(b).toMatchObject({ orNumber: null, receiptType: null, hasReceipt: false })
+  })
 })
 
 // Postgres sorts NULLs FIRST on a descending sort. `checkDate` is nullable —
