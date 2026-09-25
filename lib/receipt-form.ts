@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { RECEIPT_TYPES, type ReceiptType } from '@/lib/domain/receipt'
+import { ROW_OR_NUMBER, ROW_RECEIPT_TYPE } from './row-receipts'
 
 /**
  * The OR/CR box, off the wire.
@@ -58,4 +59,48 @@ export function readReceiptFields(formData: FormData): ReceiptFormResult {
 /** True when the user typed anything into the receipt box at all. */
 export function receiptWasTyped(fields: ReceiptFormFields): boolean {
   return fields.orNumber !== undefined || fields.orDate !== undefined || fields.receiptType !== null
+}
+
+export type RowReceipt = { orNumber: string; receiptType: ReceiptType }
+
+export type RowReceiptsResult =
+  | { ok: true; receipts: Map<string, RowReceipt> }
+  | { ok: false; message: string }
+
+/**
+ * One receipt per ticked row, keyed `orNumber:<checkId>` / `receiptType:<checkId>`
+ * (lib/row-receipts.ts). Refused whole, before anything is written, if any row
+ * is malformed. A batch half-saved over a typo is worse than none saved and the
+ * box still showing what was typed.
+ *
+ * A key for a cheque that is not in the ticked selection is refused rather
+ * than ignored. So are the old single-box fields, which a page loaded before
+ * this change would still send: dropping them silently would lose a receipt
+ * somebody typed.
+ */
+export function readRowReceipts(formData: FormData, checkIds: readonly string[]): RowReceiptsResult {
+  if (str(formData, 'orNumber') !== '' || str(formData, 'receiptType') !== '') {
+    return { ok: false, message: 'This page is out of date. Reload it and type the receipt in the row.' }
+  }
+  const ticked = new Set(checkIds)
+  for (const key of formData.keys()) {
+    for (const prefix of [ROW_OR_NUMBER, ROW_RECEIPT_TYPE]) {
+      if (key.startsWith(prefix) && !ticked.has(key.slice(prefix.length))) {
+        return { ok: false, message: 'A receipt was sent for a cheque that is not ticked. Nothing was saved.' }
+      }
+    }
+  }
+  const receipts = new Map<string, RowReceipt>()
+  for (const id of checkIds) {
+    const orNumber = str(formData, ROW_OR_NUMBER + id)
+    if (orNumber === '') continue
+    const raw = str(formData, ROW_RECEIPT_TYPE + id)
+    if (raw === '') {
+      return { ok: false, message: 'Choose OR or CR for every receipt reference you typed. Nothing was saved.' }
+    }
+    const parsed = receiptTypeSchema.safeParse(raw)
+    if (!parsed.success) return { ok: false, message: 'Invalid receipt type.' }
+    receipts.set(id, { orNumber, receiptType: parsed.data })
+  }
+  return { ok: true, receipts }
 }
