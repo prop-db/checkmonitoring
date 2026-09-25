@@ -31,6 +31,16 @@ describe('markReleased keeps a receipt already on record', () => {
     expect(out.orNumber).toBe('CR 6336')
     expect(out.receiptType).toBe('CR')
     expect(out.crNumber).toBeNull()
+
+    // The queued portal payload must carry the RECORDED receipt, not this
+    // release's own empty box — otherwise a future portal delivery (Plan 3)
+    // would be told to wipe a receipt this release never touched. The
+    // fixture's default eligibility ('SUPPLIER', from `makeCheck`) routes to
+    // the LOCAL portal, so a RELEASED event is queued.
+    const event = await testDb.portalEvent.findFirstOrThrow({
+      where: { checkId: check.id, kind: 'RELEASED' },
+    })
+    expect(event.payload).toMatchObject({ orNumber: 'CR 6336' })
   })
 
   it('releasing with a receipt typed against an already-recorded one is refused, and nothing changes', async () => {

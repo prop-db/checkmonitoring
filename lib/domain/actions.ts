@@ -508,7 +508,13 @@ export async function markReleased(
             action: 'RELEASED',
             checkNumber: check.checkNumber,
             releasedAt: args.now.toISOString(),
-            orNumber: receipt.orNumber,
+            // The RECORDED reference, not necessarily this release's own
+            // typed one: when the cheque already carried a receipt and this
+            // release's box was empty, `receipt.orNumber` is null even though
+            // the database keeps the original. Sending null there would tell
+            // a future portal delivery (Plan 3) to wipe its own copy of a
+            // receipt this release never touched.
+            orNumber: alreadyHasReceipt ? check.orNumber : receipt.orNumber,
           },
         },
       })
