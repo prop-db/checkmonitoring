@@ -148,6 +148,13 @@ These are safety properties, not preferences. Each exists because of a specific 
    merely handed across a counter. `markReleased` and `recordReceipt` write only the three receipt
    columns; `recordClearing` is the only writer of `crNumber` — the one exception is the one-off
    repair below, which only ever sets it to null. Pinned by `tests/actions/receipt.test.ts`.
+   **Since 2026-09-25 the list takes a receipt per ticked row** (`lib/row-receipts.ts`,
+   `readRowReceipts` in `lib/receipt-form.ts`): ticking a READY FOR RELEASE, SCHEDULED or
+   RELEASED-without-OR row opens that row's own OR / CR box; RELEASE and SAVE RECEIPTS
+   (`bulkRecordReceiptsAction`) write through `markReleased` / `recordReceipt` only. The old refusal
+   of one box for a batch is replaced, not loosened — every box now has one owner — and a receipt
+   keyed to an unticked cheque, a number with no type, and the old unkeyed fields are all refused
+   before anything is written.
    The **type is stored, not parsed back out of the reference** — "OR-000123", "4471" and "CR 88"
    are all references a supplier writes, and a prefix rule over them is a guess dressed as a fact.
    **This hazard happened at scale before the rule existed.** The 9 September load wrote 2,727
@@ -160,6 +167,13 @@ These are safety properties, not preferences. Each exists because of a specific 
    never to `crNumber`. Every `crNumber` in production after the repair is one Finance typed.
 
 ## Things that will catch you out
+
+**The dashboard has two screens, and the URL decides which** (`dashboardScreen` in
+`lib/dashboard-view.ts`, client request 2026-09-25). A bare `/` is TOTALS — cards, TODAY'S
+RELEASE, timeline, a search box — and loads no rows. Anything that narrows the view (a card, a
+filter, a search, `scope=all`, `incomplete=1`) is LIST: a BACK TO TOTALS bar and the full-width
+table. Export and print read the same URL and know nothing about screens. A link that should open
+the list must carry a parameter; a bare `/` never shows a table.
 
 **A `|` inside `-t` breaks `npx.cmd vitest` under Git Bash.** `npx.cmd vitest run file -t "a|b"`
 mis-tokenises the pipe; `node node_modules/vitest/vitest.mjs run file -t "a|b"` is the same
@@ -387,7 +401,7 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
 
 Plans 1 and 2 complete. Plan 3 (portal automation) still paused: the portal needs an `encoder`
 service account that does not exist, and until it does every `PortalEvent` simply queues.
-**1,380 tests across 101 files** (measured, full run 2026-09-25) — 1,350 across 98 before auto-sign (`domain/auto-sign` 9 —
+**1,400 tests across 103 files** (arithmetic, 2026-09-25; re-measure on the next full run) — 1,380 across 101 before the two-screen dashboard and per-row OR (`dashboard-view` +2, `queries` +1, `row-receipts` 6, `receipt-form` 6, `bulk-actions` +5 with four receipt cases rewritten); 1,380 across 101 measured, full run 2026-09-25 — 1,350 across 98 before auto-sign (`domain/auto-sign` 9 —
 Manila calendar days and the exact boundary, `actions/auto-sign` 3, `sync/auto-sign` 8 — the plan's
 five plus NOT_FOUND-skip, time budget and the calendar-vs-72h list case,
 `sync/cron-route` +3, `settings/registry` +1 and one case renamed); 1,344 across 97 before the for-release list (`admin/release-list` 6); 1,332 across 96 before the register catch-up (`admin/register-releases` 12); 1,327 across 95 before the module bar (`module-nav` 5); before that 1,290 across 89, then the outstanding-cheques report +37
