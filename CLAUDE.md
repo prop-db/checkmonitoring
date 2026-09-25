@@ -89,9 +89,26 @@ It follows that:
   The same day, on the user's instruction, the two LOCAL cheques READY here but `Voided` in
   Acumatica (`6000353108`, 6,000.00; `1791404779`, no amount) were voided through `voidCheck`,
   snapshot first. Available after: 142, 13,916,609.81.
-  **User ruling 2026-09-25 on the 90 LOCAL vouchers with no cheque here: leave them.** They are
-  most likely not yet processed in Acumatica — no cheque generated — and the sync will bring the
-  cheque when one exists. Do not chase them as a sync defect.
+  ~~Leave the 90 LOCAL vouchers with no cheque here, as not yet processed~~ — **wrong, and
+  superseded the same day.** Read from Acumatica's `AP-PAYMENTS-WITH-BILLS`, every one of the 90
+  was paid by exactly one live cheque this system already held at SIGNED; the link was missing
+  because `apvNumbers` came only from the retired register and `AP-Checks and Payments` publishes
+  no bill reference. **A voucher that "names no cheque here" means an unlinked cheque, not an
+  unprocessed bill — look it up before concluding anything.** `scripts/link-vouchers-from-acumatica.ts`
+  (`lib/admin/voucher-links.ts`: exactly one live CHK cheque, voided and ADR applications ignored,
+  a list-stated cheque number must agree) linked 130 list vouchers (90 LOCAL, 40 BROKERS) — one
+  `voucher_linked_from_acumatica` row each — and moved the 90 SIGNED cheques to READY_FOR_RELEASE,
+  snapshot first. Available after: **233, 21,013,221.48**; 0 list vouchers unlinked. The bill
+  column is `AdjdRefNbr` in Go-Live and `ReferenceNbr_2` in MANUFACTURING (a filter on the Go-Live
+  name is a 500 there), and an `or` of several `eq` filters is a 500 in Go-Live. **Until the sync
+  reads that inquiry, every cheque generated since 9 September carries no voucher here.**
+  **`FOR RELEASE 9_1.25.2026v2.xlsx`** (same day): LOCAL unchanged; BROKERS 39 cheques / 8,174,750.00,
+  with a new SCM REMARKS column (DELIVERED …), unused. Added `6000354012` and `6000354067` (linked
+  and readied by the link script). Dropped `6000354001`/`05`/`06`/`13` (2,285,000.00) — **user
+  ruling: dropped off the list = pulled, not released** — back to SIGNED, one
+  `ready_reverted_off_release_list` row each, snapshot first. This reverses the 2026-09-10
+  "dropped = released" reading for this list; ask each time rather than assume either. App after:
+  **231 available, 19,724,221.48**, exactly the list's cheques; 0 off-list.
   `6000352027` (2,180.36, on no sheet of the 9.25 list) was confirmed released by the user and set
   RELEASED — status only, `released_confirmed_by_user` audit row, snapshot first. Available after:
   141, 13,914,429.45 — every one of them on LOCAL or BROKERS. Then `6000353477` (Voided in
@@ -130,6 +147,8 @@ npx tsx scripts/backfill-released-from-register.ts "<register>.xlsx" --apply    
 npx tsx scripts/mark-ready-from-release-list.ts "FOR RELEASE 9.25.2026.xlsx"            # dry run: listed cheques not yet READY_FOR_RELEASE
 npx tsx scripts/mark-ready-from-release-list.ts "<for-release>.xlsx" --apply            # snapshot, then status only; never follow with backfill-available
 npx tsx scripts/revert-detail1-ready.ts "<for-release>.xlsx" <ready-from-list snapshot> [--apply]  # Detail1-only READY back to prior status (run 2026-09-25)
+npx tsx scripts/void-acumatica-voided.ts [--apply]                # void what Acumatica voided (live or RELEASED here)
+npx tsx scripts/link-vouchers-from-acumatica.ts "<for-release>.xlsx" [--apply]  # link list vouchers via AP-PAYMENTS-WITH-BILLS, ready their cheques
 npx tsx scripts/auto-sign-backlog.ts              # dry run: Acumatica cheques pending past autoSign.afterDays
 npx tsx scripts/auto-sign-backlog.ts --apply      # snapshot, then sign them (the 18:00 run does the rest daily)
 ```
