@@ -6,7 +6,7 @@ import {
 } from '@/lib/queries'
 import { resolveDashboardQuery } from '@/lib/dashboard-params'
 import {
-  clearFiltersHref, describeView, incompleteHref,
+  clearFiltersHref, dashboardScreen, describeView, incompleteHref,
   releaseConfirmHref, releaseCancelHref,
 } from '@/lib/dashboard-view'
 import { AppHeader } from '@/components/AppHeader'
@@ -45,6 +45,16 @@ import { loadSettings } from '@/lib/settings/read'
  * system and the two least actionable. They are demoted into a small secondary
  * row inside `SummaryCards` — still clickable views, because the cards ARE the
  * view selector and that model has not changed.
+ *
+ * ── TWO SCREENS (client, 2026-09-25) ──────────────────────────────────────
+ * "Just only show the totals. Once it is click, it will only the list so i
+ * can have more space." A bare `/` renders TOTALS — the KPI row, TODAY'S
+ * RELEASE, the timeline and a search box, nothing narrowed. Choosing a card,
+ * a timeline node, a search or a filter writes a parameter that narrows the
+ * view, and that alone switches the page to LIST — the full-width table with
+ * its filter bar, quick actions and export. `dashboardScreen` (Task 1) is the
+ * one place that reads the resolved selection and says which screen a URL is;
+ * neither screen loads the other's data.
  * ──────────────────────────────────────────────────────────────────────────
  */
 export default async function DashboardPage({
@@ -71,38 +81,14 @@ export default async function DashboardPage({
 
   // The summary does not depend on the filters, and the dropdown options do not
   // depend on the summary — so both are fetched before the filters are known.
-  //
-  // TODAY'S RELEASE is fetched alongside them and, like the summary, takes NO
-  // filters: it is what is ready to hand over right now, not what is ready
-  // within whatever the reader happens to have narrowed the table to. A panel
-  // offering to RELEASE ALL over a filtered subset while reading like a total
-  // is the misunderstanding worth ruling out by construction.
-  //
-  // These queries feed everything above the table. The KPI row's value
-  // line and the timeline's five counts are both read off what is already here.
-  const [summary, options, todaysRelease, settings] = await Promise.all([
+  // `settings` rides along so the sync overview's thresholds, and everything
+  // below that reads a setting, come from the same read every screen shares
+  // rather than a hard-coded default nobody can change.
+  const [summary, options, settings] = await Promise.all([
     getSummary(prisma),
     getFilterOptions(prisma),
-    getTodaysRelease(prisma),
-    // Loaded alongside them so the sync overview's own thresholds — read next,
-    // once this resolves — come from the same settings every other screen
-    // reads rather than a hard-coded default nobody can change.
     loadSettings(prisma),
   ])
-
-  // A fifth query, added for the staleness line. Two cheap findFirsts per
-  // tenant on an indexed column; the comment above about "no fourth query"
-  // was about the redesign of the KPI row, and this is not that. It reads
-  // `settings` above, so it cannot join the `Promise.all` those four run in.
-  const syncOverview = await getSyncOverview(prisma, undefined, settings.values['sync.abandonedAfterMinutes'])
-
-  const staleness = describeStaleness(
-    // The latest run that finished with no failed row — `lastSuccess` — is the
-    // read; a run that never reached the feed read nothing.
-    syncOverview.tenants.map((t) => ({ tenant: t.tenant, lastReadAt: t.lastSuccess?.startedAt ?? null })),
-    new Date(),
-    settings.values['sync.staleAfterHours'],
-  )
 
   /**
    * Every URL parameter is validated, the view is resolved and the filters are
@@ -135,6 +121,88 @@ export default async function DashboardPage({
     q, status, companyId, cashAccountId, eligibility, incomplete, showAll, selection, filters,
   } = resolveDashboardQuery(params, options)
 
+  const screen = dashboardScreen(selection)
+
+  if (screen === 'TOTALS') {
+    // TOTALS never narrows, so `getTodaysRelease` and the sync overview are the
+    // only queries it needs beyond the three already fetched above; `listChecks`
+    // and `countChecks` belong to the LIST screen and do not run here.
+    const [todaysRelease, syncOverview] = await Promise.all([
+      getTodaysRelease(prisma),
+      // Two cheap findFirsts per tenant on an indexed column, for the staleness
+      // line below. It reads `settings` above, so it cannot join the
+      // `Promise.all` those three run in.
+      getSyncOverview(prisma, undefined, settings.values['sync.abandonedAfterMinutes']),
+    ])
+
+    const staleness = describeStaleness(
+      // The latest run that finished with no failed row — `lastSuccess` — is the
+      // read; a run that never reached the feed read nothing.
+      syncOverview.tenants.map((t) => ({ tenant: t.tenant, lastReadAt: t.lastSuccess?.startedAt ?? null })),
+      new Date(),
+      settings.values['sync.staleAfterHours'],
+    )
+
+    return (
+      <main className="mx-auto max-w-[1600px] space-y-6 p-8">
+        <AppHeader user={user} title="CHECK RELEASE" />
+
+        {/* When Acumatica was last read. Above the cards, because every number
+            on them is only as current as this line says. */}
+        <SyncStatusLine staleness={staleness} isAdmin={user.role === 'FINANCE_ADMIN'} />
+
+        {/* The cards ARE the view selector — which set of cheques the table shows
+            — and they carry the narrowing filters forward so choosing a view does
+            not widen the table back out. `base` deliberately excludes status,
+            scope and incomplete: those are the view and its toggle.
+
+            `todaysRelease` is handed to the READY FOR RELEASE card for its value
+            line rather than queried again, so the card and the panel below it
+            cannot report different money for the same set of cheques. */}
+        <SummaryCards summary={summary} todaysRelease={todaysRelease} selection={selection} />
+
+        {/* Directly under the cards and above everything to do with the table:
+            this is the answer to "what do I do today", and it is shown even when
+            the count is zero so that "nothing is ready" and "the panel broke" can
+            never look the same.
+
+            `confirming` is an exact string match, like every other parameter on
+            this page — an unrecognised value leaves the panel on its first step
+            rather than guessing its way into a confirmation. */}
+        <TodaysReleasePanel
+          todays={todaysRelease}
+          canRelease={user.role === 'FINANCE_ADMIN'}
+          confirming={params.confirm === 'release'}
+          confirmHref={releaseConfirmHref(selection)}
+          cancelHref={releaseCancelHref(selection)}
+        />
+
+        {/* Where the cheques are stuck. Five counts off the summary already
+            fetched, five links through `cardHref` — no query and no URL of its
+            own. SIGNED lives here rather than in the KPI row: it is a rung, and a
+            rung is what a timeline is for. */}
+        <ReleaseTimeline summary={summary} selection={selection} />
+
+        {/* Finding one cheque by its number is the commonest reason to open the
+            list, so the totals keep one box for it. It submits to `/?q=…`, which
+            `dashboardScreen` reads as the LIST. */}
+        <form action="/" method="get" className="flex max-w-xl items-center gap-2" role="search">
+          <label htmlFor="totals-search" className="sr-only">Search cheques</label>
+          <input
+            id="totals-search" name="q" type="search"
+            placeholder="Search cheque no., payee, CV or AP voucher"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          />
+          <button type="submit" className="rounded-lg bg-navy px-4 py-2 text-sm font-semibold tracking-wide text-white">
+            SEARCH
+          </button>
+        </form>
+      </main>
+    )
+  }
+
+  // LIST never loads TODAY'S RELEASE or the sync overview — that state belongs
+  // to the totals screen, and this table has its own row counts to state.
   const [rows, matching] = await Promise.all([
     listChecks(prisma, filters),
     countChecks(prisma, filters),
@@ -144,86 +212,46 @@ export default async function DashboardPage({
     <main className="mx-auto max-w-[1600px] space-y-6 p-8">
       <AppHeader user={user} title="CHECK RELEASE" />
 
-      {/* When Acumatica was last read. Above the cards, because every number
-          on them is only as current as this line says. */}
-      <SyncStatusLine staleness={staleness} isAdmin={user.role === 'FINANCE_ADMIN'} />
-
-      {/* The cards ARE the view selector — which set of cheques the table shows
-          — and they carry the narrowing filters forward so choosing a view does
-          not widen the table back out. `base` deliberately excludes status,
-          scope and incomplete: those are the view and its toggle.
-
-          `todaysRelease` is handed to the READY FOR RELEASE card for its value
-          line rather than queried again, so the card and the panel below it
-          cannot report different money for the same set of cheques. */}
-      <SummaryCards summary={summary} todaysRelease={todaysRelease} selection={selection} />
-
-      {/* Directly under the cards and above everything to do with the table:
-          this is the answer to "what do I do today", and it is shown even when
-          the count is zero so that "nothing is ready" and "the panel broke" can
-          never look the same.
-
-          `confirming` is an exact string match, like every other parameter on
-          this page — an unrecognised value leaves the panel on its first step
-          rather than guessing its way into a confirmation. */}
-      <TodaysReleasePanel
-        todays={todaysRelease}
-        canRelease={user.role === 'FINANCE_ADMIN'}
-        confirming={params.confirm === 'release'}
-        confirmHref={releaseConfirmHref(selection)}
-        cancelHref={releaseCancelHref(selection)}
-      />
-
-      {/* Where the cheques are stuck. Five counts off the summary already
-          fetched, five links through `cardHref` — no query and no URL of its
-          own. SIGNED lives here rather than in the KPI row: it is a rung, and a
-          rung is what a timeline is for. */}
-      <ReleaseTimeline summary={summary} selection={selection} />
-
-      {/* The scope tabs used to say this. They are gone, because they set the
-          same parameters the cards do, but the DEFAULT they carried is not: with
-          no card selected the table still shows only the live statuses, and this
-          line says so rather than leaving the reader to infer it from a row
-          count.
-
-          The quick actions sit beside it, because that line names precisely
-          what the export and the printed sheet will contain: the same view, the
-          same filters, the same rows. */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="space-y-1">
-          <p className="text-xs font-medium tracking-wide text-slate-600">
-            VIEWING: {describeView(selection)}
-          </p>
-
-          {/* ── THE DISCLOSURE ────────────────────────────────────────────
-              The client asked for the cheques with no recorded amount to be
-              taken out of the counts and the table: "ignore them mean you have
-              to remove them, dont consider them becuase they dont have amount"
-              (2026-09-06). They are still in the database — 25 of them RELEASED
-              — and nothing was deleted.
-
-              This line is the price of hiding them, and it is not optional. A
-              register that shrinks by 129 with no explanation is how somebody
-              concludes money went missing, and by the time they ask, the number
-              they remember is a month old. So the count is stated, and the link
-              beside it opens exactly those cheques.
-
-              Only when the toggle is OFF: with it on, the reader is already
-              looking at them and `describeView` above says so. */}
-          {!incomplete && summary.incomplete > 0 && (
-            <p className="text-xs font-medium tracking-wide text-slate-500">
-              EXCLUDING {summary.incomplete.toLocaleString('en-PH')} CHEQUE
-              {summary.incomplete === 1 ? '' : 'S'} WITH NO RECORDED AMOUNT — not counted in the
-              cards above and not listed below.{' '}
-              <Link href={incompleteHref(selection)} className="underline underline-offset-2">
-                Show them
-              </Link>.
-            </p>
-          )}
+      {/* The list gets the page (client, 2026-09-25): one slim bar says where
+          you are and how to get back, and the export and print act on exactly
+          what is listed below it. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white px-4 py-3 ring-1 ring-hairline">
+        <div className="flex flex-wrap items-center gap-3">
+          <Link href="/" className="text-sm font-semibold tracking-wide text-navy underline-offset-2 hover:underline">
+            ← BACK TO TOTALS
+          </Link>
+          <span className="text-xs font-medium tracking-wide text-slate-600">
+            {describeView(selection)} · {matching.toLocaleString('en-PH')} CHEQUE{matching === 1 ? '' : 'S'}
+          </span>
         </div>
-
         <QuickActions selection={selection} />
       </div>
+
+      {/* ── THE DISCLOSURE ──────────────────────────────────────────────────
+          The client asked for the cheques with no recorded amount to be
+          taken out of the counts and the table: "ignore them mean you have
+          to remove them, dont consider them becuase they dont have amount"
+          (2026-09-06). They are still in the database — 25 of them RELEASED
+          — and nothing was deleted.
+
+          This line is the price of hiding them, and it is not optional. A
+          register that shrinks by 129 with no explanation is how somebody
+          concludes money went missing, and by the time they ask, the number
+          they remember is a month old. So the count is stated, and the link
+          beside it opens exactly those cheques.
+
+          Only when the toggle is OFF: with it on, the reader is already
+          looking at them and `describeView` above says so. */}
+      {!incomplete && summary.incomplete > 0 && (
+        <p className="text-xs font-medium tracking-wide text-slate-500">
+          EXCLUDING {summary.incomplete.toLocaleString('en-PH')} CHEQUE
+          {summary.incomplete === 1 ? '' : 'S'} WITH NO RECORDED AMOUNT — not counted in the
+          cards above and not listed below.{' '}
+          <Link href={incompleteHref(selection)} className="underline underline-offset-2">
+            Show them
+          </Link>.
+        </p>
+      )}
 
       <FilterBar
         options={options}
