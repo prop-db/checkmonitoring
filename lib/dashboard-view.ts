@@ -325,3 +325,23 @@ export function describeView(sel: DashboardSelection): string {
   // the two has no way to explain the row count.
   return sel.incomplete ? `${view} + INCOMPLETE (NO AMOUNT)` : view
 }
+
+/**
+ * Which of the dashboard's two screens a URL opens (client, 2026-09-25: "just
+ * only show the totals. Once it is click, it will only the list so i can have
+ * more space").
+ *
+ * The URL IS the screen. Every card, timeline node, search and filter already
+ * writes one of these parameters, so each opens the LIST with no change of its
+ * own. The browser's back button returns to the totals, and export and print,
+ * which read the same URL, need to know nothing about screens. A bare `/` is
+ * the TOTALS. `base` is only ever built from validated, non-empty values
+ * (`resolveDashboardQuery`), so an empty search box does not count as a
+ * filter.
+ */
+export type DashboardScreen = 'TOTALS' | 'LIST'
+
+export function dashboardScreen(sel: DashboardSelection): DashboardScreen {
+  const narrowed = sel.status !== null || sel.showAll || sel.incomplete || Object.keys(sel.base).length > 0
+  return narrowed ? 'LIST' : 'TOTALS'
+}

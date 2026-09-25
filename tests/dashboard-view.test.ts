@@ -3,6 +3,7 @@ import {
   isCardSelected, cardHref, incompleteHref, clearFiltersHref, describeView, viewStatusFilter,
   releaseConfirmHref, releaseCancelHref, TODAYS_RELEASE_ANCHOR,
   exportHref, EXPORT_PATH,
+  dashboardScreen,
   type DashboardSelection,
 } from '@/lib/dashboard-view'
 import { LIVE_STATUSES } from '@/lib/domain/check-status'
@@ -264,5 +265,21 @@ describe('exportHref', () => {
   // A half-made release is a state of the screen, not of the data.
   it('never carries the release confirmation', () => {
     expect(exportHref({ ...NARROWED, status: 'READY_FOR_RELEASE' })).not.toContain('confirm=')
+  })
+})
+
+describe('dashboardScreen', () => {
+  it('opens on TOTALS when nothing narrows the view', () => {
+    expect(dashboardScreen(NOTHING)).toBe('TOTALS')
+  })
+
+  it('opens the LIST for a card, all cheques, the incomplete toggle, any filter, or a search', () => {
+    expect(dashboardScreen({ ...NOTHING, status: 'SIGNED' })).toBe('LIST')
+    expect(dashboardScreen({ ...NOTHING, showAll: true })).toBe('LIST')
+    expect(dashboardScreen({ ...NOTHING, incomplete: true })).toBe('LIST')
+    expect(dashboardScreen({ ...NOTHING, base: { company: 'c1' } })).toBe('LIST')
+    expect(dashboardScreen({ ...NOTHING, base: { cashAccount: 'a1' } })).toBe('LIST')
+    expect(dashboardScreen({ ...NOTHING, base: { eligibility: 'ELIGIBLE' } })).toBe('LIST')
+    expect(dashboardScreen({ ...NOTHING, base: { q: '6000351234' } })).toBe('LIST')
   })
 })
