@@ -161,6 +161,21 @@ export default async function DashboardPage({
             cannot report different money for the same set of cheques. */}
         <SummaryCards summary={summary} todaysRelease={todaysRelease} selection={selection} />
 
+        {/* ── THE DISCLOSURE, TOTALS' COPY ──────────────────────────────────
+            See the LIST screen below for the full explanation of why this is
+            not optional. Here it sits directly under the cards themselves,
+            because TOTALS has no table to say "not listed below" about. */}
+        {summary.incomplete > 0 && (
+          <p className="text-xs font-medium tracking-wide text-slate-500">
+            EXCLUDING {summary.incomplete.toLocaleString('en-PH')} CHEQUE
+            {summary.incomplete === 1 ? '' : 'S'} WITH NO RECORDED AMOUNT — not counted in the
+            cards above.{' '}
+            <Link href={incompleteHref(selection)} className="underline underline-offset-2">
+              Show them
+            </Link>.
+          </p>
+        )}
+
         {/* Directly under the cards and above everything to do with the table:
             this is the answer to "what do I do today", and it is shown even when
             the count is zero so that "nothing is ready" and "the panel broke" can
@@ -246,7 +261,7 @@ export default async function DashboardPage({
         <p className="text-xs font-medium tracking-wide text-slate-500">
           EXCLUDING {summary.incomplete.toLocaleString('en-PH')} CHEQUE
           {summary.incomplete === 1 ? '' : 'S'} WITH NO RECORDED AMOUNT — not counted in the
-          cards above and not listed below.{' '}
+          totals and not listed below.{' '}
           <Link href={incompleteHref(selection)} className="underline underline-offset-2">
             Show them
           </Link>.
