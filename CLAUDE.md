@@ -178,28 +178,26 @@ These are safety properties, not preferences. Each exists because of a specific 
    The immutable field list is `IMMUTABLE_ON_UPDATE` in `lib/import/upsert.ts`, with an
    exhaustiveness test that fails when a new `Check` column is added and not classified.
 5. **The portal may never mark a cheque RELEASED.** Physical release is Finance-only.
-6. **The portal client sends only.** Nothing reads a status from the portal into a cheque;
-   `lib/integrations/portal/client.ts` has one method.
-7. **No delete-user path exists anywhere.** A `User` is referenced by `AuditLog` and five `Check`
+6. **No delete-user path exists anywhere.** A `User` is referenced by `AuditLog` and five `Check`
    relations; deleting one orphans the record of who released real money. Removal is deactivation,
    and the last active admin cannot be deactivated or demoted.
-8. **Audit rows are append-only**, enforced by a database trigger. `app.allow_audit_purge` appears
+7. **Audit rows are append-only**, enforced by a database trigger. `app.allow_audit_purge` appears
    only in `tests/helpers/db.ts` and the trigger migration — anywhere else is a defect. The trigger
    has exactly one exemption, added in `20260905000100_audit_log_detach_on_check_delete`: the FK's
    `ON DELETE SET NULL` may blank `checkId` when the cheque it points at is already gone, and only
    when every other column is unchanged. Without it no cheque with any audit history could be
    deleted at all, because Postgres implements SET NULL as an UPDATE. Content stays unwritable.
-9. **Amounts are decimal strings end to end.** Never a JS number. The column is `Decimal(18,2)` and
+8. **Amounts are decimal strings end to end.** Never a JS number. The column is `Decimal(18,2)` and
    float round-trips lose centavos.
-10. **Never commit or print** the two `.xlsx` workbooks (real vendor names and amounts), `.env`, or
+9. **Never commit or print** the two `.xlsx` workbooks (real vendor names and amounts), `.env`, or
    any credential.
-11. **A cheque is deleted only through `deleteIncompleteCheck`**, which refuses everything except a
+10. **A cheque is deleted only through `deleteIncompleteCheck`**, which refuses everything except a
    FINANCE_ADMIN removing a cheque with no amount that is not RELEASED, SCHEDULED or
    READY_FOR_RELEASE and carries no `releasedAt`. It writes the deletion's own audit row first, in
    the same transaction, because the detached rows would otherwise point at nothing. There is no
    bulk version and must not be one. Measured 2026-09-04: 98 of the 129 incomplete cheques qualify;
    the other 31 (25 RELEASED, 6 READY_FOR_RELEASE) do not, and that is the answer, not a gap.
-12. **A supplier's receipt is never written to `crNumber`.** The OR/CR box on the release form is
+11. **A supplier's receipt is never written to `crNumber`.** The OR/CR box on the release form is
    the paper the supplier hands over when they collect — Official Receipt or Collection Receipt —
    and it lives in `orNumber` / `orDate` / `receiptType`. `crNumber` sits beside `clearingStatus`
    and `clearedDate` and holds the **bank's** clearing reference, recorded weeks later. The two
@@ -225,6 +223,8 @@ These are safety properties, not preferences. Each exists because of a specific 
    null, one `receipt_reclassified_from_register` audit row each, a JSON snapshot first), and the
    sniffer now reads such a cell as `RECEIPT_REF`, written on create to the receipt columns and
    never to `crNumber`. Every `crNumber` in production after the repair is one Finance typed.
+12. **The portal client sends only.** Nothing reads a status from the portal into a cheque;
+    `lib/integrations/portal/client.ts` has one method.
 
 ## Things that will catch you out
 
@@ -299,10 +299,14 @@ category not on it.
 
 | Path | Responsibility |
 | --- | --- |
-| `lib/domain/` | Pure rules. No database, network, filesystem, clock. `check-status.ts` (the ladder), `eligibility.ts` (the portal gate), `receipt.ts` (the OR/CR box — see rule 12). `actions.ts` is the deliberate exception — it takes `db` and is the only module that changes a status. |
+| `lib/domain/` | Pure rules. No database, network, filesystem, clock. `check-status.ts` (the ladder), `eligibility.ts` (the portal gate), `receipt.ts` (the OR/CR box — see rule 11). `actions.ts` is the deliberate exception — it takes `db` and is the only module that changes a status. |
 | `lib/import/` | Workbook parsing → `parse.ts`, `field-sniffer.ts`, `company.ts`, `implied-status.ts`, `bills.ts`, and `upsert.ts` — the single write path where duplicate prevention lives. |
 | `lib/integrations/acumatica/` | OData reader and mapper. |
 | `lib/sync/run.ts` | Incremental sync, watermark with a 120-minute overlap. |
+| `lib/integrations/portal/` | Supplier Portal client: `client.ts` builds the event body from the cheque at delivery time (asserts rule 2 again, pre-checks the portal's validation) and POSTs it with the bearer and a timeout; `from-env.ts` reads `PORTAL_BASE_URL` / `PORTAL_TOKEN`. Sends only (rule 12). |
+| `lib/sync/portal-outbox.ts` | The outbox worker: latest event per cheque wins, stale kinds closed unsent (`kindMatchesStatus`), exclusive claims, backoff, `PARKED` for a human, a 401 stops the run. |
+| `lib/sync/portal-kick.ts` | Best-effort delivery within a time budget, from an action (`afterResponse`), the cron and `/admin/portal`; never throws, `{ skipped }` when the env is unset. |
+| `lib/admin/portal-backlog.ts` | Backlog dry run for `scripts/portal-backlog.ts` (winners, superseded, `stale`) and `queueCancelledForStale` (`--queue-cancelled [--apply]`). |
 | `lib/forecast/` | Cash outflow by cheque date: `buckets.ts` (the ageing buckets, pure), `query.ts` (the population — live, real, with an amount), `matrix.ts` (bucket × bank and bucket × stage, centavo-exact, pure). `/forecast` and `/api/export/forecast` sit on it. Since 2026-09-12 a cheque's typed `expectedOutflowDate` wins over its cheque date, and `PlannedOutflow` lines (`lib/planned-outflow/`, `/forecast/planned`) join the population as their own PLANNED column. |
 | `lib/recon/` | Outstanding cheques: `outstanding.ts` (the as-of rule, pure), `summary.ts` (per account, centavo-exact, pure), `query.ts` (the released population). `/recon` and `/api/export/recon` sit on it. |
 | `lib/normalised-row.ts` | The one shape both ingestion paths converge on. |
@@ -349,7 +353,7 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
   **Since 2026-09-06 they are also out of the dashboard entirely**: "ignore them mean you have to
   remove them, dont consider them becuase they dont have amount". `CheckFilters.incomplete` is now a
   tri-state (`true` only them, `false` exclude, `undefined` no filter) and the dashboard, the export
-  and the printed sheet all pass `false`. **Nothing was deleted** — rule 11 still stands — and the
+  and the printed sheet all pass `false`. **Nothing was deleted** — rule 10 still stands — and the
   exclusion is stated on screen with the count and a link to `?incomplete=1`, which is the price of
   hiding them. `getSummary` narrows itself the same way `buildWhere` does, so a card's number is
   always the number of rows its table shows. There is no INCOMPLETE card any more.

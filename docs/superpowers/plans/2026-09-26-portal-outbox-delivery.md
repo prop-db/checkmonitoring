@@ -1376,11 +1376,16 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 - [ ] **Step 7: Deploy checklist (user runs, in this order)**
 
-1. The Supplier Portal plan is deployed and its migration 069 applied; `CHECK_MONITORING_TOKEN` is set there.
-2. `npx.cmd prisma migrate deploy` against production (adds `CANCELLED`).
-3. `npx.cmd tsx scripts/portal-backlog.ts` against production — review the winners list with the client (spec §2.5). Park anything that must not go by setting it `PARKED` from `/admin/portal` after deploy, or leave it.
-4. Set `PORTAL_BASE_URL=https://supplier-portal.rclcompanies.com` and `PORTAL_TOKEN=<the same token>` on the `check-monitoring` Vercel project (Production); `scripts/set-vercel-env.mjs` is the repo's way.
-5. Deploy. Open `/admin/portal`, press DELIVER NOW, watch counts move; the cron finishes the rest at 18:00 Manila.
+Rewritten after the final review (2026-09-26): the token stays **unset** on this side until the
+backlog has been reviewed, so nothing can go out while the review is pending. Same order as the
+spec's "Sequencing" and §2.5.
+
+1. **Supplier Portal side live** — its plan deployed, migration 069 applied, `CHECK_MONITORING_TOKEN` set there.
+2. `npx.cmd prisma migrate deploy` against production (adds the `CANCELLED` enum value).
+3. **Deploy Check Monitoring with `PORTAL_BASE_URL` / `PORTAL_TOKEN` UNSET** on the `check-monitoring` Vercel project (confirm neither exists in Production). Every kick — after an action, the cron, DELIVER NOW — returns `{ skipped: 'PORTAL_BASE_URL is not set' }`; nothing can be sent, and cancellations made from here on already queue their `CANCELLED` event.
+4. **Backlog review against production:** `npx.cmd tsx scripts/portal-backlog.ts` — review the winners with the user, including the `stale` column (winners the worker will close unsent because the cheque's status no longer matches). Then `npx.cmd tsx scripts/portal-backlog.ts --queue-cancelled` (dry run: counts portal-routed CANCELLED/VOIDED cheques with an open MARK_AVAILABLE and no CANCELLED event) and, if the user agrees, the same with `--apply` (queues one CANCELLED event per such cheque, with a SYSTEM `portal_event_backfilled` audit row).
+5. **Set the two env vars and redeploy:** `PORTAL_BASE_URL=https://supplier-portal.rclcompanies.com` and `PORTAL_TOKEN=<the same token>` (Production); `scripts/set-vercel-env.mjs` is the repo's way. Env changes take effect only on a new deployment.
+6. Open `/admin/portal`, press **DELIVER NOW**, watch the counts move; the cron finishes the rest at 18:00 Manila.
 
 ---
 

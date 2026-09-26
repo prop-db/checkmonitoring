@@ -186,6 +186,12 @@ independent check), and POSTs with the bearer. `baseUrl` and `token` come from
    wrong; every event would fail the same way). 400 → `PARKED` (payload defect).
 5. Stops at `deadline`; whatever is left waits for the next trigger.
 
+Final review 2026-09-26 added: a winner whose kind contradicts the cheque's current status
+is closed unsent as **stale** (rule in §2.5); a lost supersede freezes that cheque for the
+run, as a live claim does; a 401 parks the one event and stops the run (every event would
+fail the same way); each request carries a timeout of min(remaining budget, 10 s), never
+below 1 s, and an abort backs off like any network error.
+
 `PARKED` is the human's queue. Every transition writes the existing `AuditLog` row shape
 (`actorType: SYSTEM`, action `portal_event_<status>`).
 
@@ -202,19 +208,46 @@ independent check), and POSTs with the bearer. `baseUrl` and `token` come from
 
 ### 2.5 Backlog cutover
 
-Before the first production delivery: count `PENDING` events, apply latest-wins as a dry
-run and review the list (a script prints kind, cheque, payee, current status — no amounts
-to the console). Expected: mostly `RELEASED` for cheques the portal already shows as
-picked up (→ `already`) and `MARK_AVAILABLE` for the currently ready ones. Then set the
-token on both sides and let the cron drain it.
+Before the first production delivery, with Check Monitoring deployed but its
+`PORTAL_BASE_URL` / `PORTAL_TOKEN` still **unset** (every kick returns `{ skipped }`, so
+nothing can go out during the review): `npx.cmd tsx scripts/portal-backlog.ts` counts the
+open events, applies latest-wins as a dry run and prints the winners — kind, cheque, payee,
+current status and a `stale` column, no amounts. Expected: mostly `RELEASED` for cheques the
+portal already shows as picked up (→ `already`) and `MARK_AVAILABLE` for the currently ready
+ones.
+
+`stale` (final review 2026-09-26) marks a winner whose kind contradicts the cheque's current
+status; the worker closes such a row unsent (`SYNCED`, `lastError = 'stale: cheque is now
+<status>'`, audit `details.stale = true`). The rule, `kindMatchesStatus` in
+`lib/sync/portal-outbox.ts`: `MARK_AVAILABLE` / `RELEASE_REVERSED` need `READY_FOR_RELEASE`
+or `SCHEDULED`; `RELEASED` needs `RELEASED`; `REVERT` needs `GENERATED`,
+`SIGNATURE_PENDING` or `SIGNED`; `CANCELLED` needs `CANCELLED` or `VOIDED`. Before this
+branch cancel/void queued nothing, so the backlog holds `MARK_AVAILABLE` rows for cheques
+since cancelled or voided — closing them stale is right, but the portal would then never
+hear of the cancellation. `scripts/portal-backlog.ts --queue-cancelled` counts those cheques
+(portal-routed, `CANCELLED`/`VOIDED`, an open `MARK_AVAILABLE`, no `CANCELLED` event); with
+`--apply` it queues one `CANCELLED` event each (a SYSTEM `portal_event_backfilled` audit row
+per cheque, same transaction; idempotent). Run it only once the user has agreed.
+
+Then set the two env vars, redeploy, press DELIVER NOW on `/admin/portal`; the cron drains
+the rest.
 
 ## Sequencing
 
-1. Supplier Portal: migration 069, service auth, endpoint, tests → deploy + migrate prod.
-2. Generate the token; set `CHECK_MONITORING_TOKEN` (portal) and `PORTAL_BASE_URL`,
-   `PORTAL_TOKEN` (monitoring) in Vercel.
-3. Check Monitoring: enum migration, cancel/void events, client, worker, triggers, admin
-   page, tests → migrate prod, backlog review, deploy.
+Rewritten after the final review (2026-09-26) so the token cannot be live before the backlog
+has been reviewed; the plan's Task 7 Step 7 is the same list.
+
+1. **Supplier Portal side live:** migration 069, service auth, endpoint, tests → deploy +
+   migrate prod; generate the token and set `CHECK_MONITORING_TOKEN` there.
+2. **Check Monitoring enum:** `npx.cmd prisma migrate deploy` on production (adds
+   `CANCELLED`).
+3. **Deploy Check Monitoring with `PORTAL_BASE_URL` / `PORTAL_TOKEN` UNSET.** Kicks return
+   `{ skipped }`; nothing can go out; new cancellations already queue `CANCELLED`.
+4. **Backlog review on production** (§2.5): `scripts/portal-backlog.ts`, winners and the
+   `stale` column reviewed with the user; `--queue-cancelled` dry run and, if agreed,
+   `--apply`.
+5. **Set `PORTAL_BASE_URL` and `PORTAL_TOKEN`** (monitoring, Vercel Production) and redeploy.
+6. **`/admin/portal` → DELIVER NOW**; the daily cron finishes the rest.
 
 ## Testing
 
