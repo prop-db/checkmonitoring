@@ -605,3 +605,57 @@ describe('releaseAllReadyAction', () => {
     expect(await testDb.auditLog.count({ where: { action: 'released' } })).toBe(total)
   }, 180_000)
 })
+
+describe('bulkRevertToSignedAction', () => {
+  it('lets a Finance user revert ready and scheduled cheques, with the reason on each audit row', async () => {
+    const { bulkRevertToSignedAction } = await import('@/app/checks/bulk-actions')
+    const a = await makeCheck({ status: 'READY_FOR_RELEASE', availablePickupDate: new Date('2026-09-26') })
+    const b = await makeCheck({ status: 'SCHEDULED' })
+
+    const result = await bulkRevertToSignedAction(fd([a.id, b.id], { reason: 'Pulled from the list' }))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.succeeded).toBe(2)
+    for (const id of [a.id, b.id]) {
+      const after = await testDb.check.findUniqueOrThrow({ where: { id } })
+      expect(after.status).toBe('SIGNED')
+      expect(after.availablePickupDate).toBeNull()
+      const audit = await testDb.auditLog.findMany({ where: { checkId: id, action: 'reverted_availability' } })
+      expect(audit).toHaveLength(1)
+      expect(audit[0]).toMatchObject({ userId: currentUser.id, remarks: 'Pulled from the list' })
+    }
+  })
+
+  it('refuses a blank reason and writes nothing', async () => {
+    const { bulkRevertToSignedAction } = await import('@/app/checks/bulk-actions')
+    const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
+
+    const result = await bulkRevertToSignedAction(fd([a.id], { reason: '   ' }))
+
+    expect(result.ok).toBe(false)
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('READY_FOR_RELEASE')
+    expect(await testDb.auditLog.count({ where: { checkId: a.id, action: 'reverted_availability' } })).toBe(0)
+  })
+
+  it('reports a cheque that has moved on and still reverts the rest', async () => {
+    const { bulkRevertToSignedAction } = await import('@/app/checks/bulk-actions')
+    const ready = await makeCheck({ status: 'READY_FOR_RELEASE' })
+    const released = await makeCheck({ status: 'RELEASED' })
+
+    const result = await bulkRevertToSignedAction(fd([ready.id, released.id], { reason: 'x' }))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(outcomeFor(result, ready.id).ok).toBe(true)
+    expect(outcomeFor(result, released.id).ok).toBe(false)
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: released.id } })).status).toBe('RELEASED')
+  })
+
+  it('holds the bulk cap', async () => {
+    const { bulkRevertToSignedAction } = await import('@/app/checks/bulk-actions')
+    const tooMany = Array.from({ length: MAX_BULK_SELECTION + 1 }, (_, i) => `id-${i}`)
+    const result = await bulkRevertToSignedAction(fd(tooMany, { reason: 'x' }))
+    expect(result.ok).toBe(false)
+  })
+})

@@ -2,7 +2,7 @@
 
 import { prisma } from '@/lib/db'
 import { requireUser } from '@/lib/auth'
-import { markSigned, markReadyForRelease, markReleased, recordReceipt } from '@/lib/domain/actions'
+import { markSigned, markReadyForRelease, markReleased, recordReceipt, revertAvailability } from '@/lib/domain/actions'
 import { parseSelection, chunkSelection } from '@/lib/bulk'
 import { listTodaysReleaseIds } from '@/lib/queries'
 import { readRowReceipts } from '@/lib/receipt-form'
@@ -78,6 +78,27 @@ export async function bulkReadyForReleaseAction(formData: FormData): Promise<Bul
   const now = new Date()
   return runEach(prisma, selection.checkIds, (checkId) =>
     markReadyForRelease(prisma, { checkId, userId: user.id, availablePickupDate, now }))
+}
+
+/**
+ * READY FOR RELEASE (or SCHEDULED) back to SIGNED, from the list. Open to every
+ * Finance user (client ruling 2026-09-26), like the single-cheque button.
+ * `revertAvailability` does the work per cheque: the transition check, the
+ * cleared pickup, the portal REVERT event and the audit row carrying the reason.
+ * The reason is one field for the batch, so a blank one is refused here once.
+ */
+export async function bulkRevertToSignedAction(formData: FormData): Promise<BulkActionResult> {
+  const user = await requireUser()
+  const settings = await loadSettings(prisma)
+  const selection = parseSelection(ids(formData), settings.values['caps.bulkSelection'])
+  if (!selection.ok) return { ok: false, message: selection.message }
+
+  const reason = str(formData, 'reason')
+  if (!reason) return { ok: false, message: 'Enter a reason before reverting cheques to SIGNED.' }
+
+  const now = new Date()
+  return runEach(prisma, selection.checkIds, (checkId) =>
+    revertAvailability(prisma, { checkId, userId: user.id, reason, now }))
 }
 
 /**
