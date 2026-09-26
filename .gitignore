@@ -22,3 +22,4 @@ probe-*
 
 # Pre-write snapshots taken by repair scripts. They hold cheque numbers.
 snapshots/
+.superpowers/
