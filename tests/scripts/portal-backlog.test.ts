@@ -1,20 +1,92 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { testDb, resetDb } from '../helpers/db'
 import { makeCheck } from '../helpers/factory'
-import { summariseBacklog } from '@/lib/admin/portal-backlog'
+import { summariseBacklog, queueCancelledForStale } from '@/lib/admin/portal-backlog'
 
 beforeEach(resetDb)
+
+type Kind = 'MARK_AVAILABLE' | 'RELEASED' | 'CANCELLED'
+const mkEvent = (checkId: string, kind: Kind, at: Date, status: 'PENDING' | 'FAILED' | 'IN_FLIGHT' | 'SYNCED' | 'PARKED' = 'PENDING') =>
+  testDb.portalEvent.create({ data: { checkId, direction: 'OUT', kind, status, idempotencyKey: `${checkId}${kind}${at.toISOString()}`, payload: {}, createdAt: at } })
 
 describe('summariseBacklog', () => {
   it('applies latest-wins as a dry run and never carries an amount', async () => {
     const check = await makeCheck({ status: 'RELEASED', payeeName: 'HENKEL' })
-    const mk = (kind: 'MARK_AVAILABLE' | 'RELEASED', at: Date) =>
-      testDb.portalEvent.create({ data: { checkId: check.id, direction: 'OUT', kind, status: 'PENDING', idempotencyKey: `${kind}${at.toISOString()}`, payload: {}, createdAt: at } })
-    await mk('MARK_AVAILABLE', new Date('2026-09-05')); await mk('RELEASED', new Date('2026-09-06'))
+    await mkEvent(check.id, 'MARK_AVAILABLE', new Date('2026-09-05')); await mkEvent(check.id, 'RELEASED', new Date('2026-09-06'))
     const s = await summariseBacklog(testDb)
-    expect(s.total).toBe(2); expect(s.superseded).toBe(1)
-    expect(s.winners).toEqual([expect.objectContaining({ kind: 'RELEASED', checkNumber: check.checkNumber, payeeName: 'HENKEL', checkStatus: 'RELEASED', eligibility: 'SUPPLIER' })])
+    expect(s.total).toBe(2); expect(s.superseded).toBe(1); expect(s.stale).toBe(0)
+    expect(s.winners).toEqual([expect.objectContaining({ kind: 'RELEASED', checkNumber: check.checkNumber, payeeName: 'HENKEL', checkStatus: 'RELEASED', eligibility: 'SUPPLIER', stale: false })])
     expect(s.byKind).toEqual({ MARK_AVAILABLE: 1, RELEASED: 1 })
     expect(JSON.stringify(s)).not.toMatch(/197715/)
+  })
+
+  it('flags a winner whose kind no longer matches the cheque as stale (final review 2026-09-26)', async () => {
+    const cancelled = await makeCheck({ status: 'CANCELLED' })
+    const ready = await makeCheck({ status: 'READY_FOR_RELEASE' })
+    await mkEvent(cancelled.id, 'MARK_AVAILABLE', new Date('2026-09-05'))
+    await mkEvent(ready.id, 'MARK_AVAILABLE', new Date('2026-09-06'))
+    const s = await summariseBacklog(testDb)
+    expect(s.stale).toBe(1)
+    const byCheque = Object.fromEntries(s.winners.map((w) => [w.checkNumber, w.stale]))
+    expect(byCheque).toEqual({ [cancelled.checkNumber]: true, [ready.checkNumber]: false })
+  })
+})
+
+describe('queueCancelledForStale', () => {
+  const NOW = new Date('2026-09-26T10:00:00+08:00')
+
+  async function scenario() {
+    const cancelled = await makeCheck({ status: 'CANCELLED', payeeName: 'HENKEL' })
+    const voided = await makeCheck({ status: 'VOIDED' })
+    await mkEvent(cancelled.id, 'MARK_AVAILABLE', new Date('2026-09-05'))
+    await mkEvent(voided.id, 'MARK_AVAILABLE', new Date('2026-09-05'), 'FAILED')
+    // Not candidates: already has a CANCELLED event; MARK_AVAILABLE already
+    // closed; still ready (not cancelled); INTERNAL.
+    const hasCancel = await makeCheck({ status: 'CANCELLED' })
+    await mkEvent(hasCancel.id, 'MARK_AVAILABLE', new Date('2026-09-05'))
+    await mkEvent(hasCancel.id, 'CANCELLED', new Date('2026-09-07'))
+    const closed = await makeCheck({ status: 'CANCELLED' })
+    await mkEvent(closed.id, 'MARK_AVAILABLE', new Date('2026-09-05'), 'SYNCED')
+    const ready = await makeCheck({ status: 'READY_FOR_RELEASE' })
+    await mkEvent(ready.id, 'MARK_AVAILABLE', new Date('2026-09-05'))
+    const internal = await makeCheck({ status: 'CANCELLED', eligibility: 'INTERNAL' })
+    await mkEvent(internal.id, 'MARK_AVAILABLE', new Date('2026-09-05'))
+    return { cancelled, voided }
+  }
+
+  it('dry run counts the cheques and writes nothing', async () => {
+    const { cancelled, voided } = await scenario()
+    const before = await testDb.portalEvent.count()
+    const r = await queueCancelledForStale(testDb, { now: NOW, apply: false })
+    expect(r.found).toBe(2); expect(r.queued).toBe(0)
+    expect(r.cheques.map((c) => c.id).sort()).toEqual([cancelled.id, voided.id].sort())
+    expect(await testDb.portalEvent.count()).toBe(before)
+    expect(await testDb.auditLog.count({ where: { action: 'portal_event_backfilled' } })).toBe(0)
+  })
+
+  it('apply queues one CANCELLED event per cheque with an audit row; a second apply queues nothing', async () => {
+    const { cancelled, voided } = await scenario()
+    const r = await queueCancelledForStale(testDb, { now: NOW, apply: true })
+    expect(r).toMatchObject({ found: 2, queued: 2 })
+    for (const c of [cancelled, voided]) {
+      const evs = await testDb.portalEvent.findMany({ where: { checkId: c.id, kind: 'CANCELLED' } })
+      expect(evs).toHaveLength(1)
+      expect(evs[0]).toMatchObject({
+        status: 'PENDING', direction: 'OUT',
+        idempotencyKey: `${c.id}:CANCELLED:backfill-${NOW.toISOString()}`,
+        payload: { action: 'CANCELLED', checkNumber: c.checkNumber },
+      })
+      const chk = await testDb.check.findUniqueOrThrow({ where: { id: c.id } })
+      expect(chk.portalSyncStatus).toBe('PENDING')
+      const audits = await testDb.auditLog.findMany({ where: { checkId: c.id, action: 'portal_event_backfilled' } })
+      expect(audits).toHaveLength(1)
+      expect(audits[0].actorType).toBe('SYSTEM')
+      expect((audits[0].details as { eventId?: string }).eventId).toBe(evs[0].id)
+    }
+
+    const again = await queueCancelledForStale(testDb, { now: new Date(NOW.getTime() + 60_000), apply: true })
+    expect(again).toMatchObject({ found: 0, queued: 0 })
+    expect(await testDb.portalEvent.count({ where: { kind: 'CANCELLED' } })).toBe(3)
+    expect(await testDb.auditLog.count({ where: { action: 'portal_event_backfilled' } })).toBe(2)
   })
 })
