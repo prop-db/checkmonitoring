@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { testDb, resetDb } from '../helpers/db'
 import { makeCheck } from '../helpers/factory'
 import { deliverPortalEvents, RETRY_DELAYS_MS, MAX_ATTEMPTS, UNMATCHED_MAX_ATTEMPTS } from '@/lib/sync/portal-outbox'
@@ -182,5 +182,147 @@ describe('deliverPortalEvents', () => {
     const fresh = await queue(other.id, 'RELEASED', NOW, { status: 'IN_FLIGHT', claimedAt: LATER, claimedBy: 'live-run' })
     await deliverPortalEvents(testDb, { now: LATER, deadline: new Date(LATER.getTime() + 10_000), client })
     expect((await testDb.portalEvent.findUniqueOrThrow({ where: { id: fresh.id } })).status).toBe('IN_FLIGHT')
+  })
+
+  // Review fixes 2026-09-26.
+
+  it('a live claim freezes its cheque: a newer PENDING event is neither sent nor supersedes it', async () => {
+    const check = await releasedCheck('AP-1')
+    const older = await queue(check.id, 'MARK_AVAILABLE', new Date('2026-08-01T00:00:00Z'), { status: 'IN_FLIGHT', claimedAt: LATER, claimedBy: 'live-run' })
+    const newer = await queue(check.id, 'RELEASED', new Date('2026-08-02T00:00:00Z'))
+    const client = fakeClient(() => ok())
+    const out = await deliverPortalEvents(testDb, { now: LATER, deadline: new Date(LATER.getTime() + 10_000), client })
+    expect(client.sent).toHaveLength(0)
+    expect(out.superseded).toBe(0)
+    expect((await testDb.portalEvent.findUniqueOrThrow({ where: { id: newer.id } })).status).toBe('PENDING')
+    expect((await testDb.portalEvent.findUniqueOrThrow({ where: { id: older.id } })).status).toBe('IN_FLIGHT')
+  })
+
+  it('settle is conditional on still holding the claim: a row settled by another run is left alone', async () => {
+    const check = await releasedCheck('AP-1')
+    const ev = await queue(check.id, 'RELEASED', NOW)
+    const client = fakeClient(() => ok())
+    const stealing: PortalClient = {
+      async deliver(body) {
+        // Another run reclaimed the row as stale and settled it while this
+        // run's request was in flight.
+        await testDb.portalEvent.update({ where: { id: body.eventId }, data: { status: 'SYNCED', claimedBy: 'other-run' } })
+        return client.deliver(body)
+      },
+    }
+    const out = await deliverPortalEvents(testDb, { now: LATER, deadline: new Date(LATER.getTime() + 10_000), client: stealing })
+    expect(out).toMatchObject({ delivered: 1, synced: 0, failed: 0, parked: 0 })
+    const after = await testDb.portalEvent.findUniqueOrThrow({ where: { id: ev.id } })
+    expect(after.status).toBe('SYNCED'); expect(after.claimedBy).toBe('other-run'); expect(after.attempts).toBe(0)
+    expect(await testDb.auditLog.count({ where: { checkId: check.id, action: 'portal_event_synced' } })).toBe(0)
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: check.id } })).portalTradeId).toBeNull()
+  })
+
+  it('a deliver that throws synchronously is a normal FAILED, and the run carries on', async () => {
+    const a = await releasedCheck('AP-1')
+    const b = await releasedCheck('AP-2')
+    const evA = await queue(a.id, 'RELEASED', NOW)
+    const evB = await queue(b.id, 'RELEASED', new Date(NOW.getTime() + 1))
+    let calls = 0
+    const client: PortalClient = {
+      // Not async: the throw escapes synchronously from the call itself.
+      deliver() {
+        calls += 1
+        if (calls === 1) throw new Error('socket exploded')
+        return Promise.resolve(ok())
+      },
+    }
+    const out = await deliverPortalEvents(testDb, { now: LATER, deadline: new Date(LATER.getTime() + 10_000), client })
+    expect(out.error).toBeUndefined()
+    expect(out).toMatchObject({ delivered: 2, synced: 1, failed: 1 })
+    const afterA = await testDb.portalEvent.findUniqueOrThrow({ where: { id: evA.id } })
+    expect(afterA.status).toBe('FAILED'); expect(afterA.nextAttemptAt.getTime()).toBe(LATER.getTime() + RETRY_DELAYS_MS[0])
+    expect((await testDb.portalEvent.findUniqueOrThrow({ where: { id: evB.id } })).status).toBe('SYNCED')
+  })
+
+  it('an unexpected DB error on one row is recorded and the run carries on', async () => {
+    const a = await releasedCheck('AP-1')
+    const b = await releasedCheck('AP-2')
+    const evA = await queue(a.id, 'RELEASED', NOW)
+    const evB = await queue(b.id, 'RELEASED', new Date(NOW.getTime() + 1))
+    // testDb with check.findUnique failing for cheque A only.
+    const bind = (t: object, p: string | symbol) => {
+      const v: unknown = Reflect.get(t, p)
+      return typeof v === 'function' ? v.bind(t) : v
+    }
+    const checkDelegate = new Proxy(testDb.check, {
+      get(t, p) {
+        if (p === 'findUnique') {
+          return (q: { where: { id: string } }) => {
+            if (q.where.id === a.id) return Promise.reject(new Error('connection reset by Neon'))
+            return (t.findUnique as (x: unknown) => unknown)(q)
+          }
+        }
+        return bind(t, p)
+      },
+    })
+    const db = new Proxy(testDb, { get: (t, p) => (p === 'check' ? checkDelegate : bind(t, p)) }) as typeof testDb
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const client = fakeClient(() => ok())
+      const out = await deliverPortalEvents(db, { now: LATER, deadline: new Date(LATER.getTime() + 10_000), client })
+      expect(out.error).toMatch(/connection reset by Neon/)
+      expect(out).toMatchObject({ synced: 1 })
+      expect(errors).toHaveBeenCalled()
+      expect((await testDb.portalEvent.findUniqueOrThrow({ where: { id: evA.id } })).status).toBe('IN_FLIGHT')
+      expect((await testDb.portalEvent.findUniqueOrThrow({ where: { id: evB.id } })).status).toBe('SYNCED')
+    } finally {
+      errors.mockRestore()
+    }
+  })
+
+  it('a not-due newest event still supersedes its older due sibling; nothing is sent', async () => {
+    const check = await releasedCheck('AP-1')
+    const older = await queue(check.id, 'MARK_AVAILABLE', new Date('2026-08-01T00:00:00Z'))
+    const newest = await queue(check.id, 'RELEASED', new Date('2026-08-02T00:00:00Z'), { status: 'FAILED', nextAttemptAt: new Date('2099-01-01') })
+    const client = fakeClient(() => ok())
+    const out = await deliverPortalEvents(testDb, { now: LATER, deadline: new Date(LATER.getTime() + 10_000), client })
+    expect(client.sent).toHaveLength(0)
+    expect(out).toMatchObject({ delivered: 0, superseded: 1 })
+    const o = await testDb.portalEvent.findUniqueOrThrow({ where: { id: older.id } })
+    expect(o.status).toBe('SYNCED'); expect(o.lastError).toBe(`superseded by ${newest.id}`)
+    expect((await testDb.portalEvent.findUniqueOrThrow({ where: { id: newest.id } })).status).toBe('FAILED')
+  })
+
+  it('each superseded row carries exactly one synced audit marked superseded; the delivered one is not marked', async () => {
+    const check = await releasedCheck('AP-1')
+    const old = await queue(check.id, 'MARK_AVAILABLE', new Date('2026-08-01T00:00:00Z'))
+    const mid = await queue(check.id, 'REVERT', new Date('2026-08-02T00:00:00Z'))
+    const newest = await queue(check.id, 'RELEASED', new Date('2026-08-03T00:00:00Z'))
+    await deliverPortalEvents(testDb, { now: LATER, deadline: new Date(LATER.getTime() + 10_000), client: fakeClient(() => ok()) })
+    const rows = await testDb.auditLog.findMany({ where: { checkId: check.id, action: 'portal_event_synced' } })
+    const forEvent = (id: string) => rows.filter((r) => (r.details as { eventId?: string } | null)?.eventId === id)
+    for (const id of [old.id, mid.id]) {
+      const mine = forEvent(id)
+      expect(mine).toHaveLength(1)
+      expect((mine[0].details as { superseded?: boolean }).superseded).toBe(true)
+    }
+    const delivered = forEvent(newest.id)
+    expect(delivered).toHaveLength(1)
+    expect((delivered[0].details as { superseded?: boolean }).superseded).toBeUndefined()
+  })
+
+  it('once RETRY_DELAYS_MS is exhausted (attempt 5) the backoff is daily', async () => {
+    const check = await releasedCheck('AP-1')
+    const ev = await queue(check.id, 'RELEASED', NOW, { attempts: RETRY_DELAYS_MS.length })
+    await deliverPortalEvents(testDb, { now: LATER, deadline: new Date(LATER.getTime() + 10_000), client: fakeClient(() => ({ status: 503, body: null })) })
+    const after = await testDb.portalEvent.findUniqueOrThrow({ where: { id: ev.id } })
+    expect(after.status).toBe('FAILED'); expect(after.attempts).toBe(RETRY_DELAYS_MS.length + 1)
+    expect(after.nextAttemptAt.getTime()).toBe(LATER.getTime() + 24 * 3_600_000)
+  })
+
+  it('the deadline is honoured inside the supersede pass too', async () => {
+    const check = await releasedCheck('AP-1')
+    await queue(check.id, 'MARK_AVAILABLE', new Date('2026-08-01T00:00:00Z'))
+    await queue(check.id, 'RELEASED', new Date('2026-08-02T00:00:00Z'))
+    const client = fakeClient(() => ok())
+    const out = await deliverPortalEvents(testDb, { now: LATER, deadline: new Date(LATER.getTime() - 1), client })
+    expect(out).toMatchObject({ stoppedAtDeadline: true, superseded: 0, delivered: 0 })
+    expect(await testDb.portalEvent.count({ where: { status: 'PENDING' } })).toBe(2)
   })
 })
