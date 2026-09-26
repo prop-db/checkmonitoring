@@ -109,6 +109,12 @@ It follows that:
   `ready_reverted_off_release_list` row each, snapshot first. This reverses the 2026-09-10
   "dropped = released" reading for this list; ask each time rather than assume either. App after:
   **231 available, 19,724,221.48**, exactly the list's cheques; 0 off-list.
+  **Second register catch-up, 2026-09-26**, on the user's request: `CHECK MONITORING 9.25.2026.xlsx`
+  showed 240 pick-ups not RELEASED here — 228 dated 25 Sep, 12 dated 18-24 Sep that were typed
+  after the 9.24 file — all Balanced in Acumatica; 160 were READY_FOR_RELEASE, 80 SIGNED. All 240
+  moved to RELEASED by `backfill-released-from-register.ts`, snapshot first. Available after:
+  **71, 3,162,018.70**. Still 252 register cheque numbers the app does not hold, and 78 it holds as
+  CANCELLED/VOIDED, both left.
   `6000352027` (2,180.36, on no sheet of the 9.25 list) was confirmed released by the user and set
   RELEASED — status only, `released_confirmed_by_user` audit row, snapshot first. Available after:
   141, 13,914,429.45 — every one of them on LOCAL or BROKERS. Then `6000353477` (Voided in
