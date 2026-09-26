@@ -14,13 +14,16 @@ const OWN_COMPANIES = ['STARKSON PACKAGING INC.']
 
 beforeEach(resetDb)
 
-// Plan 2 writes no PortalEvent anywhere, and the import is the path most likely
-// to grow one by accident: it touches every cheque in the register and it runs
-// unattended. Publishing to the supplier portal is a Finance action, never an
-// import consequence, so this is asserted after EVERY test in the file rather
-// than in one test that a later author could forget to extend.
+// The import is the path most likely to grow a stray PortalEvent by accident:
+// it touches every cheque in the register and it runs unattended. Publishing
+// to the supplier portal is a Finance action, never an import consequence — the
+// one sanctioned exception is CANCELLED, queued through `voidCheck` when
+// Acumatica reports a portal-routed cheque voided (task 2026-09-26, plan
+// `portal-outbox-delivery`; see the `upsertCheck — voiding` tests below, which
+// assert that event directly). So this is asserted after EVERY test in the
+// file rather than in one test that a later author could forget to extend.
 afterEach(async () => {
-  expect(await testDb.portalEvent.count()).toBe(0)
+  expect(await testDb.portalEvent.count({ where: { kind: { not: 'CANCELLED' } } })).toBe(0)
 })
 
 async function seedCompany(code = 'STK', name = 'Starkson Packaging Inc.') {
@@ -520,6 +523,14 @@ describe('upsertCheck — voiding', () => {
 
     const audit = await testDb.auditLog.findFirstOrThrow({ where: { action: 'voided' } })
     expect(audit.actorType).toBe('SYSTEM')
+
+    // The row's payee (HENKEL) is a SUPPLIER, so the void queues the same
+    // CANCELLED outbox event `cancelCheck` does — the portal must stop showing
+    // a cheque the ERP says no longer exists, whichever side declared it gone.
+    const event = await testDb.portalEvent.findFirstOrThrow({ where: { checkId: check.id } })
+    expect(event.kind).toBe('CANCELLED')
+    expect(event.payload).toEqual({ action: 'CANCELLED', checkNumber: check.checkNumber })
+    expect(check.portalSyncStatus).toBe('PENDING')
   })
 
   it('is idempotent: re-importing a voided cheque does not void it twice', async () => {
@@ -530,8 +541,11 @@ describe('upsertCheck — voiding', () => {
     })
     await upsert(voidedRow)
     await upsert(voidedRow)
-    expect((await testDb.check.findFirstOrThrow()).status).toBe('VOIDED')
+    const check = await testDb.check.findFirstOrThrow()
+    expect(check.status).toBe('VOIDED')
     expect(await testDb.auditLog.count({ where: { action: 'voided' } })).toBe(1)
+    // The transition happens once, so the event is queued once too.
+    expect(await testDb.portalEvent.count({ where: { checkId: check.id, kind: 'CANCELLED' } })).toBe(1)
   })
 
   it('records a void it cannot apply instead of throwing the import away', async () => {
@@ -550,6 +564,12 @@ describe('upsertCheck — voiding', () => {
     const audit = await testDb.auditLog.findFirstOrThrow({ where: { action: 'void_not_applied' } })
     expect(audit.actorType).toBe('SYSTEM')
     expect(audit.details).toMatchObject({ currentStatus: 'CANCELLED' })
+
+    // The refused transition never calls `voidCheck`, so it queues nothing —
+    // covered by the file's blanket afterEach for non-CANCELLED kinds, and
+    // asserted directly here because this is the one test in the file where a
+    // CANCELLED event could otherwise slip through unnoticed.
+    expect(await testDb.portalEvent.count({ where: { checkId: id } })).toBe(0)
   })
 
   it('makes a void after release conspicuous', async () => {
@@ -564,6 +584,10 @@ describe('upsertCheck — voiding', () => {
 
     const audit = await testDb.auditLog.findFirstOrThrow({ where: { action: 'voided_after_release' } })
     expect(audit.remarks).toContain(VOID_AFTER_RELEASE_WARNING)
+
+    // A cheque already published as AVAILABLE and then voided still needs the
+    // supplier told — the portal event is queued here too, warning or not.
+    expect(await testDb.portalEvent.count({ where: { checkId: id, kind: 'CANCELLED' } })).toBe(1)
   })
 })
 

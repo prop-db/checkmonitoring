@@ -58,6 +58,21 @@ function portalEventKey(checkId: string, kind: PortalEventKind, now: Date): stri
   return `${checkId}:${kind}:${now.toISOString()}`
 }
 
+/**
+ * The fifth kind. The reason stays here: the portal never shows a payee an
+ * internal reason, and a field it does not accept is a field that can fail a
+ * delivery nobody is watching (the same rule as `receiptType` on RELEASED).
+ */
+async function queueCancelled(tx: Prisma.TransactionClient, checkId: string, checkNumber: string, now: Date): Promise<void> {
+  await tx.portalEvent.create({
+    data: {
+      checkId, direction: 'OUT', kind: 'CANCELLED', status: 'PENDING',
+      idempotencyKey: portalEventKey(checkId, 'CANCELLED', now),
+      payload: { action: 'CANCELLED', checkNumber },
+    },
+  })
+}
+
 async function load(tx: Prisma.TransactionClient, checkId: string) {
   const check = await tx.check.findUnique({
     where: { id: checkId },
@@ -724,12 +739,12 @@ export const VOID_AFTER_RELEASE_WARNING =
  * a void arriving for a cancelled cheque throws rather than overwriting a
  * Finance decision that carries a recorded reason.
  *
- * Writes no `PortalEvent`, like everything else in Plan 2. That has a
- * consequence worth stating plainly: a cheque already published to the supplier
- * portal as AVAILABLE and then voided in Acumatica goes on showing as available
- * to the supplier. It is recorded as a known gap for Plan 3 in
- * `.superpowers/sdd/progress.md` and must not be "fixed" here by writing an
- * event — publishing is a Finance action, never an import consequence.
+ * Queues a `CANCELLED` `PortalEvent` for a portal-routed cheque (task 2026-09-26,
+ * plan `portal-outbox-delivery`), the same shape `cancelCheck` queues: the
+ * supplier portal must stop showing a cheque the ERP says no longer exists,
+ * whichever side declared it gone. The payload carries no `reason` and no
+ * distinction between a Finance cancel and an Acumatica void — the portal only
+ * needs to know the cheque is CANCELLED, never why.
  */
 export async function voidCheck(
   db: Db, args: { checkId: string; reason: string; now: Date },
@@ -742,13 +757,23 @@ export async function voidCheck(
     const from = check.status as CheckStatus
     assertTransition(from, 'VOIDED')
 
+    const route = portalRoute(check.eligibility as Eligibility)
+    const pushes = route !== null
+
     const updated = await tx.check.update({
       where: { id: check.id },
       // The release facts are left standing. They are what makes this void
       // alarming, and clearing them would erase the evidence that the cheque
       // was ever handed over.
-      data: { status: 'VOIDED', voidedAt: args.now },
+      data: {
+        status: 'VOIDED',
+        voidedAt: args.now,
+        portalSyncStatus: pushes ? 'PENDING' : 'NOT_APPLICABLE',
+        portalDomain: route,
+      },
     })
+
+    if (pushes) await queueCancelled(tx, check.id, check.checkNumber, args.now)
 
     // A distinct action, not just distinct remarks: every audit query, filter
     // and screen that groups by action then separates this case for free,
@@ -931,6 +956,10 @@ export async function cancelCheck(
   return inTx(db, async (tx) => {
     const check = await load(tx, args.checkId)
     assertTransition(check.status as CheckStatus, 'CANCELLED')
+
+    const route = portalRoute(check.eligibility as Eligibility)
+    const pushes = route !== null
+
     const updated = await tx.check.update({
       where: { id: check.id },
       data: {
@@ -938,8 +967,11 @@ export async function cancelCheck(
         cancelledById: args.userId,
         cancelledAt: args.now,
         cancelReason: args.reason,
+        portalSyncStatus: pushes ? 'PENDING' : 'NOT_APPLICABLE',
+        portalDomain: route,
       },
     })
+    if (pushes) await queueCancelled(tx, check.id, check.checkNumber, args.now)
     await writeAudit(tx, {
       checkId: check.id, actorType: 'USER', userId: args.userId,
       action: 'cancelled', remarks: args.reason,

@@ -451,12 +451,28 @@ describe('voidCheck', () => {
       .rejects.toMatchObject({ code: 'REASON_REQUIRED' })
   })
 
-  // Plan 2 writes no portal events at all. A void that queued one would be an
-  // import consequence reaching a supplier, which is a Plan 3 decision.
-  it('writes no portal event', async () => {
-    const check = await makeCheck({ status: 'SIGNATURE_PENDING' })
+  // Superseded 2026-09-26 (plan `portal-outbox-delivery`, task 2): a void now
+  // queues the same CANCELLED event `cancelCheck` does for a portal-routed
+  // cheque, so the supplier portal stops showing a cheque the ERP says no
+  // longer exists.
+  it('queues a CANCELLED portal event for a portal-routed cheque', async () => {
+    const check = await makeCheck({ status: 'SIGNATURE_PENDING', eligibility: 'SUPPLIER' })
+    await voidCheck(testDb, { checkId: check.id, reason: 'Voided in Acumatica.', now: NOW })
+    const event = await testDb.portalEvent.findFirstOrThrow({ where: { checkId: check.id } })
+    expect(event.kind).toBe('CANCELLED')
+    expect(event.status).toBe('PENDING')
+    expect(event.payload).toEqual({ action: 'CANCELLED', checkNumber: check.checkNumber })
+    const after = await testDb.check.findUniqueOrThrow({ where: { id: check.id } })
+    expect(after.portalSyncStatus).toBe('PENDING')
+    expect(after.portalDomain).toBe('LOCAL')
+  })
+
+  it('writes no portal event for an INTERNAL cheque', async () => {
+    const check = await makeCheck({ status: 'SIGNATURE_PENDING', eligibility: 'INTERNAL' })
     await voidCheck(testDb, { checkId: check.id, reason: 'Voided in Acumatica.', now: NOW })
     expect(await testDb.portalEvent.count({ where: { checkId: check.id } })).toBe(0)
+    const after = await testDb.check.findUniqueOrThrow({ where: { id: check.id } })
+    expect(after.portalSyncStatus).toBe('NOT_APPLICABLE')
   })
 })
 
