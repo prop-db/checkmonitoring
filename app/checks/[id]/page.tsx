@@ -305,14 +305,12 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
             so a cheque approved by mistake could only be corrected in the
             database. Client asked for it on 2026-09-10.
 
-            FINANCE_ADMIN only, matching `revertAction`'s own guard: the button is
-            hidden for everyone else rather than shown and refused, but the
-            server check is what actually enforces it. The reason is required —
+            Every Finance user since 2026-09-26 (client ruling), the same as the
+            list's bulk REVERT TO SIGNED. The reason is required —
             the domain refuses a blank one — because a cheque that moved down a
             rung with no explanation is indistinguishable from one that was never
             approved. */}
-        {(check.status === 'READY_FOR_RELEASE' || check.status === 'SCHEDULED') &&
-          user.role === 'FINANCE_ADMIN' && (
+        {(check.status === 'READY_FOR_RELEASE' || check.status === 'SCHEDULED') && (
           <ActionForm
             action={revertAction}
             checkId={check.id}

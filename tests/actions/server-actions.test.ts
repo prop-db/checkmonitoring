@@ -62,6 +62,15 @@ describe('revertAction', () => {
     const result = await revertAction(fd({ checkId: check.id, reason: '' }))
     expect(result.ok).toBe(false)
   })
+
+  it('lets a Finance user revert a ready cheque', async () => {
+    const { readyForReleaseAction, revertAction } = await import('@/app/checks/actions')
+    const check = await makeCheck({ status: 'SIGNED' })
+    await readyForReleaseAction(fd({ checkId: check.id, availablePickupDate: '2026-09-03' }))
+    const result = await revertAction(fd({ checkId: check.id, reason: 'Pulled from the list' }))
+    expect(result).toEqual({ ok: true })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: check.id } })).status).toBe('SIGNED')
+  })
 })
 
 describe('releaseAction', () => {

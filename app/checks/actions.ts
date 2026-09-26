@@ -59,10 +59,9 @@ export async function readyForReleaseAction(formData: FormData): Promise<ActionR
 }
 
 export async function revertAction(formData: FormData): Promise<ActionResult> {
+  // Every Finance user since 2026-09-26 (client ruling), matching the list's
+  // REVERT TO SIGNED. The reason stays mandatory — the domain refuses a blank one.
   const user = await requireUser()
-  if (user.role !== 'FINANCE_ADMIN') {
-    return { ok: false, message: 'Only a Finance Admin can revert a check’s availability.' }
-  }
   const checkId = str(formData, 'checkId')
   return run(checkId, () => revertAvailability(prisma, {
     checkId, userId: user.id,
