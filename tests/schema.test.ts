@@ -2,8 +2,6 @@ import { describe, it, expect, afterAll } from 'vitest'
 import { PrismaClient } from '@prisma/client'
 import { testDatabaseUrl } from './helpers/test-db-url'
 import { checkReadyForRelease } from '@/lib/domain/check-status'
-import { testDb } from './helpers/db'
-import { makeCheck } from './helpers/factory'
 
 const prisma = new PrismaClient({ datasources: { db: { url: testDatabaseUrl() } } })
 
@@ -102,33 +100,38 @@ describe('schema', () => {
   })
 })
 
+// Shared by the queue tests below and the CANCELLED test further down.
+// Fixtures are built with this file's own `prisma` client and registered in
+// `createdCompanyIds` for the `afterAll` cleanup, rather than through
+// `tests/helpers/factory.ts`. The factory writes through `testDb` and creates
+// a bank and a cash account this file's `afterAll` does not know about, and
+// this suite runs against a real cloud database that a leaking test grows on
+// every run.
+async function makeQueueCheck(
+  suffix: string,
+  status?: 'GENERATED' | 'SIGNATURE_PENDING' | 'SIGNED' | 'READY_FOR_RELEASE' | 'SCHEDULED' | 'RELEASED' | 'CANCELLED' | 'VOIDED',
+) {
+  const company = await prisma.company.create({
+    data: { code: `T${Date.now()}${suffix}`, name: 'Test Co', legalNames: [] },
+  })
+  createdCompanyIds.push(company.id)
+  return prisma.check.create({
+    data: {
+      companyId: company.id,
+      checkNumber: `600000${suffix}`,
+      amount: '100.00',
+      payeeName: 'ACME',
+      eligibility: 'SUPPLIER',
+      ...(status ? { status } : {}),
+    },
+  })
+}
+
 // The queue `lib/portal/outbox.ts` will work. Both properties asserted here are
 // about the same thing: a worker must never be handed the same instruction
 // twice, because a duplicate MARK_AVAILABLE is a second message to a supplier
 // about one cheque.
-//
-// Fixtures are built with this file's own client and registered for cleanup
-// rather than through `tests/helpers/factory.ts`. The factory writes through
-// `testDb` and creates a bank and a cash account this file's `afterAll` does not
-// know about, and this suite runs against a real cloud database that a leaking
-// test grows on every run.
 describe('PortalEvent as a queue', () => {
-  async function makeQueueCheck(suffix: string) {
-    const company = await prisma.company.create({
-      data: { code: `T${Date.now()}${suffix}`, name: 'Test Co', legalNames: [] },
-    })
-    createdCompanyIds.push(company.id)
-    return prisma.check.create({
-      data: {
-        companyId: company.id,
-        checkNumber: `600000${suffix}`,
-        amount: '100.00',
-        payeeName: 'ACME',
-        eligibility: 'SUPPLIER',
-      },
-    })
-  }
-
   it('rejects a status outside the enum', async () => {
     const check = await makeQueueCheck('Q1')
     await expect(prisma.portalEvent.create({
@@ -168,8 +171,8 @@ describe('PortalEvent as a queue', () => {
 
 describe('PortalEventKind CANCELLED', () => {
   it('accepts a CANCELLED event', async () => {
-    const check = await makeCheck({ status: 'CANCELLED' })
-    const ev = await testDb.portalEvent.create({
+    const check = await makeQueueCheck('Q3', 'CANCELLED')
+    const ev = await prisma.portalEvent.create({
       data: {
         checkId: check.id, direction: 'OUT', kind: 'CANCELLED', status: 'PENDING',
         idempotencyKey: `${check.id}:CANCELLED:test`, payload: { action: 'CANCELLED', checkNumber: check.checkNumber },
