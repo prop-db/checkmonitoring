@@ -13,13 +13,16 @@ const NOW = new Date('2026-09-04T13:32:00+08:00')
 
 beforeEach(resetDb)
 
-// Plan 2 writes no PortalEvent anywhere, and the sync is the path most likely to
-// grow one by accident: it runs unattended, on a schedule, over every payment in
-// the ERP. Publishing to a supplier is a Finance action, never a consequence of a
-// sync running, so this is asserted after EVERY test in the file rather than in
-// one test a later author could forget to extend.
+// The sync is the path most likely to grow a PortalEvent by accident: it runs
+// unattended, on a schedule, over every payment in the ERP. Publishing to a
+// supplier is a Finance action, never a consequence of a sync running, so this
+// is asserted after EVERY test in the file rather than in one test a later
+// author could forget to extend. The single sanctioned exception (spec
+// 2026-09-26-check-monitoring-integration §2.1): an Acumatica void of a
+// portal-routed cheque goes through voidCheck, which queues CANCELLED so the
+// portal stops showing a cheque the ERP says is gone. Nothing else may queue.
 afterEach(async () => {
-  expect(await testDb.portalEvent.count()).toBe(0)
+  expect(await testDb.portalEvent.count({ where: { kind: { not: 'CANCELLED' } } })).toBe(0)
 })
 
 // ---------------------------------------------------------------------------
