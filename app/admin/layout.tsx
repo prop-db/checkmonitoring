@@ -16,6 +16,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const tabs = [
     ['/admin/users', 'USERS'],
     ['/admin/sync', 'SYNC'],
+    ['/admin/portal', 'PORTAL'],
     ['/admin/import', 'IMPORT'],
     ['/admin/staged', 'STAGED QUEUE'],
     ['/admin/audit', 'AUDIT'],
