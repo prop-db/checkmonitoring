@@ -1,4 +1,5 @@
-import type { Prisma, PrismaClient, PortalEvent } from '@prisma/client'
+import { randomUUID } from 'node:crypto'
+import type { CheckStatus, Prisma, PrismaClient, PortalEvent, PortalEventKind } from '@prisma/client'
 import { writeAudit } from '@/lib/audit'
 import {
   buildPortalEventBody, PortalPayloadError, type PortalClient, type PortalDeliveryResult,
@@ -25,6 +26,9 @@ export const MAX_ATTEMPTS = 12
 export const UNMATCHED_MAX_ATTEMPTS = 7
 /** A claim older than this belongs to a run the platform killed. */
 export const STALE_CLAIM_MS = 10 * 60_000
+/** One request never waits longer than this, nor past the run's deadline. */
+export const REQUEST_TIMEOUT_MS = 10_000
+const MIN_REQUEST_TIMEOUT_MS = 1_000
 
 export type PortalOutboxOutcome = {
   delivered: number
@@ -32,8 +36,44 @@ export type PortalOutboxOutcome = {
   failed: number
   parked: number
   superseded: number
+  /** Closed unsent because the event's kind contradicts the cheque's current status. */
+  stale: number
   stoppedAtDeadline: boolean
+  /** The portal refused the token (401): the run stopped after parking that one event. */
+  stoppedOnAuth: boolean
   error?: string
+}
+
+export function emptyOutcome(): PortalOutboxOutcome {
+  return { delivered: 0, synced: 0, failed: 0, parked: 0, superseded: 0, stale: 0, stoppedAtDeadline: false, stoppedOnAuth: false }
+}
+
+/**
+ * Whether an event of this kind still describes the cheque as it stands
+ * (spec 2026-09-26-check-monitoring-integration-design §2.3; final review
+ * 2026-09-26). Latest-wins alone is not enough, for two reasons:
+ *  - before this branch cancelCheck/voidCheck queued nothing, so the backlog
+ *    holds MARK_AVAILABLE rows for cheques since cancelled or voided - the
+ *    newest event for such a cheque would announce a pickup that will never
+ *    happen;
+ *  - RETRY on /admin/portal can resurrect an old row after a newer one has
+ *    already gone out (the newer one is SYNCED, so the old one wins again).
+ * An event whose kind contradicts the cheque's status is closed unsent.
+ */
+export function kindMatchesStatus(kind: PortalEventKind, status: CheckStatus): boolean {
+  switch (kind) {
+    case 'MARK_AVAILABLE':
+    case 'RELEASE_REVERSED':
+      return status === 'READY_FOR_RELEASE' || status === 'SCHEDULED'
+    case 'RELEASED':
+      return status === 'RELEASED'
+    case 'REVERT':
+      return status === 'SIGNED' || status === 'SIGNATURE_PENDING' || status === 'GENERATED'
+    case 'CANCELLED':
+      return status === 'CANCELLED' || status === 'VOIDED'
+    default:
+      return false
+  }
 }
 
 function backoff(attempts: number): number {
@@ -71,7 +111,7 @@ function judge(res: PortalDeliveryResult, attempts: number): Verdict {
     return { status: 'SYNCED', releaseId: first?.releaseId ?? null, note }
   }
   if (res.status === 401) return { status: 'PARKED', error: 'portal refused the token (401): check PORTAL_TOKEN' }
-  if (res.status === 400) return { status: 'PARKED', error: 'portal rejected the payload (400)' }
+  if (res.status === 400) return { status: 'PARKED', error: `portal rejected the payload (400)${res.error ? `: ${res.error}` : ''}` }
   return { status: 'FAILED', error: `portal answered ${res.status}`, delayMs: backoff(attempts), maxAttempts: MAX_ATTEMPTS }
 }
 
@@ -128,6 +168,29 @@ async function settle(
 }
 
 /**
+ * Close a claimed event unsent because its kind no longer matches the cheque
+ * (see kindMatchesStatus). SYNCED, like a superseded row, but its audit says
+ * `stale: true` so it is never mistaken for a delivery or a supersede. The
+ * cheque's own portal state is left alone: nothing was said to the portal.
+ * Conditional on still holding the claim, like settle.
+ */
+async function closeStale(db: Db, ev: PortalEvent, checkStatus: CheckStatus, claimedBy: string): Promise<boolean> {
+  const lastError = `stale: cheque is now ${checkStatus}`
+  return atomically(db, async (tx) => {
+    const r = await tx.portalEvent.updateMany({
+      where: { id: ev.id, status: 'IN_FLIGHT', claimedBy },
+      data: { status: 'SYNCED', lastError },
+    })
+    if (!r.count) return false
+    await writeAudit(tx, {
+      checkId: ev.checkId, actorType: 'SYSTEM', action: 'portal_event_synced',
+      details: { eventId: ev.id, kind: ev.kind, attempts: ev.attempts, lastError, checkStatus, stale: true },
+    })
+    return true
+  })
+}
+
+/**
  * Drain the outbox once.
  *
  * Contract: `deadline` must be derived from the same `now` the caller passes
@@ -139,8 +202,10 @@ export async function deliverPortalEvents(
   db: Db,
   args: { now: Date; deadline: Date; client: PortalClient; claimedBy?: string },
 ): Promise<PortalOutboxOutcome> {
-  const out: PortalOutboxOutcome = { delivered: 0, synced: 0, failed: 0, parked: 0, superseded: 0, stoppedAtDeadline: false }
-  const claimedBy = args.claimedBy ?? `run-${args.now.toISOString()}`
+  const out = emptyOutcome()
+  // The UUID keeps two runs started in the same millisecond (a cron and an
+  // after-response kick) from sharing a claim identity (final review 2026-09-26).
+  const claimedBy = args.claimedBy ?? `run-${args.now.toISOString()}-${randomUUID()}`
   const staleBefore = new Date(args.now.getTime() - STALE_CLAIM_MS)
   // The run's clock is `now` advanced by the wall time this run has spent, so
   // the deadline is judged on the same clock as `now` (the caller passes
@@ -190,9 +255,15 @@ export async function deliverPortalEvents(
       return true
     })
     if (closed) out.superseded += 1
+    // A lost supersede (final review 2026-09-26): the older row changed under
+    // us - another run claimed it, or it settled. Its cheque is frozen for the
+    // rest of this run, exactly as a live claim is, so the winner cannot go
+    // out while the older row may still be in flight.
+    else frozen.add(ev.checkId)
   }
 
   for (const ev of newest.values()) {
+    if (frozen.has(ev.checkId)) continue
     if (pastDeadline()) { out.stoppedAtDeadline = true; break }
     if (ev.status !== 'IN_FLIGHT' && ev.nextAttemptAt.getTime() > args.now.getTime()) continue
 
@@ -219,13 +290,23 @@ export async function deliverPortalEvents(
         continue
       }
 
+      if (!kindMatchesStatus(ev.kind, check.status)) {
+        if (await closeStale(db, ev, check.status, claimedBy)) out.stale += 1
+        continue
+      }
+
       let verdict: Verdict
+      let authRefused = false
       try {
         // RULE 2 is asserted inside buildPortalEventBody; an INTERNAL cheque
         // throws before any request exists and parks below.
         const body = buildPortalEventBody({ id: ev.id, kind: ev.kind }, check)
         out.delivered += 1
-        verdict = judge(await args.client.deliver(body), ev.attempts + 1)
+        const remaining = args.deadline.getTime() - clock()
+        const timeoutMs = Math.max(MIN_REQUEST_TIMEOUT_MS, Math.min(remaining, REQUEST_TIMEOUT_MS))
+        const res = await args.client.deliver(body, { timeoutMs })
+        authRefused = res.status === 401
+        verdict = judge(res, ev.attempts + 1)
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e)
         // A payload defect (INTERNAL cheque, missing required date) never fixes
@@ -240,6 +321,10 @@ export async function deliverPortalEvents(
       if (status === 'SYNCED') out.synced += 1
       else if (status === 'FAILED') out.failed += 1
       else if (status === 'PARKED') out.parked += 1
+      // 401 stops the run (final review 2026-09-26): a wrong token fails every
+      // event the same way, so one parked row says it all - parking the whole
+      // backlog would only leave a human hundreds of rows to retry.
+      if (authRefused) { out.stoppedOnAuth = true; break }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
       console.error(`portal outbox: event ${ev.id} (cheque ${ev.checkId}) failed unexpectedly: ${message}`)

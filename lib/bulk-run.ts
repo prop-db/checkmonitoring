@@ -67,8 +67,14 @@ export async function runEach(
   // Deliver the outbox rows this batch just wrote, after the response is
   // sent so the Finance user never waits on the portal (spec 2026-09-26-
   // check-monitoring-integration-design §2.4). Best-effort: a portal outage
-  // is the worker's problem, never this action's.
-  afterResponse(() => kickPortalDelivery(db, { budgetMs: 8_000 }))
+  // is the worker's problem, never this action's. Its own try/catch (final
+  // review 2026-09-26): the batch has committed, so nothing thrown while
+  // scheduling the kick may fail the whole result.
+  try {
+    afterResponse(() => kickPortalDelivery(db, { budgetMs: 8_000 }))
+  } catch (e) {
+    console.error('portal delivery could not be scheduled:', e instanceof Error ? e.message : e)
+  }
   revalidatePath('/')
   const succeeded = outcomes.filter((o) => o.ok).length
   return { ok: true, succeeded, failed: outcomes.length - succeeded, outcomes }

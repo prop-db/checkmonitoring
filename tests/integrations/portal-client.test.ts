@@ -93,6 +93,23 @@ describe('buildPortalEventBody', () => {
     }
   })
 
+  it('pre-checks the portal validation: no APVs, more than 50, or no cheque number and no bank → INVALID_PAYLOAD', () => {
+    const code = (c: CheckForPortal) => {
+      try { buildPortalEventBody({ id: 'e', kind: 'REVERT' }, c); return null } catch (err) {
+        expect(err).toBeInstanceOf(PortalPayloadError)
+        return (err as PortalPayloadError).code
+      }
+    }
+    expect(code(check({ apvNumbers: [], bills: [] }))).toBe('INVALID_PAYLOAD')
+    const many = Array.from({ length: 51 }, (_, i) => `AP-${i}`)
+    expect(code(check({ apvNumbers: many }))).toBe('INVALID_PAYLOAD')
+    expect(code(check({ apvNumbers: many.slice(0, 50) }))).toBeNull()
+    expect(code(check({ checkNumber: ' ', cashAccount: null }))).toBe('INVALID_PAYLOAD')
+    // Either one alone is enough for the portal's "checkNo · BANK" label.
+    expect(code(check({ checkNumber: '', cashAccount: bank }))).toBeNull()
+    expect(code(check({ cashAccount: null }))).toBeNull()
+  })
+
   it('REVERT and CANCELLED do not throw when both dates are null', () => {
     for (const kind of ['REVERT', 'CANCELLED'] as const) {
       expect(() => buildPortalEventBody({ id: 'e', kind }, check({ availablePickupDate: null, releasedAt: null }))).not.toThrow()
@@ -122,5 +139,25 @@ describe('createPortalClient', () => {
     const client = createPortalClient({ baseUrl: 'https://portal.test', token: 'tok',
       fetchImpl: async () => ({ ok: false, status: 502, text: async () => '<html>bad gateway</html>' }) })
     expect(await client.deliver(buildPortalEventBody({ id: 'e', kind: 'REVERT' }, check()))).toEqual({ status: 502, body: null })
+  })
+
+  it('keeps the portal error text on a 400', async () => {
+    const client = createPortalClient({ baseUrl: 'https://portal.test', token: 'tok',
+      fetchImpl: async () => ({ ok: false, status: 400, text: async () => JSON.stringify({ error: 'apvs must be a non-empty array' }) }) })
+    expect(await client.deliver(buildPortalEventBody({ id: 'e', kind: 'REVERT' }, check())))
+      .toEqual({ status: 400, body: null, error: 'apvs must be a non-empty array' })
+  })
+
+  it('passes an abort signal when a timeout is given, and rejects when the request aborts', async () => {
+    const seen: { signal?: AbortSignal } = {}
+    const client = createPortalClient({ baseUrl: 'https://portal.test', token: 'tok',
+      fetchImpl: async (_url, init) => {
+        seen.signal = init.signal
+        throw new DOMException('This operation was aborted', 'AbortError')
+      } })
+    await expect(client.deliver(buildPortalEventBody({ id: 'e', kind: 'REVERT' }, check()), { timeoutMs: 5_000 }))
+      .rejects.toMatchObject({ name: 'AbortError' })
+    expect(seen.signal).toBeInstanceOf(AbortSignal)
+    expect(seen.signal?.aborted).toBe(false)
   })
 })

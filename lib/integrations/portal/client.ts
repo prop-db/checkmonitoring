@@ -12,7 +12,7 @@ import { portalRoute, type Eligibility } from '@/lib/domain/eligibility'
 
 export type PortalFetch = (
   url: string,
-  init: { method: string; headers: Record<string, string>; body: string },
+  init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal },
 ) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>
 
 export type CheckForPortal = Pick<
@@ -45,9 +45,18 @@ export type PortalDeliveryResult = {
     results: { ref: string; domain: string; releaseId: number | null; outcome: PortalOutcome; reason?: string }[]
     unmatched: string[]
   } | null
+  /**
+   * The portal's `error` text on a non-200 reply, when it sent one (its 400
+   * body is `{ error }` naming the invalid field - it holds no secrets).
+   */
+  error?: string
 }
 
-export type PortalClient = { deliver(body: PortalEventBody): Promise<PortalDeliveryResult> }
+export type PortalDeliverOptions = { timeoutMs?: number }
+export type PortalClient = { deliver(body: PortalEventBody, opts?: PortalDeliverOptions): Promise<PortalDeliveryResult> }
+
+/** The portal refuses more APVs than this in one event (spec §1.2 validation). */
+export const MAX_APVS = 50
 
 /**
  * A defect in the payload the worker was about to send — never a delivery
@@ -57,7 +66,7 @@ export type PortalClient = { deliver(body: PortalEventBody): Promise<PortalDeliv
  * §2.3).
  */
 export class PortalPayloadError extends Error {
-  constructor(public readonly code: 'INTERNAL' | 'MISSING_DATE', message: string) {
+  constructor(public readonly code: 'INTERNAL' | 'MISSING_DATE' | 'INVALID_PAYLOAD', message: string) {
     super(message)
     this.name = 'PortalPayloadError'
   }
@@ -88,6 +97,18 @@ export function buildPortalEventBody(event: { id: string; kind: PortalEventKind 
     checkNo: check.checkNumber,
     bank: check.cashAccount?.bank.code ?? check.checkBook?.bank.code ?? '',
   }
+  // Pre-checks mirroring the portal's own 400 validation (spec §1.2; final
+  // review 2026-09-26): a request the portal is certain to refuse is a payload
+  // defect, parked here without a round trip instead of sent to earn a 400.
+  if (body.apvs.length === 0) {
+    throw new PortalPayloadError('INVALID_PAYLOAD', `cheque ${check.id} has no APV numbers; the portal requires at least one`)
+  }
+  if (body.apvs.length > MAX_APVS) {
+    throw new PortalPayloadError('INVALID_PAYLOAD', `cheque ${check.id} carries ${body.apvs.length} APV numbers; the portal accepts at most ${MAX_APVS}`)
+  }
+  if (!body.checkNo.trim() && !body.bank.trim()) {
+    throw new PortalPayloadError('INVALID_PAYLOAD', `cheque ${check.id} has neither a cheque number nor a bank code`)
+  }
   if (event.kind === 'MARK_AVAILABLE' || event.kind === 'RELEASE_REVERSED') {
     if (!check.availablePickupDate) {
       throw new PortalPayloadError('MISSING_DATE', `${event.kind} cheque ${check.id} has no availablePickupDate; the portal requires availablePickupDate`)
@@ -109,16 +130,23 @@ export function createPortalClient(opts: { baseUrl: string; token: string; fetch
   const fetchImpl: PortalFetch = opts.fetchImpl ?? ((url, init) => fetch(url, init))
   const url = `${opts.baseUrl.replace(/\/+$/, '')}/api/integrations/check-monitoring/events`
   return {
-    async deliver(body) {
+    async deliver(body, deliverOpts) {
+      // A request timeout (final review 2026-09-26): a portal that accepts the
+      // connection and never answers must not hold the run past its budget.
+      // The abort rejects like any network error, so the worker backs off.
       const res = await fetchImpl(url, {
         method: 'POST',
         headers: { authorization: `Bearer ${opts.token}`, 'content-type': 'application/json' },
         body: JSON.stringify(body),
+        ...(deliverOpts?.timeoutMs ? { signal: AbortSignal.timeout(deliverOpts.timeoutMs) } : {}),
       })
       const text = await res.text()
-      let parsed: PortalDeliveryResult['body'] = null
-      try { parsed = JSON.parse(text) } catch { parsed = null }
-      return { status: res.status, body: parsed }
+      let raw: unknown = null
+      try { raw = JSON.parse(text) } catch { raw = null }
+      if (res.status === 200) return { status: res.status, body: raw as PortalDeliveryResult['body'] }
+      const error = raw !== null && typeof raw === 'object' && typeof (raw as { error?: unknown }).error === 'string'
+        ? (raw as { error: string }).error : undefined
+      return { status: res.status, body: null, ...(error ? { error } : {}) }
     },
   }
 }

@@ -2,7 +2,7 @@ import type { Prisma, PrismaClient } from '@prisma/client'
 import { after as nextAfter } from 'next/server'
 import { createPortalClientFromEnv } from '@/lib/integrations/portal/from-env'
 import type { PortalClient } from '@/lib/integrations/portal/client'
-import { deliverPortalEvents, type PortalOutboxOutcome } from './portal-outbox'
+import { deliverPortalEvents, emptyOutcome, type PortalOutboxOutcome } from './portal-outbox'
 
 type Db = PrismaClient | Prisma.TransactionClient
 
@@ -26,7 +26,7 @@ export async function kickPortalDelivery(
     return await deliverPortalEvents(db, { now, deadline: new Date(now.getTime() + args.budgetMs), client })
   } catch (e) {
     console.error('portal delivery failed:', e instanceof Error ? e.message : e)
-    return { delivered: 0, synced: 0, failed: 0, parked: 0, superseded: 0, stoppedAtDeadline: false, error: e instanceof Error ? e.message : String(e) }
+    return { ...emptyOutcome(), error: e instanceof Error ? e.message : String(e) }
   }
 }
 
