@@ -113,6 +113,11 @@ enum PortalEventKind {
   // through the same `POST /api/checks/:id` that carries RELEASED, with
   // `status: AVAILABLE_FOR_RELEASE`. Client ruling 2026-09-11.
   RELEASE_REVERSED
+  // A cheque cancelled by Finance or voided by Acumatica after the portal may
+  // have been told it was available or released. The portal applies it
+  // directly - no approval queue - because this system is the record for
+  // cancellations (spec 2026-09-26-check-monitoring-integration-design).
+  CANCELLED
 }
 
 model Company {

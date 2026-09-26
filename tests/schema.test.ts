@@ -2,6 +2,8 @@ import { describe, it, expect, afterAll } from 'vitest'
 import { PrismaClient } from '@prisma/client'
 import { testDatabaseUrl } from './helpers/test-db-url'
 import { checkReadyForRelease } from '@/lib/domain/check-status'
+import { testDb } from './helpers/db'
+import { makeCheck } from './helpers/factory'
 
 const prisma = new PrismaClient({ datasources: { db: { url: testDatabaseUrl() } } })
 
@@ -161,5 +163,18 @@ describe('PortalEvent as a queue', () => {
     // The outbox must not be able to queue the same instruction twice — a
     // double MARK_AVAILABLE is a second notification to a supplier.
     await expect(prisma.portalEvent.create({ data })).rejects.toThrow()
+  })
+})
+
+describe('PortalEventKind CANCELLED', () => {
+  it('accepts a CANCELLED event', async () => {
+    const check = await makeCheck({ status: 'CANCELLED' })
+    const ev = await testDb.portalEvent.create({
+      data: {
+        checkId: check.id, direction: 'OUT', kind: 'CANCELLED', status: 'PENDING',
+        idempotencyKey: `${check.id}:CANCELLED:test`, payload: { action: 'CANCELLED', checkNumber: check.checkNumber },
+      },
+    })
+    expect(ev.kind).toBe('CANCELLED')
   })
 })
