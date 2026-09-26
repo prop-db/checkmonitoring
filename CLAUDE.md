@@ -178,26 +178,28 @@ These are safety properties, not preferences. Each exists because of a specific 
    The immutable field list is `IMMUTABLE_ON_UPDATE` in `lib/import/upsert.ts`, with an
    exhaustiveness test that fails when a new `Check` column is added and not classified.
 5. **The portal may never mark a cheque RELEASED.** Physical release is Finance-only.
-6. **No delete-user path exists anywhere.** A `User` is referenced by `AuditLog` and five `Check`
+6. **The portal client sends only.** Nothing reads a status from the portal into a cheque;
+   `lib/integrations/portal/client.ts` has one method.
+7. **No delete-user path exists anywhere.** A `User` is referenced by `AuditLog` and five `Check`
    relations; deleting one orphans the record of who released real money. Removal is deactivation,
    and the last active admin cannot be deactivated or demoted.
-7. **Audit rows are append-only**, enforced by a database trigger. `app.allow_audit_purge` appears
+8. **Audit rows are append-only**, enforced by a database trigger. `app.allow_audit_purge` appears
    only in `tests/helpers/db.ts` and the trigger migration — anywhere else is a defect. The trigger
    has exactly one exemption, added in `20260905000100_audit_log_detach_on_check_delete`: the FK's
    `ON DELETE SET NULL` may blank `checkId` when the cheque it points at is already gone, and only
    when every other column is unchanged. Without it no cheque with any audit history could be
    deleted at all, because Postgres implements SET NULL as an UPDATE. Content stays unwritable.
-8. **Amounts are decimal strings end to end.** Never a JS number. The column is `Decimal(18,2)` and
+9. **Amounts are decimal strings end to end.** Never a JS number. The column is `Decimal(18,2)` and
    float round-trips lose centavos.
-9. **Never commit or print** the two `.xlsx` workbooks (real vendor names and amounts), `.env`, or
+10. **Never commit or print** the two `.xlsx` workbooks (real vendor names and amounts), `.env`, or
    any credential.
-10. **A cheque is deleted only through `deleteIncompleteCheck`**, which refuses everything except a
+11. **A cheque is deleted only through `deleteIncompleteCheck`**, which refuses everything except a
    FINANCE_ADMIN removing a cheque with no amount that is not RELEASED, SCHEDULED or
    READY_FOR_RELEASE and carries no `releasedAt`. It writes the deletion's own audit row first, in
    the same transaction, because the detached rows would otherwise point at nothing. There is no
    bulk version and must not be one. Measured 2026-09-04: 98 of the 129 incomplete cheques qualify;
    the other 31 (25 RELEASED, 6 READY_FOR_RELEASE) do not, and that is the answer, not a gap.
-11. **A supplier's receipt is never written to `crNumber`.** The OR/CR box on the release form is
+12. **A supplier's receipt is never written to `crNumber`.** The OR/CR box on the release form is
    the paper the supplier hands over when they collect — Official Receipt or Collection Receipt —
    and it lives in `orNumber` / `orDate` / `receiptType`. `crNumber` sits beside `clearingStatus`
    and `clearedDate` and holds the **bank's** clearing reference, recorded weeks later. The two
@@ -297,7 +299,7 @@ category not on it.
 
 | Path | Responsibility |
 | --- | --- |
-| `lib/domain/` | Pure rules. No database, network, filesystem, clock. `check-status.ts` (the ladder), `eligibility.ts` (the portal gate), `receipt.ts` (the OR/CR box — see rule 11). `actions.ts` is the deliberate exception — it takes `db` and is the only module that changes a status. |
+| `lib/domain/` | Pure rules. No database, network, filesystem, clock. `check-status.ts` (the ladder), `eligibility.ts` (the portal gate), `receipt.ts` (the OR/CR box — see rule 12). `actions.ts` is the deliberate exception — it takes `db` and is the only module that changes a status. |
 | `lib/import/` | Workbook parsing → `parse.ts`, `field-sniffer.ts`, `company.ts`, `implied-status.ts`, `bills.ts`, and `upsert.ts` — the single write path where duplicate prevention lives. |
 | `lib/integrations/acumatica/` | OData reader and mapper. |
 | `lib/sync/run.ts` | Incremental sync, watermark with a 120-minute overlap. |
@@ -347,7 +349,7 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
   **Since 2026-09-06 they are also out of the dashboard entirely**: "ignore them mean you have to
   remove them, dont consider them becuase they dont have amount". `CheckFilters.incomplete` is now a
   tri-state (`true` only them, `false` exclude, `undefined` no filter) and the dashboard, the export
-  and the printed sheet all pass `false`. **Nothing was deleted** — rule 10 still stands — and the
+  and the printed sheet all pass `false`. **Nothing was deleted** — rule 11 still stands — and the
   exclusion is stated on screen with the count and a link to `?incomplete=1`, which is the price of
   hiding them. `getSummary` narrows itself the same way `buildWhere` does, so a card's number is
   always the number of rows its table shows. There is no INCOMPLETE card any more.
@@ -457,8 +459,11 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
 
 ## State
 
-Plans 1 and 2 complete. Plan 3 (portal automation) still paused: the portal needs an `encoder`
-service account that does not exist, and until it does every `PortalEvent` simply queues.
+Plans 1 and 2 complete. Plan 3 is superseded by `docs/superpowers/plans/2026-09-26-portal-outbox-delivery.md` (spec
+`2026-09-26-check-monitoring-integration-design.md`): the outbox is delivered by
+`lib/sync/portal-outbox.ts` to the portal's `POST /api/integrations/check-monitoring/events`
+with `PORTAL_BASE_URL` / `PORTAL_TOKEN` (a bearer, no session), latest event per cheque wins,
+`/admin/portal` shows what parked. Pickup confirmations back (old Task 6) remain a follow-up.
 **1,404 tests across 104 files** (measured, full run 2026-09-25, green) — 1,380 across 101 before the two-screen dashboard and per-row OR (`dashboard-view` +2, `queries` +1, `row-receipts` 7, `receipt-form` 6, `bulk-actions` +5 with four receipt cases rewritten, `release-keeps-receipt` 3); 1,380 across 101 measured earlier the same day — 1,350 across 98 before auto-sign (`domain/auto-sign` 9 —
 Manila calendar days and the exact boundary, `actions/auto-sign` 3, `sync/auto-sign` 8 — the plan's
 five plus NOT_FOUND-skip, time budget and the calendar-vs-72h list case,
