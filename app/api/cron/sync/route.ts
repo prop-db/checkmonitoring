@@ -4,6 +4,7 @@ import { createClientForTenant } from '@/lib/integrations/acumatica/from-env'
 import { SYNC_TENANTS } from '@/lib/admin/sync-overview'
 import { runScheduledSync, type ScheduledSyncOutcome } from '@/lib/sync/scheduled'
 import { runAutoSign } from '@/lib/sync/auto-sign'
+import { kickPortalDelivery } from '@/lib/sync/portal-kick'
 
 /**
  * THE SCHEDULED SYNC. Vercel calls this once a day — `crons` in vercel.json,
@@ -88,6 +89,12 @@ export async function GET(request: Request): Promise<Response> {
   // nothing written at all.
   const autoSign = await runAutoSign(prisma, { now, deadline: new Date(now.getTime() + 50_000) })
 
+  // The outbox: retries and the backlog. Whatever budget is left inside the
+  // route's 60s ceiling, minus room for the response.
+  const remaining = 55_000 - (Date.now() - now.getTime())
+  const portal = await kickPortalDelivery(prisma, { budgetMs: Math.max(remaining, 5_000) })
+
+  // Delivery failures do not turn the cron 500 (they are recorded per event).
   const failed = outcomes.some((o) => o.outcome === 'FAILED') || autoSign.outcome === 'FAILED'
-  return json({ ranAt: now.toISOString(), outcomes, autoSign }, failed ? 500 : 200)
+  return json({ ranAt: now.toISOString(), outcomes, autoSign, portal }, failed ? 500 : 200)
 }

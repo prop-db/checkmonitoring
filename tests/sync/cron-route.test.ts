@@ -68,6 +68,8 @@ const watermarked = (tenant: 'GOLIVE' | 'MANUFACTURING') =>
 beforeEach(async () => {
   await resetDb()
   process.env.CRON_SECRET = SECRET
+  delete process.env.PORTAL_BASE_URL
+  delete process.env.PORTAL_TOKEN
   state.dbTouches = 0
   state.requested = []
   state.failFor = null
@@ -170,5 +172,12 @@ describe('GET /api/cron/sync — auto-sign after the syncs', () => {
     const res = await get(`Bearer ${SECRET}`)
     expect(res.status).toBe(500)
     expect((await res.json()).autoSign).toMatchObject({ outcome: 'FAILED', error: 'forced' })
+  })
+
+  it('reports the portal outbox after auto-sign, skipped when unconfigured', async () => {
+    await watermarked('GOLIVE'); await watermarked('MANUFACTURING')
+    const res = await get(`Bearer ${SECRET}`)
+    const body = await res.json()
+    expect(body.portal).toEqual({ skipped: 'PORTAL_BASE_URL is not set' })
   })
 })

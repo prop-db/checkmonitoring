@@ -2,6 +2,7 @@ import type { PrismaClient } from '@prisma/client'
 import { revalidatePath } from 'next/cache'
 import { DomainError } from '@/lib/domain/errors'
 import { isNextControlFlowError } from '@/lib/next-errors'
+import { afterResponse, kickPortalDelivery } from '@/lib/sync/portal-kick'
 
 export type BulkOutcome =
   | { ok: true; checkId: string; checkNumber: string | null }
@@ -63,6 +64,11 @@ export async function runEach(
     }
   }
 
+  // Deliver the outbox rows this batch just wrote, after the response is
+  // sent so the Finance user never waits on the portal (spec 2026-09-26-
+  // check-monitoring-integration-design §2.4). Best-effort: a portal outage
+  // is the worker's problem, never this action's.
+  afterResponse(() => kickPortalDelivery(db, { budgetMs: 8_000 }))
   revalidatePath('/')
   const succeeded = outcomes.filter((o) => o.ok).length
   return { ok: true, succeeded, failed: outcomes.length - succeeded, outcomes }

@@ -6,6 +6,7 @@ import { prisma } from '@/lib/db'
 import { requireUser } from '@/lib/auth'
 import { DomainError } from '@/lib/domain/errors'
 import { isNextControlFlowError } from '@/lib/next-errors'
+import { afterResponse, kickPortalDelivery } from '@/lib/sync/portal-kick'
 import {
   markSigned, markReadyForRelease, revertAvailability,
   markReleased, recordClearing, cancelCheck, deleteIncompleteCheck, recordReceipt,
@@ -30,6 +31,11 @@ const clearingStatusSchema = z.enum(['NONE', 'DEPOSITED', 'ENCASHED', 'CLEARED']
 async function run(checkId: string, fn: () => Promise<unknown>): Promise<ActionResult> {
   try {
     await fn()
+    // Deliver the outbox row this action just wrote, after the response is
+    // sent so the Finance user never waits on the portal (spec 2026-09-26-
+    // check-monitoring-integration-design §2.4). Best-effort: a portal outage
+    // is the worker's problem, never this action's.
+    afterResponse(() => kickPortalDelivery(prisma, { budgetMs: 8_000 }))
     revalidatePath('/')
     revalidatePath(`/checks/${checkId}`)
     return { ok: true }
