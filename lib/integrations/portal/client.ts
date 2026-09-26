@@ -49,6 +49,20 @@ export type PortalDeliveryResult = {
 
 export type PortalClient = { deliver(body: PortalEventBody): Promise<PortalDeliveryResult> }
 
+/**
+ * A defect in the payload the worker was about to send — never a delivery
+ * failure. The worker parks the outbox row on this error instead of
+ * retrying: an INTERNAL cheque or a missing required date does not fix
+ * itself on the next attempt (spec 2026-09-26-check-monitoring-integration
+ * §2.3).
+ */
+export class PortalPayloadError extends Error {
+  constructor(public readonly code: 'INTERNAL' | 'MISSING_DATE', message: string) {
+    super(message)
+    this.name = 'PortalPayloadError'
+  }
+}
+
 /** The Manila calendar day, as the portal's date fields expect (YYYY-MM-DD). */
 export function manilaDay(d: Date): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -60,7 +74,7 @@ export function manilaDay(d: Date): string {
 
 export function buildPortalEventBody(event: { id: string; kind: PortalEventKind }, check: CheckForPortal): PortalEventBody {
   if (portalRoute(check.eligibility as Eligibility) === null) {
-    throw new Error(`INTERNAL cheque ${check.id} must never reach the portal.`)
+    throw new PortalPayloadError('INTERNAL', `INTERNAL cheque ${check.id} must never reach the portal.`)
   }
   // apvNumbers is the source's list; the bills are the same vouchers with
   // their PO numbers. A cheque imported before 2026-09-07 may carry only bills.
@@ -75,10 +89,16 @@ export function buildPortalEventBody(event: { id: string; kind: PortalEventKind 
     bank: check.cashAccount?.bank.code ?? check.checkBook?.bank.code ?? '',
   }
   if (event.kind === 'MARK_AVAILABLE' || event.kind === 'RELEASE_REVERSED') {
-    if (check.availablePickupDate) body.availablePickupDate = manilaDay(check.availablePickupDate)
+    if (!check.availablePickupDate) {
+      throw new PortalPayloadError('MISSING_DATE', `${event.kind} cheque ${check.id} has no availablePickupDate; the portal requires availablePickupDate`)
+    }
+    body.availablePickupDate = manilaDay(check.availablePickupDate)
   }
   if (event.kind === 'RELEASED') {
-    if (check.releasedAt) body.releaseDate = manilaDay(check.releasedAt)
+    if (!check.releasedAt) {
+      throw new PortalPayloadError('MISSING_DATE', `RELEASED cheque ${check.id} has no releasedAt; the portal requires releaseDate`)
+    }
+    body.releaseDate = manilaDay(check.releasedAt)
     if (check.orNumber) body.orNumber = check.orNumber
     if (check.orDate) body.orDate = manilaDay(check.orDate)
   }

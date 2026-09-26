@@ -1,6 +1,6 @@
 // tests/integrations/portal-client.test.ts
 import { describe, it, expect } from 'vitest'
-import { buildPortalEventBody, createPortalClient, manilaDay, type CheckForPortal } from '@/lib/integrations/portal/client'
+import { buildPortalEventBody, createPortalClient, manilaDay, PortalPayloadError, type CheckForPortal } from '@/lib/integrations/portal/client'
 
 const bank = { bank: { code: 'BPI' } }
 const check = (over: Partial<CheckForPortal> = {}): CheckForPortal => ({
@@ -54,6 +54,49 @@ describe('buildPortalEventBody', () => {
   it('refuses an INTERNAL cheque before building anything', () => {
     expect(() => buildPortalEventBody({ id: 'e', kind: 'MARK_AVAILABLE' }, check({ eligibility: 'INTERNAL' })))
       .toThrow(/INTERNAL/)
+    try {
+      buildPortalEventBody({ id: 'e', kind: 'MARK_AVAILABLE' }, check({ eligibility: 'INTERNAL' }))
+      expect.fail('expected buildPortalEventBody to throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(PortalPayloadError)
+      expect((err as PortalPayloadError).code).toBe('INTERNAL')
+    }
+  })
+
+  it('MARK_AVAILABLE with no availablePickupDate throws PortalPayloadError MISSING_DATE', () => {
+    try {
+      buildPortalEventBody({ id: 'e', kind: 'MARK_AVAILABLE' }, check({ availablePickupDate: null }))
+      expect.fail('expected buildPortalEventBody to throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(PortalPayloadError)
+      expect((err as PortalPayloadError).code).toBe('MISSING_DATE')
+    }
+  })
+
+  it('RELEASED with no releasedAt throws PortalPayloadError MISSING_DATE', () => {
+    try {
+      buildPortalEventBody({ id: 'e', kind: 'RELEASED' }, check({ releasedAt: null }))
+      expect.fail('expected buildPortalEventBody to throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(PortalPayloadError)
+      expect((err as PortalPayloadError).code).toBe('MISSING_DATE')
+    }
+  })
+
+  it('RELEASE_REVERSED with no availablePickupDate throws PortalPayloadError MISSING_DATE', () => {
+    try {
+      buildPortalEventBody({ id: 'e', kind: 'RELEASE_REVERSED' }, check({ availablePickupDate: null }))
+      expect.fail('expected buildPortalEventBody to throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(PortalPayloadError)
+      expect((err as PortalPayloadError).code).toBe('MISSING_DATE')
+    }
+  })
+
+  it('REVERT and CANCELLED do not throw when both dates are null', () => {
+    for (const kind of ['REVERT', 'CANCELLED'] as const) {
+      expect(() => buildPortalEventBody({ id: 'e', kind }, check({ availablePickupDate: null, releasedAt: null }))).not.toThrow()
+    }
   })
 })
 
