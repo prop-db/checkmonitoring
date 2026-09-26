@@ -33,5 +33,8 @@ export async function deliverPortalNowAction(): Promise<AdminActionResult> {
   revalidatePath('/admin/portal')
   if ('skipped' in out) return { ok: false, message: out.skipped }
   if (out.error) return { ok: false, message: out.error }
+  // A refused token stops the run after parking one event (final review
+  // 2026-09-26): the button must say so rather than report success.
+  if (out.stoppedOnAuth) return { ok: false, message: 'The portal refused the token (401) — check PORTAL_TOKEN.' }
   return { ok: true }
 }
