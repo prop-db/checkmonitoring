@@ -3,11 +3,12 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  liveIds, releasedIds, draftTypeMissing, receiptEntries, takesReceipt, EMPTY_DRAFT,
+  liveIds, releasedIds, revertableIds, draftTypeMissing, receiptEntries, takesReceipt, EMPTY_DRAFT,
   type RowFacts, type ReceiptDraft,
 } from '@/lib/row-receipts'
 import {
   bulkSignAction, bulkReadyForReleaseAction, bulkReleaseAction, bulkRecordReceiptsAction,
+  bulkRevertToSignedAction,
   type BulkActionResult, type BulkOutcome,
 } from '@/app/checks/bulk-actions'
 
@@ -51,6 +52,7 @@ export function BulkActionBar({
   const [pending, startTransition] = useTransition()
   const [result, setResult] = useState<BulkActionResult | null>(null)
   const [pickupDate, setPickupDate] = useState('')
+  const [revertReason, setRevertReason] = useState('')
   // Set only by SAVE RECEIPTS, and only meaningful alongside its own result —
   // reset to null by every other action so a stale count never survives onto
   // a different button's outcome.
@@ -58,6 +60,7 @@ export function BulkActionBar({
 
   const live = liveIds(selectedRows)
   const released = releasedIds(selectedRows)
+  const revertable = revertableIds(selectedRows)
   const total = selectedRows.length
   const overCap = total > cap
   const disabled = pending || overCap
@@ -134,6 +137,34 @@ export function BulkActionBar({
             MARK READY FOR RELEASE
           </button>
         </div>
+
+        {/* Every Finance user (client ruling 2026-09-26). Only READY FOR
+            RELEASE / SCHEDULED rows are sent; the reason is shared by the batch
+            and lands on each cheque's audit row. */}
+        {revertable.length > 0 && (
+          <div className="flex items-center gap-2 rounded-lg px-3 py-1.5 ring-1 ring-slate-300">
+            <label htmlFor="bulk-revert-reason" className="text-xs font-medium tracking-wide text-slate-600">
+              REASON
+            </label>
+            <input
+              id="bulk-revert-reason" type="text" value={revertReason}
+              onChange={(e) => setRevertReason(e.target.value)}
+              placeholder="Pulled from the release list"
+              className="w-56 rounded-lg border border-slate-300 px-2 py-1 text-sm"
+            />
+            <button
+              type="button" disabled={disabled || revertReason.trim() === ''}
+              onClick={() => {
+                if (!confirm(`Revert ${revertable.length} cheque(s) to SIGNED? They come off the release list.`)) return
+                submit(bulkRevertToSignedAction, revertable, [['reason', revertReason.trim()]])
+                setRevertReason('')
+              }}
+              className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
+              REVERT TO SIGNED ({revertable.length})
+            </button>
+          </div>
+        )}
 
         {canRelease && (
           <button

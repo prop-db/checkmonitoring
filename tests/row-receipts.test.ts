@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  isTickable, takesReceipt, liveIds, releasedIds, draftTypeMissing, receiptEntries,
+  isTickable, takesReceipt, liveIds, releasedIds, revertableIds, draftTypeMissing, receiptEntries,
   EMPTY_DRAFT, type RowFacts,
 } from '@/lib/row-receipts'
 
@@ -63,5 +63,14 @@ describe('receiptEntries', () => {
       z: { orNumber: 'CR 9', receiptType: 'CR' as const },
     }
     expect(receiptEntries(['a', 'b'], drafts)).toEqual([['orNumber:a', 'OR-1'], ['receiptType:a', 'OR']])
+  })
+})
+
+describe('revertableIds', () => {
+  it('keeps only READY_FOR_RELEASE and SCHEDULED rows', () => {
+    expect(revertableIds([
+      row({ id: 'a', status: 'READY_FOR_RELEASE' }), row({ id: 'b', status: 'SCHEDULED' }),
+      row({ id: 'c', status: 'SIGNED' }), row({ id: 'd', status: 'RELEASED' }),
+    ])).toEqual(['a', 'b'])
   })
 })
