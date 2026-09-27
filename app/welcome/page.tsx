@@ -55,35 +55,12 @@ export default async function WelcomePage() {
           <p className="mt-2 text-[11px] font-semibold tracking-[0.3em] text-slate-400">FINANCE USERS ONLY</p>
 
           {/* TEMPORARY — for the presentation (2026-09-27), to be removed
-              afterwards on the user's own word. Their photo, dancing to a
-              chorus-tempo loop (`mm-dance` in globals.css): a sway, a bounce
-              and a pulse of light, with notes floating up. No audio — the song
-              is not ours to ship. Delete this block and public/presenter.jpg
-              together. */}
-          <div className="relative mx-auto mt-8 h-72 w-56">
-            <div aria-hidden="true" className="mm-glow absolute inset-0 rounded-[2rem] bg-gradient-to-br from-lavender-bg via-sky-bg to-success-bg blur-xl" />
-            {['-0.2s', '-0.7s', '-1.2s'].map((delay, i) => (
-              <span
-                key={delay}
-                aria-hidden="true"
-                className="mm-notefloat absolute select-none text-2xl font-bold text-lavender-ink"
-                style={{ animationDelay: delay, left: `${[-8, 92, 40][i]}%`, bottom: `${[40, 55, 90][i]}%` }}
-              >
-                {i % 2 === 0 ? '♪' : '♫'}
-              </span>
-            ))}
-            <img
-              src="/presenter.jpg"
-              alt="The presenter"
-              className="mm-dancer relative h-full w-full rounded-[2rem] object-cover object-top shadow-lg ring-4 ring-white"
-            />
-          </div>
-          <p className="mt-3 text-[11px] font-semibold tracking-[0.25em] text-lavender-ink">♪ PWEDE NANG MANGARAP ♪</p>
-          {/* The clip is supplied by the user at public/chorus.mp3. If it is
-              the full song, set `start` and `end` (seconds) to the chorus and
-              only that part loops. */}
-          {/* The file really is an mp4 (Windows hid the extension when it was
-              renamed); browsers play its audio track. */}
+              afterwards on the user's own word. The chorus clip plays on the
+              first click anywhere and loops. The file really is an mp4
+              (Windows hid the extension when it was renamed); browsers play
+              its audio track. Delete this block, the player component, the
+              file in public/ and its entry in the middleware matcher together. */}
+          <p className="mt-6 text-[11px] font-semibold tracking-[0.25em] text-lavender-ink">♪ PWEDE NANG MANGARAP ♪</p>
           <PresentationPlayer src="/chorus.mp3.mp4" />
 
 
