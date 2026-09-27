@@ -32,7 +32,7 @@ export default async function WelcomePage() {
             CR
           </span>
           <div className="leading-tight">
-            <p className="text-sm font-semibold tracking-wide text-navy">CHECK RELEASE MONITORING</p>
+            <h1 className="text-sm font-semibold tracking-wide text-navy">CHECK RELEASE MONITORING</h1>
             <p className="text-[10px] font-semibold tracking-widest text-slate-400">RCL FINANCE · INTERNAL</p>
           </div>
         </div>
@@ -51,16 +51,15 @@ export default async function WelcomePage() {
         </div>
 
         <div className="order-1 text-center lg:order-2">
-          <h1 className="text-2xl font-semibold tracking-wide text-navy sm:text-3xl">CHECK RELEASE MONITORING</h1>
-          <p className="mt-2 text-[11px] font-semibold tracking-[0.3em] text-slate-400">FINANCE USERS ONLY</p>
-
           {/* TEMPORARY — for the presentation (2026-09-27), to be removed
-              afterwards on the user's own word. The chorus clip plays on the
-              first click anywhere and loops. The file really is an mp4
-              (Windows hid the extension when it was renamed); browsers play
-              its audio track. Delete this block, the player component, the
-              file in public/ and its entry in the middleware matcher together. */}
-          <p className="mt-6 text-[11px] font-semibold tracking-[0.25em] text-lavender-ink">♪ PWEDE NANG MANGARAP ♪</p>
+              afterwards on the user's own word. The chorus clip starts on its
+              own where the browser allows it, on the first click anywhere
+              otherwise, and loops. The file really is an mp4 (Windows hid the
+              extension when it was renamed); browsers play its audio track.
+              Delete this block, the player component, the file in public/ and
+              its entry in the middleware matcher together. The page's title
+              lines came out with it at the user's request — the header above
+              still names the system. */}
           <PresentationPlayer src="/chorus.mp3.mp4" />
 
 

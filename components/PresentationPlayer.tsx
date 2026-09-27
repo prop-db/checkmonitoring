@@ -43,19 +43,23 @@ export function PresentationPlayer({
     }
   }, [start, end])
 
-  // The first click or key anywhere on the page starts the song, so on stage
-  // nobody has to find the button. The button still pauses and resumes.
+  // Start on load where the browser allows it. Chrome and Edge refuse sound
+  // until the visitor has interacted with the site at least once, and a
+  // refused `play()` rejects quietly — so the first click or key anywhere on
+  // the page is the fallback, and on stage nobody has to find the button. A
+  // missing file is a different failure and shows up through `onError`.
   useEffect(() => {
-    const startOnce = () => {
-      const el = audio.current
-      if (!el || !el.paused) return
-      el.play().then(() => setPlaying(true)).catch(() => setMissing(true))
+    const el = audio.current
+    if (!el) return
+    const start = () => {
+      if (el.paused) el.play().then(() => setPlaying(true)).catch(() => undefined)
     }
-    document.addEventListener('pointerdown', startOnce, { once: true })
-    document.addEventListener('keydown', startOnce, { once: true })
+    start()
+    document.addEventListener('pointerdown', start)
+    document.addEventListener('keydown', start)
     return () => {
-      document.removeEventListener('pointerdown', startOnce)
-      document.removeEventListener('keydown', startOnce)
+      document.removeEventListener('pointerdown', start)
+      document.removeEventListener('keydown', start)
     }
   }, [])
 
