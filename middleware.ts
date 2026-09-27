@@ -33,10 +33,10 @@ export default auth((req: NextRequest & { auth: unknown }) => {
 })
 
 export const config = {
-  // `dancing.mp4` and `chorus.mp3.mp4` are the landing page's presentation
+  // The dance clip and `chorus.mp3.mp4` are the landing page's presentation
   // clips (temporary, 2026-09-27); like favicon.ico they are static files in
   // public/ with nothing to protect, and redirected to /login they simply
   // fail to load. Remove them from here when the block in
   // app/welcome/page.tsx goes.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|dancing.mp4|chorus.mp3.mp4).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|Woman_dancing_on_terrace_20260927144811.mp4|chorus.mp3.mp4).*)'],
 }

@@ -60,7 +60,7 @@ export default async function WelcomePage() {
               its entry in the middleware matcher together. The page's title
               lines came out at the user's request — the header above still
               names the system. */}
-          <DancerVideo src="/dancing.mp4" audioSrc="/chorus.mp3.mp4" />
+          <DancerVideo src="/Woman_dancing_on_terrace_20260927144811.mp4" audioSrc="/chorus.mp3.mp4" />
 
 
           <Link
