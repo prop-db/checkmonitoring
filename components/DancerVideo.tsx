@@ -5,25 +5,35 @@ import { useEffect, useRef, useState } from 'react'
 /**
  * TEMPORARY — the landing page's dancer for the 2026-09-27 presentation.
  *
- * Plays `src` (a clip the user placed in public/ themselves, carrying its own
- * audio) and paints it onto a canvas with the background removed LIVE, in the
- * browser: every frame goes through MediaPipe's selfie-segmentation model,
- * whose mask is drawn first and the frame composited into it (`source-in`),
- * so only the person lands on the page and the pastel ground shows through.
- * There is no ffmpeg or Python on the presenting machine, which is why the
- * background is removed at play time rather than cut out of the file once.
+ * Plays `src` (a clip the user placed in public/ themselves) MUTED and paints
+ * it onto a canvas with the background removed LIVE, in the browser: every
+ * frame goes through MediaPipe's selfie-segmentation model, whose mask is
+ * drawn first and the frame composited into it (`source-in`), so only the
+ * person lands on the page and the pastel ground shows through. There is no
+ * ffmpeg or Python on the presenting machine, which is why the background is
+ * removed at play time rather than cut out of the file once.
+ *
+ * The SOUND is `audioSrc` — the chorus clip the user uploaded first — and it
+ * is the master clock. The two clips are different lengths (the song is
+ * longer than the dance), so left to loop separately they drift apart within
+ * seconds; instead the dance is seeked to the song's position every frame,
+ * wrapping at its own length, and restarts with every chorus. The dance never
+ * runs while the sound is stopped, and never runs ahead of it.
  *
  * The model and its WASM come from jsdelivr at first load (a few MB, cached
- * after). Until it is ready the frame is drawn as-is, background and all, so
- * the video never stalls behind the model.
+ * after). Until its first result the frame is drawn as-is, background and
+ * all, so the space is never blank.
  *
  * Sound: the browser may refuse to start audio before the visitor has
- * interacted with the site, so the clip is started on load AND on the first
- * click or key anywhere. A client component because all of this is the
- * browser's. Delete with the block in app/welcome/page.tsx.
+ * interacted with the site, so playback is attempted on load AND on the
+ * first click or key anywhere. A client component because all of this is
+ * the browser's. Delete with the block in app/welcome/page.tsx.
  */
 
 const MEDIAPIPE = 'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation@0.1.1675465747'
+
+/** How far the dance may stray from the song before it is seeked back. */
+const DRIFT_TOLERANCE_SECONDS = 0.2
 
 type SegmentationResults = { image: CanvasImageSource; segmentationMask: CanvasImageSource }
 type Segmenter = {
@@ -51,11 +61,7 @@ export function DancerVideo({
   src, audioSrc, className = '',
 }: {
   src: string
-  /**
-   * The soundtrack, played over the MUTED video. The dance clip carries its
-   * own audio, but the user wants the chorus clip heard (2026-09-27), so the
-   * two are started and paused together and each loops on its own.
-   */
+  /** The soundtrack, and the clock the dance follows. */
   audioSrc: string
   className?: string
 }) {
@@ -67,8 +73,9 @@ export function DancerVideo({
 
   useEffect(() => {
     const v = video.current
+    const a = audio.current
     const c = canvas.current
-    if (!v || !c) return
+    if (!v || !a || !c) return
     const ctx = c.getContext('2d')
     if (!ctx) return
 
@@ -81,20 +88,21 @@ export function DancerVideo({
     let stopped = false
     let busy = false
 
-    const paintPlain = () => {
-      if (c.width !== v.videoWidth || c.height !== v.videoHeight) {
+    const fit = () => {
+      if (v.videoWidth && (c.width !== v.videoWidth || c.height !== v.videoHeight)) {
         c.width = v.videoWidth
         c.height = v.videoHeight
       }
+    }
+
+    const paintPlain = () => {
+      fit()
       ctx.clearRect(0, 0, c.width, c.height)
       ctx.drawImage(v, 0, 0, c.width, c.height)
     }
 
     const paintMasked = (r: SegmentationResults) => {
-      if (c.width !== v.videoWidth || c.height !== v.videoHeight) {
-        c.width = v.videoWidth
-        c.height = v.videoHeight
-      }
+      fit()
       ctx.save()
       ctx.clearRect(0, 0, c.width, c.height)
       // A touch of blur on the mask softens the cut edge; without it the
@@ -109,10 +117,31 @@ export function DancerVideo({
       busy = false
     }
 
+    /**
+     * The song is the clock. The dance is where the song is, wrapped at the
+     * dance's own length; when it strays past the tolerance it is seeked back.
+     * A stopped song stops the dance, so a refused autoplay leaves a still
+     * frame rather than a silent dancer.
+     */
+    const follow = () => {
+      if (a.paused) {
+        if (!v.paused) v.pause()
+        return
+      }
+      if (v.paused) v.play().catch(() => undefined)
+      const len = v.duration
+      if (!Number.isFinite(len) || len <= 0) return
+      const expected = a.currentTime % len
+      if (Math.abs(v.currentTime - expected) > DRIFT_TOLERANCE_SECONDS) {
+        v.currentTime = expected
+      }
+    }
+
     const frame = () => {
       if (stopped) return
-      if (!v.paused && !v.ended && v.readyState >= 2) {
-        if (ready && segmenter && !busy) {
+      follow()
+      if (v.readyState >= 2) {
+        if (!v.paused && ready && segmenter && !busy) {
           busy = true
           // Not awaited: the loop must keep painting plain frames while the
           // first send is still fetching the model.
@@ -133,12 +162,10 @@ export function DancerVideo({
       setStatus('ready')
     })
 
+    // `playing` follows the SOUND: the button says PLAY until the chorus is
+    // actually heard, and `follow` brings the dance along.
     const start = () => {
-      const a = audio.current
-      // The muted video may start where sound is refused; `playing` follows
-      // the SOUND, so the button says PLAY until the chorus is actually heard.
-      if (v.paused) v.play().catch(() => undefined)
-      if (a && a.paused) a.play().then(() => setPlaying(true)).catch(() => undefined)
+      if (a.paused) a.play().then(() => setPlaying(true)).catch(() => undefined)
     }
     start()
     document.addEventListener('pointerdown', start)
@@ -154,14 +181,11 @@ export function DancerVideo({
   }, [])
 
   const toggle = () => {
-    const v = video.current
     const a = audio.current
-    if (!v || !a) return
+    if (!a) return
     if (a.paused) {
-      v.play().catch(() => undefined)
       a.play().then(() => setPlaying(true)).catch(() => undefined)
     } else {
-      v.pause()
       a.pause()
       setPlaying(false)
     }
@@ -169,9 +193,10 @@ export function DancerVideo({
 
   return (
     <div className={`flex flex-col items-center gap-3 ${className}`}>
-      {/* The video is the source only — off-screen, never shown. The canvas
-          is what the visitor sees. */}
-      <video ref={video} src={src} loop muted playsInline preload="auto" className="hidden" />
+      {/* The video is the source only — off-screen, never shown, and muted:
+          the sound is the audio element's. The canvas is what the visitor
+          sees. The video does not `loop` itself; `follow` wraps it. */}
+      <video ref={video} src={src} muted playsInline preload="auto" className="hidden" />
       <audio ref={audio} src={audioSrc} loop preload="auto" />
       <canvas ref={canvas} className="h-96 w-auto" aria-label="The presenter dancing" />
       <div className="flex items-center gap-2">
