@@ -21,7 +21,9 @@ export function ModuleNav({ role }: { role: 'FINANCE_USER' | 'FINANCE_ADMIN' }) 
           href={m.href}
           aria-current={m.id === active ? 'page' : undefined}
           className={`rounded-lg px-4 py-2 text-sm font-medium tracking-wide transition ${
-            m.id === active ? 'bg-navy text-white' : 'bg-white text-slate-600 ring-1 ring-hairline hover:ring-navy'
+            m.id === active
+              ? 'bg-navy text-white shadow-sm'
+              : 'bg-white text-slate-600 ring-1 ring-hairline hover:bg-navy-bg hover:text-navy hover:ring-navy/40'
           }`}
         >
           {m.label}

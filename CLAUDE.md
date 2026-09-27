@@ -235,6 +235,15 @@ filter, a search, `scope=all`, `incomplete=1`) is LIST: a BACK TO TOTALS bar and
 table. Export and print read the same URL and know nothing about screens. A link that should open
 the list must carry a parameter; a bare `/` never shows a table.
 
+**`/welcome` is the public front door, and it is public by name** (2026-09-27, spec
+`2026-09-27-landing-login-and-theme-design.md`). The landing page and `/login` both render
+`components/MoneyMachines.tsx` — a cash register and a cheque register, inline SVG moved by the
+`mm-*` keyframes in `app/globals.css`, running for as long as nobody is signed in; either page
+redirects a signed-in visitor to `/`. `/welcome` is listed in `isPublicPath` (exact match, pinned),
+the middleware sends an anonymous bare `/` there and every other guarded path to `/login` as
+before, and sign-out lands on `/welcome`. `requireUser()` still redirects to `/login`. The page
+reads no data and must never show a figure: it is the one page a stranger can load.
+
 **A `|` inside `-t` breaks `npx.cmd vitest` under Git Bash.** `npx.cmd vitest run file -t "a|b"`
 mis-tokenises the pipe; `node node_modules/vitest/vitest.mjs run file -t "a|b"` is the same
 runner without the `.cmd` shim and works.

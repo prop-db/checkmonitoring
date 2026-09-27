@@ -21,7 +21,13 @@ export default auth((req: NextRequest & { auth: unknown }) => {
   const { pathname } = req.nextUrl
   const isPublic = isPublicPath(pathname)
   if (!isLoggedIn && !isPublic) {
-    return NextResponse.redirect(new URL('/login', req.nextUrl))
+    // The bare URL is the one an anonymous visitor types; it gets the landing
+    // page. A deep link to any other page gets the form, as before — somebody
+    // following a link to a cheque wants to sign in, not to read a brochure.
+    // `requireUser()` still sends everyone to /login; this is a courtesy for
+    // the front door, not a control.
+    const target = pathname === '/' ? '/welcome' : '/login'
+    return NextResponse.redirect(new URL(target, req.nextUrl))
   }
   return NextResponse.next()
 })

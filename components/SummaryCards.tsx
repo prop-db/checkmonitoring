@@ -113,13 +113,19 @@ function PrimaryCard({
    * channel, which also means the selection is still visible to someone who
    * cannot separate those hues.
    */
-  const ring = selected ? 'ring-2 ring-navy shadow-sm' : `ring-1 ${skin.split(' ').pop()}`
+  const ring = selected ? 'ring-2 ring-navy shadow-md' : `ring-1 shadow-sm ${skin.split(' ').pop()}`
   const bg = skin.split(' ')[0]
+
+  // The icon sits in a small tinted disc (2026-09-27 restyle): the same
+  // pastel the card's ink belongs to, so a white card carries one touch of
+  // navy and the green card one touch of white. Decorative, and the label
+  // beside it still says everything.
+  const disc = { success: 'bg-white/70', plain: 'bg-navy-bg' }[tone]
 
   const body = (
     <>
-      <p className={`flex items-center gap-2 text-xs font-semibold tracking-wide ${ink}`}>
-        {icon}
+      <p className={`flex items-center gap-2.5 text-xs font-semibold tracking-wide ${ink}`}>
+        <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${disc}`}>{icon}</span>
         {label}
       </p>
       {/* A plain number renders as text; a currency breakdown renders block-level

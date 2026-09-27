@@ -37,8 +37,8 @@ export function AdminTabs({ tabs }: { tabs: readonly (readonly [string, string])
             aria-current={active ? 'page' : undefined}
             className={`rounded-lg px-4 py-2 text-sm font-medium tracking-wide transition ${
               active
-                ? 'bg-navy text-white'
-                : 'bg-white text-slate-600 ring-1 ring-hairline hover:ring-navy'
+                ? 'bg-navy text-white shadow-sm'
+                : 'bg-white text-slate-600 ring-1 ring-hairline hover:bg-navy-bg hover:text-navy hover:ring-navy/40'
             }`}
           >
             {label}

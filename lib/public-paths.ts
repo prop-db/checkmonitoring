@@ -21,6 +21,9 @@ export function isPublicPath(pathname: string): boolean {
     // Exact match, not `startsWith('/login')`: a future `/loginhelp` would
     // otherwise be public.
     pathname === '/login' ||
+    // The landing page (2026-09-27): the two machines and a SIGN IN button,
+    // reading no data. Exact match for the same reason as `/login`.
+    pathname === '/welcome' ||
     pathname.startsWith('/api/auth/') ||
     // The scheduled sync. Vercel's cron presents `Authorization: Bearer
     // <CRON_SECRET>` and never a session cookie; the route checks that bearer

@@ -25,7 +25,7 @@ export function Panel({
   bodyClassName?: string
 }) {
   return (
-    <section className={`rounded-2xl bg-white ring-1 ring-hairline ${className}`}>
+    <section className={`rounded-2xl bg-white shadow-sm ring-1 ring-hairline ${className}`}>
       {(title || aside) && (
         <div className="flex flex-wrap items-baseline justify-between gap-3 px-6 pb-4 pt-6">
           {title && <h2 className="text-[11px] font-semibold tracking-widest text-slate-400">{title}</h2>}

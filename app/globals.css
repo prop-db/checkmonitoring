@@ -2,8 +2,165 @@
 @tailwind components;
 @tailwind utilities;
 
+/**
+ * THE GROUND.
+ *
+ * A soft vertical gradient rather than a flat tint (2026-09-27 restyle): the
+ * white cards lift off it and a long page does not read as one grey sheet.
+ * `bg-ground` stays applied underneath, so anything that measures the body
+ * colour — and the print stylesheet below — sees the same base as before.
+ */
 body {
   @apply bg-ground text-slate-800 antialiased;
+  background-image: linear-gradient(180deg, #f7f9fc 0%, #edf2f8 60%, #e9eff7 100%);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+/**
+ * THE MONEY MACHINES (`components/MoneyMachines.tsx`).
+ *
+ * Every animation is a CSS transform on an SVG group. The groups are drawn at
+ * their resting position and the keyframes move them from there; negative
+ * delays in the markup start each loop part-way through so the scene is busy
+ * on first paint. `transform-box: fill-box` makes `rotate` turn a note about
+ * its own centre rather than the SVG's origin.
+ *
+ * `prefers-reduced-motion` stops everything. The drawer sits closed, the notes
+ * rest on it, a cheque sits in the slot — the picture still says what it is.
+ */
+.mm-note,
+.mm-cheque,
+.mm-drawer,
+.mm-blink,
+.mm-feed,
+.mm-bob {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.mm-note {
+  animation: mm-note 1.8s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+  opacity: 0;
+}
+
+.mm-cheque {
+  animation: mm-cheque 2.4s cubic-bezier(0.3, 0.5, 0.3, 1) infinite;
+  opacity: 0;
+}
+
+.mm-drawer {
+  animation: mm-drawer 1.8s ease-in-out infinite;
+}
+
+.mm-blink {
+  animation: mm-blink 0.8s ease-in-out infinite;
+}
+
+.mm-feed {
+  animation: mm-feed 1.2s ease-in-out infinite;
+}
+
+.mm-bob {
+  animation: mm-bob 4s ease-in-out infinite;
+  transform-box: view-box;
+}
+
+.mm-bob-late {
+  animation-delay: -2s;
+}
+
+@keyframes mm-note {
+  0% {
+    transform: translate(0, 0) rotate(0deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translate(var(--mm-dx, 0px), -170px) rotate(var(--mm-rot, 0deg));
+    opacity: 0;
+  }
+}
+
+@keyframes mm-cheque {
+  0% {
+    transform: translate(0, 60px) rotate(0deg);
+    opacity: 1;
+  }
+  38% {
+    transform: translate(0, 0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--mm-dx, 0px), -130px) rotate(var(--mm-rot, 0deg));
+    opacity: 0;
+  }
+}
+
+@keyframes mm-drawer {
+  0%,
+  8% {
+    transform: translateY(0);
+  }
+  22%,
+  72% {
+    transform: translateY(14px);
+  }
+  88%,
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes mm-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@keyframes mm-feed {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(24px);
+  }
+}
+
+@keyframes mm-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mm-note,
+  .mm-cheque,
+  .mm-drawer,
+  .mm-blink,
+  .mm-feed,
+  .mm-bob {
+    animation: none;
+  }
+
+  .mm-note,
+  .mm-cheque {
+    opacity: 1;
+  }
 }
 
 /**

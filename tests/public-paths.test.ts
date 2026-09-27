@@ -21,9 +21,15 @@ describe('isPublicPath', () => {
     expect(isPublicPath('/api/cron/sync')).toBe(true)
   })
 
-  it('does not widen /login to its neighbours', () => {
+  it('lets the landing page through', () => {
+    expect(isPublicPath('/welcome')).toBe(true)
+  })
+
+  it('does not widen /login or /welcome to their neighbours', () => {
     expect(isPublicPath('/loginhelp')).toBe(false)
     expect(isPublicPath('/login/')).toBe(false)
+    expect(isPublicPath('/welcomeback')).toBe(false)
+    expect(isPublicPath('/welcome/')).toBe(false)
   })
 
   it('keeps every page and every other API route behind a session', () => {

@@ -13,9 +13,12 @@ import { signOut } from '@/lib/auth'
  * function must not be wrapped in a try/catch that swallows it (see the note on
  * `run()` in `app/checks/actions.ts`).
  *
- * `/login` and not `/`: sending a just-signed-out user to a guarded page only
+ * `/welcome` and not `/`: sending a just-signed-out user to a guarded page only
  * to have `requireUser()` bounce them makes the sign-out look like it failed.
+ * The landing page (rather than `/login`, where this pointed until 2026-09-27)
+ * because it is the public front door, and the machines on it start running
+ * again the moment nobody is signed in.
  */
 export async function signOutAction(): Promise<void> {
-  await signOut({ redirectTo: '/login' })
+  await signOut({ redirectTo: '/welcome' })
 }
