@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { getSessionUser } from '@/lib/auth'
 import { CashRegister, ChequeRegister } from '@/components/MoneyMachines'
-import { PresentationPlayer } from '@/components/PresentationPlayer'
+import { DancerVideo } from '@/components/DancerVideo'
 
 /**
  * THE LANDING PAGE.
@@ -52,15 +52,15 @@ export default async function WelcomePage() {
 
         <div className="order-1 text-center lg:order-2">
           {/* TEMPORARY — for the presentation (2026-09-27), to be removed
-              afterwards on the user's own word. The chorus clip starts on its
-              own where the browser allows it, on the first click anywhere
-              otherwise, and loops. The file really is an mp4 (Windows hid the
-              extension when it was renamed); browsers play its audio track.
-              Delete this block, the player component, the file in public/ and
+              afterwards on the user's own word. The user's own dance clip,
+              carrying its own audio, painted with the background removed live
+              in the browser (see DancerVideo). It starts on its own where the
+              browser allows it, on the first click anywhere otherwise, and
+              loops. Delete this block, the component, public/dancing.mp4 and
               its entry in the middleware matcher together. The page's title
-              lines came out with it at the user's request — the header above
-              still names the system. */}
-          <PresentationPlayer src="/chorus.mp3.mp4" />
+              lines came out at the user's request — the header above still
+              names the system. */}
+          <DancerVideo src="/dancing.mp4" />
 
 
           <Link
