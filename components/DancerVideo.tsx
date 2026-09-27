@@ -47,8 +47,20 @@ function loadSegmenter(): Promise<SegmenterCtor | null> {
   })
 }
 
-export function DancerVideo({ src, className = '' }: { src: string; className?: string }) {
+export function DancerVideo({
+  src, audioSrc, className = '',
+}: {
+  src: string
+  /**
+   * The soundtrack, played over the MUTED video. The dance clip carries its
+   * own audio, but the user wants the chorus clip heard (2026-09-27), so the
+   * two are started and paused together and each loops on its own.
+   */
+  audioSrc: string
+  className?: string
+}) {
   const video = useRef<HTMLVideoElement>(null)
+  const audio = useRef<HTMLAudioElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const [playing, setPlaying] = useState(false)
   const [status, setStatus] = useState<'loading' | 'ready' | 'plain'>('loading')
@@ -122,7 +134,11 @@ export function DancerVideo({ src, className = '' }: { src: string; className?: 
     })
 
     const start = () => {
-      if (v.paused) v.play().then(() => setPlaying(true)).catch(() => undefined)
+      const a = audio.current
+      // The muted video may start where sound is refused; `playing` follows
+      // the SOUND, so the button says PLAY until the chorus is actually heard.
+      if (v.paused) v.play().catch(() => undefined)
+      if (a && a.paused) a.play().then(() => setPlaying(true)).catch(() => undefined)
     }
     start()
     document.addEventListener('pointerdown', start)
@@ -139,11 +155,14 @@ export function DancerVideo({ src, className = '' }: { src: string; className?: 
 
   const toggle = () => {
     const v = video.current
-    if (!v) return
-    if (v.paused) {
-      v.play().then(() => setPlaying(true)).catch(() => undefined)
+    const a = audio.current
+    if (!v || !a) return
+    if (a.paused) {
+      v.play().catch(() => undefined)
+      a.play().then(() => setPlaying(true)).catch(() => undefined)
     } else {
       v.pause()
+      a.pause()
       setPlaying(false)
     }
   }
@@ -152,7 +171,8 @@ export function DancerVideo({ src, className = '' }: { src: string; className?: 
     <div className={`flex flex-col items-center gap-3 ${className}`}>
       {/* The video is the source only — off-screen, never shown. The canvas
           is what the visitor sees. */}
-      <video ref={video} src={src} loop playsInline preload="auto" className="hidden" />
+      <video ref={video} src={src} loop muted playsInline preload="auto" className="hidden" />
+      <audio ref={audio} src={audioSrc} loop preload="auto" />
       <canvas ref={canvas} className="h-96 w-auto" aria-label="The presenter dancing" />
       <div className="flex items-center gap-2">
         <button
