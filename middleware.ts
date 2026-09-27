@@ -33,5 +33,10 @@ export default auth((req: NextRequest & { auth: unknown }) => {
 })
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  // `presenter.jpg` and `chorus.mp3` are the landing page's presentation
+  // assets (temporary, 2026-09-27); like favicon.ico they are static files in
+  // public/ with nothing to protect, and redirected to /login they simply
+  // fail to load. Remove them from here when the block in app/welcome/page.tsx
+  // goes.
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|presenter.jpg|chorus.mp3.mp4).*)'],
 }
