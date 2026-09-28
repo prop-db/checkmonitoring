@@ -99,6 +99,27 @@ describe('describeFilters', () => {
    * be read as the whole picture — the same reason "No filters applied" is
    * spelled out rather than left blank.
    */
+  /**
+   * The range as the reader typed it — days, not instants. A title block that
+   * printed "2026-09-24T16:00:00.000Z" would be read as the wrong day by
+   * everyone in Manila.
+   */
+  it('names the DATE RELEASED range in the three ways it can be given', () => {
+    expect(describeFilters({ releasedFrom: '2026-09-01', releasedTo: '2026-09-15' }))
+      .toBe('DATE RELEASED: 2026-09-01 TO 2026-09-15')
+    expect(describeFilters({ releasedFrom: '2026-09-01' })).toBe('DATE RELEASED: FROM 2026-09-01')
+    expect(describeFilters({ releasedTo: '2026-09-15' })).toBe('DATE RELEASED: TO 2026-09-15')
+  })
+
+  it('places the range after the search and before the incomplete clause', () => {
+    expect(describeFilters({ q: 'henkel', releasedFrom: '2026-09-01', incomplete: false }))
+      .toBe('SEARCH: "henkel"  ·  DATE RELEASED: FROM 2026-09-01  ·  EXCLUDES RECORDS WITH NO AMOUNT')
+  })
+
+  it('ignores a blank day rather than printing an empty bound', () => {
+    expect(describeFilters({ releasedFrom: '  ', releasedTo: null })).toBe('No filters applied')
+  })
+
   it('announces the exclusion of the records with no amount', () => {
     expect(describeFilters({ incomplete: false })).toBe('EXCLUDES RECORDS WITH NO AMOUNT')
     expect(describeFilters({ q: 'henkel', incomplete: false }))

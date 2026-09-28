@@ -114,6 +114,9 @@ export type FilterDescription = {
   eligibility?: string | null
   q?: string | null
   incomplete?: boolean
+  /** DATE RELEASED bounds, as the days the reader typed (`YYYY-MM-DD`). */
+  releasedFrom?: string | null
+  releasedTo?: string | null
 }
 
 /**
@@ -134,6 +137,13 @@ export function describeFilters(f: FilterDescription): string {
   if (bank) parts.push(`BANK / CASH ACCOUNT: ${bank}`)
   if (eligibility) parts.push(`ELIGIBILITY: ${eligibility}`)
   if (q) parts.push(`SEARCH: "${q}"`)
+  // As typed, never as an instant: the bounds are Manila days and the reader
+  // is in Manila. Either side may stand alone.
+  const releasedFrom = f.releasedFrom?.trim()
+  const releasedTo = f.releasedTo?.trim()
+  if (releasedFrom && releasedTo) parts.push(`DATE RELEASED: ${releasedFrom} TO ${releasedTo}`)
+  else if (releasedFrom) parts.push(`DATE RELEASED: FROM ${releasedFrom}`)
+  else if (releasedTo) parts.push(`DATE RELEASED: TO ${releasedTo}`)
   /**
    * The tri-state, announced on BOTH sides — matching `buildWhere`, where
    * `true` narrows to the records with no recorded amount and `false` excludes
