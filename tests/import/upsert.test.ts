@@ -313,6 +313,7 @@ describe('upsertCheck — re-importing', () => {
       'portalTradeId',              // the supplier portal's own key — Plan 3
       'remarks', 'pointPerson', 'checksPossession',   // free text Finance maintains
       'expectedOutflowDate',        // typed by Finance on the cheque page (2026-09-12); neither source can know it
+      'statedReleaseDate',          // the register's stated day; written only by the stated-release-dates backfill (2026-09-28)
       'isStale',
       'voidedAt',                   // written only through voidCheck, never by a bare update
     ]

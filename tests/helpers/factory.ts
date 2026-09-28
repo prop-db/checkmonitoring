@@ -21,6 +21,8 @@ export async function makeCheck(overrides: {
   /** When the release was recorded HERE. Defaults to null — the state of every
    * cheque released before the app recorded releases. */
   releasedAt?: Date | null
+  /** The register's stated release day. Defaults to null. */
+  statedReleaseDate?: Date | null
   isCheque?: boolean
   currency?: string
   // `null` is a distinct, meaningful value for both of these - the register
@@ -62,6 +64,7 @@ export async function makeCheck(overrides: {
       status: overrides.status ?? 'SIGNED',
       availablePickupDate: overrides.availablePickupDate === undefined ? null : overrides.availablePickupDate,
       releasedAt: overrides.releasedAt ?? null,
+      statedReleaseDate: overrides.statedReleaseDate ?? null,
       isCheque: overrides.isCheque ?? true,
     },
   })

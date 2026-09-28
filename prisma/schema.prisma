@@ -259,6 +259,11 @@ model Check {
 
   releasedById       String?
   releasedAt         DateTime?
+  // The day the retired register's DATE RELEASED column states, for a cheque
+  // released outside this app (2026-09-28). Filled once by
+  // scripts/backfill-stated-release-dates.ts from a register file; never by
+  // the import, never by markReleased, never a substitute for releasedAt.
+  statedReleaseDate  DateTime?
   // The supplier's receipt: the paper handed over when the cheque is collected.
   // All three are Finance facts recorded at, or after, the moment of release,
   // and all three are optional — the client's ruling is that a cheque may be
@@ -363,6 +368,7 @@ model Check {
   @@index([eligibility])
   @@index([checkDate])
   @@index([availablePickupDate])
+  @@index([statedReleaseDate])
   // 129 true rows in 9,247. The dashboard filter and its count both read this
   // column, and a sequential scan for a card rendered on every page load is the
   // one thing that would make the feature not worth having.
