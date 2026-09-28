@@ -29,6 +29,25 @@ export type CheckFilters = {
   from?: Date
   to?: Date
   /**
+   * DATE RELEASED, as a range over `releasedAt` — the instant `markReleased`
+   * wrote when the cheque was released THROUGH THIS APP. Both bounds are
+   * inclusive instants; the resolver builds them from Manila calendar days.
+   *
+   * A release nobody recorded here has no instant — every cheque the register
+   * load imported at RELEASED and every one the two catch-ups moved — so it
+   * never matches a bound. That is correct, and the dashboard says so with a
+   * count rather than letting a short table read as the whole picture.
+   */
+  releasedFrom?: Date
+  releasedTo?: Date
+  /**
+   * Only the cheques whose release has NO recorded instant. The disclosure's
+   * count, taken through the same `buildWhere` as the table so it is narrowed
+   * by the same company, bank, search and incompleteness. When set it replaces
+   * the range, never combines with it — a cheque cannot be both.
+   */
+  releasedAtIsNull?: true
+  /**
    * The cheques with no recorded amount — 129 in production. A TRI-STATE:
    *
    *   `true`       only those records
@@ -299,6 +318,13 @@ function buildWhere(filters: CheckFilters): Prisma.CheckWhereInput {
   if (filters.from || filters.to) {
     where.checkDate = { gte: filters.from, lte: filters.to }
   }
+  if (filters.releasedAtIsNull) {
+    where.releasedAt = null
+  } else if (filters.releasedFrom || filters.releasedTo) {
+    // A null `releasedAt` satisfies neither bound, so an undated release is
+    // left out without an extra clause.
+    where.releasedAt = { gte: filters.releasedFrom, lte: filters.releasedTo }
+  }
 
   const q = filters.q?.trim()
   if (q) {
@@ -477,6 +503,8 @@ export type CheckTableRow = {
   isCheque: boolean
   availablePickupDate: Date | null
   scheduledPickupDate: Date | null
+  /** When the release was recorded here; null for every release that was not. */
+  releasedAt: Date | null
   /**
    * The supplier's receipt (rule 11: never `crNumber`). Shown in the OR column,
    * and `hasReceipt` decides whether a RELEASED row may be ticked to add one:
@@ -519,6 +547,7 @@ export function toTableRow(r: CheckRow): CheckTableRow {
     isCheque: r.isCheque,
     availablePickupDate: r.availablePickupDate,
     scheduledPickupDate: r.scheduledPickupDate,
+    releasedAt: r.releasedAt,
     orNumber: r.orNumber,
     receiptType: r.receiptType,
     hasReceipt: r.orNumber !== null,

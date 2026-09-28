@@ -627,6 +627,74 @@ describe('filters compose', () => {
  * a bug report waiting to happen. The pairing is not restated here or in
  * `getTodaysRelease`; both read `viewStatusFilter` in lib/dashboard-view.ts.
  */
+/**
+ * DATE RELEASED. The range is over `releasedAt` — the instant `markReleased`
+ * wrote — and a release nobody recorded here has none, so it can never fall
+ * inside a range. That is the fact the dashboard discloses with a count, and
+ * `releasedAtIsNull` is how it gets the count from the same `buildWhere`.
+ */
+describe('DATE RELEASED range', () => {
+  // Manila 2026-09-25, as the resolver would hand it over.
+  const from = new Date('2026-09-24T16:00:00.000Z')
+  const to = new Date('2026-09-25T15:59:59.999Z')
+
+  it('returns only the cheques released inside the range, never one with no recorded release', async () => {
+    await makeCheck({ status: 'RELEASED', checkNumber: 'R-IN', releasedAt: new Date('2026-09-25T02:00:00.000Z') })
+    await makeCheck({ status: 'RELEASED', checkNumber: 'R-BEFORE', releasedAt: new Date('2026-09-20T02:00:00.000Z') })
+    await makeCheck({ status: 'RELEASED', checkNumber: 'R-AFTER', releasedAt: new Date('2026-09-26T02:00:00.000Z') })
+    await makeCheck({ status: 'RELEASED', checkNumber: 'R-UNDATED', releasedAt: null })
+
+    const filters = { status: 'RELEASED' as const, releasedFrom: from, releasedTo: to }
+    const rows = await listChecks(testDb, filters)
+    expect(rows.map((r) => r.checkNumber)).toEqual(['R-IN'])
+    expect(await countChecks(testDb, filters)).toBe(1)
+  })
+
+  it('is inclusive at both Manila-day edges', async () => {
+    await makeCheck({ status: 'RELEASED', checkNumber: 'R-FIRST-MS', releasedAt: from })
+    await makeCheck({ status: 'RELEASED', checkNumber: 'R-LAST-MS', releasedAt: to })
+    await makeCheck({ status: 'RELEASED', checkNumber: 'R-ONE-MS-LATE', releasedAt: new Date(to.getTime() + 1) })
+
+    const rows = await listChecks(testDb, { status: 'RELEASED', releasedFrom: from, releasedTo: to })
+    expect(rows.map((r) => r.checkNumber).sort()).toEqual(['R-FIRST-MS', 'R-LAST-MS'])
+  })
+
+  it('honours an open-ended bound on either side', async () => {
+    await makeCheck({ status: 'RELEASED', checkNumber: 'R-EARLY', releasedAt: new Date('2026-09-20T02:00:00.000Z') })
+    await makeCheck({ status: 'RELEASED', checkNumber: 'R-LATE', releasedAt: new Date('2026-09-26T02:00:00.000Z') })
+    await makeCheck({ status: 'RELEASED', checkNumber: 'R-UNDATED', releasedAt: null })
+
+    const onOrAfter = await listChecks(testDb, { status: 'RELEASED', releasedFrom: from })
+    expect(onOrAfter.map((r) => r.checkNumber)).toEqual(['R-LATE'])
+
+    const onOrBefore = await listChecks(testDb, { status: 'RELEASED', releasedTo: to })
+    expect(onOrBefore.map((r) => r.checkNumber)).toEqual(['R-EARLY'])
+  })
+
+  it('counts the released cheques with no recorded release, for the disclosure', async () => {
+    await makeCheck({ status: 'RELEASED', releasedAt: new Date('2026-09-25T02:00:00.000Z') })
+    await makeCheck({ status: 'RELEASED', releasedAt: null })
+    await makeCheck({ status: 'RELEASED', releasedAt: null })
+    // Live, so no release instant either — must NOT be counted: the disclosure
+    // is about released cheques.
+    await makeCheck({ status: 'SIGNED', releasedAt: null })
+
+    expect(await countChecks(testDb, { status: 'RELEASED', releasedAtIsNull: true })).toBe(2)
+  })
+
+  it('carries the release instant into the table row, null when none was recorded', async () => {
+    const when = new Date('2026-09-25T02:00:00.000Z')
+    const dated = await makeCheck({ status: 'RELEASED', releasedAt: when })
+    const undated = await makeCheck({ status: 'RELEASED', releasedAt: null })
+
+    const [datedRow] = await listChecks(testDb, { q: dated.checkNumber })
+    expect(toTableRow(datedRow).releasedAt).toEqual(when)
+
+    const [undatedRow] = await listChecks(testDb, { q: undated.checkNumber })
+    expect(toTableRow(undatedRow).releasedAt).toBeNull()
+  })
+})
+
 describe('getTodaysRelease', () => {
   it('covers READY_FOR_RELEASE and SCHEDULED together and nothing else', async () => {
     await makeCheck({ status: 'READY_FOR_RELEASE', amount: '100.00' })
