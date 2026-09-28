@@ -238,7 +238,7 @@ export default async function DashboardPage({
           releasedTo: undefined,
           status: 'RELEASED',
           statusIn: undefined,
-          releasedAtIsNull: true,
+          noReleaseDate: true,
         })
       : Promise.resolve(0),
   ])

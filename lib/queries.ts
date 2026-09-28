@@ -35,18 +35,22 @@ export type CheckFilters = {
    *
    * A release nobody recorded here has no instant — every cheque the register
    * load imported at RELEASED and every one the two catch-ups moved — so it
-   * never matches a bound. That is correct, and the dashboard says so with a
-   * count rather than letting a short table read as the whole picture.
+   * never matches a bound on `releasedAt`.
+   *
+   * Since 2026-09-28 the range also matches `statedReleaseDate` — the day the
+   * retired register states for a release the app never recorded — so a
+   * cheque matches when EITHER date falls inside it. The two are never merged.
    */
   releasedFrom?: Date
   releasedTo?: Date
   /**
-   * Only the cheques whose release has NO recorded instant. The disclosure's
-   * count, taken through the same `buildWhere` as the table so it is narrowed
-   * by the same company, bank, search and incompleteness. When set it replaces
-   * the range, never combines with it — a cheque cannot be both.
+   * Only the cheques with NO release date of either kind — `releasedAt` null
+   * and `statedReleaseDate` null. The disclosure's count, taken through the
+   * same `buildWhere` as the table so it is narrowed by the same company,
+   * bank, search and incompleteness. When set it replaces the range, never
+   * combines with it — a cheque cannot be both.
    */
-  releasedAtIsNull?: true
+  noReleaseDate?: true
   /**
    * The cheques with no recorded amount — 129 in production. A TRI-STATE:
    *
@@ -318,12 +322,16 @@ function buildWhere(filters: CheckFilters): Prisma.CheckWhereInput {
   if (filters.from || filters.to) {
     where.checkDate = { gte: filters.from, lte: filters.to }
   }
-  if (filters.releasedAtIsNull) {
+  if (filters.noReleaseDate) {
     where.releasedAt = null
+    where.statedReleaseDate = null
   } else if (filters.releasedFrom || filters.releasedTo) {
-    // A null `releasedAt` satisfies neither bound, so an undated release is
-    // left out without an extra clause.
-    where.releasedAt = { gte: filters.releasedFrom, lte: filters.releasedTo }
+    // Either date. Under AND rather than on `where.OR`, which the search owns
+    // below — two top-level ORs would not both apply, the second would
+    // replace the first. A null date satisfies neither bound, so a cheque with
+    // neither date is left out without an extra clause.
+    const bounds = { gte: filters.releasedFrom, lte: filters.releasedTo }
+    where.AND = [{ OR: [{ releasedAt: bounds }, { statedReleaseDate: bounds }] }]
   }
 
   const q = filters.q?.trim()
@@ -505,6 +513,8 @@ export type CheckTableRow = {
   scheduledPickupDate: Date | null
   /** When the release was recorded here; null for every release that was not. */
   releasedAt: Date | null
+  /** The register's stated release day, when the app recorded no release. Shown tagged REGISTER. */
+  statedReleaseDate: Date | null
   /**
    * The supplier's receipt (rule 11: never `crNumber`). Shown in the OR column,
    * and `hasReceipt` decides whether a RELEASED row may be ticked to add one:
@@ -548,6 +558,7 @@ export function toTableRow(r: CheckRow): CheckTableRow {
     availablePickupDate: r.availablePickupDate,
     scheduledPickupDate: r.scheduledPickupDate,
     releasedAt: r.releasedAt,
+    statedReleaseDate: r.statedReleaseDate,
     orNumber: r.orNumber,
     receiptType: r.receiptType,
     hasReceipt: r.orNumber !== null,

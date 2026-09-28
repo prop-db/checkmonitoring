@@ -28,6 +28,7 @@ function row(overrides: Partial<CheckTableRow> = {}): CheckTableRow {
     availablePickupDate: new Date(Date.UTC(2026, 8, 3)),
     scheduledPickupDate: null,
     releasedAt: null,
+    statedReleaseDate: null,
     orNumber: null,
     receiptType: null,
     hasReceipt: false,

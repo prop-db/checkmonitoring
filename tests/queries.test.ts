@@ -671,15 +671,58 @@ describe('DATE RELEASED range', () => {
     expect(onOrBefore.map((r) => r.checkNumber)).toEqual(['R-EARLY'])
   })
 
-  it('counts the released cheques with no recorded release, for the disclosure', async () => {
+  it('counts, for the disclosure, only the released cheques with neither date', async () => {
     await makeCheck({ status: 'RELEASED', releasedAt: new Date('2026-09-25T02:00:00.000Z') })
-    await makeCheck({ status: 'RELEASED', releasedAt: null })
-    await makeCheck({ status: 'RELEASED', releasedAt: null })
-    // Live, so no release instant either — must NOT be counted: the disclosure
-    // is about released cheques.
-    await makeCheck({ status: 'SIGNED', releasedAt: null })
+    await makeCheck({ status: 'RELEASED', statedReleaseDate: new Date('2026-09-25T00:00:00.000Z') })
+    await makeCheck({ status: 'RELEASED' })
+    await makeCheck({ status: 'RELEASED' })
+    // Live, so no release date of either kind — must NOT be counted.
+    await makeCheck({ status: 'SIGNED' })
 
-    expect(await countChecks(testDb, { status: 'RELEASED', releasedAtIsNull: true })).toBe(2)
+    expect(await countChecks(testDb, { status: 'RELEASED', noReleaseDate: true })).toBe(2)
+  })
+
+  // The register's stated day is stored as UTC midnight — 08:00 Manila — so it
+  // sits inside the Manila-day bounds the resolver builds.
+  it('matches a cheque on its stated release day when the app recorded no release', async () => {
+    await makeCheck({ status: 'RELEASED', checkNumber: 'S-IN', statedReleaseDate: new Date('2026-09-25T00:00:00.000Z') })
+    await makeCheck({ status: 'RELEASED', checkNumber: 'S-OUT', statedReleaseDate: new Date('2026-09-22T00:00:00.000Z') })
+    await makeCheck({ status: 'RELEASED', checkNumber: 'S-NONE' })
+
+    const rows = await listChecks(testDb, { status: 'RELEASED', releasedFrom: from, releasedTo: to })
+    expect(rows.map((r) => r.checkNumber)).toEqual(['S-IN'])
+  })
+
+  it('matches on either date when a cheque carries both', async () => {
+    // App says the 25th, register says the 22nd: inside on the app date.
+    await makeCheck({ status: 'RELEASED', checkNumber: 'B-APP', releasedAt: new Date('2026-09-25T02:00:00.000Z'), statedReleaseDate: new Date('2026-09-22T00:00:00.000Z') })
+    // App says the 20th, register says the 25th: inside on the stated date.
+    await makeCheck({ status: 'RELEASED', checkNumber: 'B-REG', releasedAt: new Date('2026-09-20T02:00:00.000Z'), statedReleaseDate: new Date('2026-09-25T00:00:00.000Z') })
+    // Both outside.
+    await makeCheck({ status: 'RELEASED', checkNumber: 'B-OUT', releasedAt: new Date('2026-09-20T02:00:00.000Z'), statedReleaseDate: new Date('2026-09-22T00:00:00.000Z') })
+
+    const rows = await listChecks(testDb, { status: 'RELEASED', releasedFrom: from, releasedTo: to })
+    expect(rows.map((r) => r.checkNumber).sort()).toEqual(['B-APP', 'B-REG'])
+  })
+
+  // The range lives under AND so it composes with the search, which owns the
+  // top-level OR. Without that wrapping one of the two would silently replace
+  // the other.
+  it('still composes with a search', async () => {
+    await makeCheck({ status: 'RELEASED', checkNumber: 'Q-IN-MATCH', payeeName: 'ACME TRADING', statedReleaseDate: new Date('2026-09-25T00:00:00.000Z') })
+    await makeCheck({ status: 'RELEASED', checkNumber: 'Q-IN-OTHER', payeeName: 'HENKEL', statedReleaseDate: new Date('2026-09-25T00:00:00.000Z') })
+    await makeCheck({ status: 'RELEASED', checkNumber: 'Q-OUT-MATCH', payeeName: 'ACME TRADING', statedReleaseDate: new Date('2026-09-22T00:00:00.000Z') })
+
+    const rows = await listChecks(testDb, { status: 'RELEASED', q: 'acme', releasedFrom: from, releasedTo: to })
+    expect(rows.map((r) => r.checkNumber)).toEqual(['Q-IN-MATCH'])
+  })
+
+  it('carries the stated day into the table row', async () => {
+    const day = new Date('2026-09-25T00:00:00.000Z')
+    const c = await makeCheck({ status: 'RELEASED', statedReleaseDate: day })
+    const [row] = await listChecks(testDb, { q: c.checkNumber })
+    expect(toTableRow(row).statedReleaseDate).toEqual(day)
+    expect(toTableRow(row).releasedAt).toBeNull()
   })
 
   it('carries the release instant into the table row, null when none was recorded', async () => {
