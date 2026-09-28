@@ -23,6 +23,7 @@ export const COLUMN_KEYS = [
   'status',
   'availablePickupDate',
   'scheduledPickupDate',
+  'releasedAt',
   'action',
 ] as const
 
@@ -40,6 +41,9 @@ export const COLUMN_LABELS: Record<ColumnKey, string> = {
   status: 'STATUS',
   availablePickupDate: 'AVAILABLE DATE',
   scheduledPickupDate: 'PICKUP SCHEDULE',
+  // When the release was recorded HERE. Blank on every release the register
+  // load imported or a catch-up moved — that is the fact, not a gap to fill.
+  releasedAt: 'DATE RELEASED',
   action: 'ACTION',
 }
 

@@ -207,6 +207,7 @@ export function CheckTable({
               <th className="px-4 py-3">{COLUMN_LABELS.status}</th>
               {shows('availablePickupDate') && <th className="px-4 py-3">{COLUMN_LABELS.availablePickupDate}</th>}
               {shows('scheduledPickupDate') && <th className="px-4 py-3">{COLUMN_LABELS.scheduledPickupDate}</th>}
+              {shows('releasedAt') && <th className="px-4 py-3">{COLUMN_LABELS.releasedAt}</th>}
               <th className="px-4 py-3">OR / CR</th>
               <th className="px-4 py-3">{COLUMN_LABELS.action}</th>
             </tr>
@@ -295,6 +296,9 @@ export function CheckTable({
                 )}
                 {shows('scheduledPickupDate') && (
                   <td className="px-4 py-3 text-slate-600">{fmtDate(r.scheduledPickupDate)}</td>
+                )}
+                {shows('releasedAt') && (
+                  <td className="px-4 py-3 text-slate-600">{fmtDate(r.releasedAt)}</td>
                 )}
                 {/* The supplier's receipt. A ticked row that can carry one gets
                     its own box, which is what lets a batch carry receipts safely:

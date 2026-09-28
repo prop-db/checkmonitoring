@@ -31,6 +31,7 @@ describe('the column set', () => {
   it('recognises its own keys and nothing else', () => {
     expect(isColumnKey('amount')).toBe(true)
     expect(isColumnKey('bank')).toBe(true)
+    expect(isColumnKey('releasedAt')).toBe(true)
     expect(isColumnKey('Amount')).toBe(false)
     expect(isColumnKey('sourceSheet')).toBe(false)
     expect(isColumnKey(7)).toBe(false)
@@ -39,6 +40,15 @@ describe('the column set', () => {
 })
 
 describe('normaliseColumns', () => {
+  // The column arrived after the preference feature shipped. A viewer who
+  // saved a set before it existed keeps that set — the column is offered, not
+  // imposed — and when they tick it, it takes its designed place before ACTION.
+  it('leaves DATE RELEASED out of a stored set that predates it, and orders it before ACTION when chosen', () => {
+    expect(normaliseColumns(['checkNumber', 'amount', 'status', 'action'])).not.toContain('releasedAt')
+    const chosen = normaliseColumns(['releasedAt', 'scheduledPickupDate', 'checkNumber'])
+    expect(chosen).toEqual(['checkNumber', 'status', 'scheduledPickupDate', 'releasedAt', 'action'])
+  })
+
   it('returns the canonical column order regardless of the order it was given', () => {
     expect(normaliseColumns(['amount', 'checkNumber', 'status', 'action', 'bank']))
       .toEqual(['checkNumber', 'bank', 'amount', 'status', 'action'])
