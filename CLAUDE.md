@@ -235,6 +235,14 @@ filter, a search, `scope=all`, `incomplete=1`) is LIST: a BACK TO TOTALS bar and
 table. Export and print read the same URL and know nothing about screens. A link that should open
 the list must carry a parameter; a bare `/` never shows a table.
 
+**DATE RELEASED on the filter bar reads `releasedAt`, which is null on every release
+that did not go through the app** (2026-09-28, spec
+`2026-09-28-released-date-filter-design.md`). `releasedFrom` / `releasedTo` are Manila
+days, honoured only on the RELEASED and ALL CHEQUES views and dropped everywhere else by
+`resolveDashboardQuery`; the LIST screen states how many RELEASED cheques carry no date
+whenever a range is in force. The register's DATE RELEASED lives only in the catch-ups'
+audit rows and is never written to `releasedAt` — do not "fix" the blank column with it.
+
 **`/welcome` is the public front door, and it is public by name** (2026-09-27, spec
 `2026-09-27-landing-login-and-theme-design.md`). The landing page and `/login` both render
 `components/MoneyMachines.tsx` — a cash register and a cheque register, inline SVG moved by the
