@@ -3,6 +3,8 @@ import type { CheckFilters, FilterOptions } from './queries'
 import { parseStatusParam, parseEligibilityParam, parseOptionId } from './queries'
 import { viewStatusFilter, type DashboardSelection } from './dashboard-view'
 import { bankLabel, describeFilters, exportViewLabel } from './export/report'
+import { isIsoDay } from './domain/details'
+import { manilaDayStart, manilaDayEnd } from './audit-view'
 
 /**
  * The dashboard's URL parameters, resolved into the one filter object that
@@ -28,11 +30,17 @@ export type DashboardSearchParams = {
   eligibility?: string
   incomplete?: string
   scope?: string
+  /** DATE RELEASED bounds, `YYYY-MM-DD` Manila days. */
+  releasedFrom?: string
+  releasedTo?: string
 }
 
 export type DashboardQuery = {
   /** The trimmed search text, as the search box should render it back. */
   q: string
+  /** The validated DATE RELEASED days as the bar should render them back, or `''`. */
+  releasedFrom: string
+  releasedTo: string
   status: CheckStatus | undefined
   eligibility: Eligibility | undefined
   companyId: string | undefined
@@ -47,6 +55,12 @@ export type DashboardQuery = {
   viewLabel: string
   /** The narrowing filters in words, for the export's title block. */
   filterDescription: string
+}
+
+/** A `YYYY-MM-DD` that is a real calendar day, else nothing. Never an error. */
+function parseDayParam(value: string | undefined): string | undefined {
+  const v = value?.trim() ?? ''
+  return isIsoDay(v) ? v : undefined
 }
 
 export function resolveDashboardQuery(
@@ -85,6 +99,18 @@ export function resolveDashboardQuery(
 
   const q = params.q?.trim() ?? ''
 
+  /**
+   * DATE RELEASED applies only where a released cheque can be: the RELEASED
+   * view and ALL CHEQUES. On any other view the two are dropped exactly as an
+   * unrecognised company id is — a live cheque has no release instant, so the
+   * range could only empty the table without saying why — and, being dropped
+   * here, they leave `base` and the description too, so a card link out of
+   * RELEASED does not carry a filter the destination cannot honour.
+   */
+  const releasedRangeApplies = status === 'RELEASED' || showAll
+  const releasedFrom = releasedRangeApplies ? parseDayParam(params.releasedFrom) : undefined
+  const releasedTo = releasedRangeApplies ? parseDayParam(params.releasedTo) : undefined
+
   const selection: DashboardSelection = {
     status: status ?? null,
     showAll,
@@ -98,6 +124,8 @@ export function resolveDashboardQuery(
         company: companyId ?? '',
         cashAccount: cashAccountId ?? '',
         eligibility: eligibility ?? '',
+        releasedFrom: releasedFrom ?? '',
+        releasedTo: releasedTo ?? '',
       }).filter(([, v]) => v !== ''),
     ),
   }
@@ -108,6 +136,10 @@ export function resolveDashboardQuery(
     cashAccountId,
     eligibility,
     incomplete,
+    // Manila calendar days become inclusive instants: the day's first and last
+    // millisecond in UTC+8. FROM after TO is passed through as given.
+    releasedFrom: releasedFrom ? manilaDayStart(releasedFrom) : undefined,
+    releasedTo: releasedTo ? manilaDayEnd(releasedTo) : undefined,
     ...viewStatusFilter(selection),
   }
 
@@ -118,6 +150,8 @@ export function resolveDashboardQuery(
 
   return {
     q,
+    releasedFrom: releasedFrom ?? '',
+    releasedTo: releasedTo ?? '',
     status,
     eligibility,
     companyId,
@@ -133,6 +167,8 @@ export function resolveDashboardQuery(
       eligibility: eligibility ?? null,
       q,
       incomplete,
+      releasedFrom: releasedFrom ?? null,
+      releasedTo: releasedTo ?? null,
     }),
   }
 }
