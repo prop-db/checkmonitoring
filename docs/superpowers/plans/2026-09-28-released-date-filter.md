@@ -603,7 +603,7 @@ Expected: PASS, whole file — including `labels every column` and `defaults to 
 - [ ] **Step 6: Type check and commit**
 
 Run: `npx.cmd tsc --noEmit`
-Expected: no output. If the column-picker component (search `COLUMN_KEYS` under `components/`) enumerates keys with a `Record<ColumnKey, …>` of its own, the compiler names it here; add the `releasedAt` entry there with the same label.
+Expected: no output. The column picker in `components/CheckTable.tsx` derives `OPTIONAL_COLUMNS` from `COLUMN_KEYS` and labels from `COLUMN_LABELS` (checked 2026-09-28), so the new column appears in the picker with no further edit.
 
 ```bash
 git add lib/table-columns.ts components/CheckTable.tsx tests/table-columns.test.ts
@@ -728,7 +728,7 @@ Update the file's opening doc comment's first line to read:
 
 - [ ] **Step 4: Check that `FilterAutoSubmit` submits a date input on change**
 
-Open `components/FilterAutoSubmit.tsx` and find the `change` listener. If it is bound to the form (`form.addEventListener('change', …)`) it already covers the new inputs — a `<input type="date">` fires `change` when a full date is picked or typed. If instead it iterates `form.querySelectorAll('select')`, widen the selector to `'select, input[type="date"]'`. Make no other change.
+No change is needed (checked 2026-09-28): `components/FilterAutoSubmit.tsx` listens for `change` on the form and only skips `input[type="text"]`, so a `<input type="date">` submits on change like a dropdown; the debounced `input` handler ignores it because it is not text. Leave the file alone.
 
 - [ ] **Step 5: The page**
 
@@ -856,7 +856,7 @@ Expected: PASS for all three. `tests/export/route.test.ts` pins that an unauthen
 
 - [ ] **Step 8: See it working**
 
-Start the app with `preview_start` (name from `.claude/launch.json`; create the entry `{"name":"dev","runtimeExecutable":"npm.cmd","runtimeArgs":["run","dev"],"port":3000}` if missing). Sign in with the dev seed's known account. Then check, with `read_page` rather than screenshots where text suffices:
+Start the app with `preview_start` `{name: "check-monitoring-dev"}` (already in `.claude/launch.json`). Sign in with the dev seed's known account. Then check, with `read_page` rather than screenshots where text suffices:
 
 1. `/?status=SIGNED` — the bar shows NO date boxes.
 2. `/?status=RELEASED` — the bar shows DATE RELEASED FROM / TO.
@@ -871,13 +871,11 @@ Take one screenshot of (3) for the final report.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add components/FilterBar.tsx components/FilterAutoSubmit.tsx app/page.tsx app/api/export/route.ts tests/dashboard-links.test.ts
+git add components/FilterBar.tsx app/page.tsx app/api/export/route.ts tests/dashboard-links.test.ts
 git commit -m "feat(dashboard): DATE RELEASED FROM/TO on the filter bar in the RELEASED and ALL CHEQUES views, with the undated-releases disclosure
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
-
-(Omit `components/FilterAutoSubmit.tsx` from `git add` if Step 4 found it needed no change.)
 
 ---
 
