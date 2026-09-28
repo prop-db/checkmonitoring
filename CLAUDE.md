@@ -246,7 +246,11 @@ RELEASED sheets of a register file (exactly one calendar day per cheque — an E
 cell or the text `MM/DD/YYYY`, which is how 222 of the 228 rows dated 25 September were
 typed, nothing else parsed, and nothing before 2015 or after the run day; exactly one
 RELEASED cheque per number; never overwritten; one `stated_release_date_from_register`
-audit row each; snapshot first). `releasedFrom` / `releasedTo` are Manila days, honoured
+audit row each; snapshot first). **Run once, 2026-09-28, from `CHECK MONITORING 9.25.2026.xlsx`
+on the user's go-ahead: 10,494 stated days written (228 of them 25 September), 0 raced,
+snapshot `snapshots/stated-release-dates-2026-09-28T09-48-10-422Z.json`; left alone 66
+VOIDED here, 25 with two days, 168 with no usable date (68 say CLEARED), 234 not held here.**
+`releasedFrom` / `releasedTo` are Manila days, honoured
 only on the RELEASED and ALL CHEQUES views; the table shows the app timestamp or, failing
 that, the stated day tagged REGISTER; the LIST screen counts the cheques with neither. Do
 not write the stated day into `releasedAt`, and do not read `statedReleaseDate` as "the app
