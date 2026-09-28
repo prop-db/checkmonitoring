@@ -92,7 +92,17 @@ text otherwise, null when blank. From that, per cheque:
 | two or more distinct `YYYY-MM-DD`           | `CONFLICTING_DATES`, left, listed          |
 | no `YYYY-MM-DD` at all                      | `NO_USABLE_DATE`, left, counted; verbatim texts listed |
 
-A value is a day only if `isIsoDay` in `lib/domain/details.ts` accepts it.
+A value is a day in exactly two spellings (`asDay`): `YYYY-MM-DD`, which is how the
+reader renders an Excel date cell, and `MM/DD/YYYY` typed as text. **The second was added
+after measuring the 9.25 register** (2026-09-28): 222 of the 228 rows it dates 25
+September hold the text `09/25/2026`, and month/day/year is the only order a Finance
+workstation here shows or types, so reading it is not a guess. `isIsoDay` validates the
+result either way. No other text is read.
+
+**A stated day outside a plausible window is refused, and the whole cheque with it**: the
+window is `2015-01-01` to the Manila day the script runs (the same file states
+`2081-05-08` on one row). The cheque is `NO_USABLE_DATE` and listed with what was typed,
+rather than the bad value being dropped so another row's day could win.
 
 **Matching.** The cheque number is the identity and the register's company only breaks a
 tie — the same rule `judge` in `register-releases.ts` applies and for the same measured
@@ -186,7 +196,8 @@ preference is unaffected.
 - No change to `/recon`, `/forecast`, the cards, TODAY'S RELEASE or the timeline.
 - No automatic re-run: the script is a catch-up over a file the user names, and the
   register is retired.
-- No parsing of text dates like "SEPT 22" into days. They are listed for a human.
+- No parsing of text dates like "SEPT 22" or "CLEARED" into days. They are listed for a
+  human. `MM/DD/YYYY` is the one text form read — see "The backfill".
 
 ## Tests
 

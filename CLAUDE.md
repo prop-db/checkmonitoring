@@ -242,9 +242,11 @@ the list must carry a parameter; a bare `/` never shows a table.
 `2026-09-28-stated-release-date-design.md`). `releasedAt` is the app's own record of a
 release and only `markReleased` writes it; `statedReleaseDate` is the day the retired
 register states, written once by `scripts/backfill-stated-release-dates.ts` from the
-RELEASED sheets of a register file (exactly one calendar day per cheque, exactly one
-RELEASED cheque per number, never overwritten, one `stated_release_date_from_register`
-audit row each, snapshot first). `releasedFrom` / `releasedTo` are Manila days, honoured
+RELEASED sheets of a register file (exactly one calendar day per cheque — an Excel date
+cell or the text `MM/DD/YYYY`, which is how 222 of the 228 rows dated 25 September were
+typed, nothing else parsed, and nothing before 2015 or after the run day; exactly one
+RELEASED cheque per number; never overwritten; one `stated_release_date_from_register`
+audit row each; snapshot first). `releasedFrom` / `releasedTo` are Manila days, honoured
 only on the RELEASED and ALL CHEQUES views; the table shows the app timestamp or, failing
 that, the stated day tagged REGISTER; the LIST screen counts the cheques with neither. Do
 not write the stated day into `releasedAt`, and do not read `statedReleaseDate` as "the app

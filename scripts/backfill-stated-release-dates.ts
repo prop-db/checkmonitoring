@@ -37,9 +37,9 @@ async function main(): Promise<void> {
   try {
     const raw = await readWorkbook(await readFile(files[0]))
     const ref = await loadCompanyReferenceData(db)
-    const plan = await planStatedReleaseDates(db, file, raw, ref)
+    const plan = await planStatedReleaseDates(db, file, raw, ref, new Date())
 
-    console.log(`\nREGISTER  ${file}`)
+    console.log(`\nREGISTER  ${file}  (stated days accepted up to ${plan.latest})`)
     line('cheques the register says were picked up', plan.reading.released.length)
     line('sheet clash nobody has ruled on (left)', plan.reading.unruled.length)
 

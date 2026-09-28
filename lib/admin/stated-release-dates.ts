@@ -1,6 +1,7 @@
 import type { CheckStatus, PrismaClient } from '@prisma/client'
 import { writeAudit } from '@/lib/audit'
 import { isIsoDay } from '@/lib/domain/details'
+import { manilaDay } from '@/lib/forecast/buckets'
 import type { CompanyReferenceData } from '@/lib/import/company'
 import type { RawRow } from '@/lib/import/workbook'
 import { readRegisterReleases, type RegisterReading, type RegisterRelease } from './register-releases'
@@ -23,7 +24,8 @@ import { readRegisterReleases, type RegisterReading, type RegisterRelease } from
  * shows picked up, with each RELEASED-sheet row's DATE RELEASED as
  * `YYYY-MM-DD` when the cell was a date, verbatim text otherwise, null when
  * blank. A day is written only when the cheque's rows state exactly ONE
- * calendar day; text ("SEPT 22") is listed for a human and never parsed.
+ * calendar day. Two spellings count as a day — see `asDay` — and anything
+ * else ("SEPT 22", "CLEARED") is listed for a human and never parsed.
  *
  * WHAT IT MATCHES. The cheque number is the identity and the register's
  * company only breaks a tie — the rule `judge` in register-releases.ts
@@ -40,18 +42,53 @@ export const STATED_RELEASE_DATE_ACTION = 'stated_release_date_from_register'
 /** Same override as `lib/import/upsert.ts` — see CLAUDE.md on Prisma's defaults. */
 const TX_OPTIONS = { timeout: 30_000, maxWait: 15_000 } as const
 
+/**
+ * No cheque in this register predates 2020; a stated day before this is a
+ * mis-key, as is one after the day the script runs. Measured 2026-09-28 in
+ * `CHECK MONITORING 9.25.2026.xlsx`: one row states 2081-05-08.
+ */
+export const EARLIEST_PLAUSIBLE_DAY = '2015-01-01'
+
+const MONTH_DAY_YEAR = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/
+
+/**
+ * The register's DATE RELEASED as a calendar day, or null when it is not one.
+ *
+ * Two spellings, both unambiguous:
+ *   `YYYY-MM-DD`   an Excel date cell, as `readRegisterReleases` renders it;
+ *   `MM/DD/YYYY`   typed as text in the Philippine and Excel display order.
+ * The second is not a guess: measured 2026-09-28, 222 of the 228 rows the 9.25
+ * register dates 25 September hold the text "09/25/2026", and month/day is the
+ * only order a Finance workstation here shows or types. No other text is read.
+ */
+export function asDay(value: string): string | null {
+  const v = value.trim()
+  if (isIsoDay(v)) return v
+  const m = MONTH_DAY_YEAR.exec(v)
+  if (!m) return null
+  const day = `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`
+  return isIsoDay(day) ? day : null
+}
+
 export type StatedDay =
   | { kind: 'DAY'; day: string }
   | { kind: 'CONFLICTING_DATES'; days: string[] }
   | { kind: 'NO_USABLE_DATE'; verbatim: string[] }
 
-/** Pure. The one calendar day a cheque's RELEASED rows state, or why there is none. */
-export function statedDay(release: RegisterRelease): StatedDay {
+/**
+ * Pure. The one calendar day a cheque's RELEASED rows state, or why there is
+ * none. `latest` is the last acceptable day (the Manila day the script runs):
+ * a stated day outside [EARLIEST_PLAUSIBLE_DAY, latest] makes the whole cheque
+ * NO_USABLE_DATE, listed with what was typed, rather than being dropped so the
+ * other value could win — a row that says 2081 needs a person, not a filter.
+ */
+export function statedDay(release: RegisterRelease, latest: string): StatedDay {
   const stated = release.rows.map((r) => r.dateReleased).filter((d): d is string => d !== null)
-  const days = [...new Set(stated.filter(isIsoDay))].sort()
+  const days = [...new Set(stated.map(asDay).filter((d): d is string => d !== null))].sort()
+  const implausible = days.some((d) => d < EARLIEST_PLAUSIBLE_DAY || d > latest)
+  if (implausible || days.length === 0) return { kind: 'NO_USABLE_DATE', verbatim: [...new Set(stated)] }
   if (days.length === 1) return { kind: 'DAY', day: days[0] }
-  if (days.length > 1) return { kind: 'CONFLICTING_DATES', days }
-  return { kind: 'NO_USABLE_DATE', verbatim: [...new Set(stated)] }
+  return { kind: 'CONFLICTING_DATES', days }
 }
 
 /** `YYYY-MM-DD` as the day's UTC midnight — the convention `checkDate` follows. */
@@ -82,8 +119,8 @@ export type Verdict =
   | { kind: 'NO_USABLE_DATE'; verbatim: string[] }
 
 /** Pure. Exactly one RELEASED cheque and exactly one stated day, or nothing is written. */
-export function judge(release: RegisterRelease, candidates: readonly Candidate[]): Verdict {
-  const stated = statedDay(release)
+export function judge(release: RegisterRelease, candidates: readonly Candidate[], latest: string): Verdict {
+  const stated = statedDay(release, latest)
   if (stated.kind !== 'DAY') return stated
 
   const same = candidates.filter((c) => c.checkNumber === release.checkNumber)
@@ -106,6 +143,8 @@ export function judge(release: RegisterRelease, candidates: readonly Candidate[]
 
 export type StatedPlan = {
   file: string
+  /** The last acceptable stated day — the Manila day the plan was made. */
+  latest: string
   toWrite: { release: RegisterRelease; check: Candidate; day: string }[]
   counts: Record<Exclude<Verdict['kind'], 'WRITE'>, number>
   /** What a human should look at: everything left alone for a stated reason. */
@@ -114,8 +153,9 @@ export type StatedPlan = {
 }
 
 export async function planStatedReleaseDates(
-  db: PrismaClient, file: string, raw: RawRow[], ref: CompanyReferenceData,
+  db: PrismaClient, file: string, raw: RawRow[], ref: CompanyReferenceData, now: Date,
 ): Promise<StatedPlan> {
+  const latest = manilaDay(now)
   const reading = readRegisterReleases(raw, ref)
   const numbers = reading.released.map((r) => r.checkNumber)
 
@@ -134,6 +174,7 @@ export async function planStatedReleaseDates(
 
   const plan: StatedPlan = {
     file,
+    latest,
     toWrite: [],
     counts: {
       NOT_IN_SYSTEM: 0, AMBIGUOUS: 0, NOT_RELEASED_HERE: 0, ALREADY_STATED: 0,
@@ -143,7 +184,7 @@ export async function planStatedReleaseDates(
     reading,
   }
   for (const release of reading.released) {
-    const v = judge(release, byNumber.get(release.checkNumber) ?? [])
+    const v = judge(release, byNumber.get(release.checkNumber) ?? [], latest)
     if (v.kind === 'WRITE') { plan.toWrite.push({ release, check: v.check, day: v.day }); continue }
     plan.counts[v.kind]++
     switch (v.kind) {
