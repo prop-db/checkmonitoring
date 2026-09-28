@@ -298,7 +298,16 @@ export function CheckTable({
                   <td className="px-4 py-3 text-slate-600">{fmtDate(r.scheduledPickupDate)}</td>
                 )}
                 {shows('releasedAt') && (
-                  <td className="px-4 py-3 text-slate-600">{fmtDate(r.releasedAt)}</td>
+                  // The app's own timestamp when it has one; otherwise the day
+                  // the retired register stated, tagged so nobody reads a
+                  // spreadsheet date as a release this system recorded.
+                  <td className="px-4 py-3 text-slate-600">
+                    {r.releasedAt
+                      ? fmtDate(r.releasedAt)
+                      : r.statedReleaseDate
+                        ? <>{fmtDate(r.statedReleaseDate)}<span className="ml-1 text-[10px] font-semibold tracking-widest text-slate-400">REGISTER</span></>
+                        : '—'}
+                  </td>
                 )}
                 {/* The supplier's receipt. A ticked row that can carry one gets
                     its own box, which is what lets a batch carry receipts safely:

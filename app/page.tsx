@@ -293,16 +293,15 @@ export default async function DashboardPage({
           released THROUGH THIS APP. Every release the register load imported
           and every one the two catch-ups moved has none — on purpose: a
           timestamp fabricated from a spreadsheet on a release record is worse
-          than none (CLAUDE.md). So a date range can only ever match releases
-          recorded here, and a reader filtering September must be told how much
-          of RELEASED that leaves out, or a short table reads as the whole
-          picture. */}
+          than none (CLAUDE.md). Since 2026-09-28 the register's stated day
+          fills the gap for the cheques it names (`statedReleaseDate`, its own
+          column); what is left is the cheques with neither date, and this line
+          counts exactly those, or a short table reads as the whole picture. */}
       {releasedRange && undatedReleases > 0 && (
         <p className="text-xs font-medium tracking-wide text-slate-500">
           NOT MATCHED: {undatedReleases.toLocaleString('en-PH')} RELEASED{' '}
-          {undatedReleases === 1 ? 'CHEQUE CARRIES' : 'CHEQUES CARRY'} NO RELEASE DATE — released
-          before this system recorded releases, or moved from the register. Only releases recorded
-          here can fall inside a date range.
+          {undatedReleases === 1 ? 'CHEQUE CARRIES' : 'CHEQUES CARRY'} NO RELEASE DATE — neither recorded
+          here nor stated in the register. Only a cheque with one of those dates can fall inside a range.
         </p>
       )}
 

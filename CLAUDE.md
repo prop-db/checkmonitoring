@@ -150,6 +150,8 @@ npx tsx scripts/repair-cr-receipts.ts            # dry run: the register's CR nu
 npx tsx scripts/repair-cr-receipts.ts --apply    # snapshot to snapshots/, then repair, one audit row each
 npx tsx scripts/backfill-released-from-register.ts "CHECK MONITORING 9.24.2026.xlsx"   # dry run: register pick-ups not yet RELEASED
 npx tsx scripts/backfill-released-from-register.ts "<register>.xlsx" --apply           # snapshot, then status only, one audit row each
+npx tsx scripts/backfill-stated-release-dates.ts "CHECK MONITORING 9.25.2026.xlsx"     # dry run: the register's DATE RELEASED onto RELEASED cheques
+npx tsx scripts/backfill-stated-release-dates.ts "<register>.xlsx" --apply              # snapshot, then statedReleaseDate only, one audit row each
 npx tsx scripts/mark-ready-from-release-list.ts "FOR RELEASE 9.25.2026.xlsx"            # dry run: listed cheques not yet READY_FOR_RELEASE
 npx tsx scripts/mark-ready-from-release-list.ts "<for-release>.xlsx" --apply            # snapshot, then status only; never follow with backfill-available
 npx tsx scripts/revert-detail1-ready.ts "<for-release>.xlsx" <ready-from-list snapshot> [--apply]  # Detail1-only READY back to prior status (run 2026-09-25)
@@ -235,13 +237,18 @@ filter, a search, `scope=all`, `incomplete=1`) is LIST: a BACK TO TOTALS bar and
 table. Export and print read the same URL and know nothing about screens. A link that should open
 the list must carry a parameter; a bare `/` never shows a table.
 
-**DATE RELEASED on the filter bar reads `releasedAt`, which is null on every release
-that did not go through the app** (2026-09-28, spec
-`2026-09-28-released-date-filter-design.md`). `releasedFrom` / `releasedTo` are Manila
-days, honoured only on the RELEASED and ALL CHEQUES views and dropped everywhere else by
-`resolveDashboardQuery`; the LIST screen states how many RELEASED cheques carry no date
-whenever a range is in force. The register's DATE RELEASED lives only in the catch-ups'
-audit rows and is never written to `releasedAt` — do not "fix" the blank column with it.
+**DATE RELEASED on the filter bar matches either of two dates that are never merged**
+(2026-09-28, specs `2026-09-28-released-date-filter-design.md` and
+`2026-09-28-stated-release-date-design.md`). `releasedAt` is the app's own record of a
+release and only `markReleased` writes it; `statedReleaseDate` is the day the retired
+register states, written once by `scripts/backfill-stated-release-dates.ts` from the
+RELEASED sheets of a register file (exactly one calendar day per cheque, exactly one
+RELEASED cheque per number, never overwritten, one `stated_release_date_from_register`
+audit row each, snapshot first). `releasedFrom` / `releasedTo` are Manila days, honoured
+only on the RELEASED and ALL CHEQUES views; the table shows the app timestamp or, failing
+that, the stated day tagged REGISTER; the LIST screen counts the cheques with neither. Do
+not write the stated day into `releasedAt`, and do not read `statedReleaseDate` as "the app
+recorded a release" — `lib/recon/outstanding.ts` deliberately reads only `releasedAt`.
 
 **`/welcome` is the public front door, and it is public by name** (2026-09-27, spec
 `2026-09-27-landing-login-and-theme-design.md`). The landing page and `/login` both render
