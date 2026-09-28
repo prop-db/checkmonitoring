@@ -68,6 +68,8 @@ export default async function DashboardPage({
     eligibility?: string
     incomplete?: string
     scope?: string
+    releasedFrom?: string
+    releasedTo?: string
     /**
      * TODAY'S RELEASE's confirmation step. It lives in the URL rather than in a
      * `confirm()` dialog so the step exists before any JavaScript does — on the
@@ -119,6 +121,7 @@ export default async function DashboardPage({
    */
   const {
     q, status, companyId, cashAccountId, eligibility, incomplete, showAll, selection, filters,
+    releasedFrom, releasedTo,
   } = resolveDashboardQuery(params, options)
 
   const screen = dashboardScreen(selection)
@@ -218,9 +221,26 @@ export default async function DashboardPage({
 
   // LIST never loads TODAY'S RELEASE or the sync overview — that state belongs
   // to the totals screen, and this table has its own row counts to state.
-  const [rows, matching] = await Promise.all([
+  //
+  // With a DATE RELEASED range in force, a third count: the released cheques
+  // in this same view that carry NO release instant and so cannot match any
+  // range. Same filters, range removed, narrowed to RELEASED with a null
+  // `releasedAt` — so the number is the number of rows the reader's own view
+  // would have shown had those releases been recorded here.
+  const releasedRange = Boolean(filters.releasedFrom || filters.releasedTo)
+  const [rows, matching, undatedReleases] = await Promise.all([
     listChecks(prisma, filters),
     countChecks(prisma, filters),
+    releasedRange
+      ? countChecks(prisma, {
+          ...filters,
+          releasedFrom: undefined,
+          releasedTo: undefined,
+          status: 'RELEASED',
+          statusIn: undefined,
+          releasedAtIsNull: true,
+        })
+      : Promise.resolve(0),
   ])
 
   return (
@@ -268,6 +288,24 @@ export default async function DashboardPage({
         </p>
       )}
 
+      {/* ── THE OTHER DISCLOSURE ────────────────────────────────────────────
+          `releasedAt` is written only by `markReleased`, when a cheque is
+          released THROUGH THIS APP. Every release the register load imported
+          and every one the two catch-ups moved has none — on purpose: a
+          timestamp fabricated from a spreadsheet on a release record is worse
+          than none (CLAUDE.md). So a date range can only ever match releases
+          recorded here, and a reader filtering September must be told how much
+          of RELEASED that leaves out, or a short table reads as the whole
+          picture. */}
+      {releasedRange && undatedReleases > 0 && (
+        <p className="text-xs font-medium tracking-wide text-slate-500">
+          NOT MATCHED: {undatedReleases.toLocaleString('en-PH')} RELEASED{' '}
+          {undatedReleases === 1 ? 'CHEQUE CARRIES' : 'CHEQUES CARRY'} NO RELEASE DATE — released
+          before this system recorded releases, or moved from the register. Only releases recorded
+          here can fall inside a date range.
+        </p>
+      )}
+
       <FilterBar
         options={options}
         showAll={showAll}
@@ -277,6 +315,9 @@ export default async function DashboardPage({
         cashAccountId={cashAccountId ?? ''}
         eligibility={eligibility ?? ''}
         incomplete={incomplete}
+        releasedFrom={releasedFrom}
+        releasedTo={releasedTo}
+        showReleasedRange={status === 'RELEASED' || showAll}
         clearHref={clearFiltersHref(selection)}
       />
 

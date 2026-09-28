@@ -8,7 +8,7 @@ const APPLY_ID = 'filter-apply'
 
 /**
  * The dashboard's filter bar: one row — SEARCH · COMPANY · BANK · ELIGIBILITY ·
- * INCOMPLETE · RESET.
+ * DATE RELEASED (RELEASED and ALL CHEQUES views only) · INCOMPLETE · RESET.
  *
  * A plain `<form method="get">`, deliberately, and still one. Every control
  * writes a URL parameter, which is what makes a filtered view linkable,
@@ -44,7 +44,8 @@ const APPLY_ID = 'filter-apply'
  * did not read the cards as filters while a dropdown was competing with them.
  */
 export function FilterBar({
-  options, showAll, q, status, companyId, cashAccountId, eligibility, incomplete, clearHref,
+  options, showAll, q, status, companyId, cashAccountId, eligibility, incomplete,
+  releasedFrom, releasedTo, showReleasedRange, clearHref,
 }: {
   options: FilterOptions
   showAll: boolean
@@ -54,6 +55,11 @@ export function FilterBar({
   cashAccountId: string
   eligibility: string
   incomplete: boolean
+  /** The validated DATE RELEASED days, or `''`. */
+  releasedFrom: string
+  releasedTo: string
+  /** True on the RELEASED and ALL CHEQUES views — the only views a release date can narrow. */
+  showReleasedRange: boolean
   clearHref: string
 }) {
   // A RESET control that is always there is furniture, and on an unfiltered
@@ -61,7 +67,7 @@ export function FilterBar({
   // The status is NOT counted. It is the view, not a filter, and RESET
   // deliberately keeps it: a bar offering RESET on an otherwise untouched
   // SIGNED view would promise to clear something it does not clear.
-  const anyFilter = Boolean(q || companyId || cashAccountId || eligibility || incomplete)
+  const anyFilter = Boolean(q || companyId || cashAccountId || eligibility || incomplete || releasedFrom || releasedTo)
 
   const field = 'h-10 rounded-lg border border-hairline bg-white px-3 text-sm text-slate-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy'
 
@@ -110,6 +116,32 @@ export function FilterBar({
           <option key={e} value={e}>{e}</option>
         ))}
       </select>
+
+      {/* DATE RELEASED — only where a released cheque can be. On NEEDS ACTION,
+          READY, SIGNED and PENDING the boxes are not rendered at all: a live
+          cheque has no release instant, so a range there could only empty the
+          table, and the resolver drops the parameters on those views anyway.
+          Two plain date inputs: a native GET submit sends them, the enhancement
+          submits them on change like the dropdowns, and `filterHref` drops an
+          empty one the way it drops an empty search. */}
+      {showReleasedRange && (
+        <>
+          <label htmlFor="filter-released-from" className="whitespace-nowrap text-[11px] font-semibold tracking-widest text-slate-500">
+            DATE RELEASED FROM
+          </label>
+          <input
+            id="filter-released-from" name="releasedFrom" type="date" defaultValue={releasedFrom}
+            className={field}
+          />
+          <label htmlFor="filter-released-to" className="whitespace-nowrap text-[11px] font-semibold tracking-widest text-slate-500">
+            TO
+          </label>
+          <input
+            id="filter-released-to" name="releasedTo" type="date" defaultValue={releasedTo}
+            className={field}
+          />
+        </>
+      )}
 
       {/* The 129 cheques whose amount the register never recorded. A narrowing
           filter, never a view: incompleteness cuts across every status (50

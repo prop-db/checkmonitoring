@@ -52,6 +52,13 @@ describe('filterHref', () => {
     expect(filterHref([['q', 'A & B']])).toBe('/?q=A+%26+B')
   })
 
+  // The two date boxes are ordinary form controls: an empty one is dropped like
+  // an empty search, a filled one is carried as the day the browser typed.
+  it('carries a filled DATE RELEASED box and drops an empty one', () => {
+    expect(filterHref([['status', 'RELEASED'], ['releasedFrom', ''], ['releasedTo', '2026-09-15']]))
+      .toBe('/?status=RELEASED&releasedTo=2026-09-15')
+  })
+
   // The checkbox submits `incomplete=1`, and only "1" turns the filter on.
   it('passes the incomplete toggle through as the value the page reads', () => {
     expect(filterHref([['incomplete', '1']])).toBe('/?incomplete=1')
@@ -110,6 +117,15 @@ describe('dashboardHref', () => {
       base: { q: 'ACME', company: 'c1' },
     }
     expect(dashboardHref(sel)).toBe('/?q=ACME&company=c1&status=SIGNED&incomplete=1')
+  })
+
+  it('carries the DATE RELEASED range the resolver put in `base`', () => {
+    const sel: DashboardSelection = {
+      status: 'RELEASED', showAll: false, incomplete: false,
+      base: { releasedFrom: '2026-09-01', releasedTo: '2026-09-15' },
+    }
+    expect(dashboardHref(sel)).toBe('/?releasedFrom=2026-09-01&releasedTo=2026-09-15&status=RELEASED')
+    expect(exportHref(sel)).toBe('/api/export?releasedFrom=2026-09-01&releasedTo=2026-09-15&status=RELEASED')
   })
 
   it('does not toggle anything off on the way back', () => {

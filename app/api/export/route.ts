@@ -66,6 +66,8 @@ export async function GET(request: Request): Promise<Response> {
     eligibility: read('eligibility'),
     incomplete: read('incomplete'),
     scope: read('scope'),
+    releasedFrom: read('releasedFrom'),
+    releasedTo: read('releasedTo'),
   }, options)
 
   const [rows, matching, summary] = await Promise.all([
