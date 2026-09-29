@@ -11,6 +11,7 @@ import {
 } from '@/lib/dashboard-view'
 import { AppHeader } from '@/components/AppHeader'
 import { SummaryCards } from '@/components/SummaryCards'
+import { TotalsFilterBar } from '@/components/TotalsFilterBar'
 import { ReleaseTimeline } from '@/components/ReleaseTimeline'
 import { TodaysReleasePanel } from '@/components/TodaysReleasePanel'
 import { QuickActions } from '@/components/QuickActions'
@@ -81,13 +82,13 @@ export default async function DashboardPage({
   const user = await requireUser()
   const params = await searchParams
 
-  // The summary does not depend on the filters, and the dropdown options do not
-  // depend on the summary — so both are fetched before the filters are known.
+  // The dropdown options and the settings do not depend on the URL, so they
+  // are fetched first; the summary does, since 2026-09-29 ("should have filter
+  // in every summary"), so it is fetched once the URL is resolved below.
   // `settings` rides along so the sync overview's thresholds, and everything
   // below that reads a setting, come from the same read every screen shares
   // rather than a hard-coded default nobody can change.
-  const [summary, options, settings] = await Promise.all([
-    getSummary(prisma),
+  const [options, settings] = await Promise.all([
     getFilterOptions(prisma),
     loadSettings(prisma),
   ])
@@ -107,31 +108,32 @@ export default async function DashboardPage({
    * above — the same list the dropdowns render, so the two cannot disagree
    * about what is selectable.
    *
-   * Only the TABLE is scoped by any of this. `getSummary` above takes none of
-   * these filters and goes on counting system-wide: a card that quietly
-   * reported the filtered subset would read as a total while meaning something
-   * else.
-   *
-   * The ONE narrowing the cards share with the table is the exclusion of the
-   * cheques with no recorded amount, and it is shared on purpose — `getSummary`
-   * applies it itself, `buildWhere` applies it here, and a PENDING SIGNATURE
-   * card whose table opened five rows short is the drift that would otherwise
-   * appear the moment the table stopped showing them. The count that is left out
-   * is printed above the table with a link that shows it.
+   * The cards share THREE narrowings with the table — company, bank and
+   * eligibility (client request 2026-09-29) — and the exclusion of the cheques
+   * with no recorded amount. They do NOT share the view, the search or the
+   * incomplete toggle: those open the list. `getSummary` applies the
+   * exclusion itself, `buildWhere` applies it for the table, and a PENDING
+   * SIGNATURE card whose table opened five rows short is the drift that would
+   * otherwise appear the moment the table stopped showing them. The count that
+   * is left out is printed on screen with a link that shows it.
    */
   const {
     q, status, companyId, cashAccountId, eligibility, incomplete, showAll, selection, filters,
-    releasedFrom, releasedTo,
+    releasedFrom, releasedTo, narrowingDescription,
   } = resolveDashboardQuery(params, options)
+
+  const narrow = { companyId, cashAccountId, eligibility }
+  const summary = await getSummary(prisma, narrow)
 
   const screen = dashboardScreen(selection)
 
   if (screen === 'TOTALS') {
-    // TOTALS never narrows, so `getTodaysRelease` and the sync overview are the
-    // only queries it needs beyond the three already fetched above; `listChecks`
-    // and `countChecks` belong to the LIST screen and do not run here.
+    // `getTodaysRelease` and the sync overview are the only queries it needs
+    // beyond the summary fetched above; `listChecks` and `countChecks` belong
+    // to the LIST screen and do not run here.
     const [todaysRelease, syncOverview] = await Promise.all([
-      getTodaysRelease(prisma),
+      // TODAY'S RELEASE narrows with the cards; the sync overview is system-wide.
+      getTodaysRelease(prisma, narrow),
       // Two cheap findFirsts per tenant on an indexed column, for the staleness
       // line below. It reads `settings` above, so it cannot join the
       // `Promise.all` those three run in.
@@ -153,6 +155,14 @@ export default async function DashboardPage({
         {/* When Acumatica was last read. Above the cards, because every number
             on them is only as current as this line says. */}
         <SyncStatusLine staleness={staleness} isAdmin={user.role === 'FINANCE_ADMIN'} />
+
+        <TotalsFilterBar
+          options={options}
+          companyId={companyId ?? ''}
+          cashAccountId={cashAccountId ?? ''}
+          eligibility={eligibility ?? ''}
+          description={narrowingDescription}
+        />
 
         {/* The cards ARE the view selector — which set of cheques the table shows
             — and they carry the narrowing filters forward so choosing a view does
@@ -206,6 +216,10 @@ export default async function DashboardPage({
             list, so the totals keep one box for it. It submits to `/?q=…`, which
             `dashboardScreen` reads as the LIST. */}
         <form action="/" method="get" className="flex max-w-xl items-center gap-2" role="search">
+          {/* A search from a narrowed TOTALS opens a list narrowed the same way. */}
+          {companyId && <input type="hidden" name="company" value={companyId} />}
+          {cashAccountId && <input type="hidden" name="cashAccount" value={cashAccountId} />}
+          {eligibility && <input type="hidden" name="eligibility" value={eligibility} />}
           <label htmlFor="totals-search" className="sr-only">Search cheques</label>
           <input
             id="totals-search" name="q" type="search"

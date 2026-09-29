@@ -643,11 +643,13 @@ describe('releaseAllReadyAction', () => {
     expect((await testDb.check.findUniqueOrThrow({ where: { id: broker.id } })).status).toBe('RELEASED')
     expect((await testDb.check.findUniqueOrThrow({ where: { id: supplier.id } })).status).toBe('READY_FOR_RELEASE')
 
+    const internal = await makeCheck({ status: 'READY_FOR_RELEASE', eligibility: 'INTERNAL' })
     const byEligibility = await releaseAllReadyAction(
       null, fd([], { confirm: 'release', expectedCount: '1', eligibility: 'SUPPLIER' }),
     )
     expect(byEligibility.ok).toBe(true)
     expect((await testDb.check.findUniqueOrThrow({ where: { id: supplier.id } })).status).toBe('RELEASED')
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: internal.id } })).status).toBe('READY_FOR_RELEASE')
   })
 
   /**
