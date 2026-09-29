@@ -646,7 +646,9 @@ describe('getSummary narrowed', () => {
     expect(s.pendingSignature).toBe(0)
     expect(s.total).toBe(1)
     expect(s.incomplete).toBe(1)
-    expect(s.totalsByCurrency).toEqual([{ currency: 'PHP', total: '100', count: 1 }])
+    // The currency group is deliberately NOT narrowed by completeness (see the
+    // note in getSummary): the no-amount cheque is counted, its null skipped.
+    expect(s.totalsByCurrency).toEqual([{ currency: 'PHP', total: '100', count: 2 }])
   })
 
   it('narrows to one cash account', async () => {
