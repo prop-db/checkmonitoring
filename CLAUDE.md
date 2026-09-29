@@ -246,7 +246,12 @@ CHECKS (card id `TOTAL_CHECKS`, `scope=all`, labelled TOTAL CHECKS until 2026-09
 card and **keeps the filters** like every other card — it is the cheque inventory; it no longer
 clears them, RESET does. Export and print read the same URL and know nothing about screens. A
 link that should open the list must carry one of the LIST parameters; a bare `/` or a
-company/bank/eligibility-only URL never shows a table.
+company/bank/eligibility-only URL never shows a table. `dashboardScreen` fails closed: any
+`base` key outside `TOTALS_KEYS` (company, cashAccount, eligibility) opens the LIST, and RESET
+and the incomplete toggle write `scope=live` on NEEDS ACTION so they cannot land on the totals.
+The LIST screen's "EXCLUDING N WITH NO RECORDED AMOUNT" count is now narrowed by company, bank
+and eligibility like the cards (it was system-wide), and BACK TO TOTALS keeps those three via
+`totalsHref` — narrowing to STK, opening SIGNED and coming back lands on STK's totals.
 
 **DATE RELEASED on the filter bar matches either of two dates that are never merged**
 (2026-09-28, specs `2026-09-28-released-date-filter-design.md` and
@@ -509,8 +514,10 @@ Plans 1 and 2 complete. Plan 3 is superseded by `docs/superpowers/plans/2026-09-
 `lib/sync/portal-outbox.ts` to the portal's `POST /api/integrations/check-monitoring/events`
 with `PORTAL_BASE_URL` / `PORTAL_TOKEN` (a bearer, no session), latest event per cheque wins,
 `/admin/portal` shows what parked. Pickup confirmations back (old Task 6) remain a follow-up.
-**1,537 tests across 113 files** (arithmetic on the 2026-09-28 full run plus the per-file
-counts below; not a fresh full run) — 1,519 across 113 before the TOTALS-screen filters and ALL
+**1,543 tests across 113 files** (arithmetic on the 2026-09-28 full run plus the per-file
+counts below; not a fresh full run) — 1,537 across 113 before the final-review fixes
+(`dashboard-view` +5: `totalsHref` 3, `dashboardScreen` fails closed 1, RESET / incomplete
+toggle stay on the list 1; `actions/bulk-actions` +1: a whitespace filter refuses); 1,519 across 113 before the TOTALS-screen filters and ALL
 CHECKS (`dashboard-view` +5, `export/dashboard-params` +3, `dashboard-links` +1, `queries` +6,
 `actions/bulk-actions` +3; measured, full run 2026-09-28, 30.8 minutes; one case in
 `actions/receipt` failed in that run and passed alone straight after — a timeout while a
