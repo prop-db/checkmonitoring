@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { testDb, resetDb } from './helpers/db'
 import { makeCheck } from './helpers/factory'
 import {
-  getSummary, getTodaysRelease, listChecks, countChecks, toTableRow, getFilterOptions,
+  getSummary, getTodaysRelease, listTodaysReleaseIds, listChecks, countChecks, toTableRow, getFilterOptions,
   parseStatusParam, parseEligibilityParam, parseOptionId,
 } from '@/lib/queries'
 import { formatMoney } from '@/lib/money'
@@ -113,6 +113,67 @@ describe('getSummary', () => {
     const s = await getSummary(testDb)
     expect(s.totalsByCurrency).toEqual([{ currency: 'USD', total: null, count: 2 }])
     expect(formatMoney(s.totalsByCurrency[0].total, 'USD')).toBe('—')
+  })
+})
+
+/**
+ * Client request 2026-09-29: "should have filter in every summary". The TOTALS
+ * screen's company, bank and eligibility dropdowns narrow every card, so the
+ * summary takes the same three filters the table reads — and applies them to
+ * ALL of its figures, the disclosure count included, so no card can report the
+ * whole company while the one beside it reports the filtered set.
+ */
+describe('getSummary narrowed', () => {
+  it('narrows every count, the value total and the disclosure to one company', async () => {
+    const mine = await makeCheck({ status: 'SIGNED', amount: '100.00' })
+    await makeCheck({ status: 'SIGNED', amount: '200.00' })
+    await makeCheck({ status: 'RELEASED', amount: '400.00' })
+    // A cheque with no amount, in the SAME company, so the disclosure has one to count.
+    await testDb.check.create({
+      data: {
+        companyId: mine.companyId, cashAccountId: mine.cashAccountId,
+        checkNumber: '6000000001', apvNumbers: [], checkDate: new Date('2026-09-01'),
+        amount: null, isIncomplete: true, currency: 'PHP', payeeName: 'X',
+        eligibility: 'SUPPLIER', status: 'SIGNATURE_PENDING', isCheque: true,
+      },
+    })
+
+    const s = await getSummary(testDb, { companyId: mine.companyId })
+    expect(s.signed).toBe(1)
+    expect(s.released).toBe(0)
+    expect(s.pendingSignature).toBe(0)
+    expect(s.total).toBe(1)
+    expect(s.incomplete).toBe(1)
+    // The currency group is deliberately NOT narrowed by completeness (see the
+    // note in getSummary): the no-amount cheque is counted, its null skipped.
+    expect(s.totalsByCurrency).toEqual([{ currency: 'PHP', total: '100', count: 2 }])
+  })
+
+  it('narrows to one cash account', async () => {
+    const mine = await makeCheck({ status: 'READY_FOR_RELEASE' })
+    await makeCheck({ status: 'READY_FOR_RELEASE' })
+
+    const s = await getSummary(testDb, { cashAccountId: mine.cashAccountId! })
+    expect(s.readyForRelease).toBe(1)
+    expect(s.total).toBe(1)
+  })
+
+  it('narrows to one eligibility', async () => {
+    await makeCheck({ status: 'SIGNED', eligibility: 'INTERNAL' })
+    await makeCheck({ status: 'SIGNED', eligibility: 'SUPPLIER' })
+    await makeCheck({ status: 'SIGNED', eligibility: 'SUPPLIER' })
+
+    const s = await getSummary(testDb, { eligibility: 'SUPPLIER' })
+    expect(s.signed).toBe(2)
+    expect(s.total).toBe(2)
+  })
+
+  it('is the whole database with no narrowing, exactly as before', async () => {
+    await makeCheck({ status: 'SIGNED' })
+    await makeCheck({ status: 'SIGNED' })
+
+    expect((await getSummary(testDb)).signed).toBe(2)
+    expect((await getSummary(testDb, {})).signed).toBe(2)
   })
 })
 
@@ -838,5 +899,34 @@ describe('getTodaysRelease', () => {
     const t = await getTodaysRelease(testDb)
     expect(typeof t.totalsByCurrency[0].total).toBe('string')
     expect(formatMoney(t.totalsByCurrency[0].total, 'PHP')).toBe('₱6,315,173.06')
+  })
+})
+describe("getTodaysRelease and listTodaysReleaseIds narrowed", () => {
+  it('count the ready cheques of one company, and RELEASE ALL acts on exactly those', async () => {
+    const mine = await makeCheck({ status: 'READY_FOR_RELEASE', amount: '100.00' })
+    const alsoMine = await testDb.check.create({
+      data: {
+        companyId: mine.companyId, cashAccountId: mine.cashAccountId,
+        checkNumber: '6000000002', apvNumbers: [], checkDate: new Date('2026-09-02'),
+        amount: '50.00', isIncomplete: false, currency: 'PHP', payeeName: 'X',
+        eligibility: 'SUPPLIER', status: 'SCHEDULED', isCheque: true,
+      },
+    })
+    await makeCheck({ status: 'READY_FOR_RELEASE', amount: '1000.00' })
+
+    const t = await getTodaysRelease(testDb, { companyId: mine.companyId })
+    expect(t.count).toBe(2)
+    expect(t.totalsByCurrency).toEqual([{ currency: 'PHP', total: '150', count: 2 }])
+
+    const ids = await listTodaysReleaseIds(testDb, { companyId: mine.companyId })
+    expect(ids).toEqual([mine.id, alsoMine.id])
+  })
+
+  it('narrow by cash account and by eligibility the same way', async () => {
+    const bpi = await makeCheck({ status: 'READY_FOR_RELEASE', eligibility: 'BROKER' })
+    await makeCheck({ status: 'READY_FOR_RELEASE', eligibility: 'SUPPLIER' })
+
+    expect((await getTodaysRelease(testDb, { cashAccountId: bpi.cashAccountId! })).count).toBe(1)
+    expect(await listTodaysReleaseIds(testDb, { eligibility: 'BROKER' })).toEqual([bpi.id])
   })
 })

@@ -104,11 +104,32 @@ export type CurrencyTotal = { currency: string; total: string | null; count: num
  */
 const COMPLETE_ONLY = { isIncomplete: false } as const
 
-export async function getSummary(db: Db) {
+/**
+ * The narrowing the TOTALS screen applies to every figure on it (client
+ * request 2026-09-29: "should have filter in every summary") — the three
+ * dropdowns that screen has, and nothing else. A `Pick` of `CheckFilters`
+ * rather than a new shape, so the cards and the table cannot disagree about
+ * what a company or a bank means.
+ */
+export type SummaryNarrowing = Pick<CheckFilters, 'companyId' | 'cashAccountId' | 'eligibility'>
+
+function narrowingWhere(narrow: SummaryNarrowing): Prisma.CheckWhereInput {
+  const where: Prisma.CheckWhereInput = {}
+  if (narrow.companyId) where.companyId = narrow.companyId
+  if (narrow.cashAccountId) where.cashAccountId = narrow.cashAccountId
+  if (narrow.eligibility) where.eligibility = narrow.eligibility
+  return where
+}
+
+export async function getSummary(db: Db, narrow: SummaryNarrowing = {}) {
+  // Applied to ALL FOUR figures, the disclosure included: a narrowed screen
+  // whose "excluding N with no amount" line still counted the whole database
+  // would be a number nobody could reconcile with the cards above it.
+  const scope = narrowingWhere(narrow)
   const [grouped, currencyAgg, total, incomplete] = await Promise.all([
     // Every count on the dashboard is struck over the same population the table
     // shows — see COMPLETE_ONLY.
-    db.check.groupBy({ by: ['status'], _count: { _all: true }, where: COMPLETE_ONLY }),
+    db.check.groupBy({ by: ['status'], _count: { _all: true }, where: { ...scope, ...COMPLETE_ONLY } }),
     /**
      * Grouped by currency, never summed across them: adding a PHP amount to a
      * CNY amount produces a number with no meaning, so there is no code path
@@ -126,14 +147,14 @@ export async function getSummary(db: Db) {
       by: ['currency'],
       _sum: { amount: true },
       _count: { _all: true },
-      where: { status: { not: 'CANCELLED' } },
+      where: { ...scope, status: { not: 'CANCELLED' } },
     }),
-    db.check.count({ where: COMPLETE_ONLY }),
+    db.check.count({ where: { ...scope, ...COMPLETE_ONLY } }),
     // The one figure that counts them, because it is the DISCLOSURE: the number
     // the dashboard states on screen, beside the link that shows them. Counted,
     // never subtracted from anything, and never zero just because the rest of
     // this function stopped looking at them.
-    db.check.count({ where: { isIncomplete: true } }),
+    db.check.count({ where: { ...scope, isIncomplete: true } }),
   ])
   const count = (s: CheckStatus) => grouped.find((g) => g.status === s)?._count._all ?? 0
   // `amount` is nullable and 397 register rows have no amount. Verified against
@@ -251,8 +272,10 @@ export type TodaysRelease = {
  * separately, so "81 cheques" and the currency rows beneath it cannot come from
  * two queries that saw different data.
  */
-export async function getTodaysRelease(db: Db): Promise<TodaysRelease> {
-  const where = buildWhere(TODAYS_RELEASE_FILTER)
+export async function getTodaysRelease(db: Db, narrow: SummaryNarrowing = {}): Promise<TodaysRelease> {
+  // The same narrowing the cards read, spread over the same filter RELEASE ALL
+  // reads below — the panel and the button are one set, narrowed or not.
+  const where = buildWhere({ ...TODAYS_RELEASE_FILTER, ...narrow })
 
   const grouped = await db.check.groupBy({
     by: ['currency'],
@@ -291,9 +314,9 @@ export async function getTodaysRelease(db: Db): Promise<TodaysRelease> {
  * order too when asked for `nulls: 'first'`; being explicit keeps the undated
  * ones out of the front of the queue.
  */
-export async function listTodaysReleaseIds(db: Db): Promise<string[]> {
+export async function listTodaysReleaseIds(db: Db, narrow: SummaryNarrowing = {}): Promise<string[]> {
   const rows = await db.check.findMany({
-    where: buildWhere(TODAYS_RELEASE_FILTER),
+    where: buildWhere({ ...TODAYS_RELEASE_FILTER, ...narrow }),
     orderBy: [{ checkDate: { sort: 'asc', nulls: 'last' } }, { checkNumber: 'asc' }],
     select: { id: true },
   })
