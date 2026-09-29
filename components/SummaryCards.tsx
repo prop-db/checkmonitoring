@@ -248,7 +248,7 @@ export type { DashboardSelection } from '@/lib/dashboard-view'
  * what it is all worth. The SECONDARY row holds the historical view (RELEASED)
  * at a fraction of the weight.
  *
- * There was a fifth: INCOMPLETE, the exception list. It is gone (client
+ * There was a sixth: INCOMPLETE, the exception list. It is gone (client
  * decision, 2026-09-06) along with the cheques it counted, which are now out of
  * every figure on this screen. See the TOTAL VALUE card below.
  * ──────────────────────────────────────────────────────────────────────────

@@ -1,4 +1,3 @@
-import Link from 'next/link'
 import { ELIGIBILITIES } from '@/lib/queries'
 import type { FilterOptions } from '@/lib/queries'
 import { bankLabel } from '@/lib/export/report'
@@ -73,11 +72,14 @@ export function FilterBar({
   const field = 'h-10 rounded-lg border border-hairline bg-white px-3 text-sm text-slate-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy'
 
   return (
-    // Keyed on the values in force: React does not re-apply `defaultValue` to a
-    // mounted input or select, so RESET (a client-side navigation) must remount
-    // the form to clear what the reader had typed.
+    // NOT keyed on the values in force, unlike the TOTALS bar. `FilterAutoSubmit`
+    // depends on this form's DOM surviving each soft navigation — that is what
+    // keeps the caret in the search box across the 400 ms debounce — and a key
+    // carrying `q` remounted the form on every keystroke's submit and threw the
+    // reader out of the box (caught in review, 2026-09-29). RESET below is a
+    // full navigation instead, which is how a mounted input's `defaultValue`
+    // gets re-applied.
     <form
-      key={`${q}|${status}|${companyId}|${cashAccountId}|${eligibility}|${incomplete}|${releasedFrom}|${releasedTo}`}
       className="flex flex-wrap items-center gap-2 rounded-2xl bg-white p-3 ring-1 ring-hairline"
       method="get"
     >
@@ -187,12 +189,18 @@ export function FilterBar({
         // A link, not a reset button: reset would restore the form's defaults,
         // which ARE the current filters, and appear to do nothing. This goes to
         // an unfiltered URL and keeps only the VIEW the user is reading in.
-        <Link
+        //
+        // A plain anchor, not `next/link`, on purpose: a soft navigation leaves
+        // this form mounted, and React does not re-apply `defaultValue` to a
+        // mounted input, so the cleared URL would sit above a box still holding
+        // the old search. One full page load, only on RESET, is the price of a
+        // form the search box can be typed into without being remounted.
+        <a
           href={clearHref}
           className="h-10 rounded-lg px-3 py-2 text-sm font-medium text-navy underline underline-offset-2 hover:text-slate-900"
         >
           RESET
-        </Link>
+        </a>
       )}
 
       <FilterAutoSubmit applyButtonId={APPLY_ID} />

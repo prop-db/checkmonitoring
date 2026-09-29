@@ -34,8 +34,9 @@ import { loadSettings } from '@/lib/settings/read'
  * answers are on it before anything is scrolled:
  *
  *   1  KPI ROW          what is ready, what is signed and waiting, what is with
- *                       a signatory, what is it all worth. Four cards — there
- *                       was a fifth, INCOMPLETE, removed on 2026-09-06.
+ *                       a signatory, what is in the inventory, what is it all
+ *                       worth. Five cards — INCOMPLETE was removed on
+ *                       2026-09-06 and ALL CHECKS moved up on 2026-09-29.
  *   2  TODAY'S RELEASE  the action itself, and the only control that hands
  *                       money over.
  *   3  RELEASE TIMELINE where the queue is jammed — 1,034 on SIGNED beside 80
