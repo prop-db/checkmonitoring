@@ -113,9 +113,17 @@ describe('TOTAL CHECKS', () => {
       .toBe('ALL CHEQUES — EVERY STATUS, INCLUDING RELEASED, CANCELLED AND VOIDED')
   })
 
-  it('clears every filter: the search, the dropdowns, the incomplete toggle and any status', () => {
+  /**
+   * Client request 2026-09-29: ALL CHECKS is the cheque INVENTORY — "every
+   * cheque STK holds at BPI, any status" — so it keeps the narrowing filters
+   * like every other card. It used to clear them ("show me everything, start
+   * again"); RESET on either filter bar is the way to do that now.
+   */
+  it('carries the search, the dropdowns and the incomplete toggle into the all-cheques view', () => {
     const messy: DashboardSelection = { ...NARROWED, status: 'SIGNED', incomplete: true }
-    expect(cardHref('TOTAL_CHECKS', messy)).toBe('/?scope=all')
+    expect(cardHref('TOTAL_CHECKS', messy))
+      .toBe('/?q=ACME&company=c1&cashAccount=a1&eligibility=ELIGIBLE&scope=all&incomplete=1')
+    expect(cardHref('TOTAL_CHECKS', NOTHING)).toBe('/?scope=all')
   })
 
   it('is selected only when it is the view, never beside a status card', () => {

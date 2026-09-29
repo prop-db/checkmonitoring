@@ -56,6 +56,17 @@ function IconValue() {
   )
 }
 
+function IconInventory() {
+  return (
+    <svg className={ICON} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <rect x="3" y="3" width="5.5" height="5.5" rx="1" />
+      <rect x="11.5" y="3" width="5.5" height="5.5" rx="1" />
+      <rect x="3" y="11.5" width="5.5" height="5.5" rx="1" />
+      <rect x="11.5" y="11.5" width="5.5" height="5.5" rx="1" />
+    </svg>
+  )
+}
+
 function IconSigned() {
   return (
     <svg className={ICON} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
@@ -277,7 +288,7 @@ export function SummaryCards({
   const card = (id: CardId) => ({
     selected: isCardSelected(id, selection),
     href: cardHref(id, selection),
-    hint: 'VIEWING — CLICK FOR NEEDS ACTION',
+    hint: 'VIEWING — CLICK FOR THE NEEDS ACTION LIST',
   })
 
   // SCHEDULED has no card of its own. To Finance the two are one state — the
@@ -290,9 +301,10 @@ export function SummaryCards({
 
   return (
     <section className="space-y-3">
-      {/* Four across, not five: the INCOMPLETE card left the row on 2026-09-06
-          and a five-column grid would leave a hole where it stood. */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {/* Five across since 2026-09-29: ALL CHECKS moved up from the secondary
+          row, because it is the cheque inventory (client request) and an
+          inventory is not a historical view. */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <PrimaryCard
           label="READY FOR RELEASE"
           icon={<IconReady />}
@@ -349,6 +361,21 @@ export function SummaryCards({
             went, and it is the reason removing the card is honest rather than a
             number that quietly got smaller. */}
 
+        {/* ALL CHECKS — the cheque INVENTORY (client request, 2026-09-29:
+            "should ALL CHECKS in dashboard, to be use in checks inventory").
+            Every status, and it keeps the company, bank, eligibility and
+            incomplete filters like every other card, so the list it opens — and
+            the export and print sheet, which read the same URL — is "every
+            cheque STK holds at BPI". Card id and URL parameter are unchanged
+            (`TOTAL_CHECKS`, `scope=all`); only the label and the row moved. */}
+        <PrimaryCard
+          label="ALL CHECKS"
+          icon={<IconInventory />}
+          value={summary.total.toLocaleString('en-PH')}
+          support="EVERY STATUS · INCLUDING RELEASED, CANCELLED AND VOIDED"
+          {...card('TOTAL_CHECKS')}
+        />
+
         {/* Not clickable: there is no "cheques worth this much" set to view. */}
         <PrimaryCard
           label="TOTAL VALUE"
@@ -367,16 +394,14 @@ export function SummaryCards({
         />
       </div>
 
-      {/* The historical views, at a fraction of the weight. Still links, still
-          the view selector — demoted, not removed. */}
+      {/* The historical view, at a fraction of the weight. Still a link, still
+          the view selector — demoted, not removed. ALL CHECKS left this row on
+          2026-09-29. */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:max-w-2xl">
         {/* An explicit status wins over the NEEDS ACTION default, which excludes
             RELEASED — so this opens a full table without widening the view to
             everything. */}
         <SecondaryCard label="RELEASED" value={summary.released.toLocaleString('en-PH')} {...card('RELEASED')} />
-        {/* "Show me everything, start again": every status, and no company, bank,
-            eligibility, search or incomplete filter left over. */}
-        <SecondaryCard label="TOTAL CHECKS" value={summary.total.toLocaleString('en-PH')} {...card('TOTAL_CHECKS')} />
       </div>
     </section>
   )

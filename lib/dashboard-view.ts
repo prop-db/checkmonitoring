@@ -19,7 +19,7 @@ import { LIVE_STATUSES } from './domain/check-status'
  *
  *   NEEDS ACTION   the default, with no card selected. `LIVE_STATUSES` only.
  *   a status       one rung of the ladder; READY FOR RELEASE folds in SCHEDULED.
- *   ALL CHEQUES    the TOTAL CHECKS card. Every status, and nothing else set.
+ *   ALL CHEQUES    the ALL CHECKS card. Every status, narrowed like any other view.
  *   INCOMPLETE     a toggle that COMPOSES with whichever view is selected.
  *
  * THE INCOMPLETE TOGGLE IS NOW OFF BY DEFAULT AND MEANS "EXCLUDE" (client
@@ -151,13 +151,15 @@ export function isCardSelected(card: CardId, sel: DashboardSelection): boolean {
 /**
  * Where a card points.
  *
- * A selected view card links back to NEEDS ACTION, so clicking it again turns
- * it off: a filter you can switch on and cannot switch off sends people to the
- * browser's Back button to undo a click they just made.
+ * A selected view card links back to the NEEDS ACTION list, so clicking it
+ * again turns it off: a filter you can switch on and cannot switch off sends
+ * people to the browser's Back button to undo a click they just made.
  *
- * TOTAL CHECKS is the exception on the way in. It is the "show me everything,
- * start again" control, so selecting it drops the search, the dropdowns and the
- * incomplete toggle as well as any status. Every other card carries them along.
+ * ALL CHECKS (`TOTAL_CHECKS`) is no longer an exception on the way in. It used
+ * to clear the search, the dropdowns and the incomplete toggle — "show me
+ * everything, start again". Since 2026-09-29 it is the cheque inventory: every
+ * status, narrowed by whatever the reader chose, so "every cheque STK holds at
+ * BPI" is one click. RESET on the filter bar is what clears.
  */
 export function cardHref(card: CardId, sel: DashboardSelection): string {
   const selected = isCardSelected(card, sel)
@@ -166,7 +168,7 @@ export function cardHref(card: CardId, sel: DashboardSelection): string {
   // reader was looking at a table and clicked to widen it, not to leave it.
   if (selected) return href(sel.base, { ...NEEDS_ACTION, incomplete: sel.incomplete, live: true })
 
-  if (card === 'TOTAL_CHECKS') return href({}, { status: null, showAll: true, incomplete: false })
+  if (card === 'TOTAL_CHECKS') return href(sel.base, { status: null, showAll: true, incomplete: sel.incomplete })
 
   return href(sel.base, { status: card, showAll: false, incomplete: sel.incomplete })
 }
