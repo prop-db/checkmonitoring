@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { ELIGIBILITIES } from '@/lib/queries'
 import type { FilterOptions } from '@/lib/queries'
+import { bankLabel } from '@/lib/export/report'
 import { FilterAutoSubmit } from './FilterAutoSubmit'
 
 /** The APPLY button's id, so the enhancement can find and hide it. */
@@ -73,7 +74,7 @@ export function FilterBar({
 
   return (
     <form className="flex flex-wrap items-center gap-2 rounded-2xl bg-white p-3 ring-1 ring-hairline" method="get">
-      {/* The VIEW survives a search. These two hidden fields are the whole
+      {/* The VIEW survives a search. These hidden fields are the whole
           reason the status dropdown could be removed safely: a GET submit sends
           only the form's own controls, so without them searching inside SIGNED
           would drop `status` and silently throw the user back to NEEDS ACTION.
@@ -81,6 +82,13 @@ export function FilterBar({
           view for exactly the same reason. */}
       {status && <input type="hidden" name="status" value={status} />}
       {showAll && <input type="hidden" name="scope" value="all" />}
+      {/* The NEEDS ACTION list, said out loud. Without it, clearing the search
+          and choosing a company would submit `/?company=…`, which since
+          2026-09-29 is the TOTALS screen for that company — the reader would
+          be thrown off the list they were filtering. `status` and `scope=all`
+          already open the list, so the marker is only needed when neither is
+          set. See `DashboardSelection.live`. */}
+      {!status && !showAll && <input type="hidden" name="scope" value="live" />}
 
       <label className="sr-only" htmlFor="filter-q">SEARCH</label>
       <input
@@ -105,7 +113,7 @@ export function FilterBar({
       <select id="filter-cash-account" name="cashAccount" defaultValue={cashAccountId} className={field}>
         <option value="">ALL BANKS / CASH ACCOUNTS</option>
         {options.cashAccounts.map((a) => (
-          <option key={a.id} value={a.id}>{a.code}{a.code.includes(a.bankCode) ? '' : ` (${a.bankCode})`}</option>
+          <option key={a.id} value={a.id}>{bankLabel(a.code, a.bankCode)}</option>
         ))}
       </select>
 

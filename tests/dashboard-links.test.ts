@@ -48,6 +48,10 @@ describe('filterHref', () => {
     expect(filterHref([['scope', 'all']])).toBe('/?scope=all')
   })
 
+  it('passes the list\'s hidden scope=live through unchanged, like the other hidden view fields', () => {
+    expect(filterHref([['scope', 'live'], ['company', 'c1']])).toBe('/?scope=live&company=c1')
+  })
+
   it('escapes what a user typed rather than pasting it into the query string', () => {
     expect(filterHref([['q', 'A & B']])).toBe('/?q=A+%26+B')
   })
