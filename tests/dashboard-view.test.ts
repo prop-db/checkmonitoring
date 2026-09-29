@@ -3,7 +3,7 @@ import {
   isCardSelected, cardHref, incompleteHref, clearFiltersHref, describeView, viewStatusFilter,
   releaseConfirmHref, releaseCancelHref, TODAYS_RELEASE_ANCHOR,
   exportHref, EXPORT_PATH, dashboardHref, printHref,
-  dashboardScreen,
+  dashboardScreen, totalsHref,
   type DashboardSelection,
 } from '@/lib/dashboard-view'
 import { LIVE_STATUSES } from '@/lib/domain/check-status'
@@ -189,7 +189,20 @@ describe('INCOMPLETE (NO AMOUNT) is a toggle, and no longer a card', () => {
    * quietly got smaller is how somebody concludes money went missing.
    */
   it('offers a way back to them from the plain dashboard', () => {
-    expect(incompleteHref(NOTHING)).toBe('/?incomplete=1')
+    expect(incompleteHref(NOTHING)).toBe('/?scope=live&incomplete=1')
+  })
+
+  /**
+   * The link is only ever rendered on the TOTALS screen or the list, and both
+   * destinations are lists: on NEEDS ACTION it writes `scope=live` so a URL
+   * that carries only a company (`/?company=c1`, now the TOTALS) cannot come
+   * back from a click as the totals it was meant to leave.
+   */
+  it('keeps the NEEDS ACTION view on the list in both directions', () => {
+    expect(incompleteHref({ ...NOTHING, incomplete: true, base: { company: 'c1' } }))
+      .toBe('/?company=c1&scope=live')
+    expect(incompleteHref({ ...NOTHING, base: { company: 'c1' } }))
+      .toBe('/?company=c1&scope=live&incomplete=1')
   })
 })
 
@@ -197,7 +210,10 @@ describe('CLEAR FILTERS', () => {
   it('drops the narrowing filters and keeps the view being read', () => {
     expect(clearFiltersHref({ ...NARROWED, status: 'SIGNED', incomplete: true })).toBe('/?status=SIGNED')
     expect(clearFiltersHref({ ...NARROWED, showAll: true })).toBe('/?scope=all')
-    expect(clearFiltersHref(NARROWED)).toBe('/')
+    // On NEEDS ACTION the URL that is left would be a bare `/` — the TOTALS.
+    // RESET sits on the list's filter bar, so it writes `scope=live`.
+    expect(clearFiltersHref(NARROWED)).toBe('/?scope=live')
+    expect(clearFiltersHref({ ...NOTHING, base: { q: 'ACME' } })).toBe('/?scope=live')
   })
 })
 
@@ -304,6 +320,40 @@ describe('dashboardScreen', () => {
     // A search on a narrowed TOTALS screen opens the list narrowed the same way.
     expect(dashboardScreen({ ...NOTHING, base: { company: 'c1', q: '6000351234' } })).toBe('LIST')
   })
+
+  // Fails closed: a filter the TOTALS screen does not read must open the list,
+  // or the next filter added to `base` silently renders as unnarrowed totals.
+  it('opens the LIST for any base key other than the three TOTALS filters', () => {
+    expect(dashboardScreen({ ...NOTHING, base: { payee: 'X' } })).toBe('LIST')
+    expect(dashboardScreen({ ...NOTHING, base: { releasedFrom: '2026-09-01' } })).toBe('LIST')
+    expect(dashboardScreen({ ...NOTHING, base: { company: 'c1', payee: 'X' } })).toBe('LIST')
+  })
+})
+
+/**
+ * BACK TO TOTALS keeps the narrowing (review, 2026-09-29). Narrowing to STK,
+ * opening SIGNED and coming back must land on STK's totals — the bare `/` it
+ * used to link to lost the filter the reader had just chosen on every round trip.
+ */
+describe('totalsHref', () => {
+  it('keeps the company, bank and eligibility and nothing else', () => {
+    const sel: DashboardSelection = {
+      ...NOTHING, status: 'SIGNED', incomplete: true, live: true,
+      base: { q: 'ACME', company: 'c1', cashAccount: 'a1', eligibility: 'SUPPLIER', releasedFrom: '2026-09-01' },
+    }
+    expect(totalsHref(sel)).toBe('/?company=c1&cashAccount=a1&eligibility=SUPPLIER')
+  })
+
+  it('is the bare dashboard when nothing was narrowed', () => {
+    expect(totalsHref(NOTHING)).toBe('/')
+    expect(totalsHref({ ...NOTHING, showAll: true, base: { q: 'ACME' } })).toBe('/')
+  })
+
+  it('is a URL that opens the TOTALS screen', () => {
+    const back = new URL(totalsHref({ ...NARROWED, status: 'SIGNED' }), 'http://x')
+    const base = Object.fromEntries(back.searchParams)
+    expect(dashboardScreen({ ...NOTHING, base })).toBe('TOTALS')
+  })
 })
 
 /**
@@ -338,9 +388,14 @@ describe('scope=live', () => {
   })
 
   it('is dropped by the RELEASE ALL links, which live on the totals screen', () => {
-    // The panel is never rendered on the list, so a selection reaching these has live=false.
-    expect(releaseConfirmHref(NOTHING)).toBe(`/?confirm=release#${TODAYS_RELEASE_ANCHOR}`)
-    expect(releaseCancelHref({ ...NOTHING, base: { company: 'c1' } }))
+    // Fed a selection that HAS `live` set, so the test fails if either link
+    // ever starts passing it: the panel sits on the TOTALS, and `scope=live`
+    // there would turn the screen the reader is confirming on into the list.
+    expect(releaseConfirmHref(LIVE)).toBe(`/?confirm=release#${TODAYS_RELEASE_ANCHOR}`)
+    expect(releaseCancelHref(LIVE)).toBe(`/#${TODAYS_RELEASE_ANCHOR}`)
+    expect(releaseConfirmHref({ ...LIVE, base: { company: 'c1' } }))
+      .toBe(`/?company=c1&confirm=release#${TODAYS_RELEASE_ANCHOR}`)
+    expect(releaseCancelHref({ ...LIVE, base: { company: 'c1' } }))
       .toBe(`/?company=c1#${TODAYS_RELEASE_ANCHOR}`)
   })
 })

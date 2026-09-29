@@ -73,7 +73,14 @@ export function FilterBar({
   const field = 'h-10 rounded-lg border border-hairline bg-white px-3 text-sm text-slate-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy'
 
   return (
-    <form className="flex flex-wrap items-center gap-2 rounded-2xl bg-white p-3 ring-1 ring-hairline" method="get">
+    // Keyed on the values in force: React does not re-apply `defaultValue` to a
+    // mounted input or select, so RESET (a client-side navigation) must remount
+    // the form to clear what the reader had typed.
+    <form
+      key={`${q}|${status}|${companyId}|${cashAccountId}|${eligibility}|${incomplete}|${releasedFrom}|${releasedTo}`}
+      className="flex flex-wrap items-center gap-2 rounded-2xl bg-white p-3 ring-1 ring-hairline"
+      method="get"
+    >
       {/* The VIEW survives a search. These hidden fields are the whole
           reason the status dropdown could be removed safely: a GET submit sends
           only the form's own controls, so without them searching inside SIGNED

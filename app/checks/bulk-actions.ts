@@ -46,22 +46,32 @@ const str = (f: FormData, k: string) => String(f.get(k) ?? '').trim()
 
 /**
  * The narrowing the TOTALS screen was showing when RELEASE ALL was pressed,
- * read back off the form. `null` means a value was present and is not
- * recognised — the caller refuses, because dropping it would silently widen
- * the set from one company to every company. An absent value is no narrowing:
- * the unfiltered screen, and the behaviour before 2026-09-29.
+ * read back off the form. `null` means a field was SENT and does not parse
+ * to a recognised value — the caller refuses, because dropping it would
+ * silently widen the set from one company to every company. A field that is
+ * not on the request at all is no narrowing: the unfiltered screen, and the
+ * behaviour before 2026-09-29.
+ *
+ * "Sent" is `formData.has`, not "non-empty after trimming": the form renders
+ * a hidden field only when it holds a value, so any field that arrives is
+ * meant as a narrowing, and `company=%20` must refuse rather than read as
+ * absent (review, 2026-09-29).
  */
 async function readReleaseNarrowing(formData: FormData): Promise<SummaryNarrowing | null> {
+  const sentCompany = formData.has('company')
+  const sentCashAccount = formData.has('cashAccount')
+  const sentEligibility = formData.has('eligibility')
+  if (!sentCompany && !sentCashAccount && !sentEligibility) return {}
+
   const company = str(formData, 'company')
   const cashAccount = str(formData, 'cashAccount')
   const eligibility = str(formData, 'eligibility')
-  if (!company && !cashAccount && !eligibility) return {}
 
   const options = await getFilterOptions(prisma)
   const companyId = parseOptionId(company || undefined, options.companies)
   const cashAccountId = parseOptionId(cashAccount || undefined, options.cashAccounts)
   const elig = parseEligibilityParam(eligibility || undefined)
-  if ((company && !companyId) || (cashAccount && !cashAccountId) || (eligibility && !elig)) return null
+  if ((sentCompany && !companyId) || (sentCashAccount && !cashAccountId) || (sentEligibility && !elig)) return null
   return { companyId, cashAccountId, eligibility: elig }
 }
 

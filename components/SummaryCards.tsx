@@ -174,12 +174,13 @@ function PrimaryCard({
 /**
  * A SECONDARY card: smaller, quieter, still a view.
  *
- * RELEASED (9,545) and TOTAL CHECKS (11,671) are the two largest numbers on the
- * screen and the two least actionable — nobody will touch a released cheque
- * again. Given the same weight as READY FOR RELEASE they out-shout it by two
- * orders of magnitude, which is the client's complaint exactly. Demoted, not
- * removed: they stay clickable views, because the cards ARE the view selector
- * and that model does not change.
+ * RELEASED (9,545) is the largest number on the screen and the least
+ * actionable — nobody will touch a released cheque again. Given the same
+ * weight as READY FOR RELEASE it out-shouts it by two orders of magnitude,
+ * which is the client's complaint exactly. Demoted, not removed: it stays a
+ * clickable view, because the cards ARE the view selector and that model does
+ * not change. (TOTAL CHECKS was demoted with it until 2026-09-29, when it
+ * became ALL CHECKS, the inventory, and moved up to the primary row.)
  */
 function SecondaryCard({
   label, value, href, selected, hint,
@@ -241,10 +242,11 @@ export type { DashboardSelection } from '@/lib/dashboard-view'
  * stated as a layout: RELEASED at 9,545 and READY FOR RELEASE at 80 were the
  * same size in the same colour, and the eye goes to the big number.
  *
- * So there are two rows now. The PRIMARY four answer the questions the first
+ * So there are two rows now. The PRIMARY five answer the questions the first
  * screen exists to answer — what is ready for supplier release, what is signed
- * and waiting, what is still with a signatory — plus what it is all worth. The
- * SECONDARY row holds the historical views at a fraction of the weight.
+ * and waiting, what is still with a signatory, what is in the inventory — plus
+ * what it is all worth. The SECONDARY row holds the historical view (RELEASED)
+ * at a fraction of the weight.
  *
  * There was a fifth: INCOMPLETE, the exception list. It is gone (client
  * decision, 2026-09-06) along with the cheques it counted, which are now out of
@@ -350,17 +352,6 @@ export function SummaryCards({
           {...card('SIGNATURE_PENDING')}
         />
 
-        {/* THE INCOMPLETE CARD IS GONE (client decision, 2026-09-06). Shown the
-            card reading 129 the client said "ignore them mean you have to remove
-            them, dont consider them becuase they dont have amount", so those
-            cheques are out of every count on this screen and out of the table.
-
-            Nothing was deleted — 25 of them are RELEASED — and the exclusion is
-            not silent either: `app/page.tsx` states the number above the table
-            with a link that shows them. That notice is where this card's figure
-            went, and it is the reason removing the card is honest rather than a
-            number that quietly got smaller. */}
-
         {/* ALL CHECKS — the cheque INVENTORY (client request, 2026-09-29:
             "should ALL CHECKS in dashboard, to be use in checks inventory").
             Every status, and it keeps the company, bank, eligibility and
@@ -376,7 +367,20 @@ export function SummaryCards({
           {...card('TOTAL_CHECKS')}
         />
 
-        {/* Not clickable: there is no "cheques worth this much" set to view. */}
+        {/* THE INCOMPLETE CARD IS GONE (client decision, 2026-09-06). Shown the
+            card reading 129 the client said "ignore them mean you have to remove
+            them, dont consider them becuase they dont have amount", so those
+            cheques are out of every count on this screen and out of the table.
+
+            Nothing was deleted — 25 of them are RELEASED — and the exclusion is
+            not silent either: `app/page.tsx` states the number under the cards
+            and above the table, with a link that shows them. That notice is where
+            this card's figure went, and it is the reason removing the card is
+            honest rather than a number that quietly got smaller. The support
+            line below repeats it, because TOTAL VALUE is the figure that would
+            otherwise read as complete.
+
+            Not clickable: there is no "cheques worth this much" set to view. */}
         <PrimaryCard
           label="TOTAL VALUE"
           icon={<IconValue />}

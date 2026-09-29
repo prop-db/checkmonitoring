@@ -180,7 +180,8 @@ export async function getSummary(db: Db, narrow: SummaryNarrowing = {}) {
   }))
   return {
     /**
-     * The TOTAL CHECKS card, and the count the TOTAL VALUE line is struck over.
+     * The ALL CHECKS card (labelled TOTAL CHECKS until 2026-09-29), and the
+     * count the TOTAL VALUE line is struck over.
      *
      * It is the number of cheques the dashboard SHOWS, not the number of rows
      * in the table: since 2026-09-06 it excludes the ones with no recorded
@@ -252,6 +253,23 @@ export const TODAYS_RELEASE_FILTER: CheckFilters = {
   incomplete: false,
 }
 
+/**
+ * The filter behind the panel and RELEASE ALL: the fixed READY FOR RELEASE
+ * filter with exactly the three narrowings the dashboard reads, named one by
+ * one. Spreading `narrow` instead would let any caller holding a full
+ * `CheckFilters` (it is assignable to `SummaryNarrowing`) override
+ * `statusIn` or `incomplete` — and RELEASE ALL acts on this set (review,
+ * 2026-09-29).
+ */
+function todaysReleaseFilter(narrow: SummaryNarrowing): CheckFilters {
+  return {
+    ...TODAYS_RELEASE_FILTER,
+    companyId: narrow.companyId,
+    cashAccountId: narrow.cashAccountId,
+    eligibility: narrow.eligibility,
+  }
+}
+
 /** What the TODAY'S RELEASE panel shows, and what RELEASE ALL would act on. */
 export type TodaysRelease = {
   /**
@@ -275,7 +293,7 @@ export type TodaysRelease = {
 export async function getTodaysRelease(db: Db, narrow: SummaryNarrowing = {}): Promise<TodaysRelease> {
   // The same narrowing the cards read, spread over the same filter RELEASE ALL
   // reads below — the panel and the button are one set, narrowed or not.
-  const where = buildWhere({ ...TODAYS_RELEASE_FILTER, ...narrow })
+  const where = buildWhere(todaysReleaseFilter(narrow))
 
   const grouped = await db.check.groupBy({
     by: ['currency'],
@@ -316,7 +334,7 @@ export async function getTodaysRelease(db: Db, narrow: SummaryNarrowing = {}): P
  */
 export async function listTodaysReleaseIds(db: Db, narrow: SummaryNarrowing = {}): Promise<string[]> {
   const rows = await db.check.findMany({
-    where: buildWhere({ ...TODAYS_RELEASE_FILTER, ...narrow }),
+    where: buildWhere(todaysReleaseFilter(narrow)),
     orderBy: [{ checkDate: { sort: 'asc', nulls: 'last' } }, { checkNumber: 'asc' }],
     select: { id: true },
   })

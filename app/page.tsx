@@ -7,7 +7,7 @@ import {
 import { resolveDashboardQuery } from '@/lib/dashboard-params'
 import {
   clearFiltersHref, dashboardScreen, describeView, incompleteHref,
-  releaseConfirmHref, releaseCancelHref,
+  releaseConfirmHref, releaseCancelHref, totalsHref,
 } from '@/lib/dashboard-view'
 import { AppHeader } from '@/components/AppHeader'
 import { SummaryCards } from '@/components/SummaryCards'
@@ -42,20 +42,22 @@ import { loadSettings } from '@/lib/settings/read'
  *                       on READY is the fact no single card states.
  *   4  the secondary row, the quick actions, the filters, the table.
  *
- * RELEASED (9,545) and TOTAL CHECKS (11,671) are the two largest numbers in the
- * system and the two least actionable. They are demoted into a small secondary
- * row inside `SummaryCards` — still clickable views, because the cards ARE the
- * view selector and that model has not changed.
+ * RELEASED (9,545) is the largest number in the system and the least
+ * actionable. It is demoted into a small secondary row inside `SummaryCards` —
+ * still a clickable view, because the cards ARE the view selector and that model
+ * has not changed. ALL CHECKS (labelled TOTAL CHECKS until 2026-09-29) is not
+ * demoted any more: it is the cheque inventory, and sits in the primary row.
  *
  * ── TWO SCREENS (client, 2026-09-25) ──────────────────────────────────────
  * "Just only show the totals. Once it is click, it will only the list so i
  * can have more space." A bare `/` renders TOTALS — the KPI row, TODAY'S
- * RELEASE, the timeline and a search box, nothing narrowed. Choosing a card,
- * a timeline node, a search or a filter writes a parameter that narrows the
- * view, and that alone switches the page to LIST — the full-width table with
- * its filter bar, quick actions and export. `dashboardScreen` (Task 1) is the
- * one place that reads the resolved selection and says which screen a URL is;
- * neither screen loads the other's data.
+ * RELEASE, the timeline and a search box. Since 2026-09-29 the TOTALS screen
+ * has its own COMPANY / BANK / ELIGIBILITY dropdowns, and those three narrow
+ * every figure on it without leaving it. Choosing a card, a timeline node, a
+ * search or any other filter writes a parameter that switches the page to
+ * LIST — the full-width table with its filter bar, quick actions and export.
+ * `dashboardScreen` is the one place that reads the resolved selection and says
+ * which screen a URL is; neither screen loads the other's data.
  * ──────────────────────────────────────────────────────────────────────────
  */
 export default async function DashboardPage({
@@ -84,7 +86,8 @@ export default async function DashboardPage({
 
   // The dropdown options and the settings do not depend on the URL, so they
   // are fetched first; the summary does, since 2026-09-29 ("should have filter
-  // in every summary"), so it is fetched once the URL is resolved below.
+  // in every summary"), so it is fetched once the URL is resolved below — in
+  // the same `Promise.all` as the rest of the screen's queries, not on its own.
   // `settings` rides along so the sync overview's thresholds, and everything
   // below that reads a setting, come from the same read every screen shares
   // rather than a hard-coded default nobody can change.
@@ -123,20 +126,20 @@ export default async function DashboardPage({
   } = resolveDashboardQuery(params, options)
 
   const narrow = { companyId, cashAccountId, eligibility }
-  const summary = await getSummary(prisma, narrow)
 
   const screen = dashboardScreen(selection)
 
   if (screen === 'TOTALS') {
-    // `getTodaysRelease` and the sync overview are the only queries it needs
-    // beyond the summary fetched above; `listChecks` and `countChecks` belong
-    // to the LIST screen and do not run here.
-    const [todaysRelease, syncOverview] = await Promise.all([
-      // TODAY'S RELEASE narrows with the cards; the sync overview is system-wide.
+    // The summary, TODAY'S RELEASE and the sync overview are the queries this
+    // screen needs, run together; `listChecks` and `countChecks` belong to the
+    // LIST screen and do not run here.
+    const [summary, todaysRelease, syncOverview] = await Promise.all([
+      // The cards and TODAY'S RELEASE narrow with the dropdowns; the sync
+      // overview is system-wide.
+      getSummary(prisma, narrow),
       getTodaysRelease(prisma, narrow),
       // Two cheap findFirsts per tenant on an indexed column, for the staleness
-      // line below. It reads `settings` above, so it cannot join the
-      // `Promise.all` those three run in.
+      // line below. It reads `settings` from the first fetch above.
       getSyncOverview(prisma, undefined, settings.values['sync.abandonedAfterMinutes']),
     ])
 
@@ -235,7 +238,9 @@ export default async function DashboardPage({
   }
 
   // LIST never loads TODAY'S RELEASE or the sync overview — that state belongs
-  // to the totals screen, and this table has its own row counts to state.
+  // to the totals screen, and this table has its own row counts to state. It
+  // does read the summary, for the EXCLUDING N WITH NO RECORDED AMOUNT line,
+  // narrowed by the same three dropdowns as the table.
   //
   // With a DATE RELEASED range in force, a third count: the released cheques
   // in this same view that carry NO release instant and so cannot match any
@@ -243,7 +248,8 @@ export default async function DashboardPage({
   // `releasedAt` — so the number is the number of rows the reader's own view
   // would have shown had those releases been recorded here.
   const releasedRange = Boolean(filters.releasedFrom || filters.releasedTo)
-  const [rows, matching, undatedReleases] = await Promise.all([
+  const [summary, rows, matching, undatedReleases] = await Promise.all([
+    getSummary(prisma, narrow),
     listChecks(prisma, filters),
     countChecks(prisma, filters),
     releasedRange
@@ -267,7 +273,7 @@ export default async function DashboardPage({
           what is listed below it. */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white px-4 py-3 ring-1 ring-hairline">
         <div className="flex flex-wrap items-center gap-3">
-          <Link href="/" className="text-sm font-semibold tracking-wide text-navy underline-offset-2 hover:underline">
+          <Link href={totalsHref(selection)} className="text-sm font-semibold tracking-wide text-navy underline-offset-2 hover:underline">
             ← BACK TO TOTALS
           </Link>
           <span className="text-xs font-medium tracking-wide text-slate-600">

@@ -39,7 +39,14 @@ export function TotalsFilterBar({
 
   return (
     <section className="space-y-2">
-      <form className="flex flex-wrap items-center gap-2 rounded-2xl bg-white p-3 ring-1 ring-hairline" method="get">
+      {/* Keyed on the values in force: React does not re-apply `defaultValue`
+          to a select that is already mounted, so after a client-side navigation
+          (RESET, a card, BACK TO TOTALS) the form must remount to show them. */}
+      <form
+        key={`${companyId}|${cashAccountId}|${eligibility}`}
+        className="flex flex-wrap items-center gap-2 rounded-2xl bg-white p-3 ring-1 ring-hairline"
+        method="get"
+      >
         <label className="sr-only" htmlFor="totals-company">COMPANY</label>
         <select id="totals-company" name="company" defaultValue={companyId} className={field}>
           <option value="">ALL COMPANIES</option>

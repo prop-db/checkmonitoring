@@ -662,7 +662,12 @@ describe('releaseAllReadyAction', () => {
     currentUser.role = 'FINANCE_ADMIN'
     const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
 
-    const badFilters: Record<string, string>[] = [{ company: 'co-gone' }, { cashAccount: 'ca-gone' }, { eligibility: 'MAYBE' }]
+    const badFilters: Record<string, string>[] = [
+      { company: 'co-gone' }, { cashAccount: 'ca-gone' }, { eligibility: 'MAYBE' },
+      // A recognised company beside a bank that names nothing: the good half
+      // must not carry the bad half through as "the company's cheques".
+      { company: a.companyId, cashAccount: 'ca-gone' },
+    ]
     for (const bad of badFilters) {
       const result = await releaseAllReadyAction(
         null, fd([], { confirm: 'release', expectedCount: '1', ...bad }),
@@ -672,6 +677,31 @@ describe('releaseAllReadyAction', () => {
       expect(result.message).toMatch(/filter/i)
     }
     expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('READY_FOR_RELEASE')
+    expect(await testDb.auditLog.count({ where: { action: 'released' } })).toBe(0)
+  })
+
+  /**
+   * A field the form SENT that parses to nothing is a filter, not an absent
+   * one. The form renders a hidden field only when it is non-empty, so any
+   * field on the request is meant as a narrowing — and treating whitespace as
+   * "nothing sent" would widen the set from one company to every company.
+   */
+  it('refuses, and releases nothing, when a filter arrives as whitespace or empty', async () => {
+    const { releaseAllReadyAction } = await import('@/app/checks/bulk-actions')
+    currentUser.role = 'FINANCE_ADMIN'
+    const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
+
+    const blanks: Record<string, string>[] = [{ company: '   ' }, { cashAccount: '' }, { eligibility: ' ' }]
+    for (const bad of blanks) {
+      const result = await releaseAllReadyAction(
+        null, fd([], { confirm: 'release', expectedCount: '1', ...bad }),
+      )
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.message).toMatch(/filter/i)
+    }
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('READY_FOR_RELEASE')
+    expect(await testDb.auditLog.count({ where: { action: 'released' } })).toBe(0)
   })
 })
 
