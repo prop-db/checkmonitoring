@@ -72,14 +72,19 @@ export function FilterBar({
   const field = 'h-10 rounded-lg border border-hairline bg-white px-3 text-sm text-slate-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy'
 
   return (
-    // NOT keyed on the values in force, unlike the TOTALS bar. `FilterAutoSubmit`
-    // depends on this form's DOM surviving each soft navigation — that is what
-    // keeps the caret in the search box across the 400 ms debounce — and a key
-    // carrying `q` remounted the form on every keystroke's submit and threw the
-    // reader out of the box (caught in review, 2026-09-29). RESET below is a
-    // full navigation instead, which is how a mounted input's `defaultValue`
-    // gets re-applied.
+    // Keyed on the NON-TEXT values only. React does not re-apply `defaultValue`
+    // to a mounted control, and the page's own incomplete links ("Show them" /
+    // "Back to the cheques with amounts") are soft navigations that leave this
+    // form mounted — without a key the INCOMPLETE ONLY box kept its old state
+    // and the next dropdown change silently submitted it, undoing the toggle.
+    // `q` and the two dates are deliberately NOT in the key: `FilterAutoSubmit`
+    // depends on the DOM surviving each debounced submit — that is what keeps
+    // the caret in the search box — and a key carrying `q` remounted the form on
+    // every keystroke's submit and threw the reader out (caught in review,
+    // 2026-09-29). RESET below is a full navigation, which is how the text
+    // boxes get their defaults re-applied.
     <form
+      key={`${status}|${companyId}|${cashAccountId}|${eligibility}|${incomplete}`}
       className="flex flex-wrap items-center gap-2 rounded-2xl bg-white p-3 ring-1 ring-hairline"
       method="get"
     >
