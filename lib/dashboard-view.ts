@@ -93,23 +93,38 @@ export type DashboardSelection = {
   status: CheckStatus | null
   showAll: boolean
   incomplete: boolean
+  /**
+   * `scope=live`: the NEEDS ACTION list asked for AS A LIST.
+   *
+   * NEEDS ACTION has no card, and since 2026-09-29 the TOTALS screen has the
+   * company, bank and eligibility dropdowns too, so `/?company=c1` is the
+   * totals for one company and no longer the list. The list's filter bar
+   * carries this marker on the NEEDS ACTION view — exactly as it carries
+   * `status` or `scope=all` on every other — so that clearing the search and
+   * choosing a company keeps the reader on the list they were reading.
+   *
+   * It changes no filter: `viewStatusFilter` never reads it, and
+   * `describeView` says what it says. `status` and `scope=all` win over it.
+   */
+  live: boolean
   base: Readonly<Record<string, string>>
 }
 
 type ViewState = Pick<DashboardSelection, 'status' | 'showAll'>
+type LinkState = ViewState & { incomplete: boolean; live?: boolean; confirmRelease?: boolean }
 
 /**
  * A dashboard URL. `base` first so the narrowing filters keep a stable order,
  * then the view, then the toggle. An empty query string becomes `/` rather than
  * `/?`.
  */
-function query(
-  base: Readonly<Record<string, string>>,
-  view: ViewState & { incomplete: boolean; confirmRelease?: boolean },
-): string {
+function query(base: Readonly<Record<string, string>>, view: LinkState): string {
   const qs = new URLSearchParams(base)
   if (view.status) qs.set('status', view.status)
   if (view.showAll) qs.set('scope', 'all')
+  // The NEEDS ACTION list, said out loud — only when nothing else already
+  // opens the list. `status` and `scope=all` win.
+  else if (view.live && !view.status) qs.set('scope', 'live')
   if (view.incomplete) qs.set('incomplete', '1')
   // Only ever set by `releaseConfirmHref`. Every other caller omits it, which is
   // how choosing a card or clearing the filters also steps back out of a
@@ -118,10 +133,7 @@ function query(
   return qs.toString()
 }
 
-function href(
-  base: Readonly<Record<string, string>>,
-  view: ViewState & { incomplete: boolean; confirmRelease?: boolean },
-): string {
+function href(base: Readonly<Record<string, string>>, view: LinkState): string {
   const s = query(base, view)
   return s ? `/?${s}` : '/'
 }
@@ -150,7 +162,9 @@ export function isCardSelected(card: CardId, sel: DashboardSelection): boolean {
 export function cardHref(card: CardId, sel: DashboardSelection): string {
   const selected = isCardSelected(card, sel)
 
-  if (selected) return href(sel.base, { ...NEEDS_ACTION, incomplete: sel.incomplete })
+  // A deselected card lands on the NEEDS ACTION LIST, not on the totals: the
+  // reader was looking at a table and clicked to widen it, not to leave it.
+  if (selected) return href(sel.base, { ...NEEDS_ACTION, incomplete: sel.incomplete, live: true })
 
   if (card === 'TOTAL_CHECKS') return href({}, { status: null, showAll: true, incomplete: false })
 
@@ -171,7 +185,7 @@ export function cardHref(card: CardId, sel: DashboardSelection): string {
  */
 export function incompleteHref(sel: DashboardSelection): string {
   return href(sel.base, {
-    status: sel.status, showAll: sel.showAll, incomplete: !sel.incomplete,
+    status: sel.status, showAll: sel.showAll, incomplete: !sel.incomplete, live: sel.live,
   })
 }
 
@@ -181,7 +195,7 @@ export function incompleteHref(sel: DashboardSelection): string {
  * also throw the user back to a different set of cheques.
  */
 export function clearFiltersHref(sel: DashboardSelection): string {
-  return href({}, { status: sel.status, showAll: sel.showAll, incomplete: false })
+  return href({}, { status: sel.status, showAll: sel.showAll, incomplete: false, live: sel.live })
 }
 
 /**
@@ -231,7 +245,7 @@ export const EXPORT_PATH = '/api/export'
  */
 export function exportHref(sel: DashboardSelection): string {
   const s = query(sel.base, {
-    status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete,
+    status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete, live: sel.live,
   })
   return s ? `${EXPORT_PATH}?${s}` : EXPORT_PATH
 }
@@ -244,7 +258,7 @@ export function exportHref(sel: DashboardSelection): string {
  */
 export function dashboardHref(sel: DashboardSelection): string {
   return href(sel.base, {
-    status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete,
+    status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete, live: sel.live,
   })
 }
 
@@ -265,7 +279,7 @@ export const PRINT_PATH = '/print'
  */
 export function printHref(sel: DashboardSelection): string {
   const s = query(sel.base, {
-    status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete,
+    status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete, live: sel.live,
   })
   return s ? `${PRINT_PATH}?${s}` : PRINT_PATH
 }
@@ -331,17 +345,17 @@ export function describeView(sel: DashboardSelection): string {
  * only show the totals. Once it is click, it will only the list so i can have
  * more space").
  *
- * The URL IS the screen. Every card, timeline node, search and filter already
- * writes one of these parameters, so each opens the LIST with no change of its
- * own. The browser's back button returns to the totals, and export and print,
- * which read the same URL, need to know nothing about screens. A bare `/` is
- * the TOTALS. `base` is only ever built from validated, non-empty values
- * (`resolveDashboardQuery`), so an empty search box does not count as a
- * filter.
+ * The URL IS the screen. A bare `/` is the TOTALS, and so — since 2026-09-29,
+ * "should have filter in every summary" — is a URL that carries only the
+ * company, bank or eligibility: those three dropdowns now sit above the cards
+ * and narrow the whole screen. A card, `scope=all`, the incomplete toggle, a
+ * search, or the list's own `scope=live` marker opens the LIST. `base` is only
+ * ever built from validated, non-empty values (`resolveDashboardQuery`), so an
+ * empty search box does not count as one.
  */
 export type DashboardScreen = 'TOTALS' | 'LIST'
 
 export function dashboardScreen(sel: DashboardSelection): DashboardScreen {
-  const narrowed = sel.status !== null || sel.showAll || sel.incomplete || Object.keys(sel.base).length > 0
-  return narrowed ? 'LIST' : 'TOTALS'
+  const listed = sel.status !== null || sel.showAll || sel.incomplete || sel.live || 'q' in sel.base
+  return listed ? 'LIST' : 'TOTALS'
 }

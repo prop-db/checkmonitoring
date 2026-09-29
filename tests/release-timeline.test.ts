@@ -8,7 +8,7 @@ import { cardHref, type DashboardSelection } from '@/lib/dashboard-view'
  * card arithmetic in lib/dashboard-view.ts.
  */
 
-const NOTHING: DashboardSelection = { status: null, showAll: false, incomplete: false, base: {} }
+const NOTHING: DashboardSelection = { status: null, showAll: false, incomplete: false, live: false, base: {} }
 
 // Production, 2026-09-06, as the brief states it: 242 pending signature,
 // 1,034 signed, 80 ready, 9,545 released.
@@ -61,7 +61,7 @@ describe('buildReleaseTimeline', () => {
 
   it('links each node exactly where the matching card links, filters and all', () => {
     const narrowed: DashboardSelection = {
-      status: 'SIGNED', showAll: false, incomplete: true,
+      status: 'SIGNED', showAll: false, incomplete: true, live: false,
       base: { q: 'ACME', company: 'c1' },
     }
     for (const node of buildReleaseTimeline(SUMMARY, narrowed)) {
@@ -88,7 +88,7 @@ describe('buildReleaseTimeline', () => {
   it('turns a lit node off again, rather than stranding the reader in a view', () => {
     const onSigned: DashboardSelection = { ...NOTHING, status: 'SIGNED' }
     const signed = buildReleaseTimeline(SUMMARY, onSigned).find((n) => n.id === 'SIGNED')
-    expect(signed?.href).toBe('/')
+    expect(signed?.href).toBe('/?scope=live')
   })
 })
 

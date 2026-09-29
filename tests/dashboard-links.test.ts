@@ -4,7 +4,7 @@ import {
   printHref, PRINT_PATH, exportHref, dashboardHref, type DashboardSelection,
 } from '@/lib/dashboard-view'
 
-const NOTHING: DashboardSelection = { status: null, showAll: false, incomplete: false, base: {} }
+const NOTHING: DashboardSelection = { status: null, showAll: false, incomplete: false, live: false, base: {} }
 
 /**
  * `filterHref` is the auto-submitting filter bar's whole contract.
@@ -80,7 +80,7 @@ describe('filterHref', () => {
 describe('printHref', () => {
   it('is the print page with the dashboard\'s own parameters', () => {
     const sel: DashboardSelection = {
-      status: 'READY_FOR_RELEASE', showAll: false, incomplete: false,
+      status: 'READY_FOR_RELEASE', showAll: false, incomplete: false, live: false,
       base: { q: 'ACME', company: 'c1' },
     }
     expect(printHref(sel)).toBe('/print?q=ACME&company=c1&status=READY_FOR_RELEASE')
@@ -113,7 +113,7 @@ describe('dashboardHref', () => {
 
   it('rebuilds the view and every narrowing filter exactly as it stands', () => {
     const sel: DashboardSelection = {
-      status: 'SIGNED', showAll: false, incomplete: true,
+      status: 'SIGNED', showAll: false, incomplete: true, live: false,
       base: { q: 'ACME', company: 'c1' },
     }
     expect(dashboardHref(sel)).toBe('/?q=ACME&company=c1&status=SIGNED&incomplete=1')
@@ -121,7 +121,7 @@ describe('dashboardHref', () => {
 
   it('carries the DATE RELEASED range the resolver put in `base`', () => {
     const sel: DashboardSelection = {
-      status: 'RELEASED', showAll: false, incomplete: false,
+      status: 'RELEASED', showAll: false, incomplete: false, live: false,
       base: { releasedFrom: '2026-09-01', releasedTo: '2026-09-15' },
     }
     expect(dashboardHref(sel)).toBe('/?releasedFrom=2026-09-01&releasedTo=2026-09-15&status=RELEASED')

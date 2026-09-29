@@ -55,6 +55,12 @@ export type DashboardQuery = {
   viewLabel: string
   /** The narrowing filters in words, for the export's title block. */
   filterDescription: string
+  /**
+   * The narrowing the TOTALS screen applies, in words — the three dropdowns
+   * it has and nothing else. 'No filters applied' when none is set; the page
+   * prints it only when one is.
+   */
+  narrowingDescription: string
 }
 
 /** A `YYYY-MM-DD` that is a real calendar day, else nothing. Never an error. */
@@ -68,6 +74,7 @@ export function resolveDashboardQuery(
   options: FilterOptions,
 ): DashboardQuery {
   const showAll = params.scope === 'all'
+  const live = params.scope === 'live'
 
   /**
    * Every parameter is validated before it reaches Prisma. Casting
@@ -115,6 +122,7 @@ export function resolveDashboardQuery(
     status: status ?? null,
     showAll,
     incomplete,
+    live,
     // Built from the VALIDATED values, so an unrecognised one is dropped
     // everywhere at once: it does not filter, and it does not survive into a
     // card's link or the export's URL either.
@@ -169,6 +177,15 @@ export function resolveDashboardQuery(
       incomplete,
       releasedFrom: releasedFrom ?? null,
       releasedTo: releasedTo ?? null,
+    }),
+    narrowingDescription: describeFilters({
+      company: company?.code ?? null,
+      bank: account ? bankLabel(account.code, account.bankCode) : null,
+      eligibility: eligibility ?? null,
+      q: '',
+      incomplete: undefined,
+      releasedFrom: null,
+      releasedTo: null,
     }),
   }
 }

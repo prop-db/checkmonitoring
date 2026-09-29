@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   isCardSelected, cardHref, incompleteHref, clearFiltersHref, describeView, viewStatusFilter,
   releaseConfirmHref, releaseCancelHref, TODAYS_RELEASE_ANCHOR,
-  exportHref, EXPORT_PATH,
+  exportHref, EXPORT_PATH, dashboardHref, printHref,
   dashboardScreen,
   type DashboardSelection,
 } from '@/lib/dashboard-view'
@@ -17,7 +17,7 @@ import { LIVE_STATUSES } from '@/lib/domain/check-status'
  * clicking around a rendered page.
  */
 
-const NOTHING: DashboardSelection = { status: null, showAll: false, incomplete: false, base: {} }
+const NOTHING: DashboardSelection = { status: null, showAll: false, incomplete: false, live: false, base: {} }
 const NARROWED: DashboardSelection = {
   ...NOTHING,
   base: { q: 'ACME', company: 'c1', cashAccount: 'a1', eligibility: 'ELIGIBLE' },
@@ -81,15 +81,15 @@ describe('selecting a view', () => {
 })
 
 describe('deselecting a view', () => {
-  it('returns to NEEDS ACTION rather than to everything', () => {
-    expect(cardHref('SIGNED', { ...NOTHING, status: 'SIGNED' })).toBe('/')
-    expect(cardHref('READY_FOR_RELEASE', { ...NOTHING, status: 'READY_FOR_RELEASE' })).toBe('/')
-    expect(cardHref('RELEASED', { ...NOTHING, status: 'RELEASED' })).toBe('/')
+  it('returns to the NEEDS ACTION list rather than to everything', () => {
+    expect(cardHref('SIGNED', { ...NOTHING, status: 'SIGNED' })).toBe('/?scope=live')
+    expect(cardHref('READY_FOR_RELEASE', { ...NOTHING, status: 'READY_FOR_RELEASE' })).toBe('/?scope=live')
+    expect(cardHref('RELEASED', { ...NOTHING, status: 'RELEASED' })).toBe('/?scope=live')
   })
 
   it('keeps the narrowing filters, which are not part of the view', () => {
     expect(cardHref('SIGNED', { ...NARROWED, status: 'SIGNED' }))
-      .toBe('/?q=ACME&company=c1&cashAccount=a1&eligibility=ELIGIBLE')
+      .toBe('/?q=ACME&company=c1&cashAccount=a1&eligibility=ELIGIBLE&scope=live')
   })
 })
 
@@ -123,8 +123,8 @@ describe('TOTAL CHECKS', () => {
     expect(isCardSelected('TOTAL_CHECKS', { ...NOTHING, showAll: true, status: 'SIGNED' })).toBe(false)
   })
 
-  it('goes back to NEEDS ACTION when clicked again', () => {
-    expect(cardHref('TOTAL_CHECKS', { ...NOTHING, showAll: true })).toBe('/')
+  it('goes back to the NEEDS ACTION list when clicked again', () => {
+    expect(cardHref('TOTAL_CHECKS', { ...NOTHING, showAll: true })).toBe('/?scope=live')
   })
 })
 
@@ -168,7 +168,7 @@ describe('INCOMPLETE (NO AMOUNT) is a toggle, and no longer a card', () => {
     expect(cardHref('RELEASED', { ...NOTHING, status: 'SIGNED', incomplete: true }))
       .toBe('/?status=RELEASED&incomplete=1')
     expect(cardHref('SIGNED', { ...NOTHING, status: 'SIGNED', incomplete: true }))
-      .toBe('/?incomplete=1')
+      .toBe('/?scope=live&incomplete=1')
   })
 
   it('composes with the all-cheques view too', () => {
@@ -273,13 +273,66 @@ describe('dashboardScreen', () => {
     expect(dashboardScreen(NOTHING)).toBe('TOTALS')
   })
 
-  it('opens the LIST for a card, all cheques, the incomplete toggle, any filter, or a search', () => {
+  /**
+   * Client request 2026-09-29: "should have filter in every summary". The
+   * company, bank and eligibility dropdowns now live on the TOTALS screen too,
+   * and choosing one narrows the cards rather than opening the list.
+   */
+  it('stays on TOTALS when only the company, bank or eligibility narrows it', () => {
+    expect(dashboardScreen({ ...NOTHING, base: { company: 'c1' } })).toBe('TOTALS')
+    expect(dashboardScreen({ ...NOTHING, base: { cashAccount: 'a1' } })).toBe('TOTALS')
+    expect(dashboardScreen({ ...NOTHING, base: { eligibility: 'SUPPLIER' } })).toBe('TOTALS')
+    expect(dashboardScreen({
+      ...NOTHING, base: { company: 'c1', cashAccount: 'a1', eligibility: 'SUPPLIER' },
+    })).toBe('TOTALS')
+  })
+
+  it('opens the LIST for a card, all cheques, the incomplete toggle, the live list, or a search', () => {
     expect(dashboardScreen({ ...NOTHING, status: 'SIGNED' })).toBe('LIST')
     expect(dashboardScreen({ ...NOTHING, showAll: true })).toBe('LIST')
     expect(dashboardScreen({ ...NOTHING, incomplete: true })).toBe('LIST')
-    expect(dashboardScreen({ ...NOTHING, base: { company: 'c1' } })).toBe('LIST')
-    expect(dashboardScreen({ ...NOTHING, base: { cashAccount: 'a1' } })).toBe('LIST')
-    expect(dashboardScreen({ ...NOTHING, base: { eligibility: 'ELIGIBLE' } })).toBe('LIST')
+    expect(dashboardScreen({ ...NOTHING, live: true })).toBe('LIST')
     expect(dashboardScreen({ ...NOTHING, base: { q: '6000351234' } })).toBe('LIST')
+    // A search on a narrowed TOTALS screen opens the list narrowed the same way.
+    expect(dashboardScreen({ ...NOTHING, base: { company: 'c1', q: '6000351234' } })).toBe('LIST')
+  })
+})
+
+/**
+ * `scope=live`: the NEEDS ACTION list, said out loud.
+ *
+ * NEEDS ACTION has no card. Before the TOTALS screen had filters it was reached
+ * only by the search box, and `/?company=c1` opened it narrowed; now that URL is
+ * the TOTALS for one company, so the list's filter bar carries this marker and
+ * filtering inside the list cannot bounce the reader back to the totals.
+ */
+describe('scope=live', () => {
+  const LIVE: DashboardSelection = { ...NOTHING, live: true }
+
+  it('changes no filter and no wording: it is NEEDS ACTION, as a list', () => {
+    expect(viewStatusFilter(LIVE)).toEqual(viewStatusFilter(NOTHING))
+    expect(describeView(LIVE)).toBe(describeView(NOTHING))
+  })
+
+  it('is carried by every link that rebuilds the selection', () => {
+    expect(dashboardHref(LIVE)).toBe('/?scope=live')
+    expect(clearFiltersHref({ ...LIVE, base: { q: 'ACME', company: 'c1' } })).toBe('/?scope=live')
+    expect(incompleteHref(LIVE)).toBe('/?scope=live&incomplete=1')
+    expect(exportHref(LIVE)).toBe('/api/export?scope=live')
+    expect(printHref(LIVE)).toBe('/print?scope=live')
+    expect(dashboardHref({ ...LIVE, base: { company: 'c1' } })).toBe('/?company=c1&scope=live')
+  })
+
+  it('is not written beside a status or the all-cheques scope, which already open the list', () => {
+    expect(dashboardHref({ ...LIVE, status: 'SIGNED' })).toBe('/?status=SIGNED')
+    expect(dashboardHref({ ...LIVE, showAll: true })).toBe('/?scope=all')
+    expect(cardHref('SIGNED', LIVE)).toBe('/?status=SIGNED')
+  })
+
+  it('is dropped by the RELEASE ALL links, which live on the totals screen', () => {
+    // The panel is never rendered on the list, so a selection reaching these has live=false.
+    expect(releaseConfirmHref(NOTHING)).toBe(`/?confirm=release#${TODAYS_RELEASE_ANCHOR}`)
+    expect(releaseCancelHref({ ...NOTHING, base: { company: 'c1' } }))
+      .toBe(`/?company=c1#${TODAYS_RELEASE_ANCHOR}`)
   })
 })

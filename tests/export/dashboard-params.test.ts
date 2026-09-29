@@ -19,7 +19,7 @@ describe('resolveDashboardQuery', () => {
     const r = resolveDashboardQuery({}, options)
     expect(r.filters.statusIn).toEqual(LIVE_STATUSES)
     expect(r.filters.status).toBeUndefined()
-    expect(r.selection).toEqual({ status: null, showAll: false, incomplete: false, base: {} })
+    expect(r.selection).toEqual({ status: null, showAll: false, incomplete: false, live: false, base: {} })
     expect(r.viewLabel).toBe('NEEDS ACTION')
     /**
      * SUPERSEDED BY A CLIENT DECISION, 2026-09-06: this was 'No filters
@@ -30,6 +30,36 @@ describe('resolveDashboardQuery', () => {
      */
     expect(r.filters.incomplete).toBe(false)
     expect(r.filterDescription).toBe('EXCLUDES RECORDS WITH NO AMOUNT')
+  })
+
+  it('reads scope=live as the NEEDS ACTION list, as a list, and nothing more', () => {
+    const r = resolveDashboardQuery({ scope: 'live' }, options)
+    expect(r.selection.live).toBe(true)
+    expect(r.selection.showAll).toBe(false)
+    expect(r.filters.statusIn).toEqual(LIVE_STATUSES)
+    expect(r.filters.status).toBeUndefined()
+    expect(r.viewLabel).toBe('NEEDS ACTION')
+  })
+
+  it('does not read scope=all, or any other scope, as live', () => {
+    expect(resolveDashboardQuery({ scope: 'all' }, options).selection.live).toBe(false)
+    expect(resolveDashboardQuery({ scope: 'everything' }, options).selection.live).toBe(false)
+  })
+
+  /**
+   * The line the TOTALS screen prints under its filter bar. Only the three
+   * dropdowns that screen has — never the search, never the incomplete toggle,
+   * which the screen states on its own line with a count.
+   */
+  it('describes the narrowing the totals screen applies', () => {
+    const r = resolveDashboardQuery(
+      { company: 'co-stk', cashAccount: 'ca-bpi', eligibility: 'SUPPLIER', q: 'henkel', incomplete: '1' },
+      options,
+    )
+    expect(r.narrowingDescription).toBe('COMPANY: STK  ·  BANK / CASH ACCOUNT: BPI STK  ·  ELIGIBILITY: SUPPLIER')
+    expect(resolveDashboardQuery({ cashAccount: 'ca-main' }, options).narrowingDescription)
+      .toBe('BANK / CASH ACCOUNT: STK MAIN (BDO)')
+    expect(resolveDashboardQuery({}, options).narrowingDescription).toBe('No filters applied')
   })
 
   it('folds SCHEDULED into the READY FOR RELEASE view', () => {
