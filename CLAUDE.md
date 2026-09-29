@@ -514,8 +514,8 @@ Plans 1 and 2 complete. Plan 3 is superseded by `docs/superpowers/plans/2026-09-
 `lib/sync/portal-outbox.ts` to the portal's `POST /api/integrations/check-monitoring/events`
 with `PORTAL_BASE_URL` / `PORTAL_TOKEN` (a bearer, no session), latest event per cheque wins,
 `/admin/portal` shows what parked. Pickup confirmations back (old Task 6) remain a follow-up.
-**1,543 tests across 113 files** (arithmetic on the 2026-09-28 full run plus the per-file
-counts below; not a fresh full run) — 1,537 across 113 before the final-review fixes
+**1,543 tests across 113 files** (measured, full run 2026-09-29, 21.8 minutes, 0 failures,
+on branch `feature/totals-filters-all-checks` before its merge) — 1,537 across 113 before the final-review fixes
 (`dashboard-view` +5: `totalsHref` 3, `dashboardScreen` fails closed 1, RESET / incomplete
 toggle stay on the list 1; `actions/bulk-actions` +1: a whitespace filter refuses); 1,519 across 113 before the TOTALS-screen filters and ALL
 CHECKS (`dashboard-view` +5, `export/dashboard-params` +3, `dashboard-links` +1, `queries` +6,
