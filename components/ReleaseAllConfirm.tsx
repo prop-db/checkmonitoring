@@ -28,11 +28,16 @@ import {
  * sat open. Releasing 101 cheques on a confirmation that said 81 would mean the
  * figures agreed to were never the figures that moved.
  */
+export type ReleaseNarrowing = { company: string; cashAccount: string; eligibility: string }
+
 export function ReleaseAllConfirm({
-  count, cancelHref,
+  count, cancelHref, narrow,
 }: {
   count: number
   cancelHref: string
+  /** The TOTALS screen's filter, as validated ids; '' when not set. Written
+   * back as hidden fields so the server releases the set the panel counted. */
+  narrow: ReleaseNarrowing
 }) {
   const [result, formAction, pending] = useActionState(releaseAllReadyAction, null)
 
@@ -53,6 +58,9 @@ export function ReleaseAllConfirm({
         <form action={formAction} className="flex flex-wrap items-center gap-3">
           <input type="hidden" name="confirm" value="release" />
           <input type="hidden" name="expectedCount" value={String(count)} />
+          {narrow.company && <input type="hidden" name="company" value={narrow.company} />}
+          {narrow.cashAccount && <input type="hidden" name="cashAccount" value={narrow.cashAccount} />}
+          {narrow.eligibility && <input type="hidden" name="eligibility" value={narrow.eligibility} />}
           <button
             type="submit"
             disabled={pending}

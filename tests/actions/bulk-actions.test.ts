@@ -604,6 +604,73 @@ describe('releaseAllReadyAction', () => {
     // Each cheque got its own transaction, so each got its own audit row.
     expect(await testDb.auditLog.count({ where: { action: 'released' } })).toBe(total)
   }, 180_000)
+
+  /**
+   * The TOTALS screen can be narrowed to one company or bank (2026-09-29), and
+   * the panel then counts that company's ready cheques. The button beneath it
+   * must release exactly those: a RELEASE ALL 12 that released 81 is the
+   * mismatch this dashboard exists to prevent, and it is money. The server
+   * re-derives the set from the same filter the panel counted.
+   */
+  it('releases only the ready cheques of the company on screen', async () => {
+    const { releaseAllReadyAction } = await import('@/app/checks/bulk-actions')
+    currentUser.role = 'FINANCE_ADMIN'
+    const mine = await makeCheck({ status: 'READY_FOR_RELEASE' })
+    const other = await makeCheck({ status: 'READY_FOR_RELEASE' })
+
+    const result = await releaseAllReadyAction(
+      null, fd([], { confirm: 'release', expectedCount: '1', company: mine.companyId }),
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.succeeded).toBe(1)
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: mine.id } })).status).toBe('RELEASED')
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: other.id } })).status).toBe('READY_FOR_RELEASE')
+    expect(result.outcomes.some((o) => o.checkId === other.id)).toBe(false)
+  })
+
+  it('narrows by cash account and by eligibility the same way', async () => {
+    const { releaseAllReadyAction } = await import('@/app/checks/bulk-actions')
+    currentUser.role = 'FINANCE_ADMIN'
+    const broker = await makeCheck({ status: 'READY_FOR_RELEASE', eligibility: 'BROKER' })
+    const supplier = await makeCheck({ status: 'READY_FOR_RELEASE', eligibility: 'SUPPLIER' })
+
+    const byAccount = await releaseAllReadyAction(
+      null, fd([], { confirm: 'release', expectedCount: '1', cashAccount: broker.cashAccountId! }),
+    )
+    expect(byAccount.ok).toBe(true)
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: broker.id } })).status).toBe('RELEASED')
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: supplier.id } })).status).toBe('READY_FOR_RELEASE')
+
+    const byEligibility = await releaseAllReadyAction(
+      null, fd([], { confirm: 'release', expectedCount: '1', eligibility: 'SUPPLIER' }),
+    )
+    expect(byEligibility.ok).toBe(true)
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: supplier.id } })).status).toBe('RELEASED')
+  })
+
+  /**
+   * A filter that is present but names nothing is refused, not dropped.
+   * Dropping it would silently widen the set from one company to every
+   * company — the one failure this step must never have.
+   */
+  it('refuses, and releases nothing, when the filter on the form is not recognised', async () => {
+    const { releaseAllReadyAction } = await import('@/app/checks/bulk-actions')
+    currentUser.role = 'FINANCE_ADMIN'
+    const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
+
+    const badFilters: Record<string, string>[] = [{ company: 'co-gone' }, { cashAccount: 'ca-gone' }, { eligibility: 'MAYBE' }]
+    for (const bad of badFilters) {
+      const result = await releaseAllReadyAction(
+        null, fd([], { confirm: 'release', expectedCount: '1', ...bad }),
+      )
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.message).toMatch(/filter/i)
+    }
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('READY_FOR_RELEASE')
+  })
 })
 
 describe('bulkRevertToSignedAction', () => {

@@ -193,6 +193,7 @@ export default async function DashboardPage({
           confirming={params.confirm === 'release'}
           confirmHref={releaseConfirmHref(selection)}
           cancelHref={releaseCancelHref(selection)}
+          narrow={{ company: companyId ?? '', cashAccount: cashAccountId ?? '', eligibility: eligibility ?? '' }}
         />
 
         {/* Where the cheques are stuck. Five counts off the summary already

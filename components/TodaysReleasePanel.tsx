@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { formatMoney } from '@/lib/money'
 import { TODAYS_RELEASE_ANCHOR } from '@/lib/dashboard-view'
 import type { TodaysRelease } from '@/lib/queries'
-import { ReleaseAllConfirm } from './ReleaseAllConfirm'
+import { ReleaseAllConfirm, type ReleaseNarrowing } from './ReleaseAllConfirm'
 
 /**
  * TODAY'S RELEASE — the answer to "what do I do today".
@@ -26,7 +26,7 @@ import { ReleaseAllConfirm } from './ReleaseAllConfirm'
  * READY_FOR_RELEASE and are released one at a time from `/?incomplete=1`.
  */
 export function TodaysReleasePanel({
-  todays, canRelease, confirming, confirmHref, cancelHref,
+  todays, canRelease, confirming, confirmHref, cancelHref, narrow,
 }: {
   todays: TodaysRelease
   /** FINANCE_ADMIN. The server re-checks it; this only decides what is drawn. */
@@ -35,6 +35,7 @@ export function TodaysReleasePanel({
   confirming: boolean
   confirmHref: string
   cancelHref: string
+  narrow: ReleaseNarrowing
 }) {
   const { count, totalsByCurrency } = todays
   const nothingToDo = count === 0
@@ -104,7 +105,7 @@ export function TodaysReleasePanel({
               the only status after RELEASED is VOIDED. Each cheque is checked on its own, and any
               that cannot be released will be listed here by number.
             </p>
-            <ReleaseAllConfirm count={count} cancelHref={cancelHref} />
+            <ReleaseAllConfirm count={count} cancelHref={cancelHref} narrow={narrow} />
           </div>
         ) : (
           // A link, not a submit. One click cannot release anything; it can only

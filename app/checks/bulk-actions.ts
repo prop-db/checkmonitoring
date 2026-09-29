@@ -4,7 +4,10 @@ import { prisma } from '@/lib/db'
 import { requireUser } from '@/lib/auth'
 import { markSigned, markReadyForRelease, markReleased, recordReceipt, revertAvailability } from '@/lib/domain/actions'
 import { parseSelection, chunkSelection } from '@/lib/bulk'
-import { listTodaysReleaseIds } from '@/lib/queries'
+import {
+  listTodaysReleaseIds, getFilterOptions, parseOptionId, parseEligibilityParam,
+  type SummaryNarrowing,
+} from '@/lib/queries'
 import { readRowReceipts } from '@/lib/receipt-form'
 import { runEach, type BulkOutcome, type BulkActionResult } from '@/lib/bulk-run'
 import { loadSettings } from '@/lib/settings/read'
@@ -40,6 +43,27 @@ export type { BulkOutcome, BulkActionResult }
 
 const ids = (f: FormData) => f.getAll('checkId').map((v) => String(v))
 const str = (f: FormData, k: string) => String(f.get(k) ?? '').trim()
+
+/**
+ * The narrowing the TOTALS screen was showing when RELEASE ALL was pressed,
+ * read back off the form. `null` means a value was present and is not
+ * recognised — the caller refuses, because dropping it would silently widen
+ * the set from one company to every company. An absent value is no narrowing:
+ * the unfiltered screen, and the behaviour before 2026-09-29.
+ */
+async function readReleaseNarrowing(formData: FormData): Promise<SummaryNarrowing | null> {
+  const company = str(formData, 'company')
+  const cashAccount = str(formData, 'cashAccount')
+  const eligibility = str(formData, 'eligibility')
+  if (!company && !cashAccount && !eligibility) return {}
+
+  const options = await getFilterOptions(prisma)
+  const companyId = parseOptionId(company || undefined, options.companies)
+  const cashAccountId = parseOptionId(cashAccount || undefined, options.cashAccounts)
+  const elig = parseEligibilityParam(eligibility || undefined)
+  if ((company && !companyId) || (cashAccount && !cashAccountId) || (eligibility && !elig)) return null
+  return { companyId, cashAccountId, eligibility: elig }
+}
 
 export async function bulkSignAction(formData: FormData): Promise<BulkActionResult> {
   const user = await requireUser()
@@ -263,7 +287,14 @@ export async function releaseAllReadyAction(
 
   const settings = await loadSettings(prisma)
   const cap = settings.values['caps.bulkSelection']
-  const checkIds = await listTodaysReleaseIds(prisma)
+  const narrow = await readReleaseNarrowing(formData)
+  if (narrow === null) {
+    return {
+      ok: false,
+      message: 'The filter on screen was not recognised. Open TODAY’S RELEASE again and re-read the figures.',
+    }
+  }
+  const checkIds = await listTodaysReleaseIds(prisma, narrow)
 
   if (checkIds.length === 0) {
     return { ok: false, message: 'No cheques are ready to release right now.' }
