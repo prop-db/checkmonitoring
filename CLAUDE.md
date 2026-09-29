@@ -232,10 +232,21 @@ These are safety properties, not preferences. Each exists because of a specific 
 
 **The dashboard has two screens, and the URL decides which** (`dashboardScreen` in
 `lib/dashboard-view.ts`, client request 2026-09-25). A bare `/` is TOTALS — cards, TODAY'S
-RELEASE, timeline, a search box — and loads no rows. Anything that narrows the view (a card, a
-filter, a search, `scope=all`, `incomplete=1`) is LIST: a BACK TO TOTALS bar and the full-width
-table. Export and print read the same URL and know nothing about screens. A link that should open
-the list must carry a parameter; a bare `/` never shows a table.
+RELEASE, timeline, a search box — and loads no rows. **Since 2026-09-29 so is a URL carrying
+only `company`, `cashAccount` or `eligibility`** ("should have filter in every summary", spec
+`2026-09-29-totals-filters-and-all-checks-design.md`): the TOTALS screen has those three
+dropdowns (`components/TotalsFilterBar.tsx`) and every figure on it narrows — `getSummary`,
+`getTodaysRelease` and `listTodaysReleaseIds` take a `SummaryNarrowing`, so RELEASE ALL releases
+the set the narrowed panel counted, and a filter value that is present but unrecognised REFUSES
+the release rather than widening it. A card, `scope=all`, `incomplete=1`, a search, or
+**`scope=live`** is LIST: a BACK TO TOTALS bar and the full-width table. `scope=live` is the
+NEEDS ACTION list said out loud — the list's filter bar carries it on that view so filtering
+inside the list cannot land on `/?company=…`, which is now the totals; it changes no filter. ALL
+CHECKS (card id `TOTAL_CHECKS`, `scope=all`, labelled TOTAL CHECKS until 2026-09-29) is a primary
+card and **keeps the filters** like every other card — it is the cheque inventory; it no longer
+clears them, RESET does. Export and print read the same URL and know nothing about screens. A
+link that should open the list must carry one of the LIST parameters; a bare `/` or a
+company/bank/eligibility-only URL never shows a table.
 
 **DATE RELEASED on the filter bar matches either of two dates that are never merged**
 (2026-09-28, specs `2026-09-28-released-date-filter-design.md` and
@@ -498,7 +509,10 @@ Plans 1 and 2 complete. Plan 3 is superseded by `docs/superpowers/plans/2026-09-
 `lib/sync/portal-outbox.ts` to the portal's `POST /api/integrations/check-monitoring/events`
 with `PORTAL_BASE_URL` / `PORTAL_TOKEN` (a bearer, no session), latest event per cheque wins,
 `/admin/portal` shows what parked. Pickup confirmations back (old Task 6) remain a follow-up.
-**1,519 tests across 113 files** (measured, full run 2026-09-28, 30.8 minutes; one case in
+**1,537 tests across 113 files** (arithmetic on the 2026-09-28 full run plus the per-file
+counts below; not a fresh full run) — 1,519 across 113 before the TOTALS-screen filters and ALL
+CHECKS (`dashboard-view` +5, `export/dashboard-params` +3, `dashboard-links` +1, `queries` +6,
+`actions/bulk-actions` +3; measured, full run 2026-09-28, 30.8 minutes; one case in
 `actions/receipt` failed in that run and passed alone straight after — a timeout while a
 production script shared the connection, not a defect) — 1,497 across 112 before the stated
 release date (`admin/stated-release-dates` 18, `queries` +4); 1,479 across 112 before the DATE RELEASED filter (`queries` +5, `export/dashboard-params` +6, `export/report` +3, `table-columns` +2, `dashboard-links` +2); 1,404 across 104 before the portal outbox delivery (`schema` +1, `actions/portal-cancel` 3, `integrations/portal-client` 13+, `sync/portal-outbox` 25+, `sync/portal-kick` 5, `sync/cron-route` +1, `admin/portal-overview` 2, `admin/portal-actions` 3, `scripts/portal-backlog` 3, plus the void-path assertions in `actions` and `import/upsert`); 1,380 across 101 before the two-screen dashboard and per-row OR (`dashboard-view` +2, `queries` +1, `row-receipts` 7, `receipt-form` 6, `bulk-actions` +5 with four receipt cases rewritten, `release-keeps-receipt` 3); 1,380 across 101 measured earlier the same day — 1,350 across 98 before auto-sign (`domain/auto-sign` 9 —
