@@ -173,6 +173,11 @@ no meaning under the new rule. `/admin/sync`'s LAST AUTO-SIGN line now reads "N 
 - Default with no `sort`: `checkDate desc nulls last`, as today. An unknown `sort` or `dir` falls
   back to the default (sort cannot widen anything, so it need not refuse).
 - Export and print read the same params and produce the same order.
+- **Decision:** APV NUMBER, PO NUMBER, BANK and DATE RELEASED are ordered in the application (`APP_SORTED_KEYS`), not by Prisma. Prisma cannot order by an array's first element (APV/PO, which also union the bills), cannot put a null to-one relation last on a descending sort (BANK — `nulls` exists only on nullable scalars), and cannot order by `COALESCE(releasedAt, statedReleaseDate)`, which is the date the DATE RELEASED column shows. It is done over the whole matching set, so the 200-row page is still the right 200.
+- **Decision:** STATUS sorts by the ladder (the `CheckStatus` enum's declaration order — Postgres orders enums that way), not alphabetically: GENERATED first, VOIDED last is what a Finance reader means by "in order".
+- **Decision:** `id asc` follows `checkNumber asc` as a last tiebreak. Cheque numbers repeat across companies; without it two rows with the same number and the same sort value could swap between the screen and the export.
+- **Decision:** the first click on any header — including CHECK DATE while the default order is in force — sorts ascending; `nextSort` treats "no explicit sort" as the start of the cycle. Otherwise clicking CHECK DATE on a fresh list would compute "desc → default" and do nothing.
+- **Decision:** an invalid `sort`/`dir` pair (unknown key, unknown direction, ACTION, or half a pair) is "no sort": the cookie is tried, then the default.
 
 ### C2. Filter row
 
@@ -197,6 +202,16 @@ A second header row, one control per visible column:
   that cannot be parsed (an amount `12x`, a date that is not a day) **refuses** with a message
   beside the box and shows no rows, rather than being dropped — a silently ignored filter reads as
   an applied one. Amounts parse as decimal strings (rule 8), never a JS number.
+- **Decision:** APV and PO "contains" is answered by the raw-SQL step (plan Task 3), since it must match the `apvNumbers` array and the bills' values together.
+- **Decision:** the refusal is enforced in `buildWhere`, with the raw value kept in `base` so the message can show what was typed. DATE RELEASED now refuses too.
+- **Decision:** `f.status` is honoured only on ALL CHEQUES and dropped on every other view.
+- **Decision:** CHECK DATE reuses `CheckFilters.from/to`.
+- **Decision:** amounts accept thousands commas.
+- **Decision:** search, ELIGIBILITY and INCOMPLETE stay on the filter bar, not in the filter row.
+- **Decision:** a filtered column cannot be hidden.
+- **Decision:** the table stays on screen when the filters match nothing, so the filters can be cleared.
+- **Decision:** the LIST exclusion count ("EXCLUDING N WITH NO RECORDED AMOUNT") is the list's own, narrowed by the same filters.
+- SIGN ALL honours the column filters; RELEASE ALL lives on TOTALS, which no column filter can reach, and refuses any `f.*` field.
 - All of it is built in `buildWhere`, so `getSummary`, the exclusion count, export, print, SIGN ALL
   and RELEASE ALL see exactly the rows the table shows.
 
@@ -204,15 +219,18 @@ A second header row, one control per visible column:
 
 - The COLUMNS panel keeps show/hide and gains ◀ ▶ to move a column. Order and visibility are one
   preference in `localStorage` under a bumped key (`check-monitoring.columns.v2`, now an ordered
-  list); a v1 value is read as the visibility of the default order. Wrapped in try/catch as now;
+  list). **Decision:** part B's v2 key is reused with no v3: a value part B wrote is in canonical order and reads as the default order, so nothing needs migrating (this replaces the earlier "v1 value" sentence). Wrapped in try/catch as now;
   CHECK NUMBER, STATUS and ACTION stay always on.
+- **Decision:** ACTION is pinned last. A re-shown column returns beside its canonical neighbour.
 - Export follows the on-screen order: the export link carries `cols=` in the viewer's order.
+- **Decision:** `cols=` is order only (the export's own column set is unchanged), and print keeps its fixed columns.
 
 ### C4. Remember my sort
 
 - Choosing a sort writes a cookie `cm_sort` (`<key>:<dir>`, path `/`, one year, `SameSite=Lax`).
   When the URL has no `sort`, the server reads the cookie, so the list opens on it with no flicker.
   An invalid cookie is ignored. RESET clears it.
+- **Decision:** the cookie is written in the browser on a header click and is never `HttpOnly`; RESET deletes it in the browser; export and print read it.
 
 ### C tests
 
