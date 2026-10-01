@@ -37,7 +37,7 @@ export async function GET(request: Request): Promise<Response> {
   const scopedCompany = account ? undefined : company
   const [accounts, noAccountCount] = await Promise.all([
     listNumberingAccounts(prisma, { companyId: scopedCompany?.id, cashAccountId: account?.id }),
-    account ? Promise.resolve(0) : countChequesWithoutAccount(prisma, { companyId: scopedCompany?.id }),
+    account ? Promise.resolve(null) : countChequesWithoutAccount(prisma, { companyId: scopedCompany?.id }),
   ])
 
   const workbook = await buildNumberingWorkbook({

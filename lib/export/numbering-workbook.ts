@@ -22,7 +22,9 @@ const SUMMARY_HEADERS = ['ACCOUNT', 'BANK', 'COMPANY', 'FIRST', 'LAST', 'HELD', 
 
 export type NumberingMeta = {
   generatedAt: Date; generatedBy: string; filterDescription: string
-  missingOnly: boolean; noAccountCount: number
+  missingOnly: boolean
+  /** null when an account is open: the count is not measured there, so no line is printed. */
+  noAccountCount: number | null
   /** `caps.exportRows`: cheque and MISSING lines across all account sheets. */
   rowLimit: number
 }
@@ -73,7 +75,9 @@ export async function buildNumberingWorkbook(
     ? `${generatedLine(meta)}  ·  account sheets hold the first ${fmt(meta.rowLimit)} of ${fmt(totalLines)} lines`
     : `${generatedLine(meta)}  ·  ${fmt(accounts.length)} account${accounts.length === 1 ? '' : 's'}`
   ws.getCell('A3').font = { size: 10, color: { argb: MUTED_INK } }
-  ws.getCell('A4').value = `${NUMBERING_SCOPE_NOTE} Not in any series: ${fmt(meta.noAccountCount)} cheque${meta.noAccountCount === 1 ? '' : 's'} with no cash account.`
+  ws.getCell('A4').value = meta.noAccountCount === null
+    ? NUMBERING_SCOPE_NOTE
+    : `${NUMBERING_SCOPE_NOTE} Not in any series: ${fmt(meta.noAccountCount)} cheque${meta.noAccountCount === 1 ? '' : 's'} with no cash account.`
   ws.getCell('A4').font = { size: 10, color: { argb: MUTED_INK } }
 
   const header = ws.getRow(6)

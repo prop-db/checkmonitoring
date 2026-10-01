@@ -84,6 +84,15 @@ describe('buildNumberingWorkbook', () => {
     expect(text).toContain('3 cheques with no cash account')
   })
 
+  it('prints no "Not in any series" sentence when noAccountCount is null', async () => {
+    const wb = await load(await buildNumberingWorkbook({
+      accounts: [account('BPI STK', [ch('101')])],
+      meta: { ...META, noAccountCount: null },
+    }))
+    const text = wb.getWorksheet(NUMBERING_SUMMARY_SHEET)!.getSheetValues().flat().filter((v) => typeof v === 'string').join(' ')
+    expect(text).not.toContain('Not in any series')
+  })
+
   it('missing-only keeps just the MISSING lines', async () => {
     const wb = await load(await buildNumberingWorkbook({
       accounts: [account('BPI STK', [ch('101'), ch('104')])],
