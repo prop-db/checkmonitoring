@@ -283,7 +283,7 @@ export async function deliverPortalEvents(
 
       const check = await db.check.findUnique({
         where: { id: ev.checkId },
-        include: { cashAccount: { include: { bank: true } }, checkBook: { include: { bank: true } }, bills: true },
+        include: { cashAccount: { include: { bank: true } }, checkBook: { include: { bank: true } }, bills: true, releasedBy: { select: { name: true } } },
       })
       if (!check) {
         if (await settle(db, ev, { status: 'PARKED', error: 'cheque no longer exists' }, args.now, false, claimedBy)) out.parked += 1

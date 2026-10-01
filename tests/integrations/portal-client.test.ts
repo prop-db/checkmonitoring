@@ -5,7 +5,7 @@ import { buildPortalEventBody, createPortalClient, manilaDay, PortalPayloadError
 const bank = { bank: { code: 'BPI' } }
 const check = (over: Partial<CheckForPortal> = {}): CheckForPortal => ({
   id: 'chk1', checkNumber: '6000353106', apvNumbers: ['AP-1001', 'AP-1002'], eligibility: 'SUPPLIER',
-  availablePickupDate: new Date('2026-09-30T00:00:00Z'), releasedAt: null, orNumber: null, orDate: null,
+  availablePickupDate: new Date('2026-09-30T00:00:00Z'), releasedAt: null, orNumber: null, orDate: null, releasedBy: null,
   cashAccount: bank, checkBook: null,
   bills: [{ apvNumber: 'AP-1001', poNumber: 'PO-77' }, { apvNumber: 'AP-1002', poNumber: null }],
   ...over,
@@ -159,5 +159,13 @@ describe('createPortalClient', () => {
       .rejects.toMatchObject({ name: 'AbortError' })
     expect(seen.signal).toBeInstanceOf(AbortSignal)
     expect(seen.signal?.aborted).toBe(false)
+  })
+
+  it('RELEASED carries the releaser name when known, omits it otherwise', () => {
+    const released = { releasedAt: new Date('2026-10-02T02:00:00Z') }
+    expect(buildPortalEventBody({ id: 'e', kind: 'RELEASED' }, check({ ...released, releasedBy: { name: 'Ana Cruz' } })))
+      .toMatchObject({ releasedBy: 'Ana Cruz' })
+    expect(buildPortalEventBody({ id: 'e', kind: 'RELEASED' }, check(released))).not.toHaveProperty('releasedBy')
+    expect(buildPortalEventBody({ id: 'e', kind: 'REVERT' }, check({ releasedBy: { name: 'Ana Cruz' } }))).not.toHaveProperty('releasedBy')
   })
 })
