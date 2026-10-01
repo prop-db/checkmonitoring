@@ -134,6 +134,16 @@ no meaning under the new rule. `/admin/sync`'s LAST AUTO-SIGN line now reads "N 
   existing columns - `imported` = vouchers added, `updated` = cheques changed, `staged` = inquiry
   payments this system does not hold, `errors`.
 - Acumatica stays read-only (rule 3): only `fetchAll` (paging) is used; there is no mutating method.
+- The cron runs the bills read for a tenant **only when that tenant's payment read RAN** this time;
+  otherwise it reports `SKIPPED_PAYMENT_NOT_RUN` (not a failure, no `SyncRun` row). Applications for
+  cheques a failed, refused or in-progress payment read would have brought in would otherwise count
+  as not held, and the watermark would move past them for good.
+- The watermark is **held** (the run finishes with `watermark` null, so the previous one stays in
+  force) when any per-cheque write failed, as well as when the fetch failed; each per-cheque problem
+  names its payment reference. The next run re-reads the failed cheque's vouchers.
+- The held cheques' current `apvNumbers` are read with the reference lookup; only a cheque with
+  something missing opens a transaction (which still re-reads `FOR UPDATE` and recomputes), so a
+  re-read of an already-linked set costs no transaction inside the cron's 60-second ceiling.
 
 ### B2. PO
 

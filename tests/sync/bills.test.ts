@@ -227,6 +227,40 @@ describe('runBillsSync — the run record', () => {
     const run = await testDb.syncRun.findUniqueOrThrow({ where: { id: result.syncRunId } })
     expect(run.errors).toBe(1)
     expect(run.message).toContain('write refused for the first cheque')
+    // The failing cheque is named by its payment reference.
+    expect(run.message).toContain('CV-FIRST001')
+    // The watermark is held, so the failed cheque's vouchers are re-read next run.
+    expect(result.watermark).toBeNull()
+    expect(run.watermark).toBeNull()
+  })
+
+  it('a re-read of an already fully-linked set opens no transaction, writes no audit row, and still advances the watermark', async () => {
+    await heldCheque('CV-FIRST001', { apvNumbers: ['AP-F'] })
+    await heldCheque('CV-SECOND01', { apvNumbers: ['AP-S2', 'AP-S1'] })
+    let transactions = 0
+    const counting = new Proxy(testDb, {
+      get(target, prop, receiver) {
+        if (prop === '$transaction') {
+          return (...a: unknown[]) => {
+            transactions++
+            return (target.$transaction as (...x: unknown[]) => unknown).apply(target, a)
+          }
+        }
+        return Reflect.get(target, prop, receiver)
+      },
+    })
+    const { client } = fakeBillsFeed([
+      billRow({ AdjgRefNbr: 'CV-FIRST001', AdjdRefNbr: 'AP-F' }),
+      billRow({ AdjgRefNbr: 'CV-SECOND01', AdjdRefNbr: 'AP-S1' }),
+      billRow({ AdjgRefNbr: 'CV-SECOND01', AdjdRefNbr: 'AP-S2' }),
+    ])
+    const result = await runBillsSync(counting, { client, tenant: 'GOLIVE', since: null, now: NOW, trigger: 'MANUAL' })
+    expect(transactions).toBe(0)
+    expect(await testDb.auditLog.count({ where: { action: VOUCHER_LINKED_ACTION } })).toBe(0)
+    expect(result.errors).toBe(0)
+    expect(result.chequesChanged).toBe(0)
+    // billRow's LastModifiedOn 08:15 (read as UTC) less the 120-minute overlap.
+    expect(result.watermark).toEqual(new Date('2026-09-29T06:15:00Z'))
   })
 
   it('incremental: passes billsSinceFilter with since, billsInScopeFilter without', async () => {

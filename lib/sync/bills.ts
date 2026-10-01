@@ -171,22 +171,34 @@ export async function runBillsSync(db: Db, args: BillsSyncArgs): Promise<BillsRu
   }
 
   const refs = [...byRef.keys()]
-  const held = new Map<string, string>() // paymentRef -> checkId
+  // The held cheques AND their current vouchers, in the same chunked read, so
+  // a cheque already carrying everything the inquiry names costs no
+  // transaction. The cron has a 60-second ceiling, and a re-read of an
+  // already-linked set (every incremental run overlaps the last by 120
+  // minutes) would otherwise open one transaction per cheque for nothing.
+  const held = new Map<string, { id: string; apvNumbers: readonly string[] }>() // paymentRef -> cheque
   for (let i = 0; i < refs.length; i += IN_CHUNK) {
     const found = await db.check.findMany({
       where: { acumaticaPaymentId: { in: refs.slice(i, i + IN_CHUNK) } },
-      select: { id: true, acumaticaPaymentId: true },
+      select: { id: true, acumaticaPaymentId: true, apvNumbers: true },
     })
-    for (const c of found) if (c.acumaticaPaymentId) held.set(c.acumaticaPaymentId, c.id)
+    for (const c of found) {
+      if (c.acumaticaPaymentId) held.set(c.acumaticaPaymentId, { id: c.id, apvNumbers: c.apvNumbers })
+    }
   }
 
   for (const [paymentRef, vouchers] of byRef) {
-    const checkId = held.get(paymentRef)
-    if (!checkId) {
+    const cheque = held.get(paymentRef)
+    if (!cheque) {
       notHeld++
       notHeldRefs.push(paymentRef)
       continue
     }
+    const checkId = cheque.id
+    // Nothing missing on the unlocked read: no transaction. A concurrent
+    // writer only ever ADDS vouchers (BILLS appends, upsertCheck writes only
+    // an addition), so a voucher present now cannot be missing at commit.
+    if ([...vouchers].every((v) => cheque.apvNumbers.includes(v))) continue
     try {
       const added = await inTx(db, async (tx) => {
         // Re-read inside the transaction, with the row locked, and append in
@@ -196,7 +208,7 @@ export async function runBillsSync(db: Db, args: BillsSyncArgs): Promise<BillsRu
         // payment sync cannot erase an append made here.
         const locked = await tx.$queryRaw<{ apvNumbers: string[] }[]>(Prisma.sql`
           SELECT "apvNumbers" FROM "Check" WHERE "id" = ${checkId} FOR UPDATE`)
-        if (locked.length === 0) throw new Error(`Cheque ${checkId} (${paymentRef}) no longer exists.`)
+        if (locked.length === 0) throw new Error(`Cheque ${checkId} no longer exists.`)
         const have = new Set(locked[0].apvNumbers)
         const missing = [...vouchers].filter((v) => !have.has(v)).sort()
         if (missing.length === 0) return 0
@@ -222,14 +234,22 @@ export async function runBillsSync(db: Db, args: BillsSyncArgs): Promise<BillsRu
         chequesChanged++
       }
     } catch (error) {
-      // One cheque's failure must not cost the rest of the run.
+      // One cheque's failure must not cost the rest of the run. Named by its
+      // payment reference, so the run message says which cheque to look at.
       errors++
-      problems.push(describe(error))
+      problems.push(`${paymentRef}: ${describe(error)}`)
     }
   }
 
+  // HELD when any cheque's write failed: the previous BILLS watermark stays in
+  // force, so the failed cheque's vouchers are re-read next run. Moving it
+  // would skip them for good (an incremental read only looks forward). The
+  // re-read is harmless for the rest: add-only, and a fully-linked cheque
+  // opens no transaction.
   const watermark =
-    maxSeen === null ? null : new Date(maxSeen.getTime() - SYNC_OVERLAP_MINUTES * 60_000)
+    errors > 0 || maxSeen === null
+      ? null
+      : new Date(maxSeen.getTime() - SYNC_OVERLAP_MINUTES * 60_000)
 
   await finish(watermark)
 
