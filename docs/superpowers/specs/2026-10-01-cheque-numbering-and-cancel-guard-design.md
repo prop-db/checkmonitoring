@@ -154,8 +154,8 @@ A new module in `lib/module-nav.ts`, **NUMBERING**, between RECON and ADMINISTRA
 - **One account (`?account=<cashAccountId>`)**: every entry in number order — NUMBER, DATE,
   PAYEE, AMOUNT, STATUS (the existing `StatusPill`), each cheque linked to `/checks/[id]` — with
   each MISSING run as a full-width highlighted line `6000354301 – 6000354349 · MISSING · 49`.
-  A **MISSING ONLY** toggle (`?missing=1`) shows just the gaps. NOT NUMERIC and DUPLICATE NUMBER
-  sections follow the table when non-empty. BACK TO ALL ACCOUNTS keeps the company filter.
+  A **MISSING ONLY** toggle (`?missing=1`) shows just the gaps. A duplicate is flagged
+  DUPLICATE NUMBER on its own row; a NOT NUMERIC section follows the table when non-empty. BACK TO ALL ACCOUNTS keeps the company filter.
 - An unknown `account` id is a 404 text state on the page, not a widened view.
 - Amounts are rendered from the decimal string; no total is shown (the report is about numbers,
   and a total over VOIDED and CANCELLED cheques would be read as money).
@@ -172,7 +172,7 @@ Same parameters (`company`, `account`, `missing`), session-guarded like `/api/ex
 - Cheque numbers written as **text** cells (ten-digit numbers lose nothing, but a leading zero
   would). Amounts as the existing decimal handling in `lib/export/sheet-style.ts` /
   `recon-workbook.ts` does.
-- Filename `CHEQUE NUMBERING <Manila date>.xlsx`.
+- Filename `cheque-numbering-<Manila day>.xlsx`, the `recon` pattern (`slugify`).
 
 ### B tests
 
