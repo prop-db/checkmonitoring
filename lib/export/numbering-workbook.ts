@@ -35,7 +35,8 @@ const countCell = (s: string): number | string => (s.length <= 15 ? Number(s) : 
 
 /** Excel: ≤31 chars, none of []:*?/\, unique case-insensitively within the book. */
 export function sheetNameFor(code: string, used: Set<string>): string {
-  const base = (code.replace(/[[\]:*?/\\]/g, ' ').trim() || 'ACCOUNT').slice(0, 31)
+  const cleaned = code.replace(/[[\]:*?/\\]/g, ' ').trim().slice(0, 31).replace(/^'+|'+$/g, '').trim()
+  const base = cleaned || 'ACCOUNT'
   let name = base
   let i = 2
   while (used.has(name.toUpperCase())) {
@@ -125,8 +126,10 @@ export async function buildNumberingWorkbook(
       row.getCell(9).value = countCell(e.count)
       row.getCell(9).numFmt = COUNT_FORMAT
       row.font = { bold: true }
+      row.getCell(10).value = null
       row.eachCell({ includeEmpty: true }, (c) => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } } })
     }
+    sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: r - 1, column: NUMBERING_ACCOUNT_HEADERS.length } }
     budget -= Math.min(rows.length, budget)
     ;[22, 14, 36, 18, 10, 18, 14, 14, 12, 18].forEach((w, i) => { sheet.getColumn(i + 1).width = w })
   }

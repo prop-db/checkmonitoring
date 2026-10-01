@@ -28,7 +28,40 @@ describe('sheetNameFor', () => {
   })
 })
 
+describe('sheetNameFor apostrophes', () => {
+  it('never starts or ends with an apostrophe', () => {
+    expect(sheetNameFor("'X'", new Set())).toBe('X')
+    expect(sheetNameFor("''", new Set())).toBe('ACCOUNT')
+  })
+})
+
 describe('buildNumberingWorkbook', () => {
+  it('sets an auto-filter over the header and every written row', async () => {
+    const wb = await load(await buildNumberingWorkbook({ accounts: [account('BPI STK', [ch('101'), ch('104')])], meta: META }))
+    const af = wb.getWorksheet('BPI STK')!.autoFilter
+    expect(af).toBe('A1:J4')
+  })
+
+  it('writes a null amount as an empty cell and a real amount as a number', async () => {
+    const noAmount = { ...ch('5'), amount: null }
+    const wb = await load(await buildNumberingWorkbook({ accounts: [account('BPI STK', [noAmount, ch('6')])], meta: META }))
+    const ws = wb.getWorksheet('BPI STK')!
+    expect(ws.getRow(2).getCell(6).value ?? null).toBeNull()
+    expect(ws.getRow(3).getCell(6).value).toBe(197715.42)
+  })
+
+  it('notes DUPLICATE NUMBER on both cheques sharing a number', async () => {
+    const wb = await load(await buildNumberingWorkbook({ accounts: [account('BPI STK', [ch('8'), { ...ch('8'), id: 'id-8b' }])], meta: META }))
+    const ws = wb.getWorksheet('BPI STK')!
+    expect(ws.getRow(2).getCell(10).value).toBe('DUPLICATE NUMBER')
+    expect(ws.getRow(3).getCell(10).value).toBe('DUPLICATE NUMBER')
+  })
+
+  it('shades the NOTE cell of a MISSING row', async () => {
+    const wb = await load(await buildNumberingWorkbook({ accounts: [account('BPI STK', [ch('101'), ch('104')])], meta: META }))
+    expect(wb.getWorksheet('BPI STK')!.getRow(3).getCell(10).fill).toMatchObject({ type: 'pattern' })
+  })
+
   it('writes SUMMARY and one sheet per account, MISSING lines in their own columns, numbers as text', async () => {
     const wb = await load(await buildNumberingWorkbook({
       accounts: [account('BPI STK', [ch('101'), ch('104', 'VOIDED')]), account('MBTC A1', [ch('7')])],
