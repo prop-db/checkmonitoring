@@ -82,8 +82,9 @@ export async function getSyncOverview(
     Promise.all(
       SYNC_TENANTS.map(async (tenant): Promise<TenantSync> => {
         const [lastAttempt, lastSuccess] = await Promise.all([
-          db.syncRun.findFirst({ where: { tenant }, orderBy: { startedAt: 'desc' } }),
-          db.syncRun.findFirst({ where: { tenant, ...SUCCESS }, orderBy: { startedAt: 'desc' } }),
+          // The dashboard's ACUMATICA LAST READ is the payment feed; BILLS rows are the voucher read's.
+          db.syncRun.findFirst({ where: { tenant, mode: { not: 'BILLS' } }, orderBy: { startedAt: 'desc' } }),
+          db.syncRun.findFirst({ where: { tenant, mode: { not: 'BILLS' }, ...SUCCESS }, orderBy: { startedAt: 'desc' } }),
         ])
         const inFlight = lastAttempt !== null && lastAttempt.finishedAt === null
         return {

@@ -381,6 +381,18 @@ describe('runSync — the incremental window', () => {
     await testDb.syncRun.deleteMany({ where: { tenant: 'GOLIVE' } })
     expect(await lastSyncWatermark(testDb, 'GOLIVE')).toBeNull()
   })
+
+  it('ignores a newer BILLS row, whose watermark is on a different feed', async () => {
+    await seedBothTenantsST()
+    await sync([feedRow({ LastModifiedOn: '2026-09-04T10:00:00' })]).result
+    await testDb.syncRun.create({
+      data: {
+        mode: 'BILLS', tenant: 'GOLIVE', startedAt: new Date(NOW.getTime() + 60_000),
+        finishedAt: new Date(NOW.getTime() + 61_000), watermark: new Date('2026-09-30T00:00:00Z'),
+      },
+    })
+    expect(await lastSyncWatermark(testDb, 'GOLIVE')).toEqual(new Date('2026-09-04T08:00:00Z'))
+  })
 })
 
 describe('runSync — one bad row must not cost a 37,000-row sync', () => {
@@ -861,6 +873,15 @@ describe('runSync — one run per tenant at a time', () => {
     await seedBothTenantsST()
     await unfinished('MANUFACTURING', minutesBefore(5))
     const result = await sync([feedRow()], { tenant: 'GOLIVE' }).result
+    expect(result.imported).toBe(1)
+  })
+
+  it('is not blocked by an unfinished BILLS run', async () => {
+    await seedBothTenantsST()
+    await testDb.syncRun.create({
+      data: { mode: 'BILLS', tenant: 'GOLIVE', startedAt: minutesBefore(5), finishedAt: null, trigger: 'SCHEDULED' },
+    })
+    const result = await sync([feedRow()]).result
     expect(result.imported).toBe(1)
   })
 

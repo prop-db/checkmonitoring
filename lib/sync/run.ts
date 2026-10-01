@@ -85,6 +85,8 @@ async function assertNoRunInProgress(
   const open = await db.syncRun.findFirst({
     where: {
       tenant,
+      // BILLS rows are the voucher read's, lib/sync/bills.ts; their watermark is on a different feed.
+      mode: { not: 'BILLS' },
       finishedAt: null,
       startedAt: { gt: new Date(now.getTime() - inProgressMinutes * 60_000) },
     },
@@ -230,7 +232,8 @@ export function paymentsInScopeFilter(): string {
  */
 export async function lastSyncWatermark(db: Db, tenant: AcumaticaTenant): Promise<Date | null> {
   const run = await db.syncRun.findFirst({
-    where: { tenant, watermark: { not: null } },
+    // BILLS rows are the voucher read's, lib/sync/bills.ts; their watermark is on a different feed.
+    where: { tenant, mode: { not: 'BILLS' }, watermark: { not: null } },
     orderBy: { startedAt: 'desc' },
     select: { watermark: true },
   })

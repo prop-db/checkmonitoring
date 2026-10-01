@@ -72,6 +72,16 @@ describe('getSyncOverview', () => {
     expect(forTenant(await getSyncOverview(testDb, now, 20), 'GOLIVE').abandoned).toBe(true)
   })
 
+  it('does not report a newer BILLS run as the tenant’s last attempt — that panel is the payment feed', async () => {
+    await run({ startedAt: '2026-09-04T08:00:00Z', imported: 24 })
+    await testDb.syncRun.create({
+      data: { mode: 'BILLS', tenant: 'GOLIVE', startedAt: new Date('2026-09-04T10:00:00Z'), finishedAt: new Date('2026-09-04T10:00:01Z'), imported: 7 },
+    })
+    const t = forTenant(await getSyncOverview(testDb), 'GOLIVE')
+    expect(t.lastAttempt?.imported).toBe(24)
+    expect(t.lastSuccess?.imported).toBe(24)
+  })
+
   it('surfaces runs recorded before the tenant column existed rather than hiding them', async () => {
     await run({ tenant: null, startedAt: '2026-09-01T10:00:00Z' })
     const overview = await getSyncOverview(testDb)
