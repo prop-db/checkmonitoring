@@ -6,6 +6,10 @@ import { ELIGIBILITIES } from './domain/eligibility'
 // statuses that view covers. `dashboard-view` does not import this module, so
 // there is no cycle.
 import { viewStatusFilter } from './dashboard-view'
+import {
+  DEFAULT_SORT, isAppSorted, dbOrderBy, compareSortValues,
+  type SortSpec, type SortDir, type AppSortKey, type SortValue,
+} from './list-sort'
 
 type Db = PrismaClient | Prisma.TransactionClient
 
@@ -435,34 +439,89 @@ function buildWhere(filters: CheckFilters): Prisma.CheckWhereInput {
   return where
 }
 
-export async function listChecks(db: Db, filters: CheckFilters, limit = 200) {
-  const where = buildWhere(filters)
+// All bills, not just the first: search matches APV/PO across every bill on
+// a check, so showing only `bills[0]` would display a different APV than the
+// one the user searched for — indistinguishable from a false positive.
+//
+// `cashAccount.bank` feeds the BANK column. One nested include, not a
+// second query per row.
+const CHECK_ROW_INCLUDE = {
+  company: true,
+  cashAccount: { include: { bank: true } },
+  bills: { orderBy: { apvNumber: 'asc' } },
+} satisfies Prisma.CheckInclude
 
-  return db.check.findMany({
+/** What the in-app order reads: enough to compute the four keys Prisma cannot order. */
+type SortProbe = {
+  apvNumbers: string[]
+  releasedAt: Date | null
+  statedReleaseDate: Date | null
+  cashAccount: { code: string } | null
+  bills: { apvNumber: string; poNumber: string | null }[]
+}
+
+export function appSortValue(key: AppSortKey, r: SortProbe): SortValue {
+  switch (key) {
+    case 'apvNumbers': return displayApvNumbers(r)[0] ?? null
+    case 'poNumbers': return displayPoNumbers(r)[0] ?? null
+    case 'bank': return r.cashAccount?.code ?? null
+    case 'releasedAt': return (r.releasedAt ?? r.statedReleaseDate)?.getTime() ?? null
+    default: {
+      const unreachable: never = key
+      throw new Error(`No in-app order for ${String(unreachable)}`)
+    }
+  }
+}
+
+const byCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+
+/**
+ * The ids of the first `limit` matching cheques in an order Prisma cannot
+ * express (see APP_SORTED_KEYS). Every matching cheque is read — five small
+ * columns and its bills' two references — because the page must be the first
+ * `limit` of the WHOLE set. Production holds ~12,000 cheques; ALL CHEQUES
+ * reads them all, which is a narrow select, once per request.
+ */
+async function appSortedIds(
+  db: Db, where: Prisma.CheckWhereInput, key: AppSortKey, dir: SortDir, limit: number,
+): Promise<string[]> {
+  const probes = await db.check.findMany({
     where,
-    // All bills, not just the first: search matches APV/PO across every bill on
-    // a check, so showing only `bills[0]` would display a different APV than the
-    // one the user searched for — indistinguishable from a false positive.
-    //
-    // `cashAccount.bank` feeds the BANK column. One nested include, not a
-    // second query per row.
-    include: {
-      company: true,
-      cashAccount: { include: { bank: true } },
-      bills: { orderBy: { apvNumber: 'asc' } },
+    select: {
+      id: true, checkNumber: true, apvNumbers: true, releasedAt: true, statedReleaseDate: true,
+      cashAccount: { select: { code: true } },
+      bills: { select: { apvNumber: true, poNumber: true } },
     },
-    /**
-     * `nulls: 'last'`, and it is not cosmetic.
-     *
-     * Postgres sorts NULLs FIRST on a descending sort. `checkDate` is nullable
-     * — 38 live cheques carry no date — so a plain `{ checkDate: 'desc' }` put
-     * every one of them at the top and the dashboard opened on a first screen
-     * of nothing but em dashes, with the cheques Finance actually has to act on
-     * pushed below the fold. Pinned by test in tests/queries.test.ts.
-     */
-    orderBy: [{ checkDate: { sort: 'desc', nulls: 'last' } }, { checkNumber: 'asc' }],
-    take: limit,
   })
+  return probes
+    .map((p) => ({ id: p.id, checkNumber: p.checkNumber, value: appSortValue(key, p) }))
+    .sort((a, b) =>
+      compareSortValues(a.value, b.value, dir) || byCodeUnit(a.checkNumber, b.checkNumber) || byCodeUnit(a.id, b.id))
+    .slice(0, limit)
+    .map((p) => p.id)
+}
+
+/**
+ * The LIST screen's rows, ordered by `sort` over EVERY matching cheque before
+ * the limit is applied. Nulls go last in both directions (`dbOrderBy`, and
+ * `compareSortValues` for the in-app keys), and it is not cosmetic.
+ *
+ * Postgres sorts NULLs FIRST on a descending sort. `checkDate` is nullable
+ * — 38 live cheques carry no date — so a plain `{ checkDate: 'desc' }` put
+ * every one of them at the top and the dashboard opened on a first screen
+ * of nothing but em dashes, with the cheques Finance actually has to act on
+ * pushed below the fold. Pinned by test in tests/queries.test.ts.
+ */
+export async function listChecks(db: Db, filters: CheckFilters, limit = 200, sort: SortSpec = DEFAULT_SORT) {
+  const where = buildWhere(filters)
+  const { key, dir } = sort
+  if (!isAppSorted(key)) {
+    return db.check.findMany({ where, include: CHECK_ROW_INCLUDE, orderBy: dbOrderBy(key, dir), take: limit })
+  }
+  const ids = await appSortedIds(db, where, key, dir, limit)
+  const rows = await db.check.findMany({ where: { id: { in: ids } }, include: CHECK_ROW_INCLUDE })
+  const position = new Map(ids.map((id, i) => [id, i]))
+  return rows.sort((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0))
 }
 
 // Companion to `listChecks`: the number of rows the same filters match, ignoring
@@ -604,26 +663,42 @@ export type CheckTableRow = {
   hasReceipt: boolean
 }
 
+/**
+ * What the APV NUMBER cell shows: the cheque's own vouchers and its bills',
+ * deduplicated and ordered. One definition, because the sort orders by the
+ * first value SHOWN — a second copy would sort by something nobody can see.
+ *
+ * Both sources, folded into one list. `Check.apvNumbers` is what the register
+ * states — 11,552 of its 11,779 cheque numbers carry at least one — and
+ * `bills` is the approval-for-release workbook's per-bill ledger, which covers
+ * 85 rows of one day's working list. They overlap where a cheque is on both,
+ * and a cheque is usually on only one, so showing either alone leaves the
+ * column empty for most of the register. Every bill, not just the first:
+ * search matches APV across all of them, and showing one arbitrary bill would
+ * display a different APV than the one the user searched for.
+ */
+export function displayApvNumbers(r: { apvNumbers: string[]; bills: { apvNumber: string }[] }): string[] {
+  return [...new Set([...r.apvNumbers, ...r.bills.map((b) => b.apvNumber)])].sort()
+}
+
+/**
+ * What the PO NUMBER cell shows — the bills' Vendor Ref, deduplicated and ordered.
+ *
+ * The approval workbook's Vendor Ref is the only PO a cheque carries:
+ * `Check` has no PO column (the register's POs reached `StagedCheck` only)
+ * and Acumatica publishes none (checked 2026-10-01). Search needs no change:
+ * `bills.some.poNumber contains` already matches PO.
+ */
+export function displayPoNumbers(r: { bills: { poNumber: string | null }[] }): string[] {
+  return [...new Set(r.bills.map((b) => b.poNumber).filter((p): p is string => p !== null))].sort()
+}
+
 export function toTableRow(r: CheckRow): CheckTableRow {
   return {
     id: r.id,
     checkNumber: r.checkNumber,
-    // Both sources, folded into one list, deduplicated and ordered.
-    //
-    // `Check.apvNumbers` is what the register states — 11,552 of its 11,779
-    // cheque numbers carry at least one — and `bills` is the approval-for-
-    // release workbook's per-bill ledger, which covers 85 rows of one day's
-    // working list. They overlap where a cheque is on both, and a cheque is
-    // usually on only one, so showing either alone leaves the column empty for
-    // most of the register. Every bill, not just the first: search matches APV
-    // across all of them, and showing one arbitrary bill would display a
-    // different APV than the one the user searched for.
-    apvNumbers: [...new Set([...r.apvNumbers, ...r.bills.map((b) => b.apvNumber)])].sort(),
-    // The approval workbook's Vendor Ref is the only PO a cheque carries:
-    // `Check` has no PO column (the register's POs reached `StagedCheck` only)
-    // and Acumatica publishes none (checked 2026-10-01). Search needs no change:
-    // `bills.some.poNumber contains` already matches PO.
-    poNumbers: [...new Set(r.bills.map((b) => b.poNumber).filter((p): p is string => p !== null))].sort(),
+    apvNumbers: displayApvNumbers(r),
+    poNumbers: displayPoNumbers(r),
     payeeName: r.payeeName,
     companyCode: r.company.code,
     // `?? null`, so a cheque with no cash account says so rather than crossing

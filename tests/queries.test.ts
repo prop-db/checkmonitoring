@@ -7,6 +7,7 @@ import {
 } from '@/lib/queries'
 import { formatMoney } from '@/lib/money'
 import { LIVE_STATUSES, isLiveStatus } from '@/lib/domain/check-status'
+import type { SortKey } from '@/lib/list-sort'
 
 beforeEach(resetDb)
 
@@ -980,5 +981,132 @@ describe('SIGN ALL set', () => {
     expect(await getPendingSignature(testDb, { companyId: a.companyId }))
       .toEqual({ count: 1, totalsByCurrency: [{ currency: 'PHP', total: '100', count: 1 }] })
     expect(await getPendingSignature(testDb, { companyId: 'no-such-company' })).toEqual({ count: 0, totalsByCurrency: [] })
+  })
+})
+
+// Part C1: every column but ACTION, both directions, nulls LAST both ways.
+describe('listChecks sort', () => {
+  type Over = NonNullable<Parameters<typeof makeCheck>[0]>
+  const nums = (rows: { checkNumber: string }[]) => rows.map((r) => r.checkNumber)
+  const sorted = async (key: SortKey, dir: 'asc' | 'desc', limit = 200) =>
+    nums(await listChecks(testDb, {}, limit, { key, dir }))
+  // 6000000001 is the low value, 02 the high one, 03 has none (where a column can be empty).
+  const three = async (low: Over, high: Over, none: Over) => {
+    const a = await makeCheck({ checkNumber: '6000000001', ...low })
+    const b = await makeCheck({ checkNumber: '6000000002', ...high })
+    const c = await makeCheck({ checkNumber: '6000000003', ...none })
+    return [a, b, c] as const
+  }
+  const ASC = ['6000000001', '6000000002', '6000000003']
+  const DESC = ['6000000002', '6000000001', '6000000003']
+
+  it('SUPPLIER NAME', async () => {
+    await three({ payeeName: 'ALPHA' }, { payeeName: 'ZULU' }, { payeeName: null })
+    expect(await sorted('payeeName', 'asc')).toEqual(ASC)
+    expect(await sorted('payeeName', 'desc')).toEqual(DESC)
+  })
+
+  it('CHECK DATE', async () => {
+    await three({ checkDate: new Date('2026-01-01') }, { checkDate: new Date('2026-09-01') }, { checkDate: null })
+    expect(await sorted('checkDate', 'asc')).toEqual(ASC)
+    expect(await sorted('checkDate', 'desc')).toEqual(DESC)
+  })
+
+  it('AMOUNT', async () => {
+    await three({ amount: '10.00' }, { amount: '900.00' }, { amount: null })
+    expect(await sorted('amount', 'asc')).toEqual(ASC)
+    expect(await sorted('amount', 'desc')).toEqual(DESC)
+  })
+
+  it('AVAILABLE DATE', async () => {
+    await three(
+      { availablePickupDate: new Date('2026-01-01') }, { availablePickupDate: new Date('2026-09-01') },
+      { availablePickupDate: null },
+    )
+    expect(await sorted('availablePickupDate', 'asc')).toEqual(ASC)
+    expect(await sorted('availablePickupDate', 'desc')).toEqual(DESC)
+  })
+
+  it('PICKUP SCHEDULE', async () => {
+    const [a, b] = await three({}, {}, {})
+    await testDb.check.update({ where: { id: a.id }, data: { scheduledPickupDate: new Date('2026-01-01') } })
+    await testDb.check.update({ where: { id: b.id }, data: { scheduledPickupDate: new Date('2026-09-01') } })
+    expect(await sorted('scheduledPickupDate', 'asc')).toEqual(ASC)
+    expect(await sorted('scheduledPickupDate', 'desc')).toEqual(DESC)
+  })
+
+  it('COMPANY, by its code', async () => {
+    const [a, b, c] = await three({}, {}, {})
+    await testDb.company.update({ where: { id: a.companyId }, data: { code: 'AAA' } })
+    await testDb.company.update({ where: { id: b.companyId }, data: { code: 'ZZZ' } })
+    await testDb.company.update({ where: { id: c.companyId }, data: { code: 'MMM' } })
+    expect(await sorted('companyCode', 'asc')).toEqual(['6000000001', '6000000003', '6000000002'])
+    expect(await sorted('companyCode', 'desc')).toEqual(['6000000002', '6000000003', '6000000001'])
+  })
+
+  it('STATUS, by the ladder rather than the alphabet', async () => {
+    await three({ status: 'SIGNATURE_PENDING' }, { status: 'RELEASED' }, { status: 'SIGNED' })
+    // SIGNATURE_PENDING < SIGNED < RELEASED on the ladder; alphabetically RELEASED would be first.
+    expect(await sorted('status', 'asc')).toEqual(['6000000001', '6000000003', '6000000002'])
+    expect(await sorted('status', 'desc')).toEqual(['6000000002', '6000000003', '6000000001'])
+  })
+
+  it('CHECK NUMBER', async () => {
+    await three({}, {}, {})
+    expect(await sorted('checkNumber', 'asc')).toEqual(ASC)
+    expect(await sorted('checkNumber', 'desc')).toEqual(['6000000003', '6000000002', '6000000001'])
+  })
+
+  it('APV NUMBER, by the first value shown — the cheque’s own or a bill’s', async () => {
+    const [, , c] = await three({ apvNumbers: ['AP-B', 'AP-Z'] }, { apvNumbers: ['AP-C'] }, { apvNumbers: [] })
+    expect(await sorted('apvNumbers', 'asc')).toEqual(ASC)
+    expect(await sorted('apvNumbers', 'desc')).toEqual(DESC)
+    // A bill's voucher counts: it is on screen in the same cell.
+    await testDb.checkBill.create({ data: { checkId: c.id, apvNumber: 'AP-A', amount: '1.00' } })
+    expect(await sorted('apvNumbers', 'asc')).toEqual(['6000000003', '6000000001', '6000000002'])
+  })
+
+  it('PO NUMBER, by the first value shown', async () => {
+    const [a, b] = await three({}, {}, {})
+    await testDb.checkBill.create({ data: { checkId: a.id, apvNumber: 'AP-1', poNumber: 'PO-1', amount: '1.00' } })
+    await testDb.checkBill.create({ data: { checkId: b.id, apvNumber: 'AP-2', poNumber: 'PO-9', amount: '1.00' } })
+    expect(await sorted('poNumbers', 'asc')).toEqual(ASC)
+    expect(await sorted('poNumbers', 'desc')).toEqual(DESC)
+  })
+
+  it('BANK, by the cash account code, a cheque with none last both ways', async () => {
+    const [a, b, c] = await three({}, {}, {})
+    await testDb.cashAccount.update({ where: { id: a.cashAccountId! }, data: { code: 'AAA BANK' } })
+    await testDb.cashAccount.update({ where: { id: b.cashAccountId! }, data: { code: 'ZZZ BANK' } })
+    await testDb.check.update({ where: { id: c.id }, data: { cashAccountId: null } })
+    expect(await sorted('bank', 'asc')).toEqual(ASC)
+    expect(await sorted('bank', 'desc')).toEqual(DESC)
+  })
+
+  it('DATE RELEASED, by the date shown — the app’s, else the register’s', async () => {
+    await three(
+      { status: 'RELEASED', releasedAt: new Date('2026-09-10T02:00:00Z') },
+      { status: 'RELEASED', statedReleaseDate: new Date('2026-09-20') },
+      { status: 'RELEASED' },
+    )
+    expect(await sorted('releasedAt', 'asc')).toEqual(ASC)
+    expect(await sorted('releasedAt', 'desc')).toEqual(DESC)
+  })
+
+  // The list shows at most 200: the sort must pick the right 200, not sort the first 200.
+  it('sorts across every matching cheque before the limit, in the database and in the app', async () => {
+    await makeCheck({ checkNumber: '6000000001', amount: '500.00', apvNumbers: ['AP-M'] })
+    await makeCheck({ checkNumber: '6000000002', amount: '100.00', apvNumbers: ['AP-Z'] })
+    await makeCheck({ checkNumber: '6000000003', amount: '300.00', apvNumbers: ['AP-A'] })
+    expect(await sorted('amount', 'asc', 2)).toEqual(['6000000002', '6000000003'])
+    expect(await sorted('apvNumbers', 'asc', 2)).toEqual(['6000000003', '6000000001'])
+  })
+
+  it('breaks a tie on the cheque number, ascending, in both directions', async () => {
+    await makeCheck({ checkNumber: '6000000009', amount: '100.00' })
+    await makeCheck({ checkNumber: '6000000008', amount: '100.00' })
+    expect(await sorted('amount', 'asc')).toEqual(['6000000008', '6000000009'])
+    expect(await sorted('amount', 'desc')).toEqual(['6000000008', '6000000009'])
+    expect(await sorted('bank', 'desc')).toHaveLength(2)
   })
 })
