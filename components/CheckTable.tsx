@@ -10,7 +10,7 @@ import {
 } from '@/lib/row-receipts'
 import {
   COLUMN_KEYS, COLUMN_LABELS, ALWAYS_ON, DEFAULT_COLUMNS, COLUMN_STORAGE_KEY,
-  parseColumnPreference, serialiseColumnPreference, toggleColumn, moveColumn, canMoveColumn, withColumns,
+  parseColumnPreference, serialiseColumnPreference, columnControls,
   type ColumnKey,
 } from '@/lib/table-columns'
 import type { SortKey, SortSpec } from '@/lib/list-sort'
@@ -60,7 +60,12 @@ function SortHeader({ column, sort, link }: { column: DataColumn; sort: SortSpec
         prefetch={false}
         scroll={false}
         href={link.href}
-        onClick={() => writeSortCookie(link.next)}
+        onClick={(e) => {
+          // Ctrl/cmd/shift/alt or middle click opens a new tab or window: this
+          // page does not navigate, so its remembered sort must not change.
+          if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
+          writeSortCookie(link.next)
+        }}
         className="inline-flex items-center gap-1 hover:text-slate-900"
       >
         {COLUMN_LABELS[column]}
@@ -182,7 +187,10 @@ export function CheckTable({
   }, [])
 
   // A column with a filter in force is never hidden (part C2).
-  const visible = withColumns(preference, filters.filteredColumns)
+  // Shown: the preference plus the filtered columns. Edited and saved: the
+  // preference alone — see columnControls.
+  const columns = columnControls(preference, filters.filteredColumns)
+  const visible = columns.visible
   const shown = visible.filter((k): k is DataColumn => k !== 'action')
   const hidden = COLUMN_KEYS.filter((k): k is DataColumn => k !== 'action' && !visible.includes(k))
 
@@ -253,15 +261,15 @@ export function CheckTable({
         {shown.map((key) => (
           <li key={key} className="flex items-center gap-2 text-xs tracking-wide text-slate-700">
             <button type="button" className={arrow} aria-label={`Move ${COLUMN_LABELS[key]} left`}
-              disabled={!canMoveColumn(visible, key, -1)} onClick={() => persist(moveColumn(visible, key, -1))}>◀</button>
+              disabled={!columns.canMove(key, -1)} onClick={() => persist(columns.move(key, -1))}>◀</button>
             <button type="button" className={arrow} aria-label={`Move ${COLUMN_LABELS[key]} right`}
-              disabled={!canMoveColumn(visible, key, 1)} onClick={() => persist(moveColumn(visible, key, 1))}>▶</button>
+              disabled={!columns.canMove(key, 1)} onClick={() => persist(columns.move(key, 1))}>▶</button>
             {isAlwaysOn(key) ? (
               <span>{COLUMN_LABELS[key]} <span className="text-slate-400">(ALWAYS SHOWN)</span></span>
             ) : (
               <label className="flex items-center gap-2">
                 <input
-                  type="checkbox" checked onChange={() => persist(toggleColumn(visible, key))}
+                  type="checkbox" checked onChange={() => persist(columns.toggle(key))}
                   disabled={filters.filteredColumns.includes(key)}
                   title={filters.filteredColumns.includes(key) ? 'FILTERED — CLEAR ITS FILTER TO HIDE IT' : undefined}
                 />
@@ -273,7 +281,7 @@ export function CheckTable({
         {hidden.map((key) => (
           <li key={key} className="flex items-center gap-2 pl-16 text-xs tracking-wide text-slate-500">
             <label className="flex items-center gap-2">
-              <input type="checkbox" checked={false} onChange={() => persist(toggleColumn(visible, key))} />
+              <input type="checkbox" checked={false} onChange={() => persist(columns.toggle(key))} />
               {COLUMN_LABELS[key]}
             </label>
           </li>

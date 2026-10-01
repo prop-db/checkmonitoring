@@ -131,6 +131,22 @@ export function moveColumn(order: readonly ColumnKey[], key: ColumnKey, delta: -
   return out
 }
 
+/**
+ * The chooser's controls. What is SHOWN is the preference with the filtered
+ * columns forced in; what is EDITED and saved is the preference alone, so a
+ * column on screen only because a filter is in force is never written to
+ * storage by a move or a toggle. Such a column does not move (its arrows are
+ * disabled): it has no place in the saved order to move from.
+ */
+export function columnControls(preference: readonly ColumnKey[], forced: readonly ColumnKey[]) {
+  return {
+    visible: withColumns(preference, forced),
+    canMove: (key: ColumnKey, delta: -1 | 1) => canMoveColumn(preference, key, delta),
+    move: (key: ColumnKey, delta: -1 | 1) => moveColumn(preference, key, delta),
+    toggle: (key: ColumnKey) => toggleColumn(preference, key),
+  }
+}
+
 /** `order` with `keys` forced in — a filtered column stays on screen (part C2). */
 export function withColumns(order: readonly ColumnKey[], keys: readonly ColumnKey[]): ColumnKey[] {
   return keys.reduce<ColumnKey[]>((acc, k) => insertColumn(acc, k), [...order])

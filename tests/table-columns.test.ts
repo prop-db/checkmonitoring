@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   COLUMN_KEYS, COLUMN_LABELS, ALWAYS_ON, DEFAULT_COLUMNS, COLUMN_STORAGE_KEY,
-  isColumnKey, normaliseColumns, insertColumn, toggleColumn, moveColumn, canMoveColumn, withColumns, withColumnOrder, parseColumnPreference, serialiseColumnPreference,
+  isColumnKey, columnControls, normaliseColumns, insertColumn, toggleColumn, moveColumn, canMoveColumn, withColumns, withColumnOrder, parseColumnPreference, serialiseColumnPreference,
   type ColumnKey,
 } from '@/lib/table-columns'
 
@@ -109,6 +109,37 @@ describe('reordering', () => {
   it('round-trips an order through storage', () => {
     const order = moveColumn([...COLUMN_KEYS], 'amount', -1)
     expect(parseColumnPreference(serialiseColumnPreference(order))).toEqual(order)
+  })
+
+  // Review fix: a column shown only because a filter is in force was written
+  // into the saved preference by any move or toggle, because the handlers
+  // persisted from the forced view. The preference is what is edited; a
+  // forced-only column is on screen but never saved, and does not move.
+  describe('columnControls — a filtered column is shown, never saved', () => {
+    const PREF = ['checkNumber', 'amount', 'status', 'action'] as const
+    const c = columnControls([...PREF], ['payeeName'])
+
+    it('shows the forced column', () => {
+      expect(c.visible).toEqual(['checkNumber', 'payeeName', 'amount', 'status', 'action'])
+    })
+    it('moves within the preference, and the forced column is not persisted', () => {
+      expect(c.move('amount', 1)).toEqual(['checkNumber', 'status', 'amount', 'action'])
+      expect(c.move('amount', -1)).toEqual(['amount', 'checkNumber', 'status', 'action'])
+    })
+    it('toggles within the preference, and the forced column is not persisted', () => {
+      expect(c.toggle('amount')).toEqual(['checkNumber', 'status', 'action'])
+      expect(c.toggle('bank')).toEqual(['checkNumber', 'bank', 'amount', 'status', 'action'])
+    })
+    it('a forced-only column cannot be moved', () => {
+      expect(c.canMove('payeeName', -1)).toBe(false)
+      expect(c.canMove('payeeName', 1)).toBe(false)
+      expect(c.move('payeeName', 1)).toEqual([...PREF])
+    })
+    it('a column both saved and filtered moves like any other', () => {
+      const d = columnControls([...PREF], ['amount'])
+      expect(d.canMove('amount', 1)).toBe(true)
+      expect(d.move('amount', 1)).toEqual(['checkNumber', 'status', 'amount', 'action'])
+    })
   })
 
   it('keeps part B’s storage key', () => {
