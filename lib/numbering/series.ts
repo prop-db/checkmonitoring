@@ -30,6 +30,10 @@ export type SeriesSummary = {
 export type AccountSeries = { entries: SeriesEntry[]; notNumeric: SeriesCheque[]; summary: SeriesSummary }
 
 const NUMERIC = /^\d+$/
+// Not `0n` / `1n` literals: Next's file tracer (nft) evaluates BinaryExpressions
+// statically and throws "Cannot mix BigInt and other types" on them, failing the build.
+const ZERO = BigInt(0)
+const ONE = BigInt(1)
 
 export function buildSeries(cheques: readonly SeriesCheque[]): AccountSeries {
   const numeric: { n: bigint; text: string; cheque: SeriesCheque }[] = []
@@ -47,14 +51,14 @@ export function buildSeries(cheques: readonly SeriesCheque[]): AccountSeries {
   const isDuplicate = (n: bigint) => (perNumber.get(n) ?? 0) > 1
 
   const entries: SeriesEntry[] = []
-  let missing = 0n
+  let missing = ZERO
   let runs = 0
   let prev: { n: bigint; text: string } | null = null
   for (const x of numeric) {
-    if (prev && x.n > prev.n + 1n) {
-      const from = prev.n + 1n
-      const to = x.n - 1n
-      const count = to - from + 1n
+    if (prev && x.n > prev.n + ONE) {
+      const from = prev.n + ONE
+      const to = x.n - ONE
+      const count = to - from + ONE
       // A leading-zero number keeps its width on the MISSING bounds.
       entries.push({
         kind: 'MISSING',
