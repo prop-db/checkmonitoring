@@ -9,6 +9,7 @@
 // supplier-facing system. Two checks on purpose.
 import type { Check, PortalEventKind } from '@prisma/client'
 import { portalRoute, type Eligibility } from '@/lib/domain/eligibility'
+import { portalApvs } from './apvs'
 
 export type PortalFetch = (
   url: string,
@@ -87,7 +88,7 @@ export function buildPortalEventBody(event: { id: string; kind: PortalEventKind 
   }
   // apvNumbers is the source's list; the bills are the same vouchers with
   // their PO numbers. A cheque imported before 2026-09-07 may carry only bills.
-  const apvs = check.apvNumbers.length ? check.apvNumbers : check.bills.map((b) => b.apvNumber)
+  const apvs = portalApvs(check)
   const poByApv = new Map(check.bills.map((b) => [b.apvNumber, b.poNumber ?? '']))
   const body: PortalEventBody = {
     eventId: event.id,
