@@ -14,6 +14,7 @@ const state = vi.hoisted(() => ({
   requested: [] as string[],
   failFor: null as string | null,
   failAutoSign: false,
+  failBillsFor: null as string | null,
 }))
 
 vi.mock('@/lib/db', async () => {
@@ -32,7 +33,15 @@ vi.mock('@/lib/integrations/acumatica/from-env', () => ({
   createClientForTenant: (tenant: string) => {
     state.requested.push(tenant)
     if (state.failFor === tenant) throw new Error(`${tenant} cannot be built`)
-    return { fetchAll: async () => [], fetchPage: async () => [] }
+    return {
+      fetchAll: async (feed: string) => {
+        if (feed === 'AP-PAYMENTS-WITH-BILLS' && state.failBillsFor === tenant) {
+          throw new Error(`${tenant} bills feed down`)
+        }
+        return []
+      },
+      fetchPage: async () => [],
+    }
   },
 }))
 
@@ -56,7 +65,8 @@ async function get(authorization?: string) {
   }))
 }
 
-const watermarked = (tenant: 'GOLIVE' | 'MANUFACTURING') =>
+/** A payment watermark only — the voucher read has none. */
+const paymentWatermarked = (tenant: 'GOLIVE' | 'MANUFACTURING') =>
   testDb.syncRun.create({
     data: {
       mode: 'INCREMENTAL', tenant, trigger: 'MANUAL',
@@ -64,6 +74,18 @@ const watermarked = (tenant: 'GOLIVE' | 'MANUFACTURING') =>
       watermark: new Date('2026-09-10T08:00:00Z'),
     },
   })
+
+/** Both a payment watermark and a BILLS (voucher read) watermark for the tenant. */
+const watermarked = async (tenant: 'GOLIVE' | 'MANUFACTURING') => {
+  await paymentWatermarked(tenant)
+  await testDb.syncRun.create({
+    data: {
+      mode: 'BILLS', tenant, trigger: 'MANUAL',
+      startedAt: new Date('2026-09-10T10:00:00Z'), finishedAt: new Date('2026-09-10T10:00:05Z'),
+      watermark: new Date('2026-09-10T08:00:00Z'),
+    },
+  })
+}
 
 beforeEach(async () => {
   await resetDb()
@@ -74,6 +96,7 @@ beforeEach(async () => {
   state.requested = []
   state.failFor = null
   state.failAutoSign = false
+  state.failBillsFor = null
 })
 
 describe('GET /api/cron/sync — the guard', () => {
@@ -109,10 +132,13 @@ describe('GET /api/cron/sync — the run', () => {
     const body = await res.json()
     expect(body.outcomes.map((o: { tenant: string; outcome: string }) => [o.tenant, o.outcome]))
       .toEqual([['GOLIVE', 'RAN'], ['MANUFACTURING', 'RAN']])
-    expect(state.requested).toEqual(['GOLIVE', 'MANUFACTURING'])
+    expect(state.requested).toEqual(['GOLIVE', 'MANUFACTURING', 'GOLIVE', 'MANUFACTURING'])
 
     const scheduled = await testDb.syncRun.findMany({ where: { trigger: 'SCHEDULED' } })
-    expect(scheduled.map((r) => r.tenant).sort()).toEqual(['GOLIVE', 'MANUFACTURING'])
+    // A payment read and a voucher read per tenant.
+    expect(scheduled.map((r) => `${r.tenant}:${r.mode}`).sort()).toEqual([
+      'GOLIVE:BILLS', 'GOLIVE:INCREMENTAL', 'MANUFACTURING:BILLS', 'MANUFACTURING:INCREMENTAL',
+    ])
   })
 
   it('still reads the second tenant when the first fails, and answers 500', async () => {
@@ -124,7 +150,7 @@ describe('GET /api/cron/sync — the run', () => {
 
     const body = await res.json()
     expect(body.outcomes.map((o: { outcome: string }) => o.outcome)).toEqual(['FAILED', 'RAN'])
-    expect(state.requested).toEqual(['GOLIVE', 'MANUFACTURING'])
+    expect(state.requested).toEqual(['GOLIVE', 'MANUFACTURING', 'GOLIVE', 'MANUFACTURING'])
   })
 
   it('answers 200 when a tenant merely had no watermark — the refusal is recorded, not a fault of the cron', async () => {
@@ -133,6 +159,41 @@ describe('GET /api/cron/sync — the run', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.outcomes.map((o: { outcome: string }) => o.outcome)).toEqual(['RAN', 'REFUSED_NO_WATERMARK'])
+  })
+})
+
+describe('GET /api/cron/sync — the voucher read (BILLS)', () => {
+  it('reports one BILLS outcome per tenant, in SYNC_TENANTS order', async () => {
+    await watermarked('GOLIVE')
+    await watermarked('MANUFACTURING')
+    const res = await get(`Bearer ${SECRET}`)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.bills.map((b: { tenant: string; outcome: string }) => [b.tenant, b.outcome]))
+      .toEqual([['GOLIVE', 'RAN'], ['MANUFACTURING', 'RAN']])
+  })
+
+  it('a BILLS FAILED turns the response 500 while the payment reads still RAN', async () => {
+    await watermarked('GOLIVE')
+    await watermarked('MANUFACTURING')
+    state.failBillsFor = 'MANUFACTURING'
+    const res = await get(`Bearer ${SECRET}`)
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.outcomes.map((o: { outcome: string }) => o.outcome)).toEqual(['RAN', 'RAN'])
+    expect(body.bills.map((b: { outcome: string }) => b.outcome)).toEqual(['RAN', 'FAILED'])
+  })
+
+  it('BILLS REFUSED_NO_WATERMARK is recorded and does not turn the response 500', async () => {
+    await paymentWatermarked('GOLIVE')
+    await paymentWatermarked('MANUFACTURING')
+    const res = await get(`Bearer ${SECRET}`)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.outcomes.map((o: { outcome: string }) => o.outcome)).toEqual(['RAN', 'RAN'])
+    expect(body.bills.map((b: { outcome: string }) => b.outcome))
+      .toEqual(['REFUSED_NO_WATERMARK', 'REFUSED_NO_WATERMARK'])
+    expect(await testDb.syncRun.count({ where: { mode: 'BILLS', trigger: 'SCHEDULED', errors: 1 } })).toBe(2)
   })
 })
 

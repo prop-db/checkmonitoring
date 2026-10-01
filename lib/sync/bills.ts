@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient } from '@prisma/client'
+import { Prisma, type PrismaClient } from '@prisma/client'
 import { writeAudit } from '@/lib/audit'
 import type { AcumaticaClient } from '@/lib/integrations/acumatica/client'
 import type { AcumaticaTenant } from '@/lib/integrations/acumatica/companies'
@@ -45,6 +45,8 @@ const TX_OPTIONS = { timeout: 30_000, maxWait: 15_000 } as const
 const IN_CHUNK = 1_000
 const MAX_REPORTED_PROBLEMS = 5
 const MAX_PROBLEM_LENGTH = 300
+/** How many not-held payment references a run's message names before it counts the rest. */
+const MAX_NAMED_NOT_HELD = 10
 
 export type BillsSyncArgs = {
   client: AcumaticaClient
@@ -113,6 +115,7 @@ export async function runBillsSync(db: Db, args: BillsSyncArgs): Promise<BillsRu
   let notHeld = 0
   let errors = 0
   const problems: string[] = []
+  const notHeldRefs: string[] = []
 
   const finish = async (watermark: Date | null): Promise<void> => {
     await db.syncRun.update({
@@ -124,7 +127,7 @@ export async function runBillsSync(db: Db, args: BillsSyncArgs): Promise<BillsRu
         staged: notHeld,
         errors,
         watermark,
-        message: problems.length ? summarise(problems) : null,
+        message: runMessage(problems, notHeldRefs, tenant),
       },
     })
   }
@@ -181,23 +184,29 @@ export async function runBillsSync(db: Db, args: BillsSyncArgs): Promise<BillsRu
     const checkId = held.get(paymentRef)
     if (!checkId) {
       notHeld++
+      notHeldRefs.push(paymentRef)
       continue
     }
     try {
       const added = await inTx(db, async (tx) => {
-        // Re-read inside the transaction: a register backfill or another run
-        // may have added a voucher since the lookup above.
-        const current = (await tx.check.findUniqueOrThrow({
-          where: { id: checkId },
-          select: { apvNumbers: true },
-        })).apvNumbers
-        const have = new Set(current)
+        // Re-read inside the transaction, with the row locked: a register
+        // backfill, the payment sync's upsertCheck (which writes the whole
+        // array) or another run may touch this cheque concurrently. The lock
+        // holds them off until this transaction commits.
+        const locked = await tx.$queryRaw<{ apvNumbers: string[] }[]>(Prisma.sql`
+          SELECT "apvNumbers" FROM "Check" WHERE "id" = ${checkId} FOR UPDATE`)
+        if (locked.length === 0) throw new Error(`Cheque ${checkId} (${paymentRef}) no longer exists.`)
+        const have = new Set(locked[0].apvNumbers)
         const missing = [...vouchers].filter((v) => !have.has(v)).sort()
         if (missing.length === 0) return 0
-        await tx.check.update({
-          where: { id: checkId },
-          data: { apvNumbers: [...current, ...missing] },
-        })
+        // Append only what is missing — never a rewrite of the whole array, so
+        // nothing another writer put there can be lost. `updatedAt` is set the
+        // way Prisma's @updatedAt would, in UTC.
+        await tx.$executeRaw(Prisma.sql`
+          UPDATE "Check"
+             SET "apvNumbers" = "apvNumbers" || ${missing}::text[],
+                 "updatedAt" = (now() AT TIME ZONE 'UTC')
+           WHERE "id" = ${checkId}`)
         await writeAudit(tx, {
           checkId,
           actorType: 'SYSTEM',
@@ -236,4 +245,96 @@ function describe(error: unknown): string {
 
 function summarise(problems: readonly string[]): string {
   return [...new Set(problems)].slice(0, MAX_REPORTED_PROBLEMS).join(' | ')
+}
+
+/**
+ * The run's message: the payments this system does not hold, named, and any
+ * errors. The watermark moves past a not-held payment, so an incremental run
+ * never revisits it — naming it here is how anyone learns a full re-read is
+ * owed. Bounded: at most ten references and five error texts of 300 chars.
+ */
+function runMessage(
+  problems: readonly string[],
+  notHeldRefs: readonly string[],
+  tenant: AcumaticaTenant,
+): string | null {
+  const parts: string[] = []
+  if (notHeldRefs.length > 0) {
+    const named = notHeldRefs.slice(0, MAX_NAMED_NOT_HELD)
+    const rest = notHeldRefs.length - named.length
+    parts.push(
+      `${notHeldRefs.length} payment(s) in the inquiry are not held here: ${named.join(', ')}` +
+      (rest > 0 ? `, and ${rest} more` : '') +
+      `. A full re-read (scripts/sync.ts ${tenant} --bills --full) links them once their cheques exist.`,
+    )
+  }
+  if (problems.length > 0) parts.push(summarise(problems))
+  return parts.length > 0 ? parts.join(' | ') : null
+}
+
+/**
+ * What a scheduled voucher read says when it will not run. A first BILLS read
+ * reads the whole year's applications and is a terminal job.
+ */
+export const NO_BILLS_WATERMARK_MESSAGE =
+  'No BILLS watermark for this tenant. The first voucher read must be started by an admin — ' +
+  'scripts/sync.ts <TENANT> --bills in a terminal — and is never run on a schedule.'
+
+// See lib/sync/scheduled.ts: an OData failure can be a whole HTML page.
+const MAX_OUTCOME_MESSAGE = 300
+
+export type ScheduledBillsOutcome =
+  | {
+      tenant: AcumaticaTenant
+      outcome: 'RAN'
+      syncRunId: string
+      fetched: number
+      ignored: number
+      vouchersAdded: number
+      chequesChanged: number
+      notHeld: number
+      errors: number
+    }
+  | { tenant: AcumaticaTenant; outcome: 'REFUSED_NO_WATERMARK'; syncRunId: string }
+  | { tenant: AcumaticaTenant; outcome: 'IN_PROGRESS'; message: string }
+  | { tenant: AcumaticaTenant; outcome: 'FAILED'; message: string }
+
+/**
+ * One tenant's scheduled voucher read, never throwing — `runScheduledSync`
+ * line for line. `client` is a factory so a missing environment variable is
+ * this tenant's FAILED, not an exception before the other tenant has run.
+ */
+export async function runScheduledBillsSync(
+  db: Db,
+  args: { tenant: AcumaticaTenant; now: Date; client: () => AcumaticaClient },
+): Promise<ScheduledBillsOutcome> {
+  const { tenant, now } = args
+  try {
+    const since = await lastBillsWatermark(db, tenant)
+    if (since === null) {
+      const run = await db.syncRun.create({
+        data: {
+          mode: BILLS_MODE, tenant, trigger: 'SCHEDULED',
+          startedAt: now, finishedAt: new Date(),
+          errors: 1, message: NO_BILLS_WATERMARK_MESSAGE,
+        },
+      })
+      return { tenant, outcome: 'REFUSED_NO_WATERMARK', syncRunId: run.id }
+    }
+
+    const result = await runBillsSync(db, {
+      client: args.client(), tenant, since, now, trigger: 'SCHEDULED',
+    })
+    return {
+      tenant, outcome: 'RAN', syncRunId: result.syncRunId,
+      fetched: result.fetched, ignored: result.ignored, vouchersAdded: result.vouchersAdded,
+      chequesChanged: result.chequesChanged, notHeld: result.notHeld, errors: result.errors,
+    }
+  } catch (error) {
+    if (error instanceof SyncInProgressError) {
+      return { tenant, outcome: 'IN_PROGRESS', message: error.message.slice(0, MAX_OUTCOME_MESSAGE) }
+    }
+    const message = error instanceof Error ? error.message : String(error)
+    return { tenant, outcome: 'FAILED', message: message.slice(0, MAX_OUTCOME_MESSAGE) }
+  }
 }

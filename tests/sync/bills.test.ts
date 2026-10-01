@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { testDb, resetDb } from '../helpers/db'
 import { makeCheck } from '../helpers/factory'
 import {
-  runBillsSync, lastBillsWatermark, BILLS_MODE, VOUCHER_LINKED_ACTION,
+  runBillsSync, lastBillsWatermark, runScheduledBillsSync,
+  BILLS_MODE, VOUCHER_LINKED_ACTION, NO_BILLS_WATERMARK_MESSAGE,
 } from '@/lib/sync/bills'
 import { SyncInProgressError, SYNC_OVERLAP_MINUTES } from '@/lib/sync/run'
 import {
@@ -162,8 +163,70 @@ describe('runBillsSync — the run record', () => {
     expect(run.updated).toBe(1)
     expect(run.staged).toBe(1)
     expect(run.errors).toBe(0)
-    expect(run.message).toBeNull()
+    // The one payment not held here is named, so a later full re-read can link it.
+    expect(run.message).toContain('CV-NOTHERE')
     expect(run.watermark).toEqual(new Date('2026-09-29T07:00:00Z'))
+  })
+
+  it('names every payment ref not held here in the message', async () => {
+    const result = await bills([
+      billRow({ AdjgRefNbr: 'CV-GONE001', AdjdRefNbr: 'AP-1' }),
+      billRow({ AdjgRefNbr: 'CV-GONE002', AdjdRefNbr: 'AP-2' }),
+    ]).result
+    const run = await testDb.syncRun.findUniqueOrThrow({ where: { id: result.syncRunId } })
+    expect(run.message).toContain('2 payment(s)')
+    expect(run.message).toContain('CV-GONE001')
+    expect(run.message).toContain('CV-GONE002')
+    expect(run.message).toContain('--bills --full')
+  })
+
+  it('names only the first 10 not-held refs and counts the rest', async () => {
+    const rows = Array.from({ length: 12 }, (_, i) =>
+      billRow({ AdjgRefNbr: `CV-GONE${String(i).padStart(3, '0')}`, AdjdRefNbr: `AP-${i}` }))
+    const result = await bills(rows).result
+    const run = await testDb.syncRun.findUniqueOrThrow({ where: { id: result.syncRunId } })
+    expect(run.message).toContain('12 payment(s)')
+    expect(run.message).toContain('CV-GONE009')
+    expect(run.message).not.toContain('CV-GONE010')
+    expect(run.message).toContain('and 2 more')
+  })
+
+  it('leaves message null when every payment is held and nothing failed', async () => {
+    await heldCheque('CV-ST012345')
+    const result = await bills([billRow()]).result
+    const run = await testDb.syncRun.findUniqueOrThrow({ where: { id: result.syncRunId } })
+    expect(run.message).toBeNull()
+  })
+
+  it('one cheque whose write fails is an error; the next cheque is still linked', async () => {
+    const first = await heldCheque('CV-FIRST001')
+    const second = await heldCheque('CV-SECOND01')
+    let calls = 0
+    // The first per-cheque transaction throws; every other call is the real one.
+    const flaky = new Proxy(testDb, {
+      get(target, prop, receiver) {
+        if (prop === '$transaction') {
+          return (...a: unknown[]) => {
+            calls++
+            if (calls === 1) return Promise.reject(new Error('write refused for the first cheque'))
+            return (target.$transaction as (...x: unknown[]) => unknown).apply(target, a)
+          }
+        }
+        return Reflect.get(target, prop, receiver)
+      },
+    })
+    const { client } = fakeBillsFeed([
+      billRow({ AdjgRefNbr: 'CV-FIRST001', AdjdRefNbr: 'AP-F' }),
+      billRow({ AdjgRefNbr: 'CV-SECOND01', AdjdRefNbr: 'AP-S' }),
+    ])
+    const result = await runBillsSync(flaky, { client, tenant: 'GOLIVE', since: null, now: NOW, trigger: 'MANUAL' })
+    expect(result.errors).toBe(1)
+    expect(result.chequesChanged).toBe(1)
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: first.id } })).apvNumbers).toEqual([])
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: second.id } })).apvNumbers).toEqual(['AP-S'])
+    const run = await testDb.syncRun.findUniqueOrThrow({ where: { id: result.syncRunId } })
+    expect(run.errors).toBe(1)
+    expect(run.message).toContain('write refused for the first cheque')
   })
 
   it('incremental: passes billsSinceFilter with since, billsInScopeFilter without', async () => {
@@ -223,5 +286,71 @@ describe('lastBillsWatermark', () => {
     })
     expect(await lastBillsWatermark(testDb, 'GOLIVE')).toEqual(new Date('2026-09-30T08:00:00Z'))
     expect(await lastBillsWatermark(testDb, 'MANUFACTURING')).toBeNull()
+  })
+})
+
+describe('runScheduledBillsSync', () => {
+  const billsWatermark = (tenant: 'GOLIVE' | 'MANUFACTURING') =>
+    testDb.syncRun.create({
+      data: {
+        mode: 'BILLS', tenant, trigger: 'MANUAL',
+        startedAt: new Date('2026-09-29T10:00:00Z'), finishedAt: new Date('2026-09-29T10:00:01Z'),
+        watermark: new Date('2026-09-29T08:00:00Z'),
+      },
+    })
+
+  it('refuses without a BILLS watermark and records a finished BILLS row saying so', async () => {
+    // A payment watermark is not a BILLS watermark.
+    await testDb.syncRun.create({
+      data: { mode: 'INCREMENTAL', tenant: 'GOLIVE', startedAt: NOW, finishedAt: NOW, watermark: NOW },
+    })
+    let built = 0
+    const outcome = await runScheduledBillsSync(testDb, {
+      tenant: 'GOLIVE', now: NOW, client: () => { built++; return fakeBillsFeed([]).client },
+    })
+    expect(built).toBe(0)
+    const run = await testDb.syncRun.findFirstOrThrow({ where: { mode: 'BILLS' } })
+    expect(outcome).toEqual({ tenant: 'GOLIVE', outcome: 'REFUSED_NO_WATERMARK', syncRunId: run.id })
+    expect(run.trigger).toBe('SCHEDULED')
+    expect(run.finishedAt).not.toBeNull()
+    expect(run.errors).toBe(1)
+    expect(run.watermark).toBeNull()
+    expect(run.message).toBe(NO_BILLS_WATERMARK_MESSAGE)
+  })
+
+  it('a client factory that throws is FAILED, never a throw', async () => {
+    await billsWatermark('GOLIVE')
+    const outcome = await runScheduledBillsSync(testDb, {
+      tenant: 'GOLIVE', now: NOW, client: () => { throw new Error('x'.repeat(400)) },
+    })
+    expect(outcome.outcome).toBe('FAILED')
+    if (outcome.outcome !== 'FAILED') throw new Error('unreachable')
+    expect(outcome.message.length).toBe(300)
+  })
+
+  it('with a watermark, RAN with the counts, as SCHEDULED, from that watermark', async () => {
+    await billsWatermark('GOLIVE')
+    await heldCheque('CV-ST012345')
+    const feed = fakeBillsFeed([billRow(), billRow({ AdjgRefNbr: 'CV-NOTHERE' })])
+    const outcome = await runScheduledBillsSync(testDb, { tenant: 'GOLIVE', now: NOW, client: () => feed.client })
+    expect(outcome).toMatchObject({
+      tenant: 'GOLIVE', outcome: 'RAN',
+      fetched: 2, ignored: 0, vouchersAdded: 1, chequesChanged: 1, notHeld: 1, errors: 0,
+    })
+    expect(feed.calls[0].opts?.filter).toBe(billsSinceFilter('GOLIVE', new Date('2026-09-29T08:00:00Z')))
+    if (outcome.outcome !== 'RAN') throw new Error('unreachable')
+    const run = await testDb.syncRun.findUniqueOrThrow({ where: { id: outcome.syncRunId } })
+    expect(run.trigger).toBe('SCHEDULED')
+  })
+
+  it('a BILLS run already in progress is IN_PROGRESS, not FAILED', async () => {
+    await billsWatermark('GOLIVE')
+    await testDb.syncRun.create({
+      data: { mode: 'BILLS', tenant: 'GOLIVE', startedAt: new Date(NOW.getTime() - 60_000), finishedAt: null },
+    })
+    const outcome = await runScheduledBillsSync(testDb, {
+      tenant: 'GOLIVE', now: NOW, client: () => fakeBillsFeed([]).client,
+    })
+    expect(outcome.outcome).toBe('IN_PROGRESS')
   })
 })

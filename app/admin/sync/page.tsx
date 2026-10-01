@@ -2,6 +2,7 @@ import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { getSyncOverview, type TenantSync } from '@/lib/admin/sync-overview'
 import { getLastAutoSign } from '@/lib/sync/auto-sign'
+import { BILLS_MODE } from '@/lib/sync/bills'
 import { EmptyState } from '@/components/EmptyState'
 import { SyncNowButton } from '@/components/SyncNowButton'
 import { loadSettings } from '@/lib/settings/read'
@@ -243,11 +244,21 @@ export default async function SyncPage() {
                       run recorded before the column existed, not a rendering
                       fault. */}
                   <td className="px-4 py-3">{r.tenant ?? '—'}</td>
-                  <td className="px-4 py-3 text-slate-600">{r.mode}</td>
+                  {/* A BILLS row (the voucher read, lib/sync/bills.ts) reuses the
+                      three count columns for different things; the caption
+                      names them in column order. */}
+                  <td className="px-4 py-3 text-slate-600">
+                    {r.mode}
+                    {r.mode === BILLS_MODE && (
+                      <span className="block whitespace-nowrap text-[11px] text-slate-400">
+                        vouchers added · cheques · not held here
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-slate-600">{r.trigger}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{n(r.imported)}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{n(r.updated)}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{n(r.staged)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums" title={r.mode === BILLS_MODE ? 'vouchers added' : undefined}>{n(r.imported)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums" title={r.mode === BILLS_MODE ? 'cheques changed' : undefined}>{n(r.updated)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums" title={r.mode === BILLS_MODE ? 'payments not held here' : undefined}>{n(r.staged)}</td>
                   <td className={`px-4 py-3 text-right tabular-nums ${r.errors > 0 ? 'font-semibold text-danger-ink' : 'text-slate-600'}`}>
                     {n(r.errors)}
                   </td>

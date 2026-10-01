@@ -21,12 +21,30 @@
  *   npx.cmd tsx scripts/sync.ts GOLIVE
  *   npx.cmd tsx scripts/sync.ts MANUFACTURING
  *   npx.cmd tsx scripts/sync.ts GOLIVE --full     # ignore the watermark
+ *
+ * THE VOUCHER READ (`--bills`). Acumatica's AP-PAYMENTS-WITH-BILLS, appended
+ * to each cheque's `apvNumbers` (lib/sync/bills.ts) — add-only, never status.
+ * The cron runs it incrementally once a tenant has a BILLS watermark; the FIRST
+ * read, and any `--full` re-read (which links vouchers to cheques that arrived
+ * after an earlier run passed them as "not held here"), is this script's job.
+ * Before writing it snapshots every Acumatica cheque's `apvNumbers` to
+ * snapshots/bills-<tenant>-<timestamp>.json.
+ *
+ *   npx.cmd tsx scripts/sync.ts GOLIVE --bills --dry-run   # read the feed, write nothing
+ *   npx.cmd tsx scripts/sync.ts GOLIVE --bills             # snapshot, then link
+ *   npx.cmd tsx scripts/sync.ts GOLIVE --bills --full      # ignore the BILLS watermark
  */
 
 import 'dotenv/config'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { PrismaClient } from '@prisma/client'
 import { createAcumaticaClient, PAYMENTS_FEED, PAYMENT_FIELDS } from '../lib/integrations/acumatica/client'
 import { runSync, lastSyncWatermark } from '../lib/sync/run'
+import { runBillsSync, lastBillsWatermark } from '../lib/sync/bills'
+import {
+  BILLS_FEED, BILL_FEED_COLUMNS, billFeedSelect, billsInScopeFilter, billsSinceFilter,
+} from '../lib/integrations/acumatica/bills'
 import type { AcumaticaTenant } from '../lib/integrations/acumatica/companies'
 
 const TENANTS: Record<AcumaticaTenant, string> = {
@@ -37,6 +55,7 @@ const TENANTS: Record<AcumaticaTenant, string> = {
 const args = process.argv.slice(2)
 const DRY = args.includes('--dry-run')
 const FORCE_FULL = args.includes('--full')
+const BILLS = args.includes('--bills')
 const tenant = args.find((a) => !a.startsWith('--')) as AcumaticaTenant | undefined
 
 const db = new PrismaClient()
@@ -51,6 +70,7 @@ async function main() {
   if (!tenant || !(tenant in TENANTS)) {
     throw new Error(`Name a tenant: ${Object.keys(TENANTS).join(' or ')}`)
   }
+  if (BILLS) return bills(tenant)
 
   const watermark = FORCE_FULL ? null : await lastSyncWatermark(db, tenant)
   const before = await db.check.count()
@@ -114,6 +134,61 @@ async function main() {
   console.log(`  accounted for                 ${accounted.toLocaleString()} of ${res.fetched.toLocaleString()}` +
     (accounted === res.fetched ? '  ✓' : '  <-- MISMATCH, investigate'))
   console.log(`\n  cheques ${before.toLocaleString()} -> ${after.toLocaleString()}`)
+  console.log(`  next watermark                ${res.watermark ? res.watermark.toISOString() : '(unchanged)'}\n`)
+}
+
+function clientFor(t: AcumaticaTenant) {
+  return createAcumaticaClient({
+    baseUrl: env(TENANTS[t]),
+    user: env('ACUMATICA_ODATA_USER'),
+    password: env('ACUMATICA_ODATA_PASSWORD'),
+  })
+}
+
+/** The voucher read: `--bills`. Never status; add-only; snapshot first. */
+async function bills(t: AcumaticaTenant) {
+  const watermark = FORCE_FULL ? null : await lastBillsWatermark(db, t)
+
+  console.log(`\nTENANT      ${t}`)
+  console.log(`FEED        ${BILLS_FEED}`)
+  console.log(`MODE        ${watermark ? `BILLS since ${watermark.toISOString()}` : 'BILLS, every application in scope (no watermark)'}`)
+
+  if (DRY) {
+    // The same filter runBillsSync uses, so the count is the job's size.
+    const rows = await clientFor(t).fetchAll(BILLS_FEED, {
+      select: billFeedSelect(t),
+      filter: watermark ? billsSinceFilter(t, watermark) : billsInScopeFilter(t),
+      orderby: `${BILL_FEED_COLUMNS[t].date} asc`,
+      pageSize: 2000,
+    })
+    console.log(`\nDRY RUN — the feed returns ${rows.length.toLocaleString()} rows. Nothing was written.\n`)
+    return
+  }
+
+  // CLAUDE.md: snapshot before any bulk write to production. Every cheque the
+  // join can touch — those carrying an Acumatica payment reference.
+  const now = new Date()
+  const before = await db.check.findMany({
+    where: { acumaticaPaymentId: { not: null } },
+    select: { id: true, checkNumber: true, apvNumbers: true },
+  })
+  await mkdir(join(process.cwd(), 'snapshots'), { recursive: true })
+  const snap = join(
+    process.cwd(), 'snapshots', `bills-${t}-${now.toISOString().replace(/[:.]/g, '-')}.json`,
+  )
+  await writeFile(snap, JSON.stringify({ takenAt: now.toISOString(), tenant: t, rows: before }, null, 2))
+  console.log(`SNAPSHOT    ${snap} (${before.length.toLocaleString()} cheques)`)
+
+  const started = Date.now()
+  const res = await runBillsSync(db, { client: clientFor(t), tenant: t, since: watermark, now, trigger: 'MANUAL' })
+
+  console.log(`\nRESULT  (${((Date.now() - started) / 60000).toFixed(1)} min)`)
+  console.log(`  fetched                       ${res.fetched.toLocaleString()}`)
+  console.log(`  ignored (not CHK -> Bill)     ${res.ignored.toLocaleString()}`)
+  console.log(`  vouchers added                ${res.vouchersAdded.toLocaleString()}`)
+  console.log(`  cheques changed               ${res.chequesChanged.toLocaleString()}`)
+  console.log(`  payments not held here        ${res.notHeld.toLocaleString()}`)
+  console.log(`  errors                        ${res.errors.toLocaleString()}`)
   console.log(`  next watermark                ${res.watermark ? res.watermark.toISOString() : '(unchanged)'}\n`)
 }
 

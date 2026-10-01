@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db'
 import { createClientForTenant } from '@/lib/integrations/acumatica/from-env'
 import { SYNC_TENANTS } from '@/lib/admin/sync-overview'
 import { runScheduledSync, type ScheduledSyncOutcome } from '@/lib/sync/scheduled'
+import { runScheduledBillsSync, type ScheduledBillsOutcome } from '@/lib/sync/bills'
 import { runAutoSign } from '@/lib/sync/auto-sign'
 import { kickPortalDelivery } from '@/lib/sync/portal-kick'
 
@@ -28,6 +29,14 @@ import { kickPortalDelivery } from '@/lib/sync/portal-kick'
  * one tenant's trouble never skips the other. 500 if any tenant FAILED, so
  * Vercel's cron log shows the failure; a refusal for want of a watermark or a
  * run already in progress is recorded and is not a failure of the cron.
+ *
+ * Then THE VOUCHER READ (lib/sync/bills.ts), both tenants in the same order:
+ * Acumatica's AP-PAYMENTS-WITH-BILLS, joined on the payment's own reference,
+ * appends the AP vouchers each cheque pays to `apvNumbers` — add-only, one
+ * audit row per changed cheque, never status. It has its own watermark (BILLS
+ * rows on `SyncRun`); with none it records a refusal rather than reading the
+ * year, because a first read is `scripts/sync.ts <TENANT> --bills` from a
+ * terminal. A BILLS FAILED turns the response 500; a refusal does not.
  *
  * Then AUTO-SIGN (lib/sync/auto-sign.ts): on a Manila Tuesday, the Acumatica
  * cheques first read on the Monday become SIGNED; on any other day the run
@@ -81,6 +90,15 @@ export async function GET(request: Request): Promise<Response> {
     )
   }
 
+  // The vouchers each cheque pays (lib/sync/bills.ts), after the payments so a
+  // cheque first read this run is already here to be linked. Never status.
+  const bills: ScheduledBillsOutcome[] = []
+  for (const tenant of SYNC_TENANTS) {
+    bills.push(
+      await runScheduledBillsSync(prisma, { tenant, now, client: () => createClientForTenant(tenant) }),
+    )
+  }
+
   // After both tenants, whether or not either failed: cheques already in the
   // app keep ageing, and a failed read delays new cheques, not old ones.
   // A 50s budget, inside the route's 60s ceiling: it leaves room for the
@@ -95,6 +113,9 @@ export async function GET(request: Request): Promise<Response> {
   const portal = await kickPortalDelivery(prisma, { budgetMs: Math.max(remaining, 5_000) })
 
   // Delivery failures do not turn the cron 500 (they are recorded per event).
-  const failed = outcomes.some((o) => o.outcome === 'FAILED') || autoSign.outcome === 'FAILED'
-  return json({ ranAt: now.toISOString(), outcomes, autoSign, portal }, failed ? 500 : 200)
+  const failed =
+    outcomes.some((o) => o.outcome === 'FAILED') ||
+    bills.some((b) => b.outcome === 'FAILED') ||
+    autoSign.outcome === 'FAILED'
+  return json({ ranAt: now.toISOString(), outcomes, bills, autoSign, portal }, failed ? 500 : 200)
 }
