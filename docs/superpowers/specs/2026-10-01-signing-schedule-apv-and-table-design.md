@@ -176,10 +176,12 @@ no meaning under the new rule. `/admin/sync`'s LAST AUTO-SIGN line now reads "N 
 
 - Clicking a header sorts ascending, again descending, again back to the default. URL params
   `sort=<columnKey>&dir=asc|desc`. Sortable: every column but ACTION. APV and PO sort by their
-  first value.
-- Server-side, in `listChecks`'s `orderBy`, across every matching cheque — the list shows at most
-  200, so sorting in the browser would sort the wrong set. **Nulls last in both directions** (the
-  `checkDate` lesson), `checkNumber asc` as the final tiebreak.
+  first value (bills included), in the app — see below.
+- Server-side, across every matching cheque — the list shows at most 200, so sorting in the browser
+  would sort the wrong set. Most keys are `listChecks`'s `orderBy`; **four keys — APV NUMBER, PO
+  NUMBER, BANK and DATE RELEASED — are ordered in the app over the full matching set**
+  (`APP_SORTED_KEYS`, see the Decision bullets). **Nulls last in both directions** (the
+  `checkDate` lesson), `checkNumber asc` then `id asc` as the final tiebreaks.
 - Default with no `sort`: `checkDate desc nulls last`, as today. An unknown `sort` or `dir` falls
   back to the default (sort cannot widen anything, so it need not refuse).
 - Export and print read the same params and produce the same order.
@@ -247,7 +249,7 @@ A second header row, one control per visible column:
 - `queries`: each sort key both directions with nulls last; each filter; an unparseable filter
   refuses; the narrowed summary and exclusion count follow the filters.
 - `dashboard-params`: parsing, defaults, the cookie fallback, `f.*` opens the LIST.
-- `table-columns`: order round-trip, v1 migration, always-on.
+- `table-columns`: order round-trip, a part-B (v2) value reads as the default order, always-on.
 - `export/dashboard-params`, `export/report`: sort, filters, column order.
 
 ---

@@ -100,7 +100,7 @@ It follows that:
   `voucher_linked_from_acumatica` row each — and moved the 90 SIGNED cheques to READY_FOR_RELEASE,
   snapshot first. Available after: **233, 21,013,221.48**; 0 list vouchers unlinked. The bill
   column is `AdjdRefNbr` in Go-Live and `ReferenceNbr_2` in MANUFACTURING (a filter on the Go-Live
-  name is a 500 there), and an `or` of several `eq` filters is a 500 in Go-Live. **Since 2026-10-01 the scheduled run reads it** (`lib/sync/bills.ts`, `runScheduledBillsSync`, `SyncRun.mode = 'BILLS'`; feed in `lib/integrations/acumatica/bills.ts`, `BILL_FEED_COLUMNS`): every `CHK` → `Bill` application is unioned into the paying cheque's `apvNumbers`, matched on the payment's own reference (`acumaticaPaymentId`), add-only, never status. The first read is `npx tsx scripts/sync.ts <TENANT> --bills` from a terminal (it snapshots to `snapshots/bills-<tenant>-<timestamp>.json` first; `--dry-run` reads and writes nothing). The run message names up to 10 payments the inquiry shows that are not held here, because the watermark moves past them for good — `scripts/sync.ts <TENANT> --bills --full` relinks them once their cheques exist (idempotent, add-only). `upsertCheck` now writes `apvNumbers` only when the merge adds a voucher, so the payment sync cannot erase a BILLS append. A cheque's PO is `CheckBill.poNumber` only (`Check` has no PO column — the register's POs reached `StagedCheck` only; Acumatica publishes none), and the list, Excel and print show a PO NUMBER column (Excel AMOUNT moved to column 8; the column-choice storage key is now `check-monitoring.columns.v2`).
+  name is a 500 there), and an `or` of several `eq` filters is a 500 in Go-Live. **Since 2026-10-01 the scheduled run reads it** (`lib/sync/bills.ts`, `runScheduledBillsSync`, `SyncRun.mode = 'BILLS'`; feed in `lib/integrations/acumatica/bills.ts`, `BILL_FEED_COLUMNS`): every `CHK` → `Bill` application is unioned into the paying cheque's `apvNumbers`, matched on the payment's own reference (`acumaticaPaymentId`), add-only, never status. The first read is `npx tsx scripts/sync.ts <TENANT> --bills` from a terminal (it snapshots to `snapshots/bills-<tenant>-<timestamp>.json` first; `--dry-run` reads and writes nothing). The run message names up to 10 payments the inquiry shows that are not held here, because the watermark moves past them for good — `scripts/sync.ts <TENANT> --bills --full` relinks them once their cheques exist (idempotent, add-only). The cron runs BILLS for a tenant only after that tenant's payment read RAN (`SKIPPED_PAYMENT_NOT_RUN` otherwise, not a failure) — a failed payment read's cheques would otherwise count as not held and be skipped for good. The watermark is held (the run finishes with none, so the previous one stays) when any cheque's write failed, and the problem names its payment reference. Only a cheque with something missing opens a transaction; a re-read of an already-linked set costs one lookup. `upsertCheck` now writes `apvNumbers` only when the merge adds a voucher, so the payment sync cannot erase a BILLS append. A cheque's PO is `CheckBill.poNumber` only (`Check` has no PO column — the register's POs reached `StagedCheck` only; Acumatica publishes none), and the list, Excel and print show a PO NUMBER column (Excel AMOUNT moved to column 8; the column-choice storage key is now `check-monitoring.columns.v2`).
   **`FOR RELEASE 9_1.25.2026v2.xlsx`** (same day): LOCAL unchanged; BROKERS 39 cheques / 8,174,750.00,
   with a new SCM REMARKS column (DELIVERED …), unused. Added `6000354012` and `6000354067` (linked
   and readied by the link script). Dropped `6000354001`/`05`/`06`/`13` (2,285,000.00) — **user
@@ -249,9 +249,13 @@ link that should open the list must carry one of the LIST parameters; a bare `/`
 company/bank/eligibility-only URL never shows a table. `dashboardScreen` fails closed: any
 `base` key outside `TOTALS_KEYS` (company, cashAccount, eligibility) opens the LIST, and RESET
 and the incomplete toggle write `scope=live` on NEEDS ACTION so they cannot land on the totals.
-The LIST screen's "EXCLUDING N WITH NO RECORDED AMOUNT" count is now narrowed by company, bank
-and eligibility like the cards (it was system-wide), and BACK TO TOTALS keeps those three via
-`totalsHref` — narrowing to STK, opening SIGNED and coming back lands on STK's totals.
+**Since 2026-10-01 (part C) a `sort`/`dir` pair and every `f.*` filter-row parameter are LIST
+parameters too** — `dashboardScreen` counts `selection.sort`, and the `f.*` values ride in `base`.
+The LIST screen's "EXCLUDING N WITH NO RECORDED AMOUNT" count is the list's own:
+`countChecks({ ...filters, incomplete: true })`, every list filter (view, search, company, bank,
+eligibility, DATE RELEASED and the filter row), so N is exactly what "Show them" opens. BACK TO
+TOTALS keeps company, bank and eligibility via `totalsHref` — narrowing to STK, opening SIGNED
+and coming back lands on STK's totals.
 
 **DATE RELEASED on the filter bar matches either of two dates that are never merged**
 (2026-09-28, specs `2026-09-28-released-date-filter-design.md` and
@@ -271,6 +275,26 @@ only on the RELEASED and ALL CHEQUES views; the table shows the app timestamp or
 that, the stated day tagged REGISTER; the LIST screen counts the cheques with neither. Do
 not write the stated day into `releasedAt`, and do not read `statedReleaseDate` as "the app
 recorded a release" — `lib/recon/outstanding.ts` deliberately reads only `releasedAt`.
+
+**The list sorts, filters per column and reorders** (part C, 2026-10-01, spec
+`2026-10-01-signing-schedule-apv-and-table-design.md`). **Sort:** the order in force is the URL's
+`sort=<column>&dir=asc|desc`, else the `cm_sort` cookie (`<key>:<dir>`, a year, `SameSite=Lax`,
+written in the browser on a header click), else the default — the cookie is never written into a
+URL, and RESET clears both. It is server-side over every matching cheque, nulls last both ways,
+with `id asc` as the final tiebreak so a page boundary is stable. APV, PO, BANK and DATE RELEASED
+are ordered in the app over the FULL matching set (`APP_SORTED_KEYS`, `lib/list-sort.ts`) because
+Prisma cannot order by them; every other key is `listChecks`'s `orderBy`. Export and print read the
+same cookie. **Filters:** the `f.*` parameters (`lib/column-filters.ts`; COMPANY, BANK and DATE
+RELEASED keep their old names). **An unreadable box refuses, never widens**: `CheckFilters.refused`
+makes `buildWhere` match nothing (`id IN ()`), so the list shows no rows with the boxes still
+there and the bad one marked red; the export answers 400, print shows the refusal, and EXPORT
+EXCEL / PRINT are drawn disabled. SIGN ALL honours the column filters — the server re-parses them
+from the confirm form's hidden `f.*` fields, and the button is offered only when `signAllOffered`
+(`lib/dashboard-view.ts`) says so; RELEASE ALL refuses any column filter. **Columns:** `cols=` on
+EXPORT EXCEL reorders the file's columns and never drops one. The preference stays under
+`check-monitoring.columns.v2` as an ordered list of visible columns (a part-B value reads as the
+default order); a column forced visible because a filter is set on it is shown but never
+persisted. Print keeps its fixed columns.
 
 **`/welcome` is the public front door, and it is public by name** (2026-09-27, spec
 `2026-09-27-landing-login-and-theme-design.md`). The landing page and `/login` both render
@@ -375,6 +399,8 @@ category not on it.
 | `lib/admin/portal-backlog.ts` | Backlog dry run for `scripts/portal-backlog.ts` (winners, superseded, `stale`) and `queueCancelledForStale` (`--queue-cancelled [--apply]`). |
 | `lib/forecast/` | Cash outflow by cheque date: `buckets.ts` (the ageing buckets, pure), `query.ts` (the population — live, real, with an amount), `matrix.ts` (bucket × bank and bucket × stage, centavo-exact, pure). `/forecast` and `/api/export/forecast` sit on it. Since 2026-09-12 a cheque's typed `expectedOutflowDate` wins over its cheque date, and `PlannedOutflow` lines (`lib/planned-outflow/`, `/forecast/planned`) join the population as their own PLANNED column. |
 | `lib/recon/` | Outstanding cheques: `outstanding.ts` (the as-of rule, pure), `summary.ts` (per account, centavo-exact, pure), `query.ts` (the released population). `/recon` and `/api/export/recon` sit on it. |
+| `lib/list-sort.ts` | The list's order: params, the `cm_sort` cookie, database and in-app keys. Pure. |
+| `lib/column-filters.ts` | The filter row's `f.*` parameters: parsing, refusal, description. Pure. |
 | `lib/normalised-row.ts` | The one shape both ingestion paths converge on. |
 | `lib/settings/` | The eleven settings: `registry.ts` (pure — defaults from the constants, bounds, parsing), `read.ts` (one query per request, never cached), `actions.ts` (admin-only writes, audited). `/admin/settings`. |
 | `docs/superpowers/specs/` | The approved design, and the Supplier Portal API evidence. |
