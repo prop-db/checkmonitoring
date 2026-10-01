@@ -37,7 +37,7 @@ export type ConfirmNarrowing = { company: string; cashAccount: string; eligibili
  * so the report survives that re-render.
  */
 export function ConfirmAllForm({
-  action, confirm, count, cancelHref, narrow, prompt, labels, tone,
+  action, confirm, count, cancelHref, narrow, columnParams, prompt, labels, tone,
 }: {
   /** `releaseAllReadyAction` or `signAllPendingAction`, passed through untouched. */
   action: (prev: BulkActionResult | null, formData: FormData) => Promise<BulkActionResult>
@@ -48,6 +48,8 @@ export function ConfirmAllForm({
    * '' when not set. Written back as hidden fields so the server acts on the
    * set the page counted. */
   narrow: ConfirmNarrowing
+  /** SIGN ALL only: the filter row's `f.*` boxes on screen, re-parsed by the server. */
+  columnParams?: Readonly<Record<string, string>>
   /** The confirmation heading and any explanation; hidden once the form is spent. */
   prompt: ReactNode
   labels: {
@@ -86,6 +88,9 @@ export function ConfirmAllForm({
             {narrow.company && <input type="hidden" name="company" value={narrow.company} />}
             {narrow.cashAccount && <input type="hidden" name="cashAccount" value={narrow.cashAccount} />}
             {narrow.eligibility && <input type="hidden" name="eligibility" value={narrow.eligibility} />}
+            {Object.entries(columnParams ?? {}).map(([name, value]) => (
+              <input key={name} type="hidden" name={name} value={value} />
+            ))}
             <button
               type="submit"
               disabled={pending}

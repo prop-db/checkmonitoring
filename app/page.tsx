@@ -4,10 +4,11 @@ import { requireUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import {
   getSummary, getTodaysRelease, getPendingSignature, listChecks, countChecks, toTableRow, getFilterOptions,
+  columnFilterFields,
 } from '@/lib/queries'
 import { resolveDashboardQuery, type DashboardSearchParams } from '@/lib/dashboard-params'
 import { SORT_COOKIE } from '@/lib/list-sort'
-import { activeFilterColumns } from '@/lib/column-filters'
+import { activeFilterColumns, columnParamsOf } from '@/lib/column-filters'
 import {
   clearFiltersHref, dashboardScreen, describeView, incompleteHref,
   releaseConfirmHref, releaseCancelHref, signAllConfirmHref, signAllCancelHref, sortLinks, totalsHref,
@@ -250,8 +251,10 @@ export default async function DashboardPage({
   // `releasedAt` — so the number is the number of rows the reader's own view
   // would have shown had those releases been recorded here.
   const releasedRange = Boolean(filters.releasedFrom || filters.releasedTo)
-  // SIGN ALL is offered only when the rows shown are exactly the set it would act on.
-  const signAllOffered = status === 'SIGNATURE_PENDING' && !showAll && !q && !incomplete
+  // SIGN ALL is offered only when the rows shown are exactly the set it would
+  // act on: its set takes the column filters (part C2) but not the search, and
+  // nothing is listed while a box is refused.
+  const signAllOffered = status === 'SIGNATURE_PENDING' && !showAll && !q && !incomplete && !refused
   const [excludedIncomplete, rows, matching, undatedReleases, pendingSign] = await Promise.all([
     countChecks(prisma, { ...filters, incomplete: true }),
     listChecks(prisma, filters, 200, sort),
@@ -266,7 +269,7 @@ export default async function DashboardPage({
           noReleaseDate: true,
         })
       : Promise.resolve(0),
-    signAllOffered ? getPendingSignature(prisma, narrow) : Promise.resolve(null),
+    signAllOffered ? getPendingSignature(prisma, narrow, columnFilterFields(filters)) : Promise.resolve(null),
   ])
 
   return (
@@ -300,6 +303,7 @@ export default async function DashboardPage({
               count={pendingSign.count}
               cancelHref={signAllCancelHref(selection)}
               narrow={{ company: companyId ?? '', cashAccount: cashAccountId ?? '', eligibility: eligibility ?? '' }}
+              columnParams={columnParamsOf(selection.base)}
               labels={{ submit: 'SIGN ALL', pending: 'SIGNING…', done: 'SIGNED', back: 'BACK TO THE LIST' }}
               tone="navy"
               prompt={

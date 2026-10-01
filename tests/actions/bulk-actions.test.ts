@@ -703,6 +703,15 @@ describe('releaseAllReadyAction', () => {
     expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('READY_FOR_RELEASE')
     expect(await testDb.auditLog.count({ where: { action: 'released' } })).toBe(0)
   })
+
+  it('refuses a column filter, which its panel never sends', async () => {
+    const { releaseAllReadyAction } = await import('@/app/checks/bulk-actions')
+    currentUser.role = 'FINANCE_ADMIN'
+    const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
+    const r = await releaseAllReadyAction(null, fd([], { confirm: 'release', expectedCount: '1', 'f.payee': 'henkel' }))
+    expect(r).toMatchObject({ ok: false })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('READY_FOR_RELEASE')
+  })
 })
 
 describe('bulkRevertToSignedAction', () => {
@@ -827,6 +836,26 @@ describe('signAllPendingAction', () => {
     expect(await signAllPendingAction(null, confirmFd(1, { company: 'not-a-company' }))).toMatchObject({ ok: false })
     expect(await signAllPendingAction(null, confirmFd(1, { company: ' ' }))).toMatchObject({ ok: false })
     expect(await testDb.check.count({ where: { status: 'SIGNED' } })).toBe(0)
+    expect(await signedRows()).toBe(0)
+  })
+
+  it('signs only the pending cheques the column filters on screen admit', async () => {
+    const { signAllPendingAction } = await import('@/app/checks/bulk-actions')
+    const acme = await makeCheck({ status: 'SIGNATURE_PENDING', payeeName: 'ACME TRADING' })
+    const other = await makeCheck({ status: 'SIGNATURE_PENDING', payeeName: 'HENKEL PHILIPPINES INC.' })
+    const r = await signAllPendingAction(null, confirmFd(1, { 'f.payee': 'acme' }))
+    expect(r).toMatchObject({ ok: true, succeeded: 1, failed: 0 })
+    if (!r.ok) return
+    expect(r.outcomes.map((o) => o.checkId)).toEqual([acme.id])
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: other.id } })).status).toBe('SIGNATURE_PENDING')
+  })
+
+  it('refuses a column filter it cannot read rather than signing everything', async () => {
+    const { signAllPendingAction } = await import('@/app/checks/bulk-actions')
+    const a = await makeCheck({ status: 'SIGNATURE_PENDING' })
+    const r = await signAllPendingAction(null, confirmFd(1, { 'f.amountMin': '12x' }))
+    expect(r).toMatchObject({ ok: false, message: 'The filter on screen was not recognised. Press SIGN ALL again and re-read the figures.' })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('SIGNATURE_PENDING')
     expect(await signedRows()).toBe(0)
   })
 })

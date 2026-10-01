@@ -6,8 +6,9 @@ import { markSigned, markReadyForRelease, markReleased, recordReceipt, revertAva
 import { parseSelection, chunkSelection } from '@/lib/bulk'
 import {
   listTodaysReleaseIds, listPendingSignatureIds, getFilterOptions, parseOptionId, parseEligibilityParam,
-  type SummaryNarrowing,
+  type SummaryNarrowing, type ColumnFilters,
 } from '@/lib/queries'
+import { parseColumnFilters, F_PARAMS } from '@/lib/column-filters'
 import { readRowReceipts } from '@/lib/receipt-form'
 import { runEach, type BulkOutcome, type BulkActionResult } from '@/lib/bulk-run'
 import { loadSettings } from '@/lib/settings/read'
@@ -74,6 +75,23 @@ async function readNarrowing(formData: FormData): Promise<SummaryNarrowing | nul
   if ((sentCompany && !companyId) || (sentCashAccount && !cashAccountId) || (sentEligibility && !elig)) return null
   return { companyId, cashAccountId, eligibility: elig }
 }
+
+/**
+ * The column filters SIGN ALL's confirm form wrote back (spec C2), parsed by
+ * the SAME function the page used. One it cannot read → null → refuse: a
+ * filter dropped here would sign every pending cheque instead of the few the
+ * reader was looking at.
+ */
+function readColumnFilters(formData: FormData): ColumnFilters | null {
+  const parsed = parseColumnFilters((name) => {
+    const v = formData.get(name)
+    return typeof v === 'string' ? v : undefined
+  }, { statusApplies: false })
+  return Object.keys(parsed.errors).length > 0 ? null : parsed.filters
+}
+
+const sentColumnFilter = (formData: FormData) =>
+  F_PARAMS.some((p) => { const v = formData.get(p); return typeof v === 'string' && v.trim() !== '' })
 
 export async function bulkSignAction(formData: FormData): Promise<BulkActionResult> {
   const user = await requireUser()
@@ -241,8 +259,13 @@ export async function bulkRecordReceiptsAction(formData: FormData): Promise<Bulk
 type ConfirmedAll = {
   /** The value the confirmation form submits as `confirm`. */
   confirm: 'release' | 'sign'
-  /** The set, read from the database for the narrowing on the form. */
-  listIds: (narrow: SummaryNarrowing) => Promise<string[]>
+  /** The set, read from the database for the narrowing (and column filters) on the form. */
+  listIds: (narrow: SummaryNarrowing, columns: ColumnFilters) => Promise<string[]>
+  /**
+   * SIGN ALL's list can carry the filter row's boxes; RELEASE ALL's panel is
+   * on TOTALS, which none can reach, so a box arriving there is refused.
+   */
+  acceptsColumnFilters: boolean
   /** One cheque, through `lib/domain/actions.ts`. */
   apply: (checkId: string, now: Date) => Promise<unknown>
   messages: {
@@ -312,7 +335,15 @@ async function runConfirmedAll(formData: FormData, spec: ConfirmedAll): Promise<
   if (narrow === null) {
     return { ok: false, message: messages.badFilter }
   }
-  const checkIds = await spec.listIds(narrow)
+  let columns: ColumnFilters = {}
+  if (spec.acceptsColumnFilters) {
+    const read = readColumnFilters(formData)
+    if (read === null) return { ok: false, message: messages.badFilter }
+    columns = read
+  } else if (sentColumnFilter(formData)) {
+    return { ok: false, message: messages.badFilter }
+  }
+  const checkIds = await spec.listIds(narrow, columns)
 
   if (checkIds.length === 0) {
     return { ok: false, message: messages.empty }
@@ -394,6 +425,7 @@ export async function releaseAllReadyAction(
 
   return runConfirmedAll(formData, {
     confirm: 'release',
+    acceptsColumnFilters: false,
     listIds: (narrow) => listTodaysReleaseIds(prisma, narrow),
     apply: (checkId, now) => markReleased(prisma, { checkId, userId: user.id, now }),
     messages: {
@@ -425,7 +457,8 @@ export async function signAllPendingAction(
 
   return runConfirmedAll(formData, {
     confirm: 'sign',
-    listIds: (narrow) => listPendingSignatureIds(prisma, narrow),
+    acceptsColumnFilters: true,
+    listIds: (narrow, columns) => listPendingSignatureIds(prisma, narrow, columns),
     apply: (checkId, now) => markSigned(prisma, { checkId, userId: user.id, now }),
     messages: {
       notConfirmed: 'This was not confirmed. Press SIGN ALL and confirm the figures first.',
