@@ -227,6 +227,23 @@ describe('GET /api/export — the download', () => {
     expect(found.get('RELEASED')).toBe(1)
   })
 
+  // Review fix: Object.fromEntries kept the LAST of a repeated key; the
+  // dashboard page reads the FIRST. The file must be the view on screen.
+  it('reads the FIRST value of a repeated parameter, as the dashboard does', async () => {
+    const signed = await makeCheck({ status: 'SIGNED', checkNumber: '6000000011' })
+    await makeCheck({ status: 'RELEASED', checkNumber: '6000000012' })
+
+    const ws = (await sheetsFrom(await get('http://localhost/api/export?status=SIGNED&status=RELEASED')))
+      .getWorksheet(REGISTER_SHEET)!
+
+    const numbers: string[] = []
+    for (let r = FIRST_DATA_ROW; r <= FIRST_DATA_ROW + 5; r++) {
+      const v = ws.getRow(r).getCell(1).value
+      if (typeof v === 'string' && /^\d/.test(v)) numbers.push(v)
+    }
+    expect(numbers).toEqual([signed.checkNumber])
+  })
+
   it('still returns a readable workbook when nothing matches', async () => {
     const res = await get('http://localhost/api/export?status=SCHEDULED')
     expect(res.status).toBe(200)

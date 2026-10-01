@@ -66,9 +66,11 @@ export async function GET(request: Request): Promise<Response> {
   // Every parameter the dashboard reads, through the dashboard's own resolver.
   // An unknown one is simply never read.
   // A cast, not a conversion: every value is a string, which is all the type claims.
-  const query = resolveDashboardQuery(
-    Object.fromEntries(params.entries()) as DashboardSearchParams, options, { sortCookie },
-  )
+  // The FIRST value of a repeated key, as the dashboard page reads it —
+  // `Object.fromEntries` would keep the last, and the file would not be the view.
+  const firstValues: Record<string, string> = {}
+  for (const [k, v] of params.entries()) if (!(k in firstValues)) firstValues[k] = v
+  const query = resolveDashboardQuery(firstValues as DashboardSearchParams, options, { sortCookie })
 
   // A box the screen refused is refused here too — never a file of everything,
   // and never an empty workbook, which would read as "nothing matches". Answered
