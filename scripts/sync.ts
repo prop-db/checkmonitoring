@@ -190,6 +190,15 @@ async function bills(t: AcumaticaTenant) {
   console.log(`  payments not held here        ${res.notHeld.toLocaleString()}`)
   console.log(`  errors                        ${res.errors.toLocaleString()}`)
   console.log(`  next watermark                ${res.watermark ? res.watermark.toISOString() : '(unchanged)'}\n`)
+  // A failed cheque write holds the watermark (lib/sync/bills.ts) so its
+  // vouchers are read again; on a first read that means none is recorded yet.
+  if (res.errors > 0) {
+    console.log(
+      `  WATERMARK HELD: ${res.errors} cheque write(s) failed (named in the run message on /admin/sync).\n` +
+      `  Re-run this command until errors is 0. Until a BILLS watermark exists the scheduled run\n` +
+      `  records a refusal for ${t} instead of reading vouchers.\n`,
+    )
+  }
 }
 
 main()
