@@ -105,7 +105,7 @@ function decimalString(value: unknown): string | null {
  * and never has to choose. We store `DateTime`, so the choice is unavoidable
  * and is made here, once, visibly.
  */
-function naiveDate(value: unknown, { dayOnly }: { dayOnly: boolean }): Date | null {
+export function naiveDate(value: unknown, { dayOnly }: { dayOnly: boolean }): Date | null {
   const s = str(value)
   // The shape is checked BEFORE parsing, not after. `new Date('0Z')` is not an
   // Invalid Date — it is 2000-01-01 — so an `isNaN` check alone lets a stray 0
