@@ -17,7 +17,7 @@ export default async function AdminPortalPage() {
           <PortalActionButton label="DELIVER NOW" pending="DELIVERING…" action={deliverPortalNowAction} />
         </div>
         <p className="mt-2 text-sm text-slate-700">
-          {o.counts.PENDING} pending · {o.counts.IN_FLIGHT} in flight · {o.counts.FAILED} retrying · {o.counts.PARKED} parked · {o.closed.delivered} delivered · {o.closed.superseded} superseded · {o.closed.stale} closed as stale
+          {o.counts.PENDING} pending · {o.counts.IN_FLIGHT} in flight · {o.counts.FAILED} retrying · {o.counts.PARKED} parked · {o.closed.delivered} delivered · {o.closed.superseded} superseded · {o.closed.stale} closed as stale · {o.closed.unmatchable} closed as unmatchable
         </p>
       </section>
       <section className="rounded-2xl bg-white p-6 ring-1 ring-hairline">
