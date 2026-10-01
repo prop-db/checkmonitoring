@@ -1,13 +1,15 @@
 import Link from 'next/link'
+import { cookies } from 'next/headers'
 import { requireUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import {
   getSummary, getTodaysRelease, getPendingSignature, listChecks, countChecks, toTableRow, getFilterOptions,
 } from '@/lib/queries'
-import { resolveDashboardQuery } from '@/lib/dashboard-params'
+import { resolveDashboardQuery, type DashboardSearchParams } from '@/lib/dashboard-params'
+import { SORT_COOKIE } from '@/lib/list-sort'
 import {
   clearFiltersHref, dashboardScreen, describeView, incompleteHref,
-  releaseConfirmHref, releaseCancelHref, signAllConfirmHref, signAllCancelHref, totalsHref,
+  releaseConfirmHref, releaseCancelHref, signAllConfirmHref, signAllCancelHref, sortLinks, totalsHref,
 } from '@/lib/dashboard-view'
 import { AppHeader } from '@/components/AppHeader'
 import { SummaryCards } from '@/components/SummaryCards'
@@ -67,16 +69,7 @@ import { formatMoney } from '@/lib/money'
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{
-    q?: string
-    status?: string
-    company?: string
-    cashAccount?: string
-    eligibility?: string
-    incomplete?: string
-    scope?: string
-    releasedFrom?: string
-    releasedTo?: string
+  searchParams: Promise<DashboardSearchParams & {
     /**
      * TODAY'S RELEASE's confirmation step. It lives in the URL rather than in a
      * `confirm()` dialog so the step exists before any JavaScript does — on the
@@ -124,10 +117,14 @@ export default async function DashboardPage({
    * otherwise appear the moment the table stopped showing them. The count that
    * is left out is printed on screen with a link that shows it.
    */
+  // The remembered order (part C4): read here so the list opens on it with no
+  // flicker. The export and print read the same cookie.
+  const sortCookie = (await cookies()).get(SORT_COOKIE)?.value
+
   const {
     q, status, companyId, cashAccountId, eligibility, incomplete, showAll, selection, filters,
-    releasedFrom, releasedTo, narrowingDescription,
-  } = resolveDashboardQuery(params, options)
+    releasedFrom, releasedTo, narrowingDescription, sort, activeSort,
+  } = resolveDashboardQuery(params, options, { sortCookie })
 
   const narrow = { companyId, cashAccountId, eligibility }
 
@@ -256,7 +253,7 @@ export default async function DashboardPage({
   const signAllOffered = status === 'SIGNATURE_PENDING' && !showAll && !q && !incomplete
   const [summary, rows, matching, undatedReleases, pendingSign] = await Promise.all([
     getSummary(prisma, narrow),
-    listChecks(prisma, filters),
+    listChecks(prisma, filters, 200, sort),
     countChecks(prisma, filters),
     releasedRange
       ? countChecks(prisma, {
@@ -382,6 +379,8 @@ export default async function DashboardPage({
         releasedTo={releasedTo}
         showReleasedRange={status === 'RELEASED' || showAll}
         clearHref={clearFiltersHref(selection)}
+        sort={selection.sort}
+        hasSort={activeSort !== null}
       />
 
       {incomplete && (
@@ -411,6 +410,8 @@ export default async function DashboardPage({
         rows={rows.map(toTableRow)}
         canRelease={user.role === 'FINANCE_ADMIN'}
         bulkCap={settings.values['caps.bulkSelection']}
+        sort={sort}
+        sortLinks={sortLinks(selection, activeSort)}
       />
     </main>
   )

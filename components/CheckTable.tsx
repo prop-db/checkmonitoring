@@ -10,9 +10,12 @@ import {
 } from '@/lib/row-receipts'
 import {
   COLUMN_KEYS, COLUMN_LABELS, ALWAYS_ON, DEFAULT_COLUMNS, COLUMN_STORAGE_KEY,
-  normaliseColumns, parseColumnPreference, serialiseColumnPreference,
+  parseColumnPreference, serialiseColumnPreference, toggleColumn, moveColumn, canMoveColumn,
   type ColumnKey,
 } from '@/lib/table-columns'
+import type { SortKey, SortSpec } from '@/lib/list-sort'
+import type { SortLink } from '@/lib/dashboard-view'
+import { writeSortCookie } from './sort-cookie'
 import { StatusPill } from './StatusPill'
 import { BulkActionBar } from './BulkActionBar'
 import type { CheckTableRow } from '@/lib/queries'
@@ -33,16 +36,114 @@ const fmtDate = (d: Date | null) =>
  */
 const selectable = isTickable
 
-const OPTIONAL_COLUMNS = COLUMN_KEYS.filter(
-  (key) => !(ALWAYS_ON as readonly ColumnKey[]).includes(key),
-)
+/** Every column but ACTION, which is pinned last and rendered after OR / CR. */
+type DataColumn = Exclude<ColumnKey, 'action'>
+
+const isAlwaysOn = (k: ColumnKey) => (ALWAYS_ON as readonly ColumnKey[]).includes(k)
+
+const headerClass = (key: DataColumn) => (key === 'amount' ? 'px-4 py-3 text-right' : 'px-4 py-3')
+
+/**
+ * A sortable header: asc → desc → default (spec C1). The link is built on the
+ * server (`sortLinks`); the click writes or deletes the `cm_sort` cookie before
+ * the navigation so the next render — and the next visit — use it.
+ */
+function SortHeader({ column, sort, link }: { column: DataColumn; sort: SortSpec; link: SortLink }) {
+  const active = sort.key === column ? sort.dir : null
+  return (
+    <th
+      className={headerClass(column)}
+      aria-sort={active === 'asc' ? 'ascending' : active === 'desc' ? 'descending' : 'none'}
+    >
+      <Link
+        prefetch={false}
+        scroll={false}
+        href={link.href}
+        onClick={() => writeSortCookie(link.next)}
+        className="inline-flex items-center gap-1 hover:text-slate-900"
+      >
+        {COLUMN_LABELS[column]}
+        <span aria-hidden className={active ? 'text-navy' : 'text-slate-300'}>
+          {active === 'asc' ? '▲' : active === 'desc' ? '▼' : '↕'}
+        </span>
+      </Link>
+    </th>
+  )
+}
+
+/** One data cell. The markup of each case is the cell the table rendered before part C. */
+function DataCell({ column, r }: { column: DataColumn; r: CheckTableRow }) {
+  switch (column) {
+    case 'checkNumber':
+      return <td className="px-4 py-3 font-medium">{r.checkNumber}</td>
+    case 'apvNumbers':
+      return <td className="px-4 py-3 text-slate-600">{r.apvNumbers.length ? r.apvNumbers.join(', ') : '—'}</td>
+    case 'poNumbers':
+      return <td className="px-4 py-3 text-slate-600">{r.poNumbers.length ? r.poNumbers.join(', ') : '—'}</td>
+    case 'payeeName':
+      return (
+        <td className="px-4 py-3">
+          {/* An em dash, not the bare null React would render as nothing:
+              153 register rows have no payee, and an empty cell reads as a
+              rendering bug rather than as a fact about the cheque. Matches
+              fmtDate and the APV column above. */}
+          {r.payeeName ?? '—'}
+          {r.eligibility === 'INTERNAL' && (
+            <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] tracking-wide text-slate-600">
+              INTERNAL
+            </span>
+          )}
+        </td>
+      )
+    case 'companyCode':
+      return <td className="px-4 py-3 text-slate-600">{r.companyCode}</td>
+    case 'bank':
+      // The cash account code, because "BPI STK" is the label Finance uses;
+      // the bank code is the title, for the reader who knows the institution
+      // but not the account. An em dash where no cash account is recorded —
+      // the column is nullable.
+      return <td className="px-4 py-3 text-slate-600" title={r.bankCode ?? undefined}>{r.cashAccountCode ?? '—'}</td>
+    case 'checkDate':
+      return <td className="px-4 py-3 text-slate-600">{fmtDate(r.checkDate)}</td>
+    case 'amount':
+      // Right-aligned and tabular, so the decimal points line up down the
+      // column and an eight-figure amount is visibly an eight-figure amount.
+      return <td className="px-4 py-3 text-right font-medium tabular-nums">{formatMoney(r.amount, r.currency)}</td>
+    case 'status':
+      return <td className="px-4 py-3"><StatusPill status={r.status} /></td>
+    case 'availablePickupDate':
+      return <td className="px-4 py-3 text-slate-600">{fmtDate(r.availablePickupDate)}</td>
+    case 'scheduledPickupDate':
+      return <td className="px-4 py-3 text-slate-600">{fmtDate(r.scheduledPickupDate)}</td>
+    case 'releasedAt':
+      // The app's own timestamp when it has one; otherwise the day the retired
+      // register stated, tagged so nobody reads a spreadsheet date as a release
+      // this system recorded.
+      return (
+        <td className="px-4 py-3 text-slate-600">
+          {r.releasedAt
+            ? fmtDate(r.releasedAt)
+            : r.statedReleaseDate
+              ? <>{fmtDate(r.statedReleaseDate)}<span className="ml-1 text-[10px] font-semibold tracking-widest text-slate-400">REGISTER</span></>
+              : '—'}
+        </td>
+      )
+    default: {
+      const unreachable: never = column
+      return unreachable
+    }
+  }
+}
 
 export function CheckTable({
-  rows, canRelease, bulkCap,
+  rows, canRelease, bulkCap, sort, sortLinks,
 }: {
   rows: CheckTableRow[]
   canRelease: boolean
   bulkCap: number
+  /** The order in force (URL, cookie or default) — which header shows an arrow. */
+  sort: SortSpec
+  sortLinks: Readonly<Record<SortKey, SortLink>>
 }) {
   const router = useRouter()
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
@@ -53,9 +154,9 @@ export function CheckTable({
   const [drafts, setDrafts] = useState<Record<string, ReceiptDraft>>({})
 
   /**
-   * Which columns to draw.
+   * The viewer's columns, IN ORDER (part C3).
    *
-   * Starts at every column and is corrected in an effect, never read during
+   * Starts at the default and is corrected in an effect, never read during
    * render. `localStorage` does not exist on the server, so reading it in the
    * initial state would break the server render outright; and reading it lazily
    * on the client would make the first paint differ from the server's and
@@ -63,29 +164,26 @@ export function CheckTable({
    * slow one, and one with site data blocked all show a working table rather
    * than a flash of nothing.
    */
-  const [visible, setVisible] = useState<readonly ColumnKey[]>(DEFAULT_COLUMNS)
+  const [preference, setPreference] = useState<readonly ColumnKey[]>(DEFAULT_COLUMNS)
 
   useEffect(() => {
     try {
       const stored = parseColumnPreference(window.localStorage.getItem(COLUMN_STORAGE_KEY))
       // Null means no usable preference — absent, empty or corrupt — and the
       // full table already on screen is the right answer to that.
-      if (stored) setVisible(stored)
+      if (stored) setPreference(stored)
     } catch {
       // A private window, or a browser set to block site data, throws on the
       // accessor itself. A display preference is never worth an error boundary.
     }
   }, [])
 
-  const shows = (key: ColumnKey) => visible.includes(key)
+  const visible = preference
+  const shown = visible.filter((k): k is DataColumn => k !== 'action')
+  const hidden = COLUMN_KEYS.filter((k): k is DataColumn => k !== 'action' && !visible.includes(k))
 
-  const toggleColumn = (key: ColumnKey) => {
-    // Computed from the current value rather than inside the state updater: the
-    // updater must stay pure, and React invokes it twice in development.
-    const next = normaliseColumns(
-      visible.includes(key) ? visible.filter((c) => c !== key) : [...visible, key],
-    )
-    setVisible(next)
+  const persist = (next: readonly ColumnKey[]) => {
+    setPreference(next)
     try {
       window.localStorage.setItem(COLUMN_STORAGE_KEY, serialiseColumnPreference(next))
     } catch {
@@ -135,42 +233,49 @@ export function CheckTable({
 
   const open = (id: string) => router.push(`/checks/${id}`)
 
+  const arrow = 'h-6 w-6 rounded border border-hairline text-[10px] leading-none text-slate-600 disabled:opacity-30'
+
   /**
-   * The column chooser sits outside the empty-table branch on purpose. Hiding
-   * it when nothing matched would strand a user who had narrowed the table to
-   * three columns with no way to widen it again.
+   * The column chooser: show/hide, and ◀ ▶ to move (part C3). Outside the
+   * table, for the reason it always was: a reader who narrowed the table to
+   * three columns must be able to widen it again.
    */
   const picker = (
     <details className="rounded-2xl bg-white p-3 ring-1 ring-hairline">
       <summary className="cursor-pointer select-none text-xs font-medium tracking-wide text-slate-600">
         COLUMNS ({visible.length} OF {COLUMN_KEYS.length})
       </summary>
-      <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 border-t border-slate-100 pt-3">
-        {OPTIONAL_COLUMNS.map((key) => (
-          <label key={key} className="flex items-center gap-2 text-xs tracking-wide text-slate-700">
-            <input type="checkbox" checked={shows(key)} onChange={() => toggleColumn(key)} />
-            {COLUMN_LABELS[key]}
-          </label>
+      <ol className="mt-3 space-y-1 border-t border-slate-100 pt-3">
+        {shown.map((key) => (
+          <li key={key} className="flex items-center gap-2 text-xs tracking-wide text-slate-700">
+            <button type="button" className={arrow} aria-label={`Move ${COLUMN_LABELS[key]} left`}
+              disabled={!canMoveColumn(visible, key, -1)} onClick={() => persist(moveColumn(visible, key, -1))}>◀</button>
+            <button type="button" className={arrow} aria-label={`Move ${COLUMN_LABELS[key]} right`}
+              disabled={!canMoveColumn(visible, key, 1)} onClick={() => persist(moveColumn(visible, key, 1))}>▶</button>
+            {isAlwaysOn(key) ? (
+              <span>{COLUMN_LABELS[key]} <span className="text-slate-400">(ALWAYS SHOWN)</span></span>
+            ) : (
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked onChange={() => persist(toggleColumn(visible, key))} />
+                {COLUMN_LABELS[key]}
+              </label>
+            )}
+          </li>
         ))}
-        {/* Shown, not offered. A row whose number, status or action is hidden
-            cannot be identified, read or opened — that is not a narrower table.
-            Stated here rather than rendered as three disabled tick-boxes,
-            which would read as choices the user failed to make. */}
-        <p className="w-full text-xs text-slate-500">
-          {ALWAYS_ON.map((key) => COLUMN_LABELS[key]).join(', ')} ARE ALWAYS SHOWN.
-        </p>
-      </div>
+        {hidden.map((key) => (
+          <li key={key} className="flex items-center gap-2 pl-16 text-xs tracking-wide text-slate-500">
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={false} onChange={() => persist(toggleColumn(visible, key))} />
+              {COLUMN_LABELS[key]}
+            </label>
+          </li>
+        ))}
+      </ol>
+      <p className="mt-2 text-xs text-slate-500">
+        ◀ ▶ MOVE A COLUMN. ACTION IS ALWAYS LAST. THE ORDER IS REMEMBERED IN THIS BROWSER AND USED BY EXPORT EXCEL.
+      </p>
     </details>
   )
-
-  if (rows.length === 0) {
-    return (
-      <div className="space-y-3">
-        {picker}
-        <p className="rounded-2xl bg-white p-8 text-center text-sm text-slate-500 ring-1 ring-hairline">NO CHECKS MATCH THESE FILTERS.</p>
-      </div>
-    )
-  }
 
   return (
     <div className="space-y-3">
@@ -197,24 +302,21 @@ export function CheckTable({
                   aria-label="Select every actionable cheque on this page"
                 />
               </th>
-              <th className="px-4 py-3">{COLUMN_LABELS.checkNumber}</th>
-              {shows('apvNumbers') && <th className="px-4 py-3">{COLUMN_LABELS.apvNumbers}</th>}
-              {shows('poNumbers') && <th className="px-4 py-3">{COLUMN_LABELS.poNumbers}</th>}
-              {shows('payeeName') && <th className="px-4 py-3">{COLUMN_LABELS.payeeName}</th>}
-              {shows('companyCode') && <th className="px-4 py-3">{COLUMN_LABELS.companyCode}</th>}
-              {shows('bank') && <th className="px-4 py-3">{COLUMN_LABELS.bank}</th>}
-              {shows('checkDate') && <th className="px-4 py-3">{COLUMN_LABELS.checkDate}</th>}
-              {shows('amount') && <th className="px-4 py-3 text-right">{COLUMN_LABELS.amount}</th>}
-              <th className="px-4 py-3">{COLUMN_LABELS.status}</th>
-              {shows('availablePickupDate') && <th className="px-4 py-3">{COLUMN_LABELS.availablePickupDate}</th>}
-              {shows('scheduledPickupDate') && <th className="px-4 py-3">{COLUMN_LABELS.scheduledPickupDate}</th>}
-              {shows('releasedAt') && <th className="px-4 py-3">{COLUMN_LABELS.releasedAt}</th>}
+              {shown.map((key) => <SortHeader key={key} column={key} sort={sort} link={sortLinks[key]} />)}
               <th className="px-4 py-3">OR / CR</th>
               <th className="px-4 py-3">{COLUMN_LABELS.action}</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {rows.length === 0 ? (
+              // Kept inside the table (part C2): the headers — and, from the
+              // filter row, the boxes — must survive a filter that matches nothing.
+              <tr>
+                <td colSpan={shown.length + 3} className="p-8 text-center text-sm text-slate-500">
+                  NO CHECKS MATCH THESE FILTERS.
+                </td>
+              </tr>
+            ) : rows.map((r) => (
               // The whole row navigates: the cheque number alone was a
               // few-pixel target in a table this wide. The row is focusable and
               // answers Enter, and the OPEN link at the end survives as the
@@ -254,67 +356,7 @@ export function CheckTable({
                     <span className="sr-only">Not actionable</span>
                   )}
                 </td>
-                <td className="px-4 py-3 font-medium">{r.checkNumber}</td>
-                {shows('apvNumbers') && (
-                  <td className="px-4 py-3 text-slate-600">
-                    {r.apvNumbers.length ? r.apvNumbers.join(', ') : '—'}
-                  </td>
-                )}
-                {shows('poNumbers') && (
-                  <td className="px-4 py-3 text-slate-600">
-                    {r.poNumbers.length ? r.poNumbers.join(', ') : '—'}
-                  </td>
-                )}
-                {shows('payeeName') && (
-                  <td className="px-4 py-3">
-                    {/* An em dash, not the bare null React would render as nothing:
-                        153 register rows have no payee, and an empty cell reads as a
-                        rendering bug rather than as a fact about the cheque. Matches
-                        fmtDate and the APV column above. */}
-                    {r.payeeName ?? '—'}
-                    {r.eligibility === 'INTERNAL' && (
-                      <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] tracking-wide text-slate-600">
-                        INTERNAL
-                      </span>
-                    )}
-                  </td>
-                )}
-                {shows('companyCode') && <td className="px-4 py-3 text-slate-600">{r.companyCode}</td>}
-                {/* The cash account code, because "BPI STK" is the label
-                    Finance uses; the bank code is the title, for the reader who
-                    knows the institution but not the account. An em dash where
-                    no cash account is recorded — the column is nullable. */}
-                {shows('bank') && (
-                  <td className="px-4 py-3 text-slate-600" title={r.bankCode ?? undefined}>
-                    {r.cashAccountCode ?? '—'}
-                  </td>
-                )}
-                {shows('checkDate') && <td className="px-4 py-3 text-slate-600">{fmtDate(r.checkDate)}</td>}
-                {shows('amount') && (
-                  // Right-aligned and tabular, so the decimal points line up
-                  // down the column and an eight-figure amount is visibly an
-                  // eight-figure amount.
-                  <td className="px-4 py-3 text-right font-medium tabular-nums">{formatMoney(r.amount, r.currency)}</td>
-                )}
-                <td className="px-4 py-3"><StatusPill status={r.status} /></td>
-                {shows('availablePickupDate') && (
-                  <td className="px-4 py-3 text-slate-600">{fmtDate(r.availablePickupDate)}</td>
-                )}
-                {shows('scheduledPickupDate') && (
-                  <td className="px-4 py-3 text-slate-600">{fmtDate(r.scheduledPickupDate)}</td>
-                )}
-                {shows('releasedAt') && (
-                  // The app's own timestamp when it has one; otherwise the day
-                  // the retired register stated, tagged so nobody reads a
-                  // spreadsheet date as a release this system recorded.
-                  <td className="px-4 py-3 text-slate-600">
-                    {r.releasedAt
-                      ? fmtDate(r.releasedAt)
-                      : r.statedReleaseDate
-                        ? <>{fmtDate(r.statedReleaseDate)}<span className="ml-1 text-[10px] font-semibold tracking-widest text-slate-400">REGISTER</span></>
-                        : '—'}
-                  </td>
-                )}
+                {shown.map((key) => <DataCell key={key} column={key} r={r} />)}
                 {/* The supplier's receipt. A ticked row that can carry one gets
                     its own box, which is what lets a batch carry receipts safely:
                     every reference has exactly one cheque. Keys and clicks stop

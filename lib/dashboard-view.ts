@@ -1,6 +1,6 @@
 import type { CheckStatus } from '@prisma/client'
 import { LIVE_STATUSES } from './domain/check-status'
-import type { SortSpec } from './list-sort'
+import { SORT_KEYS, nextSort, type SortKey, type SortSpec } from './list-sort'
 
 /**
  * The dashboard's filtering model, as URL arithmetic.
@@ -429,4 +429,21 @@ export function sortHref(sel: DashboardSelection, next: SortSpec | null): string
     status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete,
     live: sel.live || (!sel.status && !sel.showAll), sort: next,
   })
+}
+
+/** A header's link, and the sort it would put in force (`null` = back to the default). */
+export type SortLink = { href: string; next: SortSpec | null }
+
+/**
+ * Every sortable header's link, from the sort in force (`active`: the URL's
+ * or the cookie's, null under the default). Built on the server and handed to
+ * the table, so the browser does no URL arithmetic of its own.
+ */
+export function sortLinks(sel: DashboardSelection, active: SortSpec | null): Record<SortKey, SortLink> {
+  const out = {} as Record<SortKey, SortLink>
+  for (const key of SORT_KEYS) {
+    const next = nextSort(active, key)
+    out[key] = { href: sortHref(sel, next), next }
+  }
+  return out
 }

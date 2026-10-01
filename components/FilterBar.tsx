@@ -1,7 +1,9 @@
 import { ELIGIBILITIES } from '@/lib/queries'
 import type { FilterOptions } from '@/lib/queries'
 import { bankLabel } from '@/lib/export/report'
+import type { SortSpec } from '@/lib/list-sort'
 import { FilterAutoSubmit } from './FilterAutoSubmit'
+import { ResetLink } from './ResetLink'
 
 /** The APPLY button's id, so the enhancement can find and hide it. */
 const APPLY_ID = 'filter-apply'
@@ -45,7 +47,7 @@ const APPLY_ID = 'filter-apply'
  */
 export function FilterBar({
   options, showAll, q, status, companyId, cashAccountId, eligibility, incomplete,
-  releasedFrom, releasedTo, showReleasedRange, clearHref,
+  releasedFrom, releasedTo, showReleasedRange, clearHref, sort, hasSort,
 }: {
   options: FilterOptions
   showAll: boolean
@@ -61,13 +63,17 @@ export function FilterBar({
   /** True on the RELEASED and ALL CHEQUES views — the only views a release date can narrow. */
   showReleasedRange: boolean
   clearHref: string
+  /** The URL's own sort (`selection.sort`), carried by the hidden inputs — never the cookie's. */
+  sort: SortSpec | undefined
+  /** A sort is in force from the URL or the cookie, so RESET has something to clear. */
+  hasSort: boolean
 }) {
   // A RESET control that is always there is furniture, and on an unfiltered
   // screen it invites the user to wonder what it would clear.
   // The status is NOT counted. It is the view, not a filter, and RESET
   // deliberately keeps it: a bar offering RESET on an otherwise untouched
   // SIGNED view would promise to clear something it does not clear.
-  const anyFilter = Boolean(q || companyId || cashAccountId || eligibility || incomplete || releasedFrom || releasedTo)
+  const anyFilter = Boolean(q || companyId || cashAccountId || eligibility || incomplete || releasedFrom || releasedTo || hasSort)
 
   const field = 'h-10 rounded-lg border border-hairline bg-white px-3 text-sm text-slate-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy'
 
@@ -103,6 +109,8 @@ export function FilterBar({
           already open the list, so the marker is only needed when neither is
           set. See `DashboardSelection.live`. */}
       {!status && !showAll && <input type="hidden" name="scope" value="live" />}
+      {/* A filter change keeps the order the URL chose — a GET submit sends only the form's own controls. */}
+      {sort && <><input type="hidden" name="sort" value={sort.key} /><input type="hidden" name="dir" value={sort.dir} /></>}
 
       <label className="sr-only" htmlFor="filter-q">SEARCH</label>
       <input
@@ -200,12 +208,9 @@ export function FilterBar({
         // mounted input, so the cleared URL would sit above a box still holding
         // the old search. One full page load, only on RESET, is the price of a
         // form the search box can be typed into without being remounted.
-        <a
-          href={clearHref}
-          className="h-10 rounded-lg px-3 py-2 text-sm font-medium text-navy underline underline-offset-2 hover:text-slate-900"
-        >
-          RESET
-        </a>
+        //
+        // It also forgets the remembered sort.
+        <ResetLink href={clearHref} />
       )}
 
       <FilterAutoSubmit applyButtonId={APPLY_ID} />
