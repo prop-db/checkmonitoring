@@ -3,8 +3,9 @@ import { testDb, resetDb } from './helpers/db'
 import { makeCheck } from './helpers/factory'
 import {
   getSummary, getTodaysRelease, listTodaysReleaseIds, getPendingSignature, listPendingSignatureIds, listChecks, countChecks, toTableRow, getFilterOptions,
-  parseStatusParam, parseEligibilityParam, parseOptionId,
+  parseStatusParam, parseEligibilityParam, parseOptionId, columnFilterFields, likePattern,
 } from '@/lib/queries'
+import { manilaDayStart, manilaDayEnd } from '@/lib/audit-view'
 import { formatMoney } from '@/lib/money'
 import { LIVE_STATUSES, isLiveStatus } from '@/lib/domain/check-status'
 import type { SortKey } from '@/lib/list-sort'
@@ -1103,10 +1104,114 @@ describe('listChecks sort', () => {
   })
 
   it('breaks a tie on the cheque number, ascending, in both directions', async () => {
-    await makeCheck({ checkNumber: '6000000009', amount: '100.00' })
-    await makeCheck({ checkNumber: '6000000008', amount: '100.00' })
+    const nine = await makeCheck({ checkNumber: '6000000009', amount: '100.00' })
+    const eight = await makeCheck({ checkNumber: '6000000008', amount: '100.00' })
+    // The factory gives every cheque its own randomly coded cash account; one
+    // account for both makes BANK a real tie rather than a coin toss.
+    await testDb.check.update({ where: { id: eight.id }, data: { cashAccountId: nine.cashAccountId } })
     expect(await sorted('amount', 'asc')).toEqual(['6000000008', '6000000009'])
     expect(await sorted('amount', 'desc')).toEqual(['6000000008', '6000000009'])
-    expect(await sorted('bank', 'desc')).toHaveLength(2)
+    expect(await sorted('bank', 'desc')).toEqual(['6000000008', '6000000009'])
+  })
+})
+
+describe('column filters', () => {
+  const nums = (rows: { checkNumber: string }[]) => rows.map((r) => r.checkNumber).sort()
+
+  it('matches part of a cheque number, any case', async () => {
+    await makeCheck({ checkNumber: 'BPI6000329924' })
+    await makeCheck({ checkNumber: '1791379619' })
+    expect(nums(await listChecks(testDb, { checkNumberContains: 'bpi6000' }))).toEqual(['BPI6000329924'])
+  })
+
+  it('matches part of a supplier name, any case', async () => {
+    await makeCheck({ checkNumber: '6000000001', payeeName: 'HENKEL PHILIPPINES INC.' })
+    await makeCheck({ checkNumber: '6000000002', payeeName: 'SHELL PILIPINAS CORP.' })
+    expect(nums(await listChecks(testDb, { payeeContains: 'philip' }))).toEqual(['6000000001'])
+  })
+
+  it('matches part of an APV held on the cheque or on one of its bills, any case', async () => {
+    await makeCheck({ checkNumber: '6000000011', apvNumbers: ['AP-ST042652'] })
+    const onBill = await makeCheck({ checkNumber: '6000000012' })
+    await testDb.checkBill.create({ data: { checkId: onBill.id, apvNumber: 'AP-ST099042', amount: '1.00' } })
+    await makeCheck({ checkNumber: '6000000013', apvNumbers: ['AP-ST000001'] })
+    expect(nums(await listChecks(testDb, { apvContains: '042' }))).toEqual(['6000000011', '6000000012'])
+    expect(await countChecks(testDb, { apvContains: 'st0426' })).toBe(1)
+  })
+
+  it('reads % and _ as text, never as wildcards', async () => {
+    await makeCheck({ apvNumbers: ['AP-ST042652'] })
+    expect(await countChecks(testDb, { apvContains: '%' })).toBe(0)
+    expect(await countChecks(testDb, { apvContains: 'AP_ST' })).toBe(0)
+    expect(likePattern('5%_\\x')).toBe('%5\\%\\_\\\\x%')
+  })
+
+  it('matches part of a PO on a bill', async () => {
+    const a = await makeCheck({ checkNumber: '6000000021' })
+    await makeCheck({ checkNumber: '6000000022' })
+    await testDb.checkBill.create({ data: { checkId: a.id, apvNumber: 'AP-1', poNumber: 'PO-STK-0451', amount: '1.00' } })
+    expect(nums(await listChecks(testDb, { poContains: 'stk-04' }))).toEqual(['6000000021'])
+  })
+
+  it('bounds the amount inclusively, as decimal strings, and leaves out a cheque with no amount', async () => {
+    await makeCheck({ checkNumber: '6000000031', amount: '100.00' })
+    await makeCheck({ checkNumber: '6000000032', amount: '500.00' })
+    await makeCheck({ checkNumber: '6000000033', amount: '900.00' })
+    await makeCheck({ checkNumber: '6000000034', amount: null })
+    expect(nums(await listChecks(testDb, { amountMin: '500.00', amountMax: '900' }))).toEqual(['6000000032', '6000000033'])
+    expect(nums(await listChecks(testDb, { amountMax: '100' }))).toEqual(['6000000031'])
+    expect(nums(await listChecks(testDb, { amountMin: '500.01' }))).toEqual(['6000000033'])
+  })
+
+  it('bounds the check, available and pickup dates by Manila day, inclusively', async () => {
+    const a = await makeCheck({ checkNumber: '6000000041', checkDate: new Date('2026-09-01'), availablePickupDate: new Date('2026-09-05T01:00:00Z') })
+    await makeCheck({ checkNumber: '6000000042', checkDate: new Date('2026-09-02'), availablePickupDate: new Date('2026-09-06T01:00:00Z') })
+    await testDb.check.update({ where: { id: a.id }, data: { scheduledPickupDate: new Date('2026-09-07T03:00:00Z') } })
+    const day = (d: string) => ({ start: manilaDayStart(d), end: manilaDayEnd(d) })
+    expect(nums(await listChecks(testDb, { from: day('2026-09-01').start, to: day('2026-09-01').end }))).toEqual(['6000000041'])
+    expect(nums(await listChecks(testDb, { availableFrom: day('2026-09-06').start }))).toEqual(['6000000042'])
+    expect(nums(await listChecks(testDb, { pickupTo: day('2026-09-07').end }))).toEqual(['6000000041'])
+  })
+
+  it('narrows within the view and the search rather than widening past them', async () => {
+    await makeCheck({ checkNumber: '6000000051', status: 'SIGNED', payeeName: 'HENKEL PHILIPPINES INC.', amount: '100.00' })
+    await makeCheck({ checkNumber: '6000000052', status: 'RELEASED', payeeName: 'HENKEL PHILIPPINES INC.', amount: '100.00' })
+    await makeCheck({ checkNumber: '6000000053', status: 'SIGNED', payeeName: 'HENKEL PHILIPPINES INC.', amount: '900.00' })
+    expect(nums(await listChecks(testDb, { status: 'SIGNED', q: 'henkel', amountMax: '100' }))).toEqual(['6000000051'])
+  })
+
+  // A filter that cannot be read must not silently become no filter.
+  it('lists nothing and counts nothing when a filter was refused', async () => {
+    await makeCheck({})
+    await makeCheck({ apvNumbers: ['AP-1'] })
+    expect(await listChecks(testDb, { refused: true })).toEqual([])
+    expect(await countChecks(testDb, { refused: true })).toBe(0)
+    expect(await countChecks(testDb, { refused: true, apvContains: 'AP' })).toBe(0)
+  })
+
+  it('copies exactly the column filters and nothing else', () => {
+    const copied = columnFilterFields({ payeeContains: 'x', status: 'SIGNED', incomplete: true, refused: true } as never)
+    expect(copied).toEqual({ payeeContains: 'x' })
+  })
+})
+
+describe('SIGN ALL set with column filters', () => {
+  it('counts and lists only the pending cheques the column filters admit', async () => {
+    const acme = await makeCheck({ status: 'SIGNATURE_PENDING', payeeName: 'ACME TRADING', amount: '100.00' })
+    await makeCheck({ status: 'SIGNATURE_PENDING', payeeName: 'HENKEL PHILIPPINES INC.', amount: '200.00' })
+    expect(await listPendingSignatureIds(testDb, {}, { payeeContains: 'acme' })).toEqual([acme.id])
+    const pending = await getPendingSignature(testDb, {}, { payeeContains: 'acme' })
+    expect(pending.count).toBe(1)
+    expect(pending.totalsByCurrency).toEqual([{ currency: 'PHP', total: '100', count: 1 }])
+  })
+
+  // The anti-spread rule `todaysReleaseFilter` states: a whole CheckFilters
+  // passed as `columns` must not override the status or the exclusion.
+  it('cannot be widened by a status or incomplete smuggled in as a column filter', async () => {
+    const p = await makeCheck({ status: 'SIGNATURE_PENDING' })
+    await makeCheck({ status: 'SIGNED' })
+    await makeCheck({ status: 'SIGNATURE_PENDING', amount: null })
+    const ids = await listPendingSignatureIds(testDb, {}, { status: 'SIGNED', incomplete: true } as never)
+    expect(ids).toEqual([p.id])
   })
 })

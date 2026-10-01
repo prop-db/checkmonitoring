@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient, CheckStatus, Eligibility } from '@prisma/client'
+import { Prisma, type PrismaClient, type CheckStatus, type Eligibility } from '@prisma/client'
 import { LIVE_STATUSES, CLOSED_STATUSES } from './domain/check-status'
 import { ELIGIBILITIES } from './domain/eligibility'
 // Pure URL/view arithmetic, no database — imported so the READY FOR RELEASE
@@ -13,7 +13,29 @@ import {
 
 type Db = PrismaClient | Prisma.TransactionClient
 
-export type CheckFilters = {
+/**
+ * The LIST screen's per-column filters (spec 2026-10-01, part C2). Parsed from
+ * the `f.*` URL parameters by `lib/column-filters.ts`; every bound is
+ * inclusive. `from`/`to` are the CHECK DATE range — they were already a
+ * `checkDate` range here, used by nothing, and one column gets one filter.
+ * Amounts are DECIMAL STRINGS (rule 8); Prisma takes them as such.
+ */
+export type ColumnFilters = {
+  checkNumberContains?: string
+  apvContains?: string
+  poContains?: string
+  payeeContains?: string
+  from?: Date
+  to?: Date
+  availableFrom?: Date
+  availableTo?: Date
+  pickupFrom?: Date
+  pickupTo?: Date
+  amountMin?: string
+  amountMax?: string
+}
+
+export type CheckFilters = ColumnFilters & {
   q?: string
   status?: CheckStatus
   /**
@@ -30,8 +52,6 @@ export type CheckFilters = {
   companyId?: string
   cashAccountId?: string
   eligibility?: Eligibility
-  from?: Date
-  to?: Date
   /**
    * DATE RELEASED, as a range over `releasedAt` — the instant `markReleased`
    * wrote when the cheque was released THROUGH THIS APP. Both bounds are
@@ -88,6 +108,29 @@ export type CheckFilters = {
    * ────────────────────────────────────────────────────────────────────────
    */
   incomplete?: boolean
+  /**
+   * A filter value on the URL could not be read (an amount `12x`, a day that
+   * is not a day). The query then matches NOTHING — never "no filter", which
+   * would read as an applied one. Enforced here, in `buildWhere`, so every
+   * consumer fails closed whether or not it checked.
+   */
+  refused?: true
+}
+
+/**
+ * The column filters and nothing else, named one by one — the reason
+ * `todaysReleaseFilter` gives: SIGN ALL acts on this set, and a caller holding
+ * a whole `CheckFilters` must not be able to override its status or its
+ * exclusion of the cheques with no amount by spreading it in.
+ */
+export function columnFilterFields(c: ColumnFilters): ColumnFilters {
+  const out: ColumnFilters = {
+    checkNumberContains: c.checkNumberContains, apvContains: c.apvContains, poContains: c.poContains,
+    payeeContains: c.payeeContains, from: c.from, to: c.to,
+    availableFrom: c.availableFrom, availableTo: c.availableTo, pickupFrom: c.pickupFrom, pickupTo: c.pickupTo,
+    amountMin: c.amountMin, amountMax: c.amountMax,
+  }
+  return Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined)) as ColumnFilters
 }
 
 // `total` is null when nothing in the group is known — see getSummary. It is
@@ -350,21 +393,27 @@ export async function listTodaysReleaseIds(db: Db, narrow: SummaryNarrowing = {}
  * cheque with an amount, narrowed by exactly the three dropdowns, named one by
  * one for the reason `todaysReleaseFilter` gives. Non-cheques are left out --
  * `markSigned` refuses them, and a confirmed count that includes payments that
- * cannot be signed is a count that will not match what moved.
+ * cannot be signed is a count that will not match what moved. Since part C
+ * the column filters on screen narrow it too (spec C2); `columnFilterFields`
+ * copies them by name.
  */
-function pendingSignatureWhere(narrow: SummaryNarrowing): Prisma.CheckWhereInput {
-  return {
-    ...buildWhere({
-      status: 'SIGNATURE_PENDING', incomplete: false,
-      companyId: narrow.companyId, cashAccountId: narrow.cashAccountId, eligibility: narrow.eligibility,
-    }),
-    isCheque: true,
-  }
+async function pendingSignatureWhere(
+  db: Db, narrow: SummaryNarrowing, columns: ColumnFilters,
+): Promise<Prisma.CheckWhereInput> {
+  const where = await whereFor(db, {
+    ...columnFilterFields(columns),
+    status: 'SIGNATURE_PENDING', incomplete: false,
+    companyId: narrow.companyId, cashAccountId: narrow.cashAccountId, eligibility: narrow.eligibility,
+  })
+  return { AND: [where, { isCheque: true }] }
 }
 
-export async function getPendingSignature(db: Db, narrow: SummaryNarrowing = {}): Promise<TodaysRelease> {
+export async function getPendingSignature(
+  db: Db, narrow: SummaryNarrowing = {}, columns: ColumnFilters = {},
+): Promise<TodaysRelease> {
   const grouped = await db.check.groupBy({
-    by: ['currency'], _sum: { amount: true }, _count: { _all: true }, where: pendingSignatureWhere(narrow),
+    by: ['currency'], _sum: { amount: true }, _count: { _all: true },
+    where: await pendingSignatureWhere(db, narrow, columns),
   })
   return {
     count: grouped.reduce((n, g) => n + g._count._all, 0),
@@ -373,9 +422,11 @@ export async function getPendingSignature(db: Db, narrow: SummaryNarrowing = {})
 }
 
 /** Read here, never from the form -- the same reason as `listTodaysReleaseIds`. Oldest cheque first. */
-export async function listPendingSignatureIds(db: Db, narrow: SummaryNarrowing = {}): Promise<string[]> {
+export async function listPendingSignatureIds(
+  db: Db, narrow: SummaryNarrowing = {}, columns: ColumnFilters = {},
+): Promise<string[]> {
   const rows = await db.check.findMany({
-    where: pendingSignatureWhere(narrow),
+    where: await pendingSignatureWhere(db, narrow, columns),
     orderBy: [{ checkDate: { sort: 'asc', nulls: 'last' } }, { checkNumber: 'asc' }],
     select: { id: true },
   })
@@ -385,6 +436,7 @@ export async function listPendingSignatureIds(db: Db, narrow: SummaryNarrowing =
 // Shared by listChecks and countChecks so the table and its "showing N of M"
 // count can never drift apart.
 function buildWhere(filters: CheckFilters): Prisma.CheckWhereInput {
+  if (filters.refused) return { id: { in: [] } }
   const where: Prisma.CheckWhereInput = {}
 
   // A single explicit status wins; the scope list applies only when none was
@@ -403,6 +455,21 @@ function buildWhere(filters: CheckFilters): Prisma.CheckWhereInput {
   if (filters.incomplete !== undefined) where.isIncomplete = filters.incomplete
   if (filters.from || filters.to) {
     where.checkDate = { gte: filters.from, lte: filters.to }
+  }
+  if (filters.checkNumberContains) where.checkNumber = { contains: filters.checkNumberContains, mode: 'insensitive' }
+  if (filters.payeeContains) where.payeeName = { contains: filters.payeeContains, mode: 'insensitive' }
+  if (filters.availableFrom || filters.availableTo) {
+    where.availablePickupDate = { gte: filters.availableFrom, lte: filters.availableTo }
+  }
+  if (filters.pickupFrom || filters.pickupTo) {
+    where.scheduledPickupDate = { gte: filters.pickupFrom, lte: filters.pickupTo }
+  }
+  // Decimal strings, straight through — Prisma takes a string for a Decimal
+  // bound, and a JS number would be rule 8 broken one step from the database.
+  // A cheque with no amount satisfies no bound and drops out, which is right:
+  // nobody knows whether it is above 500.
+  if (filters.amountMin || filters.amountMax) {
+    where.amount = { gte: filters.amountMin, lte: filters.amountMax }
   }
   if (filters.noReleaseDate) {
     where.releasedAt = null
@@ -437,6 +504,51 @@ function buildWhere(filters: CheckFilters): Prisma.CheckWhereInput {
   }
 
   return where
+}
+
+/** `%text%` for ILIKE … ESCAPE '\', with the user's own `\`, `%` and `_` made literal. */
+export function likePattern(text: string): string {
+  return `%${text.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
+}
+
+/**
+ * APV and PO "contains" (part C2). Both columns show a union — the cheque's
+ * own `apvNumbers` array and its bills — and Postgres offers no substring
+ * match on an array element that Prisma can express (the global search's
+ * `has` is whole-voucher only, and says so). So this asks Postgres directly
+ * for the ids, case-insensitively, and `whereFor` ANDs `id IN (…)` onto the
+ * Prisma `where`. Runs only when one of the two boxes is filled.
+ *
+ * PO reads the bills only: `Check` has no PO column, and `CheckBill.poNumber`
+ * is the PO NUMBER column's one source (part B).
+ */
+async function arrayContainsIds(db: Db, f: ColumnFilters): Promise<string[] | null> {
+  const conditions: Prisma.Sql[] = []
+  if (f.apvContains) {
+    const p = likePattern(f.apvContains)
+    conditions.push(Prisma.sql`(
+      EXISTS (SELECT 1 FROM unnest(c."apvNumbers") AS v(x) WHERE v.x ILIKE ${p} ESCAPE '\\')
+      OR EXISTS (SELECT 1 FROM "CheckBill" b WHERE b."checkId" = c."id" AND b."apvNumber" ILIKE ${p} ESCAPE '\\')
+    )`)
+  }
+  if (f.poContains) {
+    const p = likePattern(f.poContains)
+    conditions.push(Prisma.sql`(
+      EXISTS (SELECT 1 FROM "CheckBill" b WHERE b."checkId" = c."id" AND b."poNumber" ILIKE ${p} ESCAPE '\\')
+    )`)
+  }
+  if (conditions.length === 0) return null
+  const rows = await db.$queryRaw<{ id: string }[]>`
+    SELECT c."id" FROM "Check" c WHERE ${Prisma.join(conditions, ' AND ')}`
+  return rows.map((r) => r.id)
+}
+
+/** `buildWhere`, plus the APV/PO id step. Every query that can carry column filters goes through this. */
+async function whereFor(db: Db, filters: CheckFilters): Promise<Prisma.CheckWhereInput> {
+  const where = buildWhere(filters)
+  if (filters.refused) return where
+  const ids = await arrayContainsIds(db, filters)
+  return ids === null ? where : { AND: [where, { id: { in: ids } }] }
 }
 
 // All bills, not just the first: search matches APV/PO across every bill on
@@ -513,7 +625,7 @@ async function appSortedIds(
  * pushed below the fold. Pinned by test in tests/queries.test.ts.
  */
 export async function listChecks(db: Db, filters: CheckFilters, limit = 200, sort: SortSpec = DEFAULT_SORT) {
-  const where = buildWhere(filters)
+  const where = await whereFor(db, filters)
   const { key, dir } = sort
   if (!isAppSorted(key)) {
     return db.check.findMany({ where, include: CHECK_ROW_INCLUDE, orderBy: dbOrderBy(key, dir), take: limit })
@@ -528,7 +640,7 @@ export async function listChecks(db: Db, filters: CheckFilters, limit = 200, sor
 // the display limit. The table needs this to say "SHOWING 200 OF 12,264" rather
 // than silently truncating under a summary card reporting the full count.
 export async function countChecks(db: Db, filters: CheckFilters): Promise<number> {
-  return db.check.count({ where: buildWhere(filters) })
+  return db.check.count({ where: await whereFor(db, filters) })
 }
 
 /**
