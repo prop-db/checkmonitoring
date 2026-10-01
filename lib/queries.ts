@@ -569,6 +569,7 @@ export type CheckTableRow = {
   id: string
   checkNumber: string
   apvNumbers: string[]
+  poNumbers: string[]
   payeeName: string | null
   companyCode: string
   /**
@@ -618,6 +619,11 @@ export function toTableRow(r: CheckRow): CheckTableRow {
     // across all of them, and showing one arbitrary bill would display a
     // different APV than the one the user searched for.
     apvNumbers: [...new Set([...r.apvNumbers, ...r.bills.map((b) => b.apvNumber)])].sort(),
+    // The approval workbook's Vendor Ref is the only PO a cheque carries:
+    // `Check` has no PO column (the register's POs reached `StagedCheck` only)
+    // and Acumatica publishes none (checked 2026-10-01). Search needs no change:
+    // `bills.some.poNumber contains` already matches PO.
+    poNumbers: [...new Set(r.bills.map((b) => b.poNumber).filter((p): p is string => p !== null))].sort(),
     payeeName: r.payeeName,
     companyCode: r.company.code,
     // `?? null`, so a cheque with no cash account says so rather than crossing

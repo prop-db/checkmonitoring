@@ -15,6 +15,7 @@ function row(overrides: Partial<CheckTableRow> = {}): CheckTableRow {
     id: 'c1',
     checkNumber: '6000240287',
     apvNumbers: ['APV-0001'],
+    poNumbers: ['PO-0001'],
     payeeName: 'HENKEL PHILIPPINES INC.',
     companyCode: 'STK',
     cashAccountCode: 'BPI STK',
@@ -130,11 +131,11 @@ describe('CHECK REGISTER — the title block', () => {
 })
 
 describe('CHECK REGISTER — the header row', () => {
-  it('carries the ten agreed columns, in order', async () => {
+  it('carries the eleven agreed columns, in order', async () => {
     const ws = (await readBack(input())).getWorksheet(REGISTER_SHEET)!
     const header = ws.getRow(HEADER_ROW)
     expect(REGISTER_HEADERS).toEqual([
-      'CHECK NUMBER', 'APV NUMBER', 'SUPPLIER NAME', 'COMPANY', 'BANK',
+      'CHECK NUMBER', 'APV NUMBER', 'PO NUMBER', 'SUPPLIER NAME', 'COMPANY', 'BANK',
       'CHECK DATE', 'AMOUNT', 'STATUS', 'AVAILABLE DATE', 'PICKUP SCHEDULE',
     ])
     expect(REGISTER_HEADERS.map((_, i) => header.getCell(i + 1).value)).toEqual([...REGISTER_HEADERS])
@@ -160,7 +161,7 @@ describe('CHECK REGISTER — the header row', () => {
 
   it('carries an autofilter over the header and the data, but not the totals', async () => {
     const ws = (await readBack(input({ rows: [row(), row({ id: 'c2' })] }))).getWorksheet(REGISTER_SHEET)!
-    expect(autoFilterRef(ws)).toBe(`A${HEADER_ROW}:J${HEADER_ROW + 2}`)
+    expect(autoFilterRef(ws)).toBe(`A${HEADER_ROW}:K${HEADER_ROW + 2}`)
   })
 })
 
@@ -170,10 +171,11 @@ describe('CHECK REGISTER — the rows', () => {
     const r = ws.getRow(FIRST_DATA_ROW)
     expect(r.getCell(1).value).toBe('6000240287')
     expect(r.getCell(2).value).toBe('APV-0001')
-    expect(r.getCell(3).value).toBe('HENKEL PHILIPPINES INC.')
-    expect(r.getCell(4).value).toBe('STK')
-    expect(r.getCell(5).value).toBe('BPI STK')
-    expect(r.getCell(8).value).toBe('READY FOR RELEASE')
+    expect(r.getCell(3).value).toBe('PO-0001')
+    expect(r.getCell(4).value).toBe('HENKEL PHILIPPINES INC.')
+    expect(r.getCell(5).value).toBe('STK')
+    expect(r.getCell(6).value).toBe('BPI STK')
+    expect(r.getCell(9).value).toBe('READY FOR RELEASE')
   })
 
   it('joins every APV on the cheque, because the search matched across all of them', async () => {
@@ -183,16 +185,23 @@ describe('CHECK REGISTER — the rows', () => {
     expect(ws.getRow(FIRST_DATA_ROW).getCell(2).value).toBe('APV-1, APV-2')
   })
 
+  it('joins every PO on the cheque into column 3', async () => {
+    const ws = (await readBack(input({
+      rows: [row({ poNumbers: ['PO-1', 'PO-2'] })],
+    }))).getWorksheet(REGISTER_SHEET)!
+    expect(ws.getRow(FIRST_DATA_ROW).getCell(3).value).toBe('PO-1, PO-2')
+  })
+
   it('names the institution when the cash account code does not already', async () => {
     const ws = (await readBack(input({
       rows: [row({ cashAccountCode: 'STK MAIN', bankCode: 'BDO' })],
     }))).getWorksheet(REGISTER_SHEET)!
-    expect(ws.getRow(FIRST_DATA_ROW).getCell(5).value).toBe('STK MAIN (BDO)')
+    expect(ws.getRow(FIRST_DATA_ROW).getCell(6).value).toBe('STK MAIN (BDO)')
   })
 
   it('writes the amount as a real number with a currency format, right aligned', async () => {
     const ws = (await readBack(input())).getWorksheet(REGISTER_SHEET)!
-    const cell = ws.getRow(FIRST_DATA_ROW).getCell(7)
+    const cell = ws.getRow(FIRST_DATA_ROW).getCell(8)
     expect(typeof cell.value).toBe('number')
     expect(cell.value).toBe(197715.42)
     expect(cell.numFmt).toBe('"₱"#,##0.00')
@@ -203,7 +212,7 @@ describe('CHECK REGISTER — the rows', () => {
     const ws = (await readBack(input({
       rows: [row({ currency: 'CNY', amount: '2000.25' })],
     }))).getWorksheet(REGISTER_SHEET)!
-    expect(ws.getRow(FIRST_DATA_ROW).getCell(7).numFmt).toBe('"¥"#,##0.00')
+    expect(ws.getRow(FIRST_DATA_ROW).getCell(8).numFmt).toBe('"¥"#,##0.00')
   })
 
   /**
@@ -215,29 +224,30 @@ describe('CHECK REGISTER — the rows', () => {
     const ws = (await readBack(input({
       rows: [row({ amount: null })],
     }))).getWorksheet(REGISTER_SHEET)!
-    const cell = ws.getRow(FIRST_DATA_ROW).getCell(7)
+    const cell = ws.getRow(FIRST_DATA_ROW).getCell(8)
     expect(cell.value).toBeNull()
     expect(cell.value).not.toBe(0)
   })
 
   it('writes the dates as real Excel dates with a readable format', async () => {
     const ws = (await readBack(input())).getWorksheet(REGISTER_SHEET)!
-    const cell = ws.getRow(FIRST_DATA_ROW).getCell(6)
+    const cell = ws.getRow(FIRST_DATA_ROW).getCell(7)
     expect(cell.value).toBeInstanceOf(Date)
     expect((cell.value as Date).toISOString()).toBe('2026-09-01T00:00:00.000Z')
     expect(cell.numFmt).toBe('dd mmm yyyy')
-    expect(ws.getRow(FIRST_DATA_ROW).getCell(9).value).toBeInstanceOf(Date)
+    expect(ws.getRow(FIRST_DATA_ROW).getCell(10).value).toBeInstanceOf(Date)
   })
 
   it('leaves a missing date, payee or APV blank rather than writing a placeholder', async () => {
     const ws = (await readBack(input({
-      rows: [row({ checkDate: null, payeeName: null, apvNumbers: [], scheduledPickupDate: null })],
+      rows: [row({ checkDate: null, payeeName: null, apvNumbers: [], poNumbers: [], scheduledPickupDate: null })],
     }))).getWorksheet(REGISTER_SHEET)!
     const r = ws.getRow(FIRST_DATA_ROW)
     expect(r.getCell(2).value).toBeNull()
     expect(r.getCell(3).value).toBeNull()
-    expect(r.getCell(6).value).toBeNull()
-    expect(r.getCell(10).value).toBeNull()
+    expect(r.getCell(4).value).toBeNull()
+    expect(r.getCell(7).value).toBeNull()
+    expect(r.getCell(11).value).toBeNull()
   })
 
   it('bands alternate rows and borders every cell so it reads in print', async () => {
@@ -267,13 +277,13 @@ describe('CHECK REGISTER — the totals', () => {
     expect(ws.getCell(`A${countRow}`).value).toBe('TOTAL — 3 CHEQUES EXPORTED')
 
     expect(ws.getCell(`A${countRow + 1}`).value).toBe('TOTAL VALUE — CNY (1 CHEQUE)')
-    expect(ws.getCell(`G${countRow + 1}`).value).toBe(2000.25)
-    expect(ws.getCell(`G${countRow + 1}`).numFmt).toBe('"¥"#,##0.00')
+    expect(ws.getCell(`H${countRow + 1}`).value).toBe(2000.25)
+    expect(ws.getCell(`H${countRow + 1}`).numFmt).toBe('"¥"#,##0.00')
 
     expect(ws.getCell(`A${countRow + 2}`).value).toBe('TOTAL VALUE — PHP (2 CHEQUES)')
-    expect(ws.getCell(`G${countRow + 2}`).value).toBe(1500.5)
-    expect(ws.getCell(`G${countRow + 2}`).numFmt).toBe('"₱"#,##0.00')
-    expect(ws.getCell(`G${countRow + 2}`).font?.bold).toBe(true)
+    expect(ws.getCell(`H${countRow + 2}`).value).toBe(1500.5)
+    expect(ws.getCell(`H${countRow + 2}`).numFmt).toBe('"₱"#,##0.00')
+    expect(ws.getCell(`H${countRow + 2}`).font?.bold).toBe(true)
   })
 
   // The hard rule, restated where a spreadsheet could most easily break it: one
@@ -287,7 +297,7 @@ describe('CHECK REGISTER — the totals', () => {
     }))).getWorksheet(REGISTER_SHEET)!
     const amounts: number[] = []
     ws.eachRow((r) => {
-      const v = r.getCell(7).value
+      const v = r.getCell(8).value
       if (typeof v === 'number') amounts.push(v)
     })
     expect(amounts).not.toContain(3000.25)
@@ -300,7 +310,7 @@ describe('CHECK REGISTER — the totals', () => {
     }))).getWorksheet(REGISTER_SHEET)!
     const totalRow = FIRST_DATA_ROW + 2 + 2
     expect(ws.getCell(`A${totalRow}`).value).toBe('TOTAL VALUE — PHP (2 CHEQUES)')
-    expect(ws.getCell(`G${totalRow}`).value).toBeNull()
+    expect(ws.getCell(`H${totalRow}`).value).toBeNull()
   })
 
   it('says how many of the exported cheques carry no amount', async () => {
@@ -340,8 +350,8 @@ describe('CHECK REGISTER — the column widths', () => {
     }
     // COMPANY holds "STK"; SUPPLIER NAME holds a 43-character payee. They must
     // not come out the same width.
-    expect(ws.getColumn(4).width).toBeLessThan(ws.getColumn(3).width!)
-    expect(ws.getColumn(3).width).toBe(MAX_COLUMN_WIDTH)
+    expect(ws.getColumn(5).width).toBeLessThan(ws.getColumn(4).width!)
+    expect(ws.getColumn(4).width).toBe(MAX_COLUMN_WIDTH)
   })
 
   it('measures the formatted amount, not the raw decimal string', async () => {
@@ -349,7 +359,7 @@ describe('CHECK REGISTER — the column widths', () => {
       rows: [row({ amount: '1234567890.12' })],
     }))).getWorksheet(REGISTER_SHEET)!
     // "₱1,234,567,890.12" is 17 characters — wider than the AMOUNT header.
-    expect(ws.getColumn(7).width).toBeGreaterThan('AMOUNT'.length + 2)
+    expect(ws.getColumn(8).width).toBeGreaterThan('AMOUNT'.length + 2)
   })
 })
 
@@ -420,6 +430,6 @@ describe('a large export', () => {
       rows, meta: { ...input().meta, totalMatching: 2_500 },
     }))).getWorksheet(REGISTER_SHEET)!
     expect(ws.getRow(FIRST_DATA_ROW + 2_499).getCell(1).value).toBe('60002' + '02499')
-    expect(ws.getCell(`G${FIRST_DATA_ROW + 2_500 + 2}`).value).toBe(2500)
+    expect(ws.getCell(`H${FIRST_DATA_ROW + 2_500 + 2}`).value).toBe(2500)
   })
 })

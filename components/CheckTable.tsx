@@ -199,6 +199,7 @@ export function CheckTable({
               </th>
               <th className="px-4 py-3">{COLUMN_LABELS.checkNumber}</th>
               {shows('apvNumbers') && <th className="px-4 py-3">{COLUMN_LABELS.apvNumbers}</th>}
+              {shows('poNumbers') && <th className="px-4 py-3">{COLUMN_LABELS.poNumbers}</th>}
               {shows('payeeName') && <th className="px-4 py-3">{COLUMN_LABELS.payeeName}</th>}
               {shows('companyCode') && <th className="px-4 py-3">{COLUMN_LABELS.companyCode}</th>}
               {shows('bank') && <th className="px-4 py-3">{COLUMN_LABELS.bank}</th>}
@@ -257,6 +258,11 @@ export function CheckTable({
                 {shows('apvNumbers') && (
                   <td className="px-4 py-3 text-slate-600">
                     {r.apvNumbers.length ? r.apvNumbers.join(', ') : '—'}
+                  </td>
+                )}
+                {shows('poNumbers') && (
+                  <td className="px-4 py-3 text-slate-600">
+                    {r.poNumbers.length ? r.poNumbers.join(', ') : '—'}
                   </td>
                 )}
                 {shows('payeeName') && (

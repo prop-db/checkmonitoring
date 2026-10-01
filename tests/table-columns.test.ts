@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  COLUMN_KEYS, COLUMN_LABELS, ALWAYS_ON, DEFAULT_COLUMNS,
+  COLUMN_KEYS, COLUMN_LABELS, ALWAYS_ON, DEFAULT_COLUMNS, COLUMN_STORAGE_KEY,
   isColumnKey, normaliseColumns, parseColumnPreference, serialiseColumnPreference,
   type ColumnKey,
 } from '@/lib/table-columns'
@@ -36,6 +36,17 @@ describe('the column set', () => {
     expect(isColumnKey('sourceSheet')).toBe(false)
     expect(isColumnKey(7)).toBe(false)
     expect(isColumnKey(null)).toBe(false)
+  })
+})
+
+describe('PO NUMBER', () => {
+  it('sits right after APV NUMBER, labelled PO NUMBER', () => {
+    expect(COLUMN_KEYS[COLUMN_KEYS.indexOf('apvNumbers') + 1]).toBe('poNumbers')
+    expect(COLUMN_LABELS.poNumbers).toBe('PO NUMBER')
+  })
+
+  it('reads no v1 value: a new column must appear for viewers who chose columns before it existed', () => {
+    expect(COLUMN_STORAGE_KEY).toBe('check-monitoring.columns.v2')
   })
 })
 

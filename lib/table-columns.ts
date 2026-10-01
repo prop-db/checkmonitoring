@@ -15,6 +15,7 @@
 export const COLUMN_KEYS = [
   'checkNumber',
   'apvNumbers',
+  'poNumbers',
   'payeeName',
   'companyCode',
   'bank',
@@ -33,6 +34,7 @@ export type ColumnKey = (typeof COLUMN_KEYS)[number]
 export const COLUMN_LABELS: Record<ColumnKey, string> = {
   checkNumber: 'CHECK NUMBER',
   apvNumbers: 'APV NUMBER',
+  poNumbers: 'PO NUMBER',
   payeeName: 'SUPPLIER NAME',
   companyCode: 'COMPANY',
   bank: 'BANK',
@@ -67,9 +69,12 @@ export const ALWAYS_ON = ['checkNumber', 'status', 'action'] as const satisfies 
 export const DEFAULT_COLUMNS: readonly ColumnKey[] = COLUMN_KEYS
 
 // Bumped if the key set ever changes shape. An older version's value simply
-// fails to parse and the reader falls back to the full table, which is the
+// is not read and the reader falls back to the full table, which is the
 // correct outcome and needs no migration.
-export const COLUMN_STORAGE_KEY = 'check-monitoring.columns.v1'
+// v2 (2026-10-01): PO NUMBER added. A v1 choice was a list of the columns that
+// existed then, and read under v2 it would hide the new one for everybody who
+// had ever ticked a box.
+export const COLUMN_STORAGE_KEY = 'check-monitoring.columns.v2'
 
 export function isColumnKey(value: unknown): value is ColumnKey {
   return typeof value === 'string' && (COLUMN_KEYS as readonly string[]).includes(value)

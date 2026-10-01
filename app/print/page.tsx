@@ -121,6 +121,8 @@ export default async function PrintPage({
           <thead>
             <tr className="border-b border-hairline text-left tracking-wide text-slate-500">
               <th className="py-2 pr-3 font-semibold">CHECK NUMBER</th>
+              <th className="py-2 pr-3 font-semibold">APV NUMBER</th>
+              <th className="py-2 pr-3 font-semibold">PO NUMBER</th>
               <th className="py-2 pr-3 font-semibold">CHECK DATE</th>
               <th className="py-2 pr-3 font-semibold">SUPPLIER NAME</th>
               <th className="py-2 pr-3 font-semibold">COMPANY</th>
@@ -133,6 +135,8 @@ export default async function PrintPage({
             {printed.map((r) => (
               <tr key={r.id} className="border-b border-slate-100 align-top">
                 <td className="py-1.5 pr-3 font-medium">{r.checkNumber}</td>
+                <td className="py-1.5 pr-3">{r.apvNumbers.length ? r.apvNumbers.join(', ') : '—'}</td>
+                <td className="py-1.5 pr-3">{r.poNumbers.length ? r.poNumbers.join(', ') : '—'}</td>
                 <td className="py-1.5 pr-3">{fmtDate(r.checkDate)}</td>
                 {/* An em dash, not a blank: 153 register rows have no payee, and
                     an empty cell on paper reads as a printing fault. */}

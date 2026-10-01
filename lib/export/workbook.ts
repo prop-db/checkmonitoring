@@ -28,7 +28,7 @@ export const REGISTER_SHEET = 'CHECK REGISTER'
 export const SUMMARY_SHEET = 'SUMMARY'
 
 export const REGISTER_HEADERS = [
-  'CHECK NUMBER', 'APV NUMBER', 'SUPPLIER NAME', 'COMPANY', 'BANK',
+  'CHECK NUMBER', 'APV NUMBER', 'PO NUMBER', 'SUPPLIER NAME', 'COMPANY', 'BANK',
   'CHECK DATE', 'AMOUNT', 'STATUS', 'AVAILABLE DATE', 'PICKUP SCHEDULE',
 ] as const
 
@@ -42,7 +42,7 @@ export const TITLE_ROWS = 4
 export const HEADER_ROW = TITLE_ROWS + 2
 export const FIRST_DATA_ROW = HEADER_ROW + 1
 
-const AMOUNT_COLUMN = 7
+const AMOUNT_COLUMN = 8
 
 /**
  * The figures `getSummary` returns, structurally.
@@ -142,7 +142,7 @@ function buildRegisterSheet(wb: ExcelJS.Workbook, { rows, meta }: ExportInput) {
       fitToWidth: 1,
       fitToHeight: 0,
       // The header repeats at the top of every printed page. A management pack
-      // whose second page is ten unlabelled columns is not a report.
+      // whose second page is eleven unlabelled columns is not a report.
       printTitlesRow: `${HEADER_ROW}:${HEADER_ROW}`,
     },
   })
@@ -169,15 +169,17 @@ function buildRegisterSheet(wb: ExcelJS.Workbook, { rows, meta }: ExportInput) {
   rows.forEach((r, i) => {
     const excelRow = ws.getRow(FIRST_DATA_ROW + i)
     const apv = r.apvNumbers.length ? r.apvNumbers.join(', ') : null
+    const po = r.poNumbers.length ? r.poNumbers.join(', ') : null
     const bank = bankLabel(r.cashAccountCode, r.bankCode)
     const status = statusWords(r.status)
 
     excelRow.getCell(1).value = r.checkNumber
     excelRow.getCell(2).value = apv
-    excelRow.getCell(3).value = r.payeeName
-    excelRow.getCell(4).value = r.companyCode
-    excelRow.getCell(5).value = bank
-    excelRow.getCell(6).value = r.checkDate
+    excelRow.getCell(3).value = po
+    excelRow.getCell(4).value = r.payeeName
+    excelRow.getCell(5).value = r.companyCode
+    excelRow.getCell(6).value = bank
+    excelRow.getCell(7).value = r.checkDate
     /**
      * BLANK, never 0, when the register recorded no amount.
      *
@@ -188,10 +190,10 @@ function buildRegisterSheet(wb: ExcelJS.Workbook, { rows, meta }: ExportInput) {
      * which is nothing at all — it also keeps the cheque out of any SUM the
      * reader writes themselves.
      */
-    excelRow.getCell(7).value = r.amount === null ? null : amountAsNumber(r.amount)
-    excelRow.getCell(8).value = status
-    excelRow.getCell(9).value = r.availablePickupDate
-    excelRow.getCell(10).value = r.scheduledPickupDate
+    excelRow.getCell(8).value = r.amount === null ? null : amountAsNumber(r.amount)
+    excelRow.getCell(9).value = status
+    excelRow.getCell(10).value = r.availablePickupDate
+    excelRow.getCell(11).value = r.scheduledPickupDate
 
     for (let c = 1; c <= REGISTER_HEADERS.length; c++) {
       const cell = excelRow.getCell(c)
@@ -200,28 +202,29 @@ function buildRegisterSheet(wb: ExcelJS.Workbook, { rows, meta }: ExportInput) {
         left: { style: 'thin', color: { argb: GRID } },
         right: { style: 'thin', color: { argb: GRID } },
       }
-      // Banded, so a wide row can be followed across ten columns on paper.
+      // Banded, so a wide row can be followed across eleven columns on paper.
       if (i % 2 === 1) {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BAND_FILL } }
       }
     }
 
-    excelRow.getCell(6).numFmt = DATE_FORMAT
-    excelRow.getCell(9).numFmt = DATE_FORMAT
+    excelRow.getCell(7).numFmt = DATE_FORMAT
     excelRow.getCell(10).numFmt = DATE_FORMAT
-    excelRow.getCell(7).numFmt = currencyNumberFormat(r.currency)
-    excelRow.getCell(7).alignment = { horizontal: 'right' }
+    excelRow.getCell(11).numFmt = DATE_FORMAT
+    excelRow.getCell(8).numFmt = currencyNumberFormat(r.currency)
+    excelRow.getCell(8).alignment = { horizontal: 'right' }
 
     widthSamples[0].push(r.checkNumber)
     widthSamples[1].push(apv ?? '')
-    widthSamples[2].push(r.payeeName ?? '')
-    widthSamples[3].push(r.companyCode)
-    widthSamples[4].push(bank ?? '')
-    widthSamples[5].push(r.checkDate ? DATE_WIDTH_SAMPLE : '')
-    widthSamples[6].push(r.amount === null ? '' : formatMoney(r.amount, r.currency))
-    widthSamples[7].push(status)
-    widthSamples[8].push(r.availablePickupDate ? DATE_WIDTH_SAMPLE : '')
-    widthSamples[9].push(r.scheduledPickupDate ? DATE_WIDTH_SAMPLE : '')
+    widthSamples[2].push(po ?? '')
+    widthSamples[3].push(r.payeeName ?? '')
+    widthSamples[4].push(r.companyCode)
+    widthSamples[5].push(bank ?? '')
+    widthSamples[6].push(r.checkDate ? DATE_WIDTH_SAMPLE : '')
+    widthSamples[7].push(r.amount === null ? '' : formatMoney(r.amount, r.currency))
+    widthSamples[8].push(status)
+    widthSamples[9].push(r.availablePickupDate ? DATE_WIDTH_SAMPLE : '')
+    widthSamples[10].push(r.scheduledPickupDate ? DATE_WIDTH_SAMPLE : '')
   })
 
   REGISTER_HEADERS.forEach((label, i) => {

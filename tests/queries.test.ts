@@ -431,6 +431,36 @@ describe('toTableRow', () => {
     expect(toTableRow(row).apvNumbers).toEqual(['AP-ST042652', 'AP-ST042999'])
   })
 
+  it('lists the bills’ PO numbers, deduplicated, sorted, without the null ones', async () => {
+    const check = await makeCheck({})
+    await testDb.checkBill.createMany({
+      data: [
+        { checkId: check.id, apvNumber: 'APV-1', amount: '1.00', poNumber: 'PO-2' },
+        { checkId: check.id, apvNumber: 'APV-2', amount: '1.00', poNumber: 'PO-1' },
+        { checkId: check.id, apvNumber: 'APV-3', amount: '1.00', poNumber: 'PO-2' },
+        { checkId: check.id, apvNumber: 'APV-4', amount: '1.00', poNumber: null },
+      ],
+    })
+    const [row] = await listChecks(testDb, {})
+    expect(toTableRow(row).poNumbers).toEqual(['PO-1', 'PO-2'])
+  })
+
+  it('gives no PO numbers for a cheque with no bills', async () => {
+    await makeCheck({})
+    const [row] = await listChecks(testDb, {})
+    expect(toTableRow(row).poNumbers).toEqual([])
+  })
+
+  it('finds a cheque by a PO number through the bills search', async () => {
+    const check = await makeCheck({ checkNumber: '6000353106' })
+    await testDb.checkBill.create({
+      data: { checkId: check.id, apvNumber: 'APV-1', amount: '1.00', poNumber: 'PO-1' },
+    })
+    await makeCheck({ checkNumber: '6000353107' })
+    const rows = await listChecks(testDb, { q: 'po-1' })
+    expect(rows.map((r) => r.checkNumber)).toEqual(['6000353106'])
+  })
+
   it('finds a cheque by a voucher the register states', async () => {
     // Whole voucher, not a substring: Postgres array containment is the only
     // filter available over a `text[]`. Worth knowing, and far better than the
