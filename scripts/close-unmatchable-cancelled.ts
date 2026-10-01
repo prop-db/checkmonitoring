@@ -32,7 +32,8 @@ async function main(): Promise<void> {
       where: { id: { in: rows.map((r) => r.checkId) } },
       select: { id: true, checkNumber: true, portalSyncStatus: true, portalDomain: true },
     })
-    await writeFile(snap, JSON.stringify({ takenAt: now.toISOString(), events: rows, cheques }, null, 2))
+    const events = await db.portalEvent.findMany({ where: { id: { in: rows.map((r) => r.eventId) } } })
+    await writeFile(snap, JSON.stringify({ takenAt: now.toISOString(), events, cheques }, null, 2))
     console.log(`\nSnapshot written: ${snap}`)
 
     const closed = await closeUnmatchableCancelled(db, rows, now)

@@ -4,6 +4,9 @@ import { portalApvs } from '@/lib/integrations/portal/apvs'
 
 type Db = PrismaClient | Prisma.TransactionClient
 
+/** Each row is four round trips to ap-southeast-1; Prisma's 5s default would kill the run. */
+const TX_OPTIONS = { timeout: 30_000, maxWait: 15_000 } as const
+
 /** `lastError` on a row closed by this repair; `/admin/portal` counts the prefix. */
 export const UNMATCHABLE_ERROR = 'unmatchable: no APV numbers'
 
@@ -44,10 +47,10 @@ export async function closeUnmatchableCancelled(db: PrismaClient, rows: readonly
   let closed = 0
   for (const r of rows) {
     const done = await db.$transaction(async (tx) => {
-      const check = await tx.check.findUniqueOrThrow({
+      const check = await tx.check.findUnique({
         where: { id: r.checkId }, select: { apvNumbers: true, bills: { select: { apvNumber: true } } },
       })
-      if (portalApvs(check).length > 0) return false
+      if (!check || portalApvs(check).length > 0) return false
       const updated = await tx.portalEvent.updateMany({
         where: { id: r.eventId, status: 'PARKED' },
         data: { status: 'SYNCED', lastError: UNMATCHABLE_ERROR },
@@ -60,7 +63,7 @@ export async function closeUnmatchableCancelled(db: PrismaClient, rows: readonly
         remarks: 'Closed unsent: the cheque carries no APV, so the portal cannot match a CANCELLED event for it.',
       })
       return true
-    })
+    }, TX_OPTIONS)
     if (done) closed += 1
   }
   return closed

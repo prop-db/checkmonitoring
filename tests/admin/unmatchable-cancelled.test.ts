@@ -58,6 +58,18 @@ describe('closeUnmatchableCancelled', () => {
     expect(await testDb.auditLog.count({ where: { action: 'portal_event_closed_unmatchable' } })).toBe(1)
   })
 
+  it('skips a row whose cheque vanished since listing, and still closes the others', async () => {
+    const gone = await makeCheck({ status: 'VOIDED', apvNumbers: [] })
+    const kept = await makeCheck({ status: 'VOIDED', apvNumbers: [] })
+    const evGone = await parked(gone.id); const evKept = await parked(kept.id)
+    const rows = await findUnmatchableCancelled(testDb)
+    // The event's FK is Restrict, so the cheque can only vanish after its event does.
+    await testDb.portalEvent.delete({ where: { id: evGone.id } })
+    await testDb.check.delete({ where: { id: gone.id } })
+    expect(await closeUnmatchableCancelled(testDb, rows, NOW)).toBe(1)
+    expect((await testDb.portalEvent.findUniqueOrThrow({ where: { id: evKept.id } })).status).toBe('SYNCED')
+  })
+
   it('leaves a row that is no longer PARKED, or whose cheque gained an APV, untouched', async () => {
     const a = await makeCheck({ status: 'VOIDED', apvNumbers: [] })
     const b = await makeCheck({ status: 'VOIDED', apvNumbers: [] })
