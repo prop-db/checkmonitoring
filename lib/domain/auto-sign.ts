@@ -23,6 +23,8 @@
 
 export const AUTO_SIGNED_ACTION = 'auto_signed'
 export const AUTO_SIGN_RUN_ACTION = 'auto_sign_run'
+/** A person undid a signature. A cheque carrying one is never auto-signed again. */
+export const SIGNATURE_REVERTED_ACTION = 'signature_reverted'
 
 const DAY_MS = 86_400_000
 const MANILA_OFFSET_MS = 8 * 3_600_000

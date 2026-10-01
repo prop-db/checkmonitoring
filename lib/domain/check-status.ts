@@ -19,7 +19,10 @@ export type ClearingStatus = 'NONE' | 'DEPOSITED' | 'ENCASHED' | 'CLEARED'
 const TRANSITIONS: Record<CheckStatus, readonly CheckStatus[]> = {
   GENERATED:         ['SIGNATURE_PENDING', 'CANCELLED', 'VOIDED'],
   SIGNATURE_PENDING: ['SIGNED', 'CANCELLED', 'VOIDED'],
-  SIGNED:            ['READY_FOR_RELEASE', 'CANCELLED', 'VOIDED'],
+  // SIGNATURE_PENDING is the signature undone (client, 2026-10-01): any
+  // Finance user, `revertSignature` in actions.ts. A cheque on the release
+  // list goes back to SIGNED first, through `revertAvailability`.
+  SIGNED:            ['READY_FOR_RELEASE', 'SIGNATURE_PENDING', 'CANCELLED', 'VOIDED'],
   READY_FOR_RELEASE: ['SCHEDULED', 'RELEASED', 'SIGNED', 'CANCELLED', 'VOIDED'],
   SCHEDULED:         ['RELEASED', 'SIGNED', 'CANCELLED', 'VOIDED'],
   // READY_FOR_RELEASE is the reversal: a FINANCE_ADMIN undoing a release that

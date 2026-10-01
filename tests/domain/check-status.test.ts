@@ -237,4 +237,11 @@ describe('live and closed statuses', () => {
     expect(isLiveStatus('RELEASED')).toBe(false)
     expect(isLiveStatus('READY_FOR_RELEASE')).toBe(true)
   })
+
+  it('allows a signature to be reverted, and only from SIGNED', () => {
+    expect(canTransition('SIGNED', 'SIGNATURE_PENDING')).toBe(true)
+    for (const s of ['GENERATED', 'READY_FOR_RELEASE', 'SCHEDULED', 'RELEASED', 'CANCELLED', 'VOIDED'] as const) {
+      expect(canTransition(s, 'SIGNATURE_PENDING'), s).toBe(s === 'GENERATED')
+    }
+  })
 })

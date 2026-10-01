@@ -14,7 +14,7 @@ import {
   assertTransition, assertClearing, assertReleasable, checkReadyForRelease,
   type CheckStatus, type ClearingStatus,
 } from './check-status'
-import { isDueForAutoSign, AUTO_SIGNED_ACTION } from './auto-sign'
+import { isDueForAutoSign, AUTO_SIGNED_ACTION, SIGNATURE_REVERTED_ACTION } from './auto-sign'
 
 type Db = PrismaClient | Prisma.TransactionClient
 
@@ -134,6 +134,38 @@ export async function autoSign(
         'No one signed it here, so no signing user is recorded.',
     })
     return tx.check.findUniqueOrThrow({ where: { id: check.id } })
+  })
+}
+
+/**
+ * A signature, undone (client, 2026-10-01). Any Finance user; the reason is
+ * optional. SIGNED only — the ladder refuses anything else, and a cheque on
+ * the release list must come back to SIGNED through `revertAvailability`
+ * first. The previous signer goes on the audit row (null for an auto-signed
+ * cheque), because clearing `signedById` would otherwise erase who it was.
+ * No portal event: signing never produces one. A cheque carrying this row is
+ * never auto-signed again (`isDueForAutoSign`).
+ */
+export async function revertSignature(
+  db: Db, args: { checkId: string; userId: string; reason?: string; now: Date },
+): Promise<Check> {
+  return inTx(db, async (tx) => {
+    const check = await load(tx, args.checkId)
+    assertTransition(check.status as CheckStatus, 'SIGNATURE_PENDING')
+    const updated = await tx.check.update({
+      where: { id: check.id },
+      data: { status: 'SIGNATURE_PENDING', signedById: null, signedAt: null },
+    })
+    const reason = args.reason?.trim() || null
+    await writeAudit(tx, {
+      checkId: check.id, actorType: 'USER', userId: args.userId, action: SIGNATURE_REVERTED_ACTION,
+      details: {
+        from: 'SIGNED', to: 'SIGNATURE_PENDING',
+        previousSignerId: check.signedById, previousSignedAt: check.signedAt?.toISOString() ?? null,
+      },
+      ...(reason ? { remarks: reason } : {}),
+    })
+    return updated
   })
 }
 
