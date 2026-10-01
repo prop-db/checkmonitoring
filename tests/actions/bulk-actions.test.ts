@@ -758,3 +758,110 @@ describe('bulkRevertToSignedAction', () => {
     expect(result.ok).toBe(false)
   })
 })
+
+describe('signAllPendingAction', () => {
+  const confirmFd = (count: number, extra: Record<string, string> = {}) =>
+    fd([], { confirm: 'sign', expectedCount: String(count), ...extra })
+  const signedRows = () => testDb.auditLog.count({ where: { action: 'marked_signed' } })
+
+  // beforeEach signs in a FINANCE_USER: SIGN ALL is open to every Finance user.
+  it('signs the whole pending set the server computes, one audit row each', async () => {
+    const { signAllPendingAction } = await import('@/app/checks/bulk-actions')
+    const a = await makeCheck({ status: 'SIGNATURE_PENDING' })
+    const b = await makeCheck({ status: 'SIGNATURE_PENDING' })
+    const other = await makeCheck({ status: 'SIGNED' })
+    const r = await signAllPendingAction(null, confirmFd(2))
+    expect(r).toMatchObject({ ok: true, succeeded: 2, failed: 0 })
+    for (const id of [a.id, b.id]) {
+      expect((await testDb.check.findUniqueOrThrow({ where: { id } })).status).toBe('SIGNED')
+      expect(await testDb.auditLog.count({ where: { checkId: id, action: 'marked_signed' } })).toBe(1)
+    }
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: other.id } })).status).toBe('SIGNED')
+  })
+
+  it('ignores ids sent by the browser', async () => {
+    const { signAllPendingAction } = await import('@/app/checks/bulk-actions')
+    const p = await makeCheck({ status: 'SIGNATURE_PENDING' })
+    const ready = await makeCheck({ status: 'READY_FOR_RELEASE' })
+    const f = confirmFd(1); f.append('checkId', ready.id)
+    expect(await signAllPendingAction(null, f)).toMatchObject({ ok: true, succeeded: 1 })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: p.id } })).status).toBe('SIGNED')
+  })
+
+  it('signs only the pending cheques of the company on screen', async () => {
+    const { signAllPendingAction } = await import('@/app/checks/bulk-actions')
+    const mine = await makeCheck({ status: 'SIGNATURE_PENDING' })
+    const other = await makeCheck({ status: 'SIGNATURE_PENDING' })
+    expect(other.companyId).not.toBe(mine.companyId)
+
+    const r = await signAllPendingAction(null, confirmFd(1, { company: mine.companyId }))
+    expect(r).toMatchObject({ ok: true, succeeded: 1, failed: 0 })
+    if (!r.ok) return
+    expect(r.outcomes.map((o) => o.checkId)).toEqual([mine.id])
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: mine.id } })).status).toBe('SIGNED')
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: other.id } })).status).toBe('SIGNATURE_PENDING')
+    expect(await signedRows()).toBe(1)
+  })
+
+  it('refuses without the confirmation field, and signs nothing', async () => {
+    const { signAllPendingAction } = await import('@/app/checks/bulk-actions')
+    const p = await makeCheck({ status: 'SIGNATURE_PENDING' })
+    expect(await signAllPendingAction(null, fd([], { expectedCount: '1' }))).toMatchObject({ ok: false })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: p.id } })).status).toBe('SIGNATURE_PENDING')
+    expect(await signedRows()).toBe(0)
+  })
+
+  it('refuses when more are pending than were confirmed', async () => {
+    const { signAllPendingAction } = await import('@/app/checks/bulk-actions')
+    await makeCheck({ status: 'SIGNATURE_PENDING' })
+    await makeCheck({ status: 'SIGNATURE_PENDING' })
+    const r = await signAllPendingAction(null, confirmFd(1))
+    expect(r).toMatchObject({ ok: false })
+    expect(await testDb.check.count({ where: { status: 'SIGNED' } })).toBe(0)
+    expect(await signedRows()).toBe(0)
+  })
+
+  it('refuses an unrecognised filter rather than widening', async () => {
+    const { signAllPendingAction } = await import('@/app/checks/bulk-actions')
+    await makeCheck({ status: 'SIGNATURE_PENDING' })
+    expect(await signAllPendingAction(null, confirmFd(1, { company: 'not-a-company' }))).toMatchObject({ ok: false })
+    expect(await signAllPendingAction(null, confirmFd(1, { company: ' ' }))).toMatchObject({ ok: false })
+    expect(await testDb.check.count({ where: { status: 'SIGNED' } })).toBe(0)
+    expect(await signedRows()).toBe(0)
+  })
+})
+
+describe('bulkRevertToPendingAction', () => {
+  it('reverts the ticked SIGNED cheques, refuses the rest per cheque, reason optional', async () => {
+    const { bulkRevertToPendingAction } = await import('@/app/checks/bulk-actions')
+    const s = await makeCheck({ status: 'SIGNED' })
+    const r = await makeCheck({ status: 'READY_FOR_RELEASE' })
+    const result = await bulkRevertToPendingAction(fd([s.id, r.id]))
+    expect(result).toMatchObject({ ok: true, succeeded: 1, failed: 1 })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: s.id } })).status).toBe('SIGNATURE_PENDING')
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: r.id } })).status).toBe('READY_FOR_RELEASE')
+    expect(outcomeFor(result, r.id).ok).toBe(false)
+  })
+
+  it('passes the shared reason to each audit row', async () => {
+    const { bulkRevertToPendingAction } = await import('@/app/checks/bulk-actions')
+    const s = await makeCheck({ status: 'SIGNED' })
+    await bulkRevertToPendingAction(fd([s.id], { reason: 'Signed too early' }))
+    const row = await testDb.auditLog.findFirstOrThrow({ where: { checkId: s.id, action: 'signature_reverted' } })
+    expect(row.remarks).toBe('Signed too early')
+  })
+
+  it('refuses a selection larger than the cap and writes nothing', async () => {
+    const { bulkRevertToPendingAction } = await import('@/app/checks/bulk-actions')
+    const real = await makeCheck({ status: 'SIGNED' })
+    const padding = Array.from({ length: MAX_BULK_SELECTION }, (_, i) => `missing-${i}`)
+
+    const result = await bulkRevertToPendingAction(fd([real.id, ...padding]))
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.message).toContain(String(MAX_BULK_SELECTION))
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: real.id } })).status).toBe('SIGNED')
+    expect(await testDb.auditLog.count({ where: { action: 'signature_reverted' } })).toBe(0)
+  })
+})

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { resetDb, testDb } from '../helpers/db'
 
 /**
@@ -42,7 +42,7 @@ vi.mock('@/lib/sync/auto-sign', async (importOriginal) => {
     ...real,
     runAutoSign: async (...args: Parameters<typeof real.runAutoSign>) =>
       state.failAutoSign
-        ? { outcome: 'FAILED' as const, signed: 0, skipped: 0, days: 3, error: 'forced' }
+        ? { outcome: 'FAILED' as const, signed: 0, skipped: 0, enabled: true, error: 'forced' }
         : real.runAutoSign(...args),
   }
 })
@@ -137,12 +137,16 @@ describe('GET /api/cron/sync — the run', () => {
 })
 
 describe('GET /api/cron/sync — auto-sign after the syncs', () => {
+  // Tuesday 29 Sep 2026, 12:00 Manila. Only Date is faked so DB timers stay real.
+  beforeEach(() => { vi.useFakeTimers({ now: new Date('2026-09-29T04:00:00Z'), toFake: ['Date'] }) })
+  afterEach(() => { vi.useRealTimers() })
+
   async function duePending() {
     const { makeCheck } = await import('../helpers/factory')
     const c = await makeCheck({ status: 'SIGNATURE_PENDING' })
     return testDb.check.update({
       where: { id: c.id },
-      data: { acumaticaPaymentId: `PAY-${c.id}`, acumaticaStatus: 'Balanced', createdAt: new Date(Date.now() - 4 * 86_400_000) },
+      data: { acumaticaPaymentId: `PAY-${c.id}`, acumaticaStatus: 'Balanced', createdAt: new Date('2026-09-28T09:00:00Z') },
     })
   }
 
@@ -152,7 +156,7 @@ describe('GET /api/cron/sync — auto-sign after the syncs', () => {
     const res = await get(`Bearer ${SECRET}`)
     const body = await res.json()
     expect(res.status).toBe(200)
-    expect(body.autoSign).toMatchObject({ outcome: 'OK', signed: 1, days: 3 })
+    expect(body.autoSign).toMatchObject({ outcome: 'OK', signed: 1, enabled: true })
     expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('SIGNED')
   })
 

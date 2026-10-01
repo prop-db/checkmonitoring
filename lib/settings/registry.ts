@@ -11,7 +11,7 @@ import {
   DEFAULT_WINDOW_MINUTES as WINDOW_MINUTES,
   DEFAULT_EMAIL_FREE_FAILURES as EMAIL_FREE_FAILURES,
   DEFAULT_IP_FREE_FAILURES as IP_FREE_FAILURES,
-  DEFAULT_AUTO_SIGN_AFTER_DAYS as AUTO_SIGN_AFTER_DAYS,
+  DEFAULT_AUTO_SIGN_MONDAY_ENABLED as AUTO_SIGN_MONDAY_ENABLED,
 } from './defaults'
 import { DEFAULT_CATEGORIES, isCategory } from './categories'
 
@@ -41,7 +41,7 @@ export type IntKey =
   | 'sync.staleAfterHours' | 'sync.abandonedAfterMinutes' | 'sync.inProgressMinutes'
   | 'caps.bulkSelection' | 'caps.exportRows' | 'caps.voucherScreenRows'
   | 'login.windowMinutes' | 'login.emailFreeFailures' | 'login.ipFreeFailures'
-  | 'autoSign.afterDays'
+  | 'autoSign.mondayEnabled'
 export type SettingKey = IntKey | 'categories'
 
 export type IntSettingDef = {
@@ -82,9 +82,9 @@ export const SETTINGS: readonly SettingDef[] = [
   { kind: 'int', key: 'login.ipFreeFailures', group: 'LOGIN', label: 'FREE FAILURES PER ADDRESS BEFORE A LOCK', unit: 'failures',
     help: 'Counted across every account one client address tries. Higher than the email allowance because one address may be a whole office.',
     default: IP_FREE_FAILURES, min: 10, max: 100 },
-  { kind: 'int', key: 'autoSign.afterDays', group: 'WORKFLOW', label: 'AUTO-SIGN ACUMATICA CHEQUES AFTER', unit: 'days',
-    help: 'An Acumatica cheque still at SIGNATURE PENDING this many calendar days after it reached the app is signed by the 18:00 run. 0 switches it off.',
-    default: AUTO_SIGN_AFTER_DAYS, min: 0, max: 30 },
+  { kind: 'int', key: 'autoSign.mondayEnabled', group: 'WORKFLOW', label: "AUTO-SIGN MONDAY'S ACUMATICA CHEQUES ON TUESDAY", unit: '1 = on, 0 = off',
+    help: 'At 12:00 every Tuesday, an Acumatica cheque first read on the Monday and still at SIGNATURE PENDING is signed. Every other pending cheque waits for SIGN ALL.',
+    default: AUTO_SIGN_MONDAY_ENABLED, min: 0, max: 1 },
   { kind: 'list', key: 'categories', group: 'CATEGORIES', label: 'CATEGORIES',
     help: 'What a cheque or a planned outflow may be filed under. One per line. Anything else is refused on the form.',
     default: DEFAULT_CATEGORIES },

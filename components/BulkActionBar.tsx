@@ -3,12 +3,12 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  liveIds, releasedIds, revertableIds, draftTypeMissing, receiptEntries, takesReceipt, EMPTY_DRAFT,
+  liveIds, releasedIds, revertableIds, signedIds, draftTypeMissing, receiptEntries, takesReceipt, EMPTY_DRAFT,
   type RowFacts, type ReceiptDraft,
 } from '@/lib/row-receipts'
 import {
   bulkSignAction, bulkReadyForReleaseAction, bulkReleaseAction, bulkRecordReceiptsAction,
-  bulkRevertToSignedAction,
+  bulkRevertToSignedAction, bulkRevertToPendingAction,
   type BulkActionResult, type BulkOutcome,
 } from '@/app/checks/bulk-actions'
 
@@ -53,6 +53,7 @@ export function BulkActionBar({
   const [result, setResult] = useState<BulkActionResult | null>(null)
   const [pickupDate, setPickupDate] = useState('')
   const [revertReason, setRevertReason] = useState('')
+  const [pendingReason, setPendingReason] = useState('')
   // Set only by SAVE RECEIPTS, and only meaningful alongside its own result —
   // reset to null by every other action so a stale count never survives onto
   // a different button's outcome.
@@ -61,6 +62,7 @@ export function BulkActionBar({
   const live = liveIds(selectedRows)
   const released = releasedIds(selectedRows)
   const revertable = revertableIds(selectedRows)
+  const signed = signedIds(selectedRows)
   const total = selectedRows.length
   const overCap = total > cap
   const disabled = pending || overCap
@@ -162,6 +164,36 @@ export function BulkActionBar({
               className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
               REVERT TO SIGNED ({revertable.length})
+            </button>
+          </div>
+        )}
+
+        {/* SIGNED back to SIGNATURE PENDING (client, 2026-10-01). Every
+            Finance user; the reason is optional and is this action's own
+            (never REVERT TO SIGNED's). A cheque reverted here is never
+            auto-signed again. */}
+        {signed.length > 0 && (
+          <div className="flex items-center gap-2 rounded-lg px-3 py-1.5 ring-1 ring-slate-300">
+            <label htmlFor="bulk-pending-reason" className="text-xs font-medium tracking-wide text-slate-600">
+              REASON
+            </label>
+            <input
+              id="bulk-pending-reason" type="text" value={pendingReason}
+              onChange={(e) => setPendingReason(e.target.value)}
+              placeholder="Signed in error"
+              className="w-56 rounded-lg border border-slate-300 px-2 py-1 text-sm"
+            />
+            <button
+              type="button" disabled={disabled}
+              onClick={() => {
+                if (!confirm(`Revert ${signed.length} cheque(s) to SIGNATURE PENDING?`)) return
+                const reason = pendingReason.trim()
+                submit(bulkRevertToPendingAction, signed, reason ? [['reason', reason]] : [])
+                setPendingReason('')
+              }}
+              className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
+              REVERT TO PENDING ({signed.length})
             </button>
           </div>
         )}

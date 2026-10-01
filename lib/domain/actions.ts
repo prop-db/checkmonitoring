@@ -15,7 +15,7 @@ import {
   assertTransition, assertClearing, assertReleasable, checkReadyForRelease,
   type CheckStatus, type ClearingStatus,
 } from './check-status'
-import { isDueForAutoSign, AUTO_SIGNED_ACTION } from './auto-sign'
+import { isDueForAutoSign, AUTO_SIGNED_ACTION, SIGNATURE_REVERTED_ACTION } from './auto-sign'
 
 type Db = PrismaClient | Prisma.TransactionClient
 
@@ -127,19 +127,20 @@ export async function markSigned(
 }
 
 /**
- * The 3-day rule's write (lib/domain/auto-sign.ts). No user: `signedById`
+ * The Monday rule's write (lib/domain/auto-sign.ts). No user: `signedById`
  * stays null, because a name on a signature nobody gave is worse than none.
- * `signedAt` is the moment the system recorded it. Re-judged on the row as
- * loaded, so a cheque someone signed or cancelled after the candidates were
- * listed is skipped (null), never overwritten. No portal event — `markSigned`
- * queues none either.
+ * Reached only when the setting is on — the run decides that. Re-judged on
+ * the row as loaded, so a cheque someone signed, reverted or cancelled after
+ * the candidates were listed is skipped (null), never overwritten. No portal
+ * event — `markSigned` queues none either.
  */
 export async function autoSign(
-  db: Db, args: { checkId: string; now: Date; days: number },
+  db: Db, args: { checkId: string; now: Date },
 ): Promise<Check | null> {
   return inTx(db, async (tx) => {
     const check = await load(tx, args.checkId)
-    if (!isDueForAutoSign(check, args.now, args.days)) return null
+    const reverted = (await tx.auditLog.count({ where: { checkId: check.id, action: SIGNATURE_REVERTED_ACTION } })) > 0
+    if (!isDueForAutoSign({ ...check, reverted }, args.now, true)) return null
     assertTransition(check.status as CheckStatus, 'SIGNED')
     const { count } = await tx.check.updateMany({
       where: { id: check.id, status: 'SIGNATURE_PENDING' },
@@ -150,14 +151,52 @@ export async function autoSign(
       checkId: check.id,
       actorType: 'SYSTEM',
       action: AUTO_SIGNED_ACTION,
-      details: {
-        from: 'SIGNATURE_PENDING', to: 'SIGNED',
-        inAppSince: check.createdAt.toISOString(), afterDays: args.days,
-      },
+      details: { from: 'SIGNATURE_PENDING', to: 'SIGNED', rule: 'MONDAY', inAppSince: check.createdAt.toISOString() },
       remarks:
-        `Signed automatically: this Acumatica cheque had been in the app since ` +
-        `${check.createdAt.toISOString()} and was still pending after ${args.days} day(s). ` +
-        'No one signed it here, so no signing user is recorded.',
+        `Signed automatically at Tuesday's run: this Acumatica cheque first reached the app on ` +
+        `Monday (${check.createdAt.toISOString()}). No one signed it here, so no signing user is recorded.`,
+    })
+    return tx.check.findUniqueOrThrow({ where: { id: check.id } })
+  })
+}
+
+/**
+ * A signature, undone (client, 2026-10-01). Any Finance user; the reason is
+ * optional. SIGNED only — the ladder refuses anything else, and a cheque on
+ * the release list must come back to SIGNED through `revertAvailability`
+ * first. The previous signer goes on the audit row (null for an auto-signed
+ * cheque), because clearing `signedById` would otherwise erase who it was.
+ * No portal event: signing never produces one. A cheque carrying this row is
+ * never auto-signed again (`isDueForAutoSign`).
+ */
+export async function revertSignature(
+  db: Db, args: { checkId: string; userId: string; reason?: string; now: Date },
+): Promise<Check> {
+  return inTx(db, async (tx) => {
+    const check = await load(tx, args.checkId)
+    assertTransition(check.status as CheckStatus, 'SIGNATURE_PENDING')
+    // Guarded on SIGNED, as `autoSign` guards on SIGNATURE_PENDING: a change
+    // between the read above and this write (a second revert, a mark-ready)
+    // must refuse with the ladder's own error rather than overwrite it.
+    const { count } = await tx.check.updateMany({
+      where: { id: check.id, status: 'SIGNED' },
+      data: { status: 'SIGNATURE_PENDING', signedById: null, signedAt: null },
+    })
+    if (count === 0) {
+      const current = await tx.check.findUnique({ where: { id: check.id }, select: { status: true } })
+      throw new DomainError(
+        'ILLEGAL_TRANSITION',
+        `Cannot move a check from ${current?.status ?? 'a changed status'} to SIGNATURE_PENDING.`,
+      )
+    }
+    const reason = args.reason?.trim() || null
+    await writeAudit(tx, {
+      checkId: check.id, actorType: 'USER', userId: args.userId, action: SIGNATURE_REVERTED_ACTION,
+      details: {
+        from: 'SIGNED', to: 'SIGNATURE_PENDING',
+        previousSignerId: check.signedById, previousSignedAt: check.signedAt?.toISOString() ?? null,
+      },
+      ...(reason ? { remarks: reason } : {}),
     })
     return tx.check.findUniqueOrThrow({ where: { id: check.id } })
   })

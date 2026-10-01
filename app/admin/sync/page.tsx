@@ -172,7 +172,7 @@ export default async function SyncPage() {
         <h2 className="text-[11px] font-semibold tracking-widest text-slate-400">LAST AUTO-SIGN</h2>
         {lastAutoSign === null ? (
           <p className="mt-2 text-sm text-slate-600">
-            Auto-sign has not run yet. It runs daily at 18:00 Manila, after the sync.
+            Auto-sign has not run yet. It runs at 12:00 and 18:00 Manila, after the sync, and signs on Tuesdays.
           </p>
         ) : lastAutoSign.outcome === 'FAILED' ? (
           <div className="mt-2 space-y-2 rounded-xl bg-danger-bg p-4 ring-1 ring-danger-ink/20">
@@ -189,9 +189,13 @@ export default async function SyncPage() {
         ) : (
           <p className="mt-2 text-sm text-slate-600">
             {fmtDateTime(lastAutoSign.at)} — {lastAutoSign.outcome}
-            {lastAutoSign.outcome === 'OK' && <>: {n(lastAutoSign.signed)} cheque(s) signed after {lastAutoSign.days} day(s)</>}
+            {/* A run recorded before the Monday rule (2026-10-01) is described by its own rule. */}
+            {lastAutoSign.outcome === 'OK' && (lastAutoSign.legacyDays !== null
+              ? <>: {n(lastAutoSign.signed)} cheque(s) signed after {n(lastAutoSign.legacyDays)} day(s)</>
+              : <>: {n(lastAutoSign.signed)} Monday cheque(s) signed</>)}
+            {lastAutoSign.outcome === 'IDLE' && <>: not a Tuesday — nothing due</>}
             {lastAutoSign.skipped > 0 && <>, {n(lastAutoSign.skipped)} skipped because they changed first</>}
-            {lastAutoSign.outcome === 'DISABLED' && <>: the setting is 0 — change it on SETTINGS to switch auto-sign on</>}
+            {lastAutoSign.outcome === 'DISABLED' && <>: switched off in settings</>}
           </p>
         )}
       </section>

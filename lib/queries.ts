@@ -341,6 +341,43 @@ export async function listTodaysReleaseIds(db: Db, narrow: SummaryNarrowing = {}
   return rows.map((r) => r.id)
 }
 
+/**
+ * The set SIGN ALL acts on (client, 2026-10-01): every SIGNATURE_PENDING
+ * cheque with an amount, narrowed by exactly the three dropdowns, named one by
+ * one for the reason `todaysReleaseFilter` gives. Non-cheques are left out --
+ * `markSigned` refuses them, and a confirmed count that includes payments that
+ * cannot be signed is a count that will not match what moved.
+ */
+function pendingSignatureWhere(narrow: SummaryNarrowing): Prisma.CheckWhereInput {
+  return {
+    ...buildWhere({
+      status: 'SIGNATURE_PENDING', incomplete: false,
+      companyId: narrow.companyId, cashAccountId: narrow.cashAccountId, eligibility: narrow.eligibility,
+    }),
+    isCheque: true,
+  }
+}
+
+export async function getPendingSignature(db: Db, narrow: SummaryNarrowing = {}): Promise<TodaysRelease> {
+  const grouped = await db.check.groupBy({
+    by: ['currency'], _sum: { amount: true }, _count: { _all: true }, where: pendingSignatureWhere(narrow),
+  })
+  return {
+    count: grouped.reduce((n, g) => n + g._count._all, 0),
+    totalsByCurrency: grouped.map((g) => ({ currency: g.currency, total: g._sum.amount?.toString() ?? null, count: g._count._all })),
+  }
+}
+
+/** Read here, never from the form -- the same reason as `listTodaysReleaseIds`. Oldest cheque first. */
+export async function listPendingSignatureIds(db: Db, narrow: SummaryNarrowing = {}): Promise<string[]> {
+  const rows = await db.check.findMany({
+    where: pendingSignatureWhere(narrow),
+    orderBy: [{ checkDate: { sort: 'asc', nulls: 'last' } }, { checkNumber: 'asc' }],
+    select: { id: true },
+  })
+  return rows.map((r) => r.id)
+}
+
 // Shared by listChecks and countChecks so the table and its "showing N of M"
 // count can never drift apart.
 function buildWhere(filters: CheckFilters): Prisma.CheckWhereInput {

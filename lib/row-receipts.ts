@@ -57,6 +57,11 @@ export function revertableIds(rows: readonly RowFacts[]): string[] {
   return rows.filter((r) => r.status === 'READY_FOR_RELEASE' || r.status === 'SCHEDULED').map((r) => r.id)
 }
 
+/** The ticked rows REVERT TO PENDING acts on: signed, not yet on the release list. */
+export function signedIds(rows: readonly RowFacts[]): string[] {
+  return rows.filter((r) => r.status === 'SIGNED').map((r) => r.id)
+}
+
 export function draftTypeMissing(d: ReceiptDraft): boolean {
   return d.orNumber.trim() !== '' && d.receiptType === ''
 }
