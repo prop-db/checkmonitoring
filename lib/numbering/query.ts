@@ -38,13 +38,13 @@ export async function listNumberingAccounts(db: Db, f: NumberingFilters): Promis
     }
     group.cheques.push({
       id: r.id, checkNumber: r.checkNumber, checkDate: r.checkDate, payeeName: r.payeeName,
-      amount: r.amount?.toString() ?? null, currency: r.currency, status: r.status,
+      amount: r.amount?.toFixed(2) ?? null, currency: r.currency, status: r.status,
     })
   }
 
   return [...byAccount.entries()]
     .map(([accountId, g]) => ({ accountId, account: g.account, bank: g.bank, company: g.company, series: buildSeries(g.cheques) }))
-    .sort((a, b) => a.account.localeCompare(b.account))
+    .sort((a, b) => a.account.localeCompare(b.account) || a.company.localeCompare(b.company) || a.accountId.localeCompare(b.accountId))
 }
 
 /** Cheques in no series because they carry no cash account — stated on the page, not listed. */

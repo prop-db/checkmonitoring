@@ -36,6 +36,25 @@ describe('listNumberingAccounts', () => {
     expect(e.kind === 'CHEQUE' && e.cheque.amount).toBe('197715.42')
   })
 
+  it('returns amounts as two-decimal strings', async () => {
+    const first = await makeCheck({ checkNumber: '1', amount: '1000.50' })
+    await onAccountOf(first, { checkNumber: '2', amount: '500' })
+    const [acc] = await listNumberingAccounts(testDb, {})
+    const amountOf = (n: string) => {
+      const e = acc.series.entries.find((x) => x.kind === 'CHEQUE' && x.cheque.checkNumber === n)
+      return e?.kind === 'CHEQUE' ? e.cheque.amount : undefined
+    }
+    expect(amountOf('1')).toBe('1000.50')
+    expect(amountOf('2')).toBe('500.00')
+  })
+
+  it('returns nothing when the account belongs to a different company than companyId', async () => {
+    const a = await makeCheck({ checkNumber: '1' })
+    const b = await makeCheck({ checkNumber: '2' })
+    const accB = await testDb.cashAccount.findUniqueOrThrow({ where: { id: b.cashAccountId! } })
+    expect(await listNumberingAccounts(testDb, { companyId: accB.companyId, cashAccountId: a.cashAccountId! })).toEqual([])
+  })
+
   it('narrows by the account\'s company, and by one account', async () => {
     const a = await makeCheck({ checkNumber: '1' })
     const b = await makeCheck({ checkNumber: '2' })
