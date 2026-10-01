@@ -157,8 +157,6 @@ npx tsx scripts/mark-ready-from-release-list.ts "<for-release>.xlsx" --apply    
 npx tsx scripts/revert-detail1-ready.ts "<for-release>.xlsx" <ready-from-list snapshot> [--apply]  # Detail1-only READY back to prior status (run 2026-09-25)
 npx tsx scripts/void-acumatica-voided.ts [--apply]                # void what Acumatica voided (live or RELEASED here)
 npx tsx scripts/link-vouchers-from-acumatica.ts "<for-release>.xlsx" [--apply]  # link list vouchers via AP-PAYMENTS-WITH-BILLS, ready their cheques
-npx tsx scripts/auto-sign-backlog.ts              # dry run: Acumatica cheques pending past autoSign.afterDays
-npx tsx scripts/auto-sign-backlog.ts --apply      # snapshot, then sign them (the 18:00 run does the rest daily)
 ```
 
 **On Windows, use `npx.cmd` / `npm.cmd`.** PowerShell's execution policy is `Undefined` (i.e.
@@ -335,7 +333,7 @@ run when `DATABASE_URL_TEST` is unset or equal to `DATABASE_URL`.
 
 **A threshold is a setting, and the constant is only its default.** Since 2026-09-12 `STALE_AFTER_HOURS`,
 `ABANDONED_AFTER_MINUTES`, `SYNC_IN_PROGRESS_MINUTES`, `MAX_BULK_SELECTION`, `EXPORT_ROW_LIMIT`,
-`VOUCHER_SCREEN_ROW_LIMIT`, `autoSign.afterDays` and the three login-throttle allowances are the DEFAULTS in
+`VOUCHER_SCREEN_ROW_LIMIT`, `autoSign.mondayEnabled` and the three login-throttle allowances are the DEFAULTS in
 `lib/settings/registry.ts`; the value in force comes from `loadSettings` at request time, and every
 function that uses one takes it as a parameter. A new call site that reads the constant directly
 silently ignores the admin's setting. The category list is a setting too, and the domain refuses a
@@ -568,18 +566,8 @@ Production is `check_monitoring_prod` on Neon. Both outstanding migrations were 
    **To go live:** set `CRON_SECRET` in Vercel, `node scripts/migrate.mjs prod --confirm`,
    `npx vercel --prod`, then trigger the job once from the Vercel dashboard and confirm two
    SCHEDULED rows on `/admin/sync`. Until that is done, item 1 is still open in production.
-   **Auto-sign rides on the same run** (built 2026-09-25, spec `2026-09-25-auto-sign-design.md`).
-   After both syncs, an Acumatica cheque (`acumaticaPaymentId` set, `isCheque`, not Voided) still at
-   SIGNATURE_PENDING becomes SIGNED once its Manila calendar day is `autoSign.afterDays` days
-   (default 3; 0 = off) at or before today's Manila calendar day — the Manila calendar day of
-   `createdAt`, not elapsed hours, because a cheque read a few minutes into Monday's 18:00 run must
-   still be due at Thursday's run rather than slipping to Friday. `signedById`
-   null, one `auto_signed` audit row, no portal event. Every run writes one `auto_sign_run` audit row
-   with no `checkId`, read by LAST AUTO-SIGN on `/admin/sync`; a FAILED run turns the cron response
-   500. The route gives the run a 50-second time budget (inside its 60s ceiling): a run cut off
-   mid-backlog still leaves a FAILED record naming how many cheques are still due, rather than being
-   killed by the platform with nothing written. It runs even when a tenant's sync failed. Rule 4 is
-   untouched: the sync still never writes status — auto-sign is its own step, in `lib/domain/actions.ts`.
+   **Auto-sign** (rewritten 2026-10-01, spec `2026-10-01-signing-schedule-apv-and-table-design.md`): the cron runs at 12:00 and 18:00 Manila (`0 4 * * *`, `0 10 * * *`); on a Manila Tuesday only, an Acumatica cheque first read on the Monday before and still at SIGNATURE_PENDING becomes SIGNED (`signedById` null, one `auto_signed` row, no portal event). Every other pending cheque is signed by SIGN ALL on the SIGNATURE PENDING list (server-confirmed like RELEASE ALL, every Finance user). `SIGNED -> SIGNATURE_PENDING` is `revertSignature`, every Finance user, reason optional, one `signature_reverted` row; a reverted cheque is never auto-signed again. Setting `autoSign.mondayEnabled` (1/0) replaces `autoSign.afterDays`. Every run writes one `auto_sign_run` row (read by LAST AUTO-SIGN on `/admin/sync`: "N Monday cheque(s) signed", "not a Tuesday - nothing due", "switched off in settings") - `IDLE` on a non-Tuesday; a FAILED run turns the cron response 500, and the route's 50-second time budget still applies. Rule 4 is untouched: the sync never writes status.
+   SIGN ALL and RELEASE ALL share one unexported helper `runConfirmedAll` (`app/checks/bulk-actions.ts`) and one client form `components/ConfirmAllForm.tsx`; the confirm block stays mounted while `?confirm=` is set, so the success report stays on screen after a run. SIGN ALL is offered only on the SIGNATURE PENDING list with no search and the incomplete toggle off; its set excludes non-cheques (DEBIT ADV, CASH) and the page states how many. The bulk bar's REVERT TO PENDING has its own optional reason box.
 2. **One active FINANCE_ADMIN**, of three active users. This stopped being housekeeping the moment
    admin-only actions shipped (revert availability; the release reversal below). One forgotten
    password locks administration, and one has already been forgotten on this system.
