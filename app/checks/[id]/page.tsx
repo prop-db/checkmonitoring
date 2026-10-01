@@ -19,7 +19,7 @@ import { clearingTargets, type ClearingStatus } from '@/lib/domain/check-status'
 import { RECEIPT_TYPE_LABELS } from '@/lib/domain/receipt'
 import { isoDay } from '@/lib/domain/details'
 import { loadSettings } from '@/lib/settings/read'
-import { signAction, releaseAction, revertAction, reverseReleaseAction } from '../actions'
+import { signAction, releaseAction, revertAction, reverseReleaseAction, revertSignatureAction } from '../actions'
 
 /**
  * ONE CHEQUE.
@@ -284,6 +284,21 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
 
         {check.status === 'SIGNED' && (
           <ReadyForReleaseForm checkId={check.id} defaultDate={today} />
+        )}
+
+        {/* SIGNED back to SIGNATURE PENDING (client, 2026-10-01). Every
+            Finance user; the reason is optional. Never auto-signed again. */}
+        {check.status === 'SIGNED' && (
+          <ActionForm
+            action={revertSignatureAction}
+            checkId={check.id}
+            label="REVERT TO SIGNATURE PENDING"
+            className="block rounded-lg border border-hairline bg-white px-4 py-2 text-sm font-medium tracking-wide text-navy transition hover:bg-ground disabled:opacity-50"
+          >
+            <label className="block text-[11px] font-semibold tracking-widest text-slate-400">REASON (OPTIONAL)</label>
+            <input name="reason" placeholder="Signed in error"
+              className="h-10 w-full max-w-md rounded-lg border border-hairline bg-white px-3 text-sm text-slate-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy" />
+          </ActionForm>
         )}
 
         {(check.status === 'READY_FOR_RELEASE' || check.status === 'SCHEDULED') && (

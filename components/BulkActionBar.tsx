@@ -3,12 +3,12 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  liveIds, releasedIds, revertableIds, draftTypeMissing, receiptEntries, takesReceipt, EMPTY_DRAFT,
+  liveIds, releasedIds, revertableIds, signedIds, draftTypeMissing, receiptEntries, takesReceipt, EMPTY_DRAFT,
   type RowFacts, type ReceiptDraft,
 } from '@/lib/row-receipts'
 import {
   bulkSignAction, bulkReadyForReleaseAction, bulkReleaseAction, bulkRecordReceiptsAction,
-  bulkRevertToSignedAction,
+  bulkRevertToSignedAction, bulkRevertToPendingAction,
   type BulkActionResult, type BulkOutcome,
 } from '@/app/checks/bulk-actions'
 
@@ -61,6 +61,7 @@ export function BulkActionBar({
   const live = liveIds(selectedRows)
   const released = releasedIds(selectedRows)
   const revertable = revertableIds(selectedRows)
+  const signed = signedIds(selectedRows)
   const total = selectedRows.length
   const overCap = total > cap
   const disabled = pending || overCap
@@ -164,6 +165,22 @@ export function BulkActionBar({
               REVERT TO SIGNED ({revertable.length})
             </button>
           </div>
+        )}
+
+        {/* SIGNED back to SIGNATURE PENDING (client, 2026-10-01). Every
+            Finance user; the reason is optional. A cheque reverted here is
+            never auto-signed again. */}
+        {signed.length > 0 && (
+          <button
+            type="button" disabled={disabled}
+            onClick={() => {
+              if (!confirm(`Revert ${signed.length} cheque(s) to SIGNATURE PENDING?`)) return
+              submit(bulkRevertToPendingAction, signed, revertReason.trim() ? [['reason', revertReason.trim()]] : [])
+            }}
+            className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
+            REVERT TO PENDING ({signed.length})
+          </button>
         )}
 
         {canRelease && (

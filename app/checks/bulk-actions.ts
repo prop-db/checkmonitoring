@@ -2,7 +2,7 @@
 
 import { prisma } from '@/lib/db'
 import { requireUser } from '@/lib/auth'
-import { markSigned, markReadyForRelease, markReleased, recordReceipt, revertAvailability } from '@/lib/domain/actions'
+import { markSigned, markReadyForRelease, markReleased, recordReceipt, revertAvailability, revertSignature } from '@/lib/domain/actions'
 import { parseSelection, chunkSelection } from '@/lib/bulk'
 import {
   listTodaysReleaseIds, listPendingSignatureIds, getFilterOptions, parseOptionId, parseEligibilityParam,
@@ -133,6 +133,21 @@ export async function bulkRevertToSignedAction(formData: FormData): Promise<Bulk
   const now = new Date()
   return runEach(prisma, selection.checkIds, (checkId) =>
     revertAvailability(prisma, { checkId, userId: user.id, reason, now }))
+}
+
+/**
+ * SIGNED back to SIGNATURE_PENDING, from the list (client, 2026-10-01). Every
+ * Finance user. The reason is optional and shared by the batch.
+ */
+export async function bulkRevertToPendingAction(formData: FormData): Promise<BulkActionResult> {
+  const user = await requireUser()
+  const settings = await loadSettings(prisma)
+  const selection = parseSelection(ids(formData), settings.values['caps.bulkSelection'])
+  if (!selection.ok) return { ok: false, message: selection.message }
+  const reason = str(formData, 'reason')
+  const now = new Date()
+  return runEach(prisma, selection.checkIds, (checkId) =>
+    revertSignature(prisma, { checkId, userId: user.id, reason, now }))
 }
 
 /**

@@ -830,3 +830,24 @@ describe('signAllPendingAction', () => {
     expect(await signedRows()).toBe(0)
   })
 })
+
+describe('bulkRevertToPendingAction', () => {
+  it('reverts the ticked SIGNED cheques, refuses the rest per cheque, reason optional', async () => {
+    const { bulkRevertToPendingAction } = await import('@/app/checks/bulk-actions')
+    const s = await makeCheck({ status: 'SIGNED' })
+    const r = await makeCheck({ status: 'READY_FOR_RELEASE' })
+    const result = await bulkRevertToPendingAction(fd([s.id, r.id]))
+    expect(result).toMatchObject({ ok: true, succeeded: 1, failed: 1 })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: s.id } })).status).toBe('SIGNATURE_PENDING')
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: r.id } })).status).toBe('READY_FOR_RELEASE')
+    expect(outcomeFor(result, r.id).ok).toBe(false)
+  })
+
+  it('passes the shared reason to each audit row', async () => {
+    const { bulkRevertToPendingAction } = await import('@/app/checks/bulk-actions')
+    const s = await makeCheck({ status: 'SIGNED' })
+    await bulkRevertToPendingAction(fd([s.id], { reason: 'Signed too early' }))
+    const row = await testDb.auditLog.findFirstOrThrow({ where: { checkId: s.id, action: 'signature_reverted' } })
+    expect(row.remarks).toBe('Signed too early')
+  })
+})

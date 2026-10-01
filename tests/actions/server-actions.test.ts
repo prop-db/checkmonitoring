@@ -299,3 +299,13 @@ describe('clearingAction', () => {
     expect(result.ok).toBe(false)
   })
 })
+
+describe('revertSignatureAction', () => {
+  it('lets a FINANCE_USER revert a SIGNED cheque', async () => {
+    const { revertSignatureAction } = await import('@/app/checks/actions')
+    const c = await makeCheck({ status: 'SIGNED' })
+    const result = await revertSignatureAction(fd({ checkId: c.id }))
+    expect(result).toEqual({ ok: true })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('SIGNATURE_PENDING')
+  })
+})
