@@ -503,10 +503,14 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
     // link. Every Acumatica row carries `apvNumbers: []`, so the merge is a
     // no-op for all of them; skipping the write unless the merge ADDS a voucher
     // means the payment sync can no longer clobber an append.
+    //
+    // Membership, never position: BILLS appends at the END, so a stored array
+    // need not be sorted, and comparing it positionally to the sorted merge
+    // would call ['AP-Z','AP-A'] + [] an addition. `mergeVouchers` applies no
+    // normalisation beyond dedupe and sort, so the raw strings compare like
+    // with like.
     const mergedVouchers = mergeVouchers(existing.apvNumbers, row.apvNumbers)
-    const addsVoucher =
-      mergedVouchers.length !== existing.apvNumbers.length ||
-      mergedVouchers.some((v, i) => v !== existing.apvNumbers[i])
+    const addsVoucher = row.apvNumbers.some((v) => !existing.apvNumbers.includes(v))
 
     await tx.check.update({
       where: { id: existing.id },

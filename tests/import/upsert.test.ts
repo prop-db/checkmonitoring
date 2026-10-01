@@ -267,6 +267,43 @@ describe('upsertCheck — re-importing', () => {
     expect((await testDb.check.findFirstOrThrow()).apvNumbers).toEqual(['AP-NEW', 'AP-OLD'])
   })
 
+  it('does not write apvNumbers for an empty incoming array when the stored array is unsorted', async () => {
+    // The BILLS read appends missing vouchers at the END ("apvNumbers" || missing),
+    // so a stored array need not be sorted. A positional comparison against the
+    // sorted merge would call that an addition and rewrite the whole array from
+    // an unlocked read — the race the skip exists to close.
+    await seedCompany()
+    await upsert(row({ apvNumbers: ['AP-Z'] }))
+    const id = (await testDb.check.findFirstOrThrow()).id
+    await testDb.check.update({ where: { id }, data: { apvNumbers: ['AP-Z', 'AP-A'] } })
+    const writes: Record<string, unknown>[] = []
+    const spying = new Proxy(testDb, {
+      has: (t, p) => (p === '$transaction' ? false : Reflect.has(t, p)),
+      get(t, p, r) {
+        if (p !== 'check') return Reflect.get(t, p, r)
+        return new Proxy(t.check, {
+          get(ct, cp, cr) {
+            if (cp === 'update') {
+              return (arg: { data: Record<string, unknown> }) => {
+                writes.push(arg.data)
+                return (ct.update as (x: unknown) => unknown)(arg)
+              }
+            }
+            return Reflect.get(ct, cp, cr)
+          },
+        })
+      },
+    }) as unknown as typeof testDb
+    await upsertCheck(spying, {
+      row: row({ source: 'ACUMATICA', apvNumbers: [], sourceSheet: null, sourceRow: null }),
+      ownCompanyNames: OWN_COMPANIES,
+      now: NOW,
+    })
+    expect(writes.length).toBe(1)
+    expect(writes[0].apvNumbers).toBeUndefined()
+    expect((await testDb.check.findFirstOrThrow()).apvNumbers).toEqual(['AP-Z', 'AP-A'])
+  })
+
   // INVERTED 2026-09-06. This used to assert that the same cheque number under
   // a different company was a DIFFERENT cheque, because `@@unique([companyId,
   // checkNumber])` is the only key duplicate prevention had. That assumption is
