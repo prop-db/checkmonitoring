@@ -8,13 +8,22 @@ import { SORT_KEYS } from '@/lib/list-sort'
 const read = (o: Record<string, string>) => (name: string) => o[name]
 
 describe('parseAmountBound', () => {
-  it('keeps a decimal string, commas and spaces stripped', () => {
+  it('keeps a decimal string, grouping commas and spaces stripped', () => {
     expect(parseAmountBound('1250.50')).toBe('1250.50')
     expect(parseAmountBound('1,250.5')).toBe('1250.5')
     expect(parseAmountBound(' 12 000 ')).toBe('12000')
   })
   it('refuses anything else', () => {
     for (const bad of ['12x', '-5', '1.234', '1e5', '₱100', '.5', '']) expect(parseAmountBound(bad), bad).toBeNull()
+  })
+  // Review fix: commas were stripped blindly, so "1,5" read as 15 — a silent
+  // misread in a module whose rule is that an unreadable value refuses.
+  it('accepts plain digits or correctly grouped thousands only', () => {
+    expect(parseAmountBound('1,500')).toBe('1500')
+    expect(parseAmountBound('1,234,567.89')).toBe('1234567.89')
+    expect(parseAmountBound('1500.5')).toBe('1500.5')
+    for (const bad of ['1,5', '1.2,5', '1,,000', ',500', '1,5000', '1,000,', '12 00', '1,000 000'])
+      expect(parseAmountBound(bad), bad).toBeNull()
   })
 })
 

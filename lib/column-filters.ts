@@ -9,8 +9,10 @@ import { LIVE_STATUSES, CLOSED_STATUSES } from './domain/check-status'
 /**
  * The LIST screen's filter row (spec 2026-10-01, part C2), as URL parameters.
  *
- * Pure. Imported by the browser too (the filter row's controls), so it imports
- * only types from `./queries` and `@prisma/client`.
+ * Pure and BROWSER-SAFE: the filter row's controls import it, so it must never
+ * import a server-only module or the database client. From `./queries` and
+ * `@prisma/client` it takes types only; its runtime imports (`./table-columns`,
+ * `./domain/details`, `./audit-view`, `./domain/check-status`) are pure modules.
  *
  * AN UNREADABLE VALUE REFUSES. An amount `12x` or a day that is not a day is
  * reported against its box and the list shows nothing until it is corrected —
@@ -73,9 +75,19 @@ const PARAM_LABELS: Record<string, string> = {
 
 const STATUSES: readonly CheckStatus[] = [...LIVE_STATUSES, ...CLOSED_STATUSES]
 
+/**
+ * Plain digits, or thousands grouped correctly by commas or by spaces (one
+ * separator throughout), then at most two decimals. Checked on the typed value
+ * BEFORE the separators are stripped: stripping first read "1,5" as 15.
+ */
+const AMOUNT_SHAPE = /^(?:\d{1,16}|\d{1,3}(?:,\d{3}){1,5}|\d{1,3}(?: \d{3}){1,5})(?:\.\d{1,2})?$/
+
 /** A decimal STRING (rule 8), thousands separators allowed, or null. Never a JS number. */
 export function parseAmountBound(raw: string): string | null {
-  const v = raw.replace(/[,\s]/g, '')
+  const t = raw.trim()
+  if (!AMOUNT_SHAPE.test(t)) return null
+  const v = t.replace(/[, ]/g, '')
+  // Grouping can reach 18 integer digits; the column holds 16 (Decimal(18,2)).
   return /^\d{1,16}(\.\d{1,2})?$/.test(v) ? v : null
 }
 

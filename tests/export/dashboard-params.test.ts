@@ -201,6 +201,17 @@ describe('resolveDashboardQuery', () => {
       expect(resolveDashboardQuery({ status: 'RELEASED', releasedFrom: '' }, options).refused).toBe(false)
     })
 
+    it('refuses a TO that is not a real calendar day, and keeps it to render back', () => {
+      for (const bad of ['2026-02-30', '25/09/2026', '2026-9-1', 'today']) {
+        const r = resolveDashboardQuery({ status: 'RELEASED', releasedTo: bad }, options)
+        expect(r.refused, bad).toBe(true)
+        expect(r.filters.refused).toBe(true)
+        expect(r.filterErrors).toEqual({ releasedTo: FILTER_MESSAGES.day })
+        expect(r.selection.base).toEqual({ releasedTo: bad })
+      }
+      expect(resolveDashboardQuery({ status: 'RELEASED', releasedTo: '' }, options).refused).toBe(false)
+    })
+
     // Not swapped: the honest answer to a backwards question is an empty table,
     // and the title block says what was asked.
     it('keeps FROM after TO as given rather than swapping them', () => {
