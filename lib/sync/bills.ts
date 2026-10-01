@@ -189,10 +189,11 @@ export async function runBillsSync(db: Db, args: BillsSyncArgs): Promise<BillsRu
     }
     try {
       const added = await inTx(db, async (tx) => {
-        // Re-read inside the transaction, with the row locked: a register
-        // backfill, the payment sync's upsertCheck (which writes the whole
-        // array) or another run may touch this cheque concurrently. The lock
-        // holds them off until this transaction commits.
+        // Re-read inside the transaction, with the row locked, and append in
+        // SQL: the row lock and the SQL-side append stop THIS run overwriting
+        // a concurrent writer. The other direction is closed in upsertCheck,
+        // which no longer writes `apvNumbers` unless it adds one, so the
+        // payment sync cannot erase an append made here.
         const locked = await tx.$queryRaw<{ apvNumbers: string[] }[]>(Prisma.sql`
           SELECT "apvNumbers" FROM "Check" WHERE "id" = ${checkId} FOR UPDATE`)
         if (locked.length === 0) throw new Error(`Cheque ${checkId} (${paymentRef}) no longer exists.`)

@@ -495,6 +495,19 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
       })
     }
 
+    // THE RACE THIS CLOSES. The BILLS voucher read (lib/sync/bills.ts) appends
+    // to `apvNumbers` under a row lock with an SQL-side `||`, concurrently with
+    // this payment sync. `existing` above was read without a lock, so an
+    // unconditional whole-array write computed here from that stale read erases
+    // a voucher BILLS committed in between, while its audit row claims the
+    // link. Every Acumatica row carries `apvNumbers: []`, so the merge is a
+    // no-op for all of them; skipping the write unless the merge ADDS a voucher
+    // means the payment sync can no longer clobber an append.
+    const mergedVouchers = mergeVouchers(existing.apvNumbers, row.apvNumbers)
+    const addsVoucher =
+      mergedVouchers.length !== existing.apvNumbers.length ||
+      mergedVouchers.some((v, i) => v !== existing.apvNumbers[i])
+
     await tx.check.update({
       where: { id: existing.id },
       data: {
@@ -512,8 +525,9 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
         cvNumber: keep(row.cvNumber),
         // `keep()` cannot express this: an empty array is not null, so it would
         // be written straight through and would clear what the register
-        // recorded. See `mergeVouchers`.
-        apvNumbers: mergeVouchers(existing.apvNumbers, row.apvNumbers),
+        // recorded. See `mergeVouchers`, and the race note above: written only
+        // when the merge adds a voucher.
+        apvNumbers: addsVoucher ? mergedVouchers : undefined,
         checkDate: keep(row.checkDate),
         amount: keep(row.amount),
         // Derived from the amount the row will END UP with, not from the

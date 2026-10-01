@@ -224,6 +224,49 @@ describe('upsertCheck — re-importing', () => {
     expect((await testDb.check.findFirstOrThrow()).apvNumbers).toEqual(['AP-ST042652'])
   })
 
+  it('does not write apvNumbers when the merge adds nothing, so a concurrent BILLS append survives', async () => {
+    // The race, made deterministic: upsertCheck reads the cheque holding
+    // ['AP-OLD'], then (as the BILLS read would) the row gains 'AP-NEW' before
+    // upsertCheck writes. A whole-array write of the stale merge would erase it.
+    await seedCompany()
+    await upsert(row({ apvNumbers: ['AP-OLD'] }))
+    const writes: Record<string, unknown>[] = []
+    const racing = new Proxy(testDb, {
+      has: (t, p) => (p === '$transaction' ? false : Reflect.has(t, p)),
+      get(t, p, r) {
+        if (p !== 'check') return Reflect.get(t, p, r)
+        return new Proxy(t.check, {
+          get(ct, cp, cr) {
+            if (cp === 'findUnique') {
+              return async (...a: unknown[]) => {
+                const found = await (ct.findUnique as (...x: unknown[]) => Promise<Check | null>)(...a)
+                if (found) {
+                  await t.check.update({ where: { id: found.id }, data: { apvNumbers: ['AP-NEW', 'AP-OLD'] } })
+                }
+                return found
+              }
+            }
+            if (cp === 'update') {
+              return (arg: { data: Record<string, unknown> }) => {
+                writes.push(arg.data)
+                return (ct.update as (x: unknown) => unknown)(arg)
+              }
+            }
+            return Reflect.get(ct, cp, cr)
+          },
+        })
+      },
+    }) as unknown as typeof testDb
+    await upsertCheck(racing, {
+      row: row({ source: 'ACUMATICA', apvNumbers: [], sourceSheet: null, sourceRow: null }),
+      ownCompanyNames: OWN_COMPANIES,
+      now: NOW,
+    })
+    expect(writes.length).toBe(1)
+    expect(writes[0].apvNumbers).toBeUndefined()
+    expect((await testDb.check.findFirstOrThrow()).apvNumbers).toEqual(['AP-NEW', 'AP-OLD'])
+  })
+
   // INVERTED 2026-09-06. This used to assert that the same cheque number under
   // a different company was a DIFFERENT cheque, because `@@unique([companyId,
   // checkNumber])` is the only key duplicate prevention had. That assumption is
