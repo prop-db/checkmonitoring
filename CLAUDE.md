@@ -100,8 +100,7 @@ It follows that:
   `voucher_linked_from_acumatica` row each — and moved the 90 SIGNED cheques to READY_FOR_RELEASE,
   snapshot first. Available after: **233, 21,013,221.48**; 0 list vouchers unlinked. The bill
   column is `AdjdRefNbr` in Go-Live and `ReferenceNbr_2` in MANUFACTURING (a filter on the Go-Live
-  name is a 500 there), and an `or` of several `eq` filters is a 500 in Go-Live. **Until the sync
-  reads that inquiry, every cheque generated since 9 September carries no voucher here.**
+  name is a 500 there), and an `or` of several `eq` filters is a 500 in Go-Live. **Since 2026-10-01 the scheduled run reads it** (`lib/sync/bills.ts`, `runScheduledBillsSync`, `SyncRun.mode = 'BILLS'`; feed in `lib/integrations/acumatica/bills.ts`, `BILL_FEED_COLUMNS`): every `CHK` → `Bill` application is unioned into the paying cheque's `apvNumbers`, matched on the payment's own reference (`acumaticaPaymentId`), add-only, never status. The first read is `npx tsx scripts/sync.ts <TENANT> --bills` from a terminal (it snapshots to `snapshots/bills-<tenant>-<timestamp>.json` first; `--dry-run` reads and writes nothing). The run message names up to 10 payments the inquiry shows that are not held here, because the watermark moves past them for good — `scripts/sync.ts <TENANT> --bills --full` relinks them once their cheques exist (idempotent, add-only). `upsertCheck` now writes `apvNumbers` only when the merge adds a voucher, so the payment sync cannot erase a BILLS append. A cheque's PO is `CheckBill.poNumber` only (`Check` has no PO column — the register's POs reached `StagedCheck` only; Acumatica publishes none), and the list, Excel and print show a PO NUMBER column (Excel AMOUNT moved to column 8; the column-choice storage key is now `check-monitoring.columns.v2`).
   **`FOR RELEASE 9_1.25.2026v2.xlsx`** (same day): LOCAL unchanged; BROKERS 39 cheques / 8,174,750.00,
   with a new SCM REMARKS column (DELIVERED …), unused. Added `6000354012` and `6000354067` (linked
   and readied by the link script). Dropped `6000354001`/`05`/`06`/`13` (2,285,000.00) — **user
@@ -157,6 +156,8 @@ npx tsx scripts/mark-ready-from-release-list.ts "<for-release>.xlsx" --apply    
 npx tsx scripts/revert-detail1-ready.ts "<for-release>.xlsx" <ready-from-list snapshot> [--apply]  # Detail1-only READY back to prior status (run 2026-09-25)
 npx tsx scripts/void-acumatica-voided.ts [--apply]                # void what Acumatica voided (live or RELEASED here)
 npx tsx scripts/link-vouchers-from-acumatica.ts "<for-release>.xlsx" [--apply]  # link list vouchers via AP-PAYMENTS-WITH-BILLS, ready their cheques
+npx tsx scripts/sync.ts GOLIVE --bills --dry-run     # read AP-PAYMENTS-WITH-BILLS, write nothing (MANUFACTURING likewise)
+npx tsx scripts/sync.ts GOLIVE --bills               # snapshot, then union vouchers into apvNumbers; add --full to re-read
 ```
 
 **On Windows, use `npx.cmd` / `npm.cmd`.** PowerShell's execution policy is `Undefined` (i.e.
@@ -347,6 +348,8 @@ category not on it.
 | `lib/import/` | Workbook parsing → `parse.ts`, `field-sniffer.ts`, `company.ts`, `implied-status.ts`, `bills.ts`, and `upsert.ts` — the single write path where duplicate prevention lives. |
 | `lib/integrations/acumatica/` | OData reader and mapper. |
 | `lib/sync/run.ts` | Incremental sync, watermark with a 120-minute overlap. |
+| `lib/sync/bills.ts` | The BILLS read: `AP-PAYMENTS-WITH-BILLS` applications unioned into `Check.apvNumbers` by `acumaticaPaymentId`; own watermark, `runScheduledBillsSync` for the cron. |
+| `lib/integrations/acumatica/bills.ts` | The inquiry's per-tenant columns (`BILL_FEED_COLUMNS`), `ge` date filters, read-only. |
 | `lib/integrations/portal/` | Supplier Portal client: `client.ts` builds the event body from the cheque at delivery time (asserts rule 2 again, pre-checks the portal's validation) and POSTs it with the bearer and a timeout; `from-env.ts` reads `PORTAL_BASE_URL` / `PORTAL_TOKEN`. Sends only (rule 12). |
 | `lib/sync/portal-outbox.ts` | The outbox worker: latest event per cheque wins, stale kinds closed unsent (`kindMatchesStatus`), exclusive claims, backoff, `PARKED` for a human, a 401 stops the run. |
 | `lib/sync/portal-kick.ts` | Best-effort delivery within a time budget, from an action (`afterResponse`), the cron and `/admin/portal`; never throws, `{ skipped }` when the env is unset. |
@@ -417,7 +420,7 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
   cheque rather than replacing: 360 cheque numbers sit on more than one row and 11 of those state a
   different voucher on each, so last-writer-wins loses one. An empty incoming array — every
   Acumatica row, since the payments inquiry publishes no bill references — never clears what the
-  register recorded.
+  register recorded; the vouchers arrive by the separate BILLS read instead.
 
   Three cells in that column are AP vouchers `sniff` does not classify: `AP-A1-02663` and
   `AP-A1-030274` (a dash the `APV` pattern does not allow) and `AP-1PP-AP-000014` (a mis-key of

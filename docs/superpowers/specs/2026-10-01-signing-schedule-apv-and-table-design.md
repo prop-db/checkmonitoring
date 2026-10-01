@@ -109,8 +109,8 @@ no meaning under the new rule. `/admin/sync`'s LAST AUTO-SIGN line now reads "N 
 
 - After each tenant's payment sync, the run reads `AP-PAYMENTS-WITH-BILLS` incrementally by its
   own watermark on `LastModifiedOn` (Go-Live) / `APAdjust_lastModifiedDateTime` (MANUFACTURING),
-  with the same 120-minute overlap. Bill column `AdjdRefNbr` / `ReferenceNbr_2` (`BILL_COLUMN`).
-  Filters are single `gt` on the date column — no `or` of `eq`s (a 500 in Go-Live).
+  with the same 120-minute overlap. Bill column `AdjdRefNbr` / `ReferenceNbr_2` (`BILL_FEED_COLUMNS`, `lib/integrations/acumatica/bills.ts`).
+  Filters are a single `ge` on the date column — no `or` of `eq`s (a 500 in Go-Live).
 - Each application is matched to its cheque by **the payment's own reference** (Go-Live `AdjgRefNbr`,
   MANUFACTURING `ReferenceNbr`), which is exactly `Check.acumaticaPaymentId` (unique). That is an exact
   join, blind to cheque numbers (which repeat across companies), so no "exactly one live cheque per
@@ -133,28 +133,28 @@ no meaning under the new rule. `/admin/sync`'s LAST AUTO-SIGN line now reads "N 
   "last watermark" lookup must filter on its own mode. **No migration**: it reuses `SyncRun`'s
   existing columns - `imported` = vouchers added, `updated` = cheques changed, `staged` = inquiry
   payments this system does not hold, `errors`.
-- Acumatica stays read-only (rule 3): only `fetchPage` is used.
+- Acumatica stays read-only (rule 3): only `fetchAll` (paging) is used; there is no mutating method.
 
 ### B2. PO
 
 - `AP-PAYMENTS-WITH-BILLS` publishes no PO / Vendor Ref in either tenant (checked 2026-10-01,
-  column names only). The PO shown is what this system already holds: `CheckBill.poNumber` (the
-  approval workbook's Vendor Ref) ∪ `Check.poNumbers` (the register).
+  column names only). The PO shown is what this system already holds: `CheckBill.poNumber` only (the
+  approval workbook's Vendor Ref). `Check` has no PO column; the register's POs reached `StagedCheck` only.
 - **Open, for the client's Acumatica admin:** add the bill's Vendor Ref to
-  `AP-PAYMENTS-WITH-BILLS` (or publish an AP bills inquiry carrying it). When it exists, B1 unions
-  it into `Check.poNumbers` in the same step. Nothing else in this design waits on it.
+  `AP-PAYMENTS-WITH-BILLS` (or publish an AP bills inquiry carrying it). When it exists, it would be carried
+  onto `CheckBill.poNumber` by the same read. Nothing else in this design waits on it.
 
 ### B3. Where APV and PO appear
 
 - A **PO NUMBER** column after APV NUMBER in the list, export and printed sheet (a new
-  `ColumnKey`, `poNumbers`; the storage key version is bumped, see C3).
+  `ColumnKey`, `poNumbers`, read from bills; Excel AMOUNT moves to column 8; the storage key is bumped to `check-monitoring.columns.v2`, see C3).
 - TODAY'S RELEASE shows totals only, so it carries no references.
-- Search already matches APV and PO; unchanged.
+- Search already matches APV and PO through bills; no change was needed.
 
 ### B tests
 
 - `sync/run`: bills step unions, never removes, never writes status, advances its own watermark
-  only on success, counts unresolved; a tenant failure leaves the other's watermark alone.
+  only on success, counts inquiry payments not held here (`staged`) and names up to 10 of them on the run message; a tenant failure leaves the other's watermark alone.
 - `integrations/acumatica`: the per-tenant column names; read-only assertion still holds.
 - `table-columns`, `export/report`: the PO column.
 
