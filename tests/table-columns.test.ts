@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   COLUMN_KEYS, COLUMN_LABELS, ALWAYS_ON, DEFAULT_COLUMNS, COLUMN_STORAGE_KEY,
-  isColumnKey, normaliseColumns, parseColumnPreference, serialiseColumnPreference,
+  isColumnKey, normaliseColumns, insertColumn, toggleColumn, moveColumn, canMoveColumn, withColumns, withColumnOrder, parseColumnPreference, serialiseColumnPreference,
   type ColumnKey,
 } from '@/lib/table-columns'
 
@@ -51,36 +51,77 @@ describe('PO NUMBER', () => {
 })
 
 describe('normaliseColumns', () => {
-  // The column arrived after the preference feature shipped. A viewer who
-  // saved a set before it existed keeps that set — the column is offered, not
-  // imposed — and when they tick it, it takes its designed place before ACTION.
-  it('leaves DATE RELEASED out of a stored set that predates it, and orders it before ACTION when chosen', () => {
-    expect(normaliseColumns(['checkNumber', 'amount', 'status', 'action'])).not.toContain('releasedAt')
-    const chosen = normaliseColumns(['releasedAt', 'scheduledPickupDate', 'checkNumber'])
-    expect(chosen).toEqual(['checkNumber', 'status', 'scheduledPickupDate', 'releasedAt', 'action'])
-  })
-
-  it('returns the canonical column order regardless of the order it was given', () => {
+  // Part C3: the stored array is the VISIBLE columns IN DISPLAY ORDER.
+  it('keeps the order it is given, ACTION last', () => {
     expect(normaliseColumns(['amount', 'checkNumber', 'status', 'action', 'bank']))
-      .toEqual(['checkNumber', 'bank', 'amount', 'status', 'action'])
+      .toEqual(['amount', 'checkNumber', 'status', 'bank', 'action'])
   })
 
-  it('adds the always-on columns back when a stored preference omits them', () => {
+  it('reads part B’s canonical-order value as the default order', () => {
+    expect(normaliseColumns([...COLUMN_KEYS])).toEqual([...COLUMN_KEYS])
+  })
+
+  it('adds a missing always-on column beside its canonical neighbour', () => {
     expect(normaliseColumns(['amount'])).toEqual(['checkNumber', 'amount', 'status', 'action'])
+    expect(normaliseColumns(['bank', 'amount'])).toEqual(['checkNumber', 'bank', 'amount', 'status', 'action'])
   })
 
-  it('drops a key it does not recognise instead of rendering an empty column', () => {
-    expect(normaliseColumns(['amount', 'payeeSecretNotes', 'bank']))
-      .toEqual(['checkNumber', 'bank', 'amount', 'status', 'action'])
-  })
-
-  it('de-duplicates a repeated key', () => {
-    expect(normaliseColumns(['amount', 'amount', 'amount']))
-      .toEqual(['checkNumber', 'amount', 'status', 'action'])
+  it('drops a key it does not recognise and de-duplicates', () => {
+    expect(normaliseColumns(['amount', 'payeeSecretNotes', 'amount', 'bank']))
+      .toEqual(['checkNumber', 'amount', 'status', 'bank', 'action'])
   })
 
   it('yields exactly the always-on columns when everything else is unticked', () => {
     expect(normaliseColumns([])).toEqual(['checkNumber', 'status', 'action'])
+  })
+})
+
+describe('reordering', () => {
+  const ORDER = ['checkNumber', 'payeeName', 'amount', 'status', 'action'] as const
+
+  it('moves a column one place either way, never past ACTION or the ends', () => {
+    expect(moveColumn([...ORDER], 'amount', -1)).toEqual(['checkNumber', 'amount', 'payeeName', 'status', 'action'])
+    expect(moveColumn([...ORDER], 'payeeName', 1)).toEqual(['checkNumber', 'amount', 'payeeName', 'status', 'action'])
+    expect(moveColumn([...ORDER], 'checkNumber', -1)).toEqual([...ORDER])
+    expect(moveColumn([...ORDER], 'status', 1)).toEqual([...ORDER])
+    expect(moveColumn([...ORDER], 'action', -1)).toEqual([...ORDER])
+    expect(canMoveColumn([...ORDER], 'status', 1)).toBe(false)
+    expect(canMoveColumn([...ORDER], 'status', -1)).toBe(true)
+    expect(canMoveColumn([...ORDER], 'action', -1)).toBe(false)
+  })
+
+  it('hides and shows a column, bringing it back beside its canonical neighbour', () => {
+    expect(toggleColumn([...ORDER], 'payeeName')).toEqual(['checkNumber', 'amount', 'status', 'action'])
+    expect(toggleColumn(['checkNumber', 'amount', 'status', 'action'], 'bank'))
+      .toEqual(['checkNumber', 'bank', 'amount', 'status', 'action'])
+    expect(toggleColumn([...ORDER], 'status')).toEqual([...ORDER])
+  })
+
+  it('inserts at the front when no canonical predecessor is on screen', () => {
+    expect(insertColumn(['amount', 'status', 'action'], 'checkNumber')).toEqual(['checkNumber', 'amount', 'status', 'action'])
+  })
+
+  it('forces columns in without disturbing the rest', () => {
+    expect(withColumns(['status', 'checkNumber', 'action'], ['payeeName', 'amount']))
+      .toEqual(['status', 'checkNumber', 'payeeName', 'amount', 'action'])
+  })
+
+  it('round-trips an order through storage', () => {
+    const order = moveColumn([...COLUMN_KEYS], 'amount', -1)
+    expect(parseColumnPreference(serialiseColumnPreference(order))).toEqual(order)
+  })
+
+  it('keeps part B’s storage key', () => {
+    expect(COLUMN_STORAGE_KEY).toBe('check-monitoring.columns.v2')
+  })
+})
+
+describe('withColumnOrder', () => {
+  it('writes the order onto the export link, without ACTION', () => {
+    expect(withColumnOrder('/api/export?status=SIGNED', ['amount', 'checkNumber', 'status', 'action']))
+      .toBe('/api/export?status=SIGNED&cols=amount%2CcheckNumber%2Cstatus')
+    expect(withColumnOrder('/api/export', ['checkNumber', 'status', 'action']))
+      .toBe('/api/export?cols=checkNumber%2Cstatus')
   })
 })
 
@@ -101,12 +142,12 @@ describe('parseColumnPreference', () => {
 
   it('ignores non-string entries inside an otherwise valid array', () => {
     expect(parseColumnPreference('["amount", 3, null, "bank"]'))
-      .toEqual(['checkNumber', 'bank', 'amount', 'status', 'action'])
+      .toEqual(['checkNumber', 'amount', 'status', 'bank', 'action'])
   })
 
-  it('reads a stored preference back in canonical order', () => {
+  it('reads a stored preference back in the order it was stored', () => {
     expect(parseColumnPreference('["status","amount","checkNumber","action"]'))
-      .toEqual(['checkNumber', 'amount', 'status', 'action'])
+      .toEqual(['status', 'amount', 'checkNumber', 'action'])
   })
 
   // An empty array is a CHOICE — the user unticked every optional column — and

@@ -74,24 +74,74 @@ export const DEFAULT_COLUMNS: readonly ColumnKey[] = COLUMN_KEYS
 // v2 (2026-10-01): PO NUMBER added. A v1 choice was a list of the columns that
 // existed then, and read under v2 it would hide the new one for everybody who
 // had ever ticked a box.
+// Since part C (2026-10-01) the array is the visible columns IN DISPLAY ORDER.
+// A v2 value written before that is in canonical order and reads as the default
+// order with the same visibility, so the key is not bumped again.
 export const COLUMN_STORAGE_KEY = 'check-monitoring.columns.v2'
 
 export function isColumnKey(value: unknown): value is ColumnKey {
   return typeof value === 'string' && (COLUMN_KEYS as readonly string[]).includes(value)
 }
 
+const canonical = (k: ColumnKey) => COLUMN_KEYS.indexOf(k)
+
 /**
- * Canonicalises a chosen set: unknown keys dropped, duplicates removed, the
- * always-on three added back, and the result in `COLUMN_KEYS` order.
- *
- * Ordering is derived rather than stored, so a preference written before a
- * column existed still renders the new column in its designed position instead
- * of at the end.
+ * `key` added to `order` beside its nearest canonical predecessor that is
+ * already there (at the front if none is) — a column shown again returns to
+ * its usual neighbour, not to the end. ACTION is always appended last.
+ */
+export function insertColumn(order: readonly ColumnKey[], key: ColumnKey): ColumnKey[] {
+  if (order.includes(key)) return [...order]
+  if (key === 'action') return [...order, 'action']
+  const out: ColumnKey[] = order.filter((k) => k !== 'action')
+  const before = COLUMN_KEYS.slice(0, canonical(key)).reverse().find((k) => out.includes(k))
+  out.splice(before === undefined ? 0 : out.indexOf(before) + 1, 0, key)
+  return order.includes('action') ? [...out, 'action'] : out
+}
+
+/**
+ * Canonicalises a stored choice: unknown keys dropped, duplicates removed,
+ * the ORDER GIVEN KEPT, the always-on three added back beside their canonical
+ * neighbours, and ACTION last.
  */
 export function normaliseColumns(keys: readonly unknown[]): ColumnKey[] {
-  const chosen = new Set<ColumnKey>(keys.filter(isColumnKey))
-  for (const key of ALWAYS_ON) chosen.add(key)
-  return COLUMN_KEYS.filter((key) => chosen.has(key))
+  let out: ColumnKey[] = [...new Set(keys.filter(isColumnKey))].filter((k) => k !== 'action')
+  for (const key of ALWAYS_ON) out = insertColumn(out, key)
+  return out
+}
+
+/** Show or hide one column. The always-on three do not toggle. */
+export function toggleColumn(order: readonly ColumnKey[], key: ColumnKey): ColumnKey[] {
+  if ((ALWAYS_ON as readonly ColumnKey[]).includes(key)) return [...order]
+  return order.includes(key) ? order.filter((k) => k !== key) : insertColumn(order, key)
+}
+
+export function canMoveColumn(order: readonly ColumnKey[], key: ColumnKey, delta: -1 | 1): boolean {
+  const at = order.indexOf(key)
+  const to = at + delta
+  return key !== 'action' && at >= 0 && to >= 0 && to < order.length && order[to] !== 'action'
+}
+
+/** One place left or right; ACTION never moves and nothing passes it. */
+export function moveColumn(order: readonly ColumnKey[], key: ColumnKey, delta: -1 | 1): ColumnKey[] {
+  if (!canMoveColumn(order, key, delta)) return [...order]
+  const out = [...order]
+  const at = out.indexOf(key)
+  ;[out[at], out[at + delta]] = [out[at + delta], out[at]]
+  return out
+}
+
+/** `order` with `keys` forced in — a filtered column stays on screen (part C2). */
+export function withColumns(order: readonly ColumnKey[], keys: readonly ColumnKey[]): ColumnKey[] {
+  return keys.reduce<ColumnKey[]>((acc, k) => insertColumn(acc, k), [...order])
+}
+
+/** The export link with `cols=` in the viewer's order (ACTION is not a file column). */
+export function withColumnOrder(href: string, order: readonly ColumnKey[]): string {
+  const [path, query = ''] = href.split('?')
+  const qs = new URLSearchParams(query)
+  qs.set('cols', order.filter((k) => k !== 'action').join(','))
+  return `${path}?${qs.toString()}`
 }
 
 /**
