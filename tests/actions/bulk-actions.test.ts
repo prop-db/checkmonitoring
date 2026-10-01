@@ -758,3 +758,61 @@ describe('bulkRevertToSignedAction', () => {
     expect(result.ok).toBe(false)
   })
 })
+
+describe('signAllPendingAction', () => {
+  const confirmFd = (count: number, extra: Record<string, string> = {}) =>
+    fd([], { confirm: 'sign', expectedCount: String(count), ...extra })
+
+  it('signs the whole pending set the server computes, one audit row each', async () => {
+    const { signAllPendingAction } = await import('@/app/checks/bulk-actions')
+    const a = await makeCheck({ status: 'SIGNATURE_PENDING' })
+    const b = await makeCheck({ status: 'SIGNATURE_PENDING' })
+    const other = await makeCheck({ status: 'SIGNED' })
+    const r = await signAllPendingAction(null, confirmFd(2))
+    expect(r).toMatchObject({ ok: true, succeeded: 2, failed: 0 })
+    for (const id of [a.id, b.id]) {
+      expect((await testDb.check.findUniqueOrThrow({ where: { id } })).status).toBe('SIGNED')
+      expect(await testDb.auditLog.count({ where: { checkId: id, action: 'marked_signed' } })).toBe(1)
+    }
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: other.id } })).status).toBe('SIGNED')
+  })
+
+  it('ignores ids sent by the browser', async () => {
+    const { signAllPendingAction } = await import('@/app/checks/bulk-actions')
+    const p = await makeCheck({ status: 'SIGNATURE_PENDING' })
+    const ready = await makeCheck({ status: 'READY_FOR_RELEASE' })
+    const f = confirmFd(1); f.append('checkId', ready.id)
+    expect(await signAllPendingAction(null, f)).toMatchObject({ ok: true, succeeded: 1 })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: p.id } })).status).toBe('SIGNED')
+  })
+
+  it('refuses without the confirmation field', async () => {
+    const { signAllPendingAction } = await import('@/app/checks/bulk-actions')
+    await makeCheck({ status: 'SIGNATURE_PENDING' })
+    expect(await signAllPendingAction(null, fd([], { expectedCount: '1' }))).toMatchObject({ ok: false })
+  })
+
+  it('refuses when more are pending than were confirmed', async () => {
+    const { signAllPendingAction } = await import('@/app/checks/bulk-actions')
+    await makeCheck({ status: 'SIGNATURE_PENDING' })
+    await makeCheck({ status: 'SIGNATURE_PENDING' })
+    const r = await signAllPendingAction(null, confirmFd(1))
+    expect(r).toMatchObject({ ok: false })
+    expect(await testDb.check.count({ where: { status: 'SIGNED' } })).toBe(0)
+  })
+
+  it('refuses an unrecognised filter rather than widening', async () => {
+    const { signAllPendingAction } = await import('@/app/checks/bulk-actions')
+    await makeCheck({ status: 'SIGNATURE_PENDING' })
+    expect(await signAllPendingAction(null, confirmFd(1, { company: 'not-a-company' }))).toMatchObject({ ok: false })
+    expect(await signAllPendingAction(null, confirmFd(1, { company: ' ' }))).toMatchObject({ ok: false })
+    expect(await testDb.check.count({ where: { status: 'SIGNED' } })).toBe(0)
+  })
+
+  it('is open to a FINANCE_USER', async () => {
+    const { signAllPendingAction } = await import('@/app/checks/bulk-actions')
+    currentUser.role = 'FINANCE_USER'
+    await makeCheck({ status: 'SIGNATURE_PENDING' })
+    expect(await signAllPendingAction(null, confirmFd(1))).toMatchObject({ ok: true, succeeded: 1 })
+  })
+})

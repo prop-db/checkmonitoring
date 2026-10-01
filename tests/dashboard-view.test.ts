@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   isCardSelected, cardHref, incompleteHref, clearFiltersHref, describeView, viewStatusFilter,
-  releaseConfirmHref, releaseCancelHref, TODAYS_RELEASE_ANCHOR,
+  releaseConfirmHref, releaseCancelHref, signAllConfirmHref, signAllCancelHref, TODAYS_RELEASE_ANCHOR,
   exportHref, EXPORT_PATH, dashboardHref, printHref,
   dashboardScreen, totalsHref,
   type DashboardSelection,
@@ -397,5 +397,13 @@ describe('scope=live', () => {
       .toBe(`/?company=c1&confirm=release#${TODAYS_RELEASE_ANCHOR}`)
     expect(releaseCancelHref({ ...LIVE, base: { company: 'c1' } }))
       .toBe(`/?company=c1#${TODAYS_RELEASE_ANCHOR}`)
+  })
+})
+
+describe('SIGN ALL links', () => {
+  it('confirm keeps the view and the narrowing and adds confirm=sign', () => {
+    const s: DashboardSelection = { status: 'SIGNATURE_PENDING', showAll: false, incomplete: false, live: false, base: { company: 'c1' } }
+    expect(signAllConfirmHref(s)).toBe('/?company=c1&status=SIGNATURE_PENDING&confirm=sign')
+    expect(signAllCancelHref(s)).toBe('/?company=c1&status=SIGNATURE_PENDING')
   })
 })

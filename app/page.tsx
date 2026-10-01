@@ -2,18 +2,19 @@ import Link from 'next/link'
 import { requireUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import {
-  getSummary, getTodaysRelease, listChecks, countChecks, toTableRow, getFilterOptions,
+  getSummary, getTodaysRelease, getPendingSignature, listChecks, countChecks, toTableRow, getFilterOptions,
 } from '@/lib/queries'
 import { resolveDashboardQuery } from '@/lib/dashboard-params'
 import {
   clearFiltersHref, dashboardScreen, describeView, incompleteHref,
-  releaseConfirmHref, releaseCancelHref, totalsHref,
+  releaseConfirmHref, releaseCancelHref, signAllConfirmHref, signAllCancelHref, totalsHref,
 } from '@/lib/dashboard-view'
 import { AppHeader } from '@/components/AppHeader'
 import { SummaryCards } from '@/components/SummaryCards'
 import { TotalsFilterBar } from '@/components/TotalsFilterBar'
 import { ReleaseTimeline } from '@/components/ReleaseTimeline'
 import { TodaysReleasePanel } from '@/components/TodaysReleasePanel'
+import { SignAllConfirm } from '@/components/SignAllConfirm'
 import { QuickActions } from '@/components/QuickActions'
 import { FilterBar } from '@/components/FilterBar'
 import { CheckTable } from '@/components/CheckTable'
@@ -21,6 +22,7 @@ import { getSyncOverview } from '@/lib/admin/sync-overview'
 import { describeStaleness } from '@/lib/sync/staleness'
 import { SyncStatusLine } from '@/components/SyncStatusLine'
 import { loadSettings } from '@/lib/settings/read'
+import { formatMoney } from '@/lib/money'
 
 /**
  * THE DASHBOARD.
@@ -249,7 +251,9 @@ export default async function DashboardPage({
   // `releasedAt` — so the number is the number of rows the reader's own view
   // would have shown had those releases been recorded here.
   const releasedRange = Boolean(filters.releasedFrom || filters.releasedTo)
-  const [summary, rows, matching, undatedReleases] = await Promise.all([
+  // SIGN ALL is offered only when the rows shown are exactly the set it would act on.
+  const signAllOffered = status === 'SIGNATURE_PENDING' && !showAll && !q && !incomplete
+  const [summary, rows, matching, undatedReleases, pendingSign] = await Promise.all([
     getSummary(prisma, narrow),
     listChecks(prisma, filters),
     countChecks(prisma, filters),
@@ -263,6 +267,7 @@ export default async function DashboardPage({
           noReleaseDate: true,
         })
       : Promise.resolve(0),
+    signAllOffered ? getPendingSignature(prisma, narrow) : Promise.resolve(null),
   ])
 
   return (
@@ -283,6 +288,34 @@ export default async function DashboardPage({
         </div>
         <QuickActions selection={selection} />
       </div>
+
+      {pendingSign && pendingSign.count > 0 && (
+        <div className="rounded-2xl bg-white px-4 py-3 ring-1 ring-hairline">
+          {params.confirm === 'sign' ? (
+            <>
+              <p className="text-sm font-semibold tracking-wide text-slate-900">
+                SIGN {pendingSign.count.toLocaleString('en-PH')} CHEQUE{pendingSign.count === 1 ? '' : 'S'}
+                {pendingSign.totalsByCurrency.map((t) => ` · ${t.total === null ? t.currency + ' —' : formatMoney(t.total, t.currency)}`).join('')}?
+              </p>
+              <SignAllConfirm
+                count={pendingSign.count}
+                cancelHref={signAllCancelHref(selection)}
+                narrow={{ company: companyId ?? '', cashAccount: cashAccountId ?? '', eligibility: eligibility ?? '' }}
+              />
+            </>
+          ) : (
+            <Link href={signAllConfirmHref(selection)}
+              className="inline-block rounded-lg bg-navy px-4 py-2 text-sm font-semibold tracking-wide text-white hover:bg-navy/90">
+              SIGN ALL {pendingSign.count.toLocaleString('en-PH')}
+            </Link>
+          )}
+          {matching > pendingSign.count && (
+            <p className="mt-2 text-xs text-slate-500">
+              {(matching - pendingSign.count).toLocaleString('en-PH')} NON-CHEQUE PAYMENT(S) (DEBIT ADV, CASH) IN THIS VIEW ARE NOT SIGNED.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* ── THE DISCLOSURE ──────────────────────────────────────────────────
           The client asked for the cheques with no recorded amount to be

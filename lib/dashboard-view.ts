@@ -111,7 +111,7 @@ export type DashboardSelection = {
 }
 
 type ViewState = Pick<DashboardSelection, 'status' | 'showAll'>
-type LinkState = ViewState & { incomplete: boolean; live?: boolean; confirmRelease?: boolean }
+type LinkState = ViewState & { incomplete: boolean; live?: boolean; confirmRelease?: boolean; confirmSign?: boolean }
 
 /**
  * A dashboard URL. `base` first so the narrowing filters keep a stable order,
@@ -130,6 +130,7 @@ function query(base: Readonly<Record<string, string>>, view: LinkState): string 
   // how choosing a card or clearing the filters also steps back out of a
   // half-made release rather than carrying the confirmation along.
   if (view.confirmRelease) qs.set('confirm', 'release')
+  if (view.confirmSign) qs.set('confirm', 'sign')
   return qs.toString()
 }
 
@@ -393,4 +394,14 @@ export function dashboardScreen(sel: DashboardSelection): DashboardScreen {
   const listed = sel.status !== null || sel.showAll || sel.incomplete || sel.live
     || Object.keys(sel.base).some((k) => !(TOTALS_KEYS as readonly string[]).includes(k))
   return listed ? 'LIST' : 'TOTALS'
+}
+
+/** SIGN ALL's confirmation: the same list, with `confirm=sign`. */
+export function signAllConfirmHref(sel: DashboardSelection): string {
+  return href(sel.base, { status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete, confirmSign: true })
+}
+
+/** CANCEL: the same list, confirmation dropped. */
+export function signAllCancelHref(sel: DashboardSelection): string {
+  return href(sel.base, { status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete })
 }

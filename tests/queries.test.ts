@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { testDb, resetDb } from './helpers/db'
 import { makeCheck } from './helpers/factory'
 import {
-  getSummary, getTodaysRelease, listTodaysReleaseIds, listChecks, countChecks, toTableRow, getFilterOptions,
+  getSummary, getTodaysRelease, listTodaysReleaseIds, getPendingSignature, listPendingSignatureIds, listChecks, countChecks, toTableRow, getFilterOptions,
   parseStatusParam, parseEligibilityParam, parseOptionId,
 } from '@/lib/queries'
 import { formatMoney } from '@/lib/money'
@@ -928,5 +928,23 @@ describe("getTodaysRelease and listTodaysReleaseIds narrowed", () => {
 
     expect((await getTodaysRelease(testDb, { cashAccountId: bpi.cashAccountId! })).count).toBe(1)
     expect(await listTodaysReleaseIds(testDb, { eligibility: 'BROKER' })).toEqual([bpi.id])
+  })
+})
+
+describe('SIGN ALL set', () => {
+  it('is pending, real cheques with an amount, narrowed', async () => {
+    const a = await makeCheck({ status: 'SIGNATURE_PENDING', amount: '100.00' })
+    const b = await makeCheck({ status: 'SIGNATURE_PENDING', amount: '250.50' })
+    await makeCheck({ status: 'SIGNATURE_PENDING', isCheque: false, amount: '9.00' })
+    await makeCheck({ status: 'SIGNATURE_PENDING', amount: null })
+    await makeCheck({ status: 'SIGNED', amount: '1.00' })
+
+    expect((await listPendingSignatureIds(testDb)).sort()).toEqual([a.id, b.id].sort())
+    const s = await getPendingSignature(testDb)
+    expect(s.count).toBe(2)
+    expect(s.totalsByCurrency).toEqual([{ currency: 'PHP', total: '350.5', count: 2 }])
+
+    expect(await listPendingSignatureIds(testDb, { companyId: a.companyId })).toContain(a.id)
+    expect(await getPendingSignature(testDb, { companyId: 'no-such-company' })).toEqual({ count: 0, totalsByCurrency: [] })
   })
 })

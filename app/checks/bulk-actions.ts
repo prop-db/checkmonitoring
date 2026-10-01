@@ -5,7 +5,7 @@ import { requireUser } from '@/lib/auth'
 import { markSigned, markReadyForRelease, markReleased, recordReceipt, revertAvailability } from '@/lib/domain/actions'
 import { parseSelection, chunkSelection } from '@/lib/bulk'
 import {
-  listTodaysReleaseIds, getFilterOptions, parseOptionId, parseEligibilityParam,
+  listTodaysReleaseIds, listPendingSignatureIds, getFilterOptions, parseOptionId, parseEligibilityParam,
   type SummaryNarrowing,
 } from '@/lib/queries'
 import { readRowReceipts } from '@/lib/receipt-form'
@@ -57,7 +57,7 @@ const str = (f: FormData, k: string) => String(f.get(k) ?? '').trim()
  * meant as a narrowing, and `company=%20` must refuse rather than read as
  * absent (review, 2026-09-29).
  */
-async function readReleaseNarrowing(formData: FormData): Promise<SummaryNarrowing | null> {
+async function readNarrowing(formData: FormData): Promise<SummaryNarrowing | null> {
   const sentCompany = formData.has('company')
   const sentCashAccount = formData.has('cashAccount')
   const sentEligibility = formData.has('eligibility')
@@ -297,7 +297,7 @@ export async function releaseAllReadyAction(
 
   const settings = await loadSettings(prisma)
   const cap = settings.values['caps.bulkSelection']
-  const narrow = await readReleaseNarrowing(formData)
+  const narrow = await readNarrowing(formData)
   if (narrow === null) {
     return {
       ok: false,
@@ -356,6 +356,58 @@ export async function releaseAllReadyAction(
 
   // Recomputed over every batch, so "73 of 81" counts the whole action rather
   // than the last batch of it.
+  const succeeded = outcomes.filter((o) => o.ok).length
+  return { ok: true, succeeded, failed: outcomes.length - succeeded, outcomes }
+}
+
+/**
+ * SIGN ALL (client, 2026-10-01: "All checks on Tuesday to Friday will have a 1
+ * click button"). The RELEASE ALL pattern, for a lower-risk act that can be
+ * undone (`revertSignature`): open to every Finance user, but the confirmation
+ * is still a field on the request, the count read is submitted back, and the
+ * set is the server's, never ids from the form. `useActionState`'s signature,
+ * for the same no-JavaScript reason as `releaseAllReadyAction`.
+ */
+export async function signAllPendingAction(
+  _previousState: BulkActionResult | null,
+  formData: FormData,
+): Promise<BulkActionResult> {
+  const user = await requireUser()
+
+  if (str(formData, 'confirm') !== 'sign') {
+    return { ok: false, message: 'This was not confirmed. Press SIGN ALL and confirm the figures first.' }
+  }
+  const rawExpected = str(formData, 'expectedCount')
+  const expectedCount = /^\d+$/.test(rawExpected) ? Number(rawExpected) : Number.NaN
+  if (!Number.isInteger(expectedCount)) {
+    return { ok: false, message: 'This could not be confirmed. Press SIGN ALL again and re-read the figures.' }
+  }
+
+  const settings = await loadSettings(prisma)
+  const cap = settings.values['caps.bulkSelection']
+  const narrow = await readNarrowing(formData)
+  if (narrow === null) {
+    return { ok: false, message: 'The filter on screen was not recognised. Press SIGN ALL again and re-read the figures.' }
+  }
+  const checkIds = await listPendingSignatureIds(prisma, narrow)
+  if (checkIds.length === 0) return { ok: false, message: 'No cheques are waiting for a signature.' }
+  if (checkIds.length > expectedCount) {
+    return {
+      ok: false,
+      message: `${checkIds.length} cheques are pending now, but ${expectedCount} were on screen when you confirmed. Re-read and confirm the current figures.`,
+    }
+  }
+
+  const now = new Date()
+  const outcomes: BulkOutcome[] = []
+  for (const batch of chunkSelection(checkIds, cap)) {
+    const selection = parseSelection(batch, cap)
+    if (!selection.ok) return { ok: false, message: selection.message }
+    const batchResult = await runEach(prisma, selection.checkIds, (checkId) =>
+      markSigned(prisma, { checkId, userId: user.id, now }))
+    if (!batchResult.ok) return batchResult
+    outcomes.push(...batchResult.outcomes)
+  }
   const succeeded = outcomes.filter((o) => o.ok).length
   return { ok: true, succeeded, failed: outcomes.length - succeeded, outcomes }
 }
