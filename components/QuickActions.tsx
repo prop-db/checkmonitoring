@@ -15,25 +15,60 @@ import { ExportLink } from '@/components/ExportLink'
  * a lookup extract has to cover every voucher rather than the filtered view.
  * It lives on /vouchers, the screen that explains it, beside its own EXPORT.
  */
-export function QuickActions({ selection }: { selection: DashboardSelection }) {
+/** Shown on a disabled EXPORT EXCEL / PRINT while a filter box is refused. */
+const REFUSED_TITLE = 'Fix the filter box marked in red first'
+
+/**
+ * A disabled stand-in for a link: an anchor with NO href is neither focusable
+ * nor followable, so there is nothing to click into the export's 400 or a
+ * print sheet that only states the refusal.
+ */
+function DisabledAction({ children }: { children: string }) {
+  return (
+    <a
+      aria-disabled="true"
+      title={REFUSED_TITLE}
+      className="cursor-not-allowed rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium tracking-wide text-slate-400 ring-1 ring-hairline"
+    >
+      {children}
+    </a>
+  )
+}
+
+export function QuickActions({
+  selection,
+  refused = false,
+}: {
+  selection: DashboardSelection
+  /** A filter box could not be read: the list shows nothing, so neither link is live. */
+  refused?: boolean
+}) {
   return (
     <div className="flex flex-wrap items-center gap-2">
       {/* `download` is deliberately absent: the filename is set by the route's
           Content-Disposition, which is the only place that knows the view and
           the date the file was actually generated. */}
-      <ExportLink
-        href={exportHref(selection)}
-        className="rounded-lg bg-navy px-4 py-2 text-sm font-medium tracking-wide text-white transition hover:bg-navy/90"
-      >
-        EXPORT EXCEL
-      </ExportLink>
+      {refused ? (
+        <DisabledAction>EXPORT EXCEL</DisabledAction>
+      ) : (
+        <ExportLink
+          href={exportHref(selection)}
+          className="rounded-lg bg-navy px-4 py-2 text-sm font-medium tracking-wide text-white transition hover:bg-navy/90"
+        >
+          EXPORT EXCEL
+        </ExportLink>
+      )}
 
-      <a
-        href={printHref(selection)}
-        className="rounded-lg bg-white px-4 py-2 text-sm font-medium tracking-wide text-navy ring-1 ring-hairline transition hover:ring-navy"
-      >
-        PRINT RELEASE LIST
-      </a>
+      {refused ? (
+        <DisabledAction>PRINT RELEASE LIST</DisabledAction>
+      ) : (
+        <a
+          href={printHref(selection)}
+          className="rounded-lg bg-white px-4 py-2 text-sm font-medium tracking-wide text-navy ring-1 ring-hairline transition hover:ring-navy"
+        >
+          PRINT RELEASE LIST
+        </a>
+      )}
 
       {/**
         * UPLOAD READY CHECKS — the Supplier Portal push.

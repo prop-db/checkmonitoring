@@ -293,7 +293,7 @@ export default async function DashboardPage({
             {describeView(selection)} · {matching.toLocaleString('en-PH')} CHEQUE{matching === 1 ? '' : 'S'}
           </span>
         </div>
-        <QuickActions selection={selection} />
+        <QuickActions selection={selection} refused={refused} />
       </div>
 
       {/* Kept mounted while ?confirm=sign is on the URL even at a count of zero:
