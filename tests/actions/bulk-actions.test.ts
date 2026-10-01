@@ -709,8 +709,12 @@ describe('releaseAllReadyAction', () => {
     currentUser.role = 'FINANCE_ADMIN'
     const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
     const r = await releaseAllReadyAction(null, fd([], { confirm: 'release', expectedCount: '1', 'f.payee': 'henkel' }))
-    expect(r).toMatchObject({ ok: false })
+    expect(r).toMatchObject({
+      ok: false,
+      message: 'The filter on screen was not recognised. Open TODAY’S RELEASE again and re-read the figures.',
+    })
     expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('READY_FOR_RELEASE')
+    expect(await testDb.auditLog.count({ where: { action: 'released' } })).toBe(0)
   })
 })
 

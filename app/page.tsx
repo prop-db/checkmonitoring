@@ -4,7 +4,7 @@ import { requireUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import {
   getSummary, getTodaysRelease, getPendingSignature, listChecks, countChecks, toTableRow, getFilterOptions,
-  columnFilterFields,
+  columnFilterFields, type ColumnFilters,
 } from '@/lib/queries'
 import { resolveDashboardQuery, type DashboardSearchParams } from '@/lib/dashboard-params'
 import { SORT_COOKIE } from '@/lib/list-sort'
@@ -12,6 +12,7 @@ import { activeFilterColumns, columnParamsOf } from '@/lib/column-filters'
 import {
   clearFiltersHref, dashboardScreen, describeView, incompleteHref,
   releaseConfirmHref, releaseCancelHref, signAllConfirmHref, signAllCancelHref, sortLinks, totalsHref,
+  signAllOffered as isSignAllOffered,
 } from '@/lib/dashboard-view'
 import { AppHeader } from '@/components/AppHeader'
 import { SummaryCards } from '@/components/SummaryCards'
@@ -252,9 +253,13 @@ export default async function DashboardPage({
   // would have shown had those releases been recorded here.
   const releasedRange = Boolean(filters.releasedFrom || filters.releasedTo)
   // SIGN ALL is offered only when the rows shown are exactly the set it would
-  // act on: its set takes the column filters (part C2) but not the search, and
-  // nothing is listed while a box is refused.
-  const signAllOffered = status === 'SIGNATURE_PENDING' && !showAll && !q && !incomplete && !refused
+  // act on (`signAllOffered` in lib/dashboard-view.ts says when).
+  const signAllOffered = isSignAllOffered({ status, showAll, q, incomplete, refused })
+  // The column filters by name, plus the refusal on its own so the query
+  // layer's defence applies here too: a refused box can only empty the count.
+  const signColumns: ColumnFilters & { refused?: true } = {
+    ...columnFilterFields(filters), ...(filters.refused ? { refused: true as const } : {}),
+  }
   const [excludedIncomplete, rows, matching, undatedReleases, pendingSign] = await Promise.all([
     countChecks(prisma, { ...filters, incomplete: true }),
     listChecks(prisma, filters, 200, sort),
@@ -269,7 +274,7 @@ export default async function DashboardPage({
           noReleaseDate: true,
         })
       : Promise.resolve(0),
-    signAllOffered ? getPendingSignature(prisma, narrow, columnFilterFields(filters)) : Promise.resolve(null),
+    signAllOffered ? getPendingSignature(prisma, narrow, signColumns) : Promise.resolve(null),
   ])
 
   return (

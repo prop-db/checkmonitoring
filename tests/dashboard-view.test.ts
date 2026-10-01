@@ -3,7 +3,7 @@ import {
   isCardSelected, cardHref, incompleteHref, clearFiltersHref, describeView, viewStatusFilter,
   releaseConfirmHref, releaseCancelHref, signAllConfirmHref, signAllCancelHref, TODAYS_RELEASE_ANCHOR,
   exportHref, EXPORT_PATH, dashboardHref, printHref,
-  dashboardScreen, totalsHref, sortHref, sortLinks,
+  dashboardScreen, totalsHref, sortHref, sortLinks, signAllOffered,
   type DashboardSelection,
 } from '@/lib/dashboard-view'
 import { LIVE_STATUSES } from '@/lib/domain/check-status'
@@ -405,6 +405,31 @@ describe('SIGN ALL links', () => {
     const s: DashboardSelection = { status: 'SIGNATURE_PENDING', showAll: false, incomplete: false, live: false, base: { company: 'c1' } }
     expect(signAllConfirmHref(s)).toBe('/?company=c1&status=SIGNATURE_PENDING&confirm=sign')
     expect(signAllCancelHref(s)).toBe('/?company=c1&status=SIGNATURE_PENDING')
+  })
+})
+
+describe('signAllOffered', () => {
+  const PENDING = { status: 'SIGNATURE_PENDING' as const, showAll: false, q: '', incomplete: false, refused: false }
+
+  it('is offered on SIGNATURE PENDING with nothing else set', () => {
+    expect(signAllOffered(PENDING)).toBe(true)
+  })
+  it('is not offered while a filter is refused', () => {
+    expect(signAllOffered({ ...PENDING, refused: true })).toBe(false)
+  })
+  it('is not offered with a search', () => {
+    expect(signAllOffered({ ...PENDING, q: 'acme' })).toBe(false)
+  })
+  it('is not offered with the incomplete toggle on', () => {
+    expect(signAllOffered({ ...PENDING, incomplete: true })).toBe(false)
+  })
+  it('is not offered on ALL CHEQUES', () => {
+    expect(signAllOffered({ ...PENDING, status: null, showAll: true })).toBe(false)
+    expect(signAllOffered({ ...PENDING, showAll: true })).toBe(false)
+  })
+  it('is not offered on another status', () => {
+    expect(signAllOffered({ ...PENDING, status: 'SIGNED' })).toBe(false)
+    expect(signAllOffered({ ...PENDING, status: 'READY_FOR_RELEASE' })).toBe(false)
   })
 })
 

@@ -407,6 +407,24 @@ export function dashboardScreen(sel: DashboardSelection): DashboardScreen {
   return listed ? 'LIST' : 'TOTALS'
 }
 
+/**
+ * Whether the list offers SIGN ALL. Only when the rows shown are exactly the
+ * set it would act on: the SIGNATURE PENDING view (not ALL CHEQUES, not another
+ * status), no search and the incomplete toggle off — its set takes the column
+ * filters (part C2) but neither of those — and never while a box is refused,
+ * because a refused list shows nothing and a count beside it would be a count
+ * of a set nobody can see.
+ */
+export function signAllOffered(v: {
+  status: CheckStatus | null | undefined
+  showAll: boolean
+  q: string | null | undefined
+  incomplete: boolean
+  refused: boolean
+}): boolean {
+  return v.status === 'SIGNATURE_PENDING' && !v.showAll && !v.q && !v.incomplete && !v.refused
+}
+
 /** SIGN ALL's confirmation: the same list, with `confirm=sign`. */
 export function signAllConfirmHref(sel: DashboardSelection): string {
   return href(sel.base, { status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete, confirmSign: true, sort: sel.sort })
