@@ -156,6 +156,7 @@ npx tsx scripts/mark-ready-from-release-list.ts "FOR RELEASE 9.25.2026.xlsx"    
 npx tsx scripts/mark-ready-from-release-list.ts "<for-release>.xlsx" --apply            # snapshot, then status only; never follow with backfill-available
 npx tsx scripts/revert-detail1-ready.ts "<for-release>.xlsx" <ready-from-list snapshot> [--apply]  # Detail1-only READY back to prior status (run 2026-09-25)
 npx tsx scripts/void-acumatica-voided.ts [--apply]                # void what Acumatica voided (live or RELEASED here)
+npx tsx scripts/close-unmatchable-cancelled.ts [--apply]         # parked CANCELLED events whose cheque has no APV: close unsent
 npx tsx scripts/link-vouchers-from-acumatica.ts "<for-release>.xlsx" [--apply]  # link list vouchers via AP-PAYMENTS-WITH-BILLS, ready their cheques
 npx tsx scripts/auto-sign-backlog.ts              # dry run: Acumatica cheques pending past autoSign.afterDays
 npx tsx scripts/auto-sign-backlog.ts --apply      # snapshot, then sign them (the 18:00 run does the rest daily)
@@ -280,6 +281,24 @@ redirects a signed-in visitor to `/`. `/welcome` is listed in `isPublicPath` (ex
 the middleware sends an anonymous bare `/` there and every other guarded path to `/login` as
 before, and sign-out lands on `/welcome`. `requireUser()` still redirects to `/login`. The page
 reads no data and must never show a figure: it is the one page a stranger can load.
+
+**A void or cancel of a cheque with no APV queues nothing for the portal** (2026-10-01, spec
+`2026-10-01-cheque-numbering-and-cancel-guard-design.md`). The portal matches on APV and the client
+refuses an event with none, so such an event parked on its first attempt and RETRY parked it again —
+which is how `6000354350` and `1791259553` reached `/admin/portal`. `voidCheck` / `cancelCheck` now
+ask `portalApvs` (`lib/integrations/portal/apvs.ts`, the same rule the client uses) first; a routed
+cheque with none gets `portalSyncStatus = NOT_APPLICABLE` and `portalNotified: false` on its audit
+row. Only CANCELLED is guarded. `scripts/close-unmatchable-cancelled.ts` closes the ones already
+parked (`unmatchable: no APV numbers`, counted on `/admin/portal`).
+
+**NUMBERING (`/numbering`) checks cheque consecutives per cash account.** Every cheque of every
+status — VOIDED, CANCELLED and no-amount included — in BigInt order; each unused number between an
+account's first and last is one MISSING line, however large (user ruling 2026-10-01: "every number
+counts", not a booklet heuristic). The cash account is the series key because the sync publishes
+no cheque book. MISSING is bounded by the sync's scope (2026 onward, CHK only) and by memo-numbered
+cheques sitting on `/admin/staged`; the page says so. `next build` failed with *Cannot mix BigInt
+and other types* (Next's file tracer) on `1n`-style literal arithmetic in `lib/numbering/series.ts`;
+it uses `BigInt(0)` / `BigInt(1)` constants instead — keep it that way.
 
 **A `|` inside `-t` breaks `npx.cmd vitest` under Git Bash.** `npx.cmd vitest run file -t "a|b"`
 mis-tokenises the pipe; `node node_modules/vitest/vitest.mjs run file -t "a|b"` is the same
@@ -514,6 +533,7 @@ Plans 1 and 2 complete. Plan 3 is superseded by `docs/superpowers/plans/2026-09-
 `lib/sync/portal-outbox.ts` to the portal's `POST /api/integrations/check-monitoring/events`
 with `PORTAL_BASE_URL` / `PORTAL_TOKEN` (a bearer, no session), latest event per cheque wins,
 `/admin/portal` shows what parked. Pickup confirmations back (old Task 6) remain a follow-up.
+**This branch's touched files (`feature/numbering-cancel-guard`): 225 tests across 15 files, 2026-10-01; full suite not yet run on this branch.**
 **1,543 tests across 113 files** (measured, full run 2026-09-29, 21.8 minutes, 0 failures,
 on branch `feature/totals-filters-all-checks` before its merge) — 1,537 across 113 before the final-review fixes
 (`dashboard-view` +5: `totalsHref` 3, `dashboardScreen` fails closed 1, RESET / incomplete
