@@ -288,3 +288,13 @@ describe('describeScope', () => {
     expect(describeScope('SCHEDULED', 0, 0)).toBe('SCHEDULED — NO CHEQUES MATCH')
   })
 })
+
+describe('describeFilters — column filters and sort', () => {
+  it('lists the column filters after the search and the sort last', () => {
+    expect(describeFilters({ q: 'x', columns: ['AMOUNT: FROM 1000'], incomplete: false, sort: 'AMOUNT (ASCENDING)' }))
+      .toBe('SEARCH: "x"  ·  AMOUNT: FROM 1000  ·  EXCLUDES RECORDS WITH NO AMOUNT  ·  SORTED BY AMOUNT (ASCENDING)')
+  })
+  it('says nothing new when there are neither', () => {
+    expect(describeFilters({})).toBe('No filters applied')
+  })
+})

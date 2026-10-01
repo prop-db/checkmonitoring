@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { resolveDashboardQuery } from '@/lib/dashboard-params'
 import { LIVE_STATUSES } from '@/lib/domain/check-status'
 import type { FilterOptions } from '@/lib/queries'
+import { FILTER_MESSAGES } from '@/lib/column-filters'
+import { DEFAULT_SORT } from '@/lib/list-sort'
+import { dashboardScreen } from '@/lib/dashboard-view'
 
 const options: FilterOptions = {
   companies: [
@@ -185,13 +188,17 @@ describe('resolveDashboardQuery', () => {
 
     // A hand-edited or half-typed value opens the view unfiltered, never a 500
     // — the same contract every other parameter on this URL has.
-    it('ignores a value that is not a real calendar day', () => {
-      for (const bad of ['2026-02-30', '25/09/2026', '2026-9-1', 'today', '']) {
-        const r = resolveDashboardQuery({ status: 'RELEASED', releasedFrom: bad, releasedTo: bad }, options)
-        expect(r.filters.releasedFrom).toBeUndefined()
-        expect(r.filters.releasedTo).toBeUndefined()
-        expect(r.selection.base).toEqual({})
+    // Since part C (2026-10-01) a day that is not a day REFUSES rather than
+    // silently opening the view unfiltered — an ignored filter reads as applied.
+    it('refuses a value that is not a real calendar day, and keeps it to render back', () => {
+      for (const bad of ['2026-02-30', '25/09/2026', '2026-9-1', 'today']) {
+        const r = resolveDashboardQuery({ status: 'RELEASED', releasedFrom: bad }, options)
+        expect(r.refused, bad).toBe(true)
+        expect(r.filters.refused).toBe(true)
+        expect(r.filterErrors).toEqual({ releasedFrom: FILTER_MESSAGES.day })
+        expect(r.selection.base).toEqual({ releasedFrom: bad })
       }
+      expect(resolveDashboardQuery({ status: 'RELEASED', releasedFrom: '' }, options).refused).toBe(false)
     })
 
     // Not swapped: the honest answer to a backwards question is an empty table,
@@ -222,5 +229,77 @@ describe('resolveDashboardQuery', () => {
     expect(r.filters.status).toBe('SIGNED')
     expect(r.filters.companyId).toBe('co-stk')
     expect(r.filters.incomplete).toBe(true)
+  })
+
+  describe('the column filters', () => {
+    it('reach the filters, ride in base and open the list', () => {
+      const r = resolveDashboardQuery({ status: 'SIGNED', 'f.payee': ' henkel ', 'f.amountMin': '1,000' }, options)
+      expect(r.filters.payeeContains).toBe('henkel')
+      expect(r.filters.amountMin).toBe('1000')
+      expect(r.selection.base).toEqual({ 'f.payee': 'henkel', 'f.amountMin': '1,000' })
+      expect(r.columnValues).toEqual({ 'f.payee': 'henkel', 'f.amountMin': '1,000' })
+      expect(r.refused).toBe(false)
+      expect(dashboardScreen(resolveDashboardQuery({ 'f.payee': 'henkel' }, options).selection)).toBe('LIST')
+    })
+
+    it('refuses an unreadable value: nothing listed, the value kept everywhere', () => {
+      const r = resolveDashboardQuery({ scope: 'all', 'f.amountMax': '12x' }, options)
+      expect(r.refused).toBe(true)
+      expect(r.filters.refused).toBe(true)
+      expect(r.filterErrors).toEqual({ 'f.amountMax': FILTER_MESSAGES.amount })
+      expect(r.selection.base).toEqual({ 'f.amountMax': '12x' })
+    })
+
+    it('applies STATUS on ALL CHEQUES only, without changing the view', () => {
+      const all = resolveDashboardQuery({ scope: 'all', 'f.status': 'SIGNED' }, options)
+      expect(all.filters.status).toBe('SIGNED')
+      expect(all.selection.status).toBeNull()
+      expect(all.selection.base).toEqual({ 'f.status': 'SIGNED' })
+      const signed = resolveDashboardQuery({ status: 'RELEASED', 'f.status': 'SIGNED' }, options)
+      expect(signed.filters.status).toBe('RELEASED')
+      expect(signed.selection.base).toEqual({})
+      expect(signed.refused).toBe(false)
+    })
+
+    it('carries company, bank and the release range in columnValues for the filter row', () => {
+      const r = resolveDashboardQuery({ status: 'RELEASED', company: 'co-stk', cashAccount: 'ca-bpi', releasedTo: '2026-09-30' }, options)
+      expect(r.columnValues).toEqual({ company: 'co-stk', cashAccount: 'ca-bpi', releasedTo: '2026-09-30' })
+    })
+
+    it('describes them for the title block', () => {
+      const r = resolveDashboardQuery({ scope: 'all', 'f.payee': 'henkel' }, options)
+      expect(r.filterDescription).toBe('SUPPLIER CONTAINS "henkel"  ·  EXCLUDES RECORDS WITH NO AMOUNT')
+    })
+  })
+
+  describe('the sort', () => {
+    it('defaults to check date, newest first, with nothing in force', () => {
+      const r = resolveDashboardQuery({ status: 'SIGNED' }, options)
+      expect(r.sort).toEqual(DEFAULT_SORT)
+      expect(r.activeSort).toBeNull()
+      expect(r.selection.sort).toBeUndefined()
+    })
+
+    it('reads the URL, and says a non-default sort in the title block', () => {
+      const r = resolveDashboardQuery({ status: 'SIGNED', sort: 'amount', dir: 'asc' }, options)
+      expect(r.sort).toEqual({ key: 'amount', dir: 'asc' })
+      expect(r.selection.sort).toEqual({ key: 'amount', dir: 'asc' })
+      expect(r.filterDescription).toBe('EXCLUDES RECORDS WITH NO AMOUNT  ·  SORTED BY AMOUNT (ASCENDING)')
+    })
+
+    it('falls back to the cookie when the URL names none — without putting it in the URL', () => {
+      const r = resolveDashboardQuery({ status: 'SIGNED' }, options, { sortCookie: 'payeeName:desc' })
+      expect(r.sort).toEqual({ key: 'payeeName', dir: 'desc' })
+      expect(r.activeSort).toEqual({ key: 'payeeName', dir: 'desc' })
+      expect(r.selection.sort).toBeUndefined()
+    })
+
+    it('lets the URL win over the cookie, and ignores an invalid either', () => {
+      expect(resolveDashboardQuery({ sort: 'amount', dir: 'desc' }, options, { sortCookie: 'payeeName:asc' }).sort)
+        .toEqual({ key: 'amount', dir: 'desc' })
+      expect(resolveDashboardQuery({ sort: 'action', dir: 'asc' }, options, { sortCookie: 'payeeName:asc' }).sort)
+        .toEqual({ key: 'payeeName', dir: 'asc' })
+      expect(resolveDashboardQuery({}, options, { sortCookie: 'garbage' }).sort).toEqual(DEFAULT_SORT)
+    })
   })
 })

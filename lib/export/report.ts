@@ -117,6 +117,10 @@ export type FilterDescription = {
   /** DATE RELEASED bounds, as the days the reader typed (`YYYY-MM-DD`). */
   releasedFrom?: string | null
   releasedTo?: string | null
+  /** The column filters in words (`describeColumnFilters`), after the search. */
+  columns?: readonly string[]
+  /** A non-default sort in words (`describeSort`), stated last. */
+  sort?: string | null
 }
 
 /**
@@ -137,6 +141,7 @@ export function describeFilters(f: FilterDescription): string {
   if (bank) parts.push(`BANK / CASH ACCOUNT: ${bank}`)
   if (eligibility) parts.push(`ELIGIBILITY: ${eligibility}`)
   if (q) parts.push(`SEARCH: "${q}"`)
+  for (const c of f.columns ?? []) parts.push(c)
   // As typed, never as an instant: the bounds are Manila days and the reader
   // is in Manila. Either side may stand alone.
   const releasedFrom = f.releasedFrom?.trim()
@@ -157,6 +162,7 @@ export function describeFilters(f: FilterDescription): string {
    */
   if (f.incomplete === true) parts.push('INCOMPLETE RECORDS ONLY (NO AMOUNT)')
   else if (f.incomplete === false) parts.push('EXCLUDES RECORDS WITH NO AMOUNT')
+  if (f.sort) parts.push(`SORTED BY ${f.sort}`)
   return parts.length ? parts.join('  ·  ') : 'No filters applied'
 }
 

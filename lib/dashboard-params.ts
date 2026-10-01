@@ -5,6 +5,8 @@ import { viewStatusFilter, type DashboardSelection } from './dashboard-view'
 import { bankLabel, describeFilters, exportViewLabel } from './export/report'
 import { isIsoDay } from './domain/details'
 import { manilaDayStart, manilaDayEnd } from './audit-view'
+import { parseColumnFilters, describeColumnFilters, FILTER_MESSAGES, type FParam } from './column-filters'
+import { parseSort, parseSortCookie, DEFAULT_SORT, sameSort, describeSort, type SortSpec } from './list-sort'
 
 /**
  * The dashboard's URL parameters, resolved into the one filter object that
@@ -20,6 +22,11 @@ import { manilaDayStart, manilaDayEnd } from './audit-view'
  * Pure. `options` is passed in — the ids are validated against the rows the
  * dropdowns actually offer, not against the database directly — so every branch
  * below is testable without one.
+ *
+ * Since part C (2026-10-01) it also resolves the order (URL, then the `cm_sort`
+ * cookie passed in `context`, then the default) and the filter row's `f.*`
+ * boxes; an unreadable box sets `refused`, which `buildWhere` reads as
+ * match-nothing.
  */
 
 export type DashboardSearchParams = {
@@ -33,12 +40,15 @@ export type DashboardSearchParams = {
   /** DATE RELEASED bounds, `YYYY-MM-DD` Manila days. */
   releasedFrom?: string
   releasedTo?: string
-}
+  /** The order (part C1): both or neither. */
+  sort?: string
+  dir?: string
+} & Partial<Record<FParam, string>>
 
 export type DashboardQuery = {
   /** The trimmed search text, as the search box should render it back. */
   q: string
-  /** The validated DATE RELEASED days as the bar should render them back, or `''`. */
+  /** The DATE RELEASED boxes as typed (valid or not), `''` when empty or off-view. */
   releasedFrom: string
   releasedTo: string
   status: CheckStatus | undefined
@@ -51,6 +61,16 @@ export type DashboardQuery = {
   selection: DashboardSelection
   /** The one object `buildWhere` ANDs together. */
   filters: CheckFilters
+  /** The order in force: the URL's, else the cookie's, else `DEFAULT_SORT`. */
+  sort: SortSpec
+  /** The URL's or the cookie's sort, null under the default — what the header cycle starts from. */
+  activeSort: SortSpec | null
+  /** Every filter-row box's value as typed (company/bank as validated ids), for the filter row to render back. */
+  columnValues: Readonly<Record<string, string>>
+  /** Parameter name → message for every box that could not be read. */
+  filterErrors: Readonly<Record<string, string>>
+  /** True when any box could not be read: `filters.refused` is set and the list shows nothing. */
+  refused: boolean
   /** The view's short name — "READY FOR RELEASE", "ALL CHEQUES". */
   viewLabel: string
   /** The narrowing filters in words, for the export's title block. */
@@ -63,15 +83,10 @@ export type DashboardQuery = {
   narrowingDescription: string
 }
 
-/** A `YYYY-MM-DD` that is a real calendar day, else nothing. Never an error. */
-function parseDayParam(value: string | undefined): string | undefined {
-  const v = value?.trim() ?? ''
-  return isIsoDay(v) ? v : undefined
-}
-
 export function resolveDashboardQuery(
   params: DashboardSearchParams,
   options: FilterOptions,
+  context: { sortCookie?: string } = {},
 ): DashboardQuery {
   const showAll = params.scope === 'all'
   const live = params.scope === 'live'
@@ -106,6 +121,8 @@ export function resolveDashboardQuery(
 
   const q = params.q?.trim() ?? ''
 
+  const errors: Record<string, string> = {}
+
   /**
    * DATE RELEASED applies only where a released cheque can be: the RELEASED
    * view and ALL CHEQUES. On any other view the two are dropped exactly as an
@@ -114,31 +131,52 @@ export function resolveDashboardQuery(
    * here, they leave `base` and the description too, so a card link out of
    * RELEASED does not carry a filter the destination cannot honour.
    */
+  // ON its two views, a value that is not a real day now REFUSES (part C2)
+  // instead of opening the view unfiltered.
   const releasedRangeApplies = status === 'RELEASED' || showAll
-  const releasedFrom = releasedRangeApplies ? parseDayParam(params.releasedFrom) : undefined
-  const releasedTo = releasedRangeApplies ? parseDayParam(params.releasedTo) : undefined
+  const releasedBound = (name: 'releasedFrom' | 'releasedTo') => {
+    const raw = releasedRangeApplies ? (params[name]?.trim() ?? '') : ''
+    const day = raw && isIsoDay(raw) ? raw : undefined
+    if (raw && !day) errors[name] = FILTER_MESSAGES.day
+    return { raw, day }
+  }
+  const releasedFrom = releasedBound('releasedFrom')
+  const releasedTo = releasedBound('releasedTo')
+
+  // STATUS has a box only on ALL CHEQUES; a card fixes it everywhere else.
+  const column = parseColumnFilters((name) => params[name], { statusApplies: showAll && !status })
+  Object.assign(errors, column.errors)
+  const refused = Object.keys(errors).length > 0
+
+  const urlSort = parseSort(params.sort, params.dir)
+  const activeSort = urlSort ?? parseSortCookie(context.sortCookie)
+  const sort = activeSort ?? DEFAULT_SORT
+
+  const nonEmpty = (o: Record<string, string>) =>
+    Object.fromEntries(Object.entries(o).filter(([, v]) => v !== ''))
 
   const selection: DashboardSelection = {
     status: status ?? null,
     showAll,
     incomplete,
     live,
-    // Built from the VALIDATED values, so an unrecognised one is dropped
-    // everywhere at once: it does not filter, and it does not survive into a
-    // card's link or the export's URL either.
-    base: Object.fromEntries(
-      Object.entries({
-        q,
-        company: companyId ?? '',
-        cashAccount: cashAccountId ?? '',
-        eligibility: eligibility ?? '',
-        releasedFrom: releasedFrom ?? '',
-        releasedTo: releasedTo ?? '',
-      }).filter(([, v]) => v !== ''),
-    ),
+    ...(urlSort ? { sort: urlSort } : {}),
+    // Validated company/bank/eligibility (an unrecognised id is still dropped),
+    // and every other box AS TYPED — a refused value must survive into the
+    // export and print links, or EXPORT would hand over what the screen refused.
+    base: nonEmpty({
+      q,
+      company: companyId ?? '',
+      cashAccount: cashAccountId ?? '',
+      eligibility: eligibility ?? '',
+      releasedFrom: releasedFrom.raw,
+      releasedTo: releasedTo.raw,
+      ...column.values,
+    }),
   }
 
   const filters: CheckFilters = {
+    ...column.filters,
     q: q || undefined,
     companyId,
     cashAccountId,
@@ -146,9 +184,11 @@ export function resolveDashboardQuery(
     incomplete,
     // Manila calendar days become inclusive instants: the day's first and last
     // millisecond in UTC+8. FROM after TO is passed through as given.
-    releasedFrom: releasedFrom ? manilaDayStart(releasedFrom) : undefined,
-    releasedTo: releasedTo ? manilaDayEnd(releasedTo) : undefined,
+    releasedFrom: releasedFrom.day ? manilaDayStart(releasedFrom.day) : undefined,
+    releasedTo: releasedTo.day ? manilaDayEnd(releasedTo.day) : undefined,
     ...viewStatusFilter(selection),
+    ...(column.status ? { status: column.status } : {}),
+    ...(refused ? { refused: true as const } : {}),
   }
 
   // The labels a reader recognises, not the ids. A title block reading
@@ -158,8 +198,8 @@ export function resolveDashboardQuery(
 
   return {
     q,
-    releasedFrom: releasedFrom ?? '',
-    releasedTo: releasedTo ?? '',
+    releasedFrom: releasedFrom.raw,
+    releasedTo: releasedTo.raw,
     status,
     eligibility,
     companyId,
@@ -168,15 +208,28 @@ export function resolveDashboardQuery(
     showAll,
     selection,
     filters,
+    sort,
+    activeSort,
+    columnValues: nonEmpty({
+      company: companyId ?? '',
+      cashAccount: cashAccountId ?? '',
+      releasedFrom: releasedFrom.raw,
+      releasedTo: releasedTo.raw,
+      ...column.values,
+    }),
+    filterErrors: errors,
+    refused,
     viewLabel: exportViewLabel(selection),
     filterDescription: describeFilters({
       company: company?.code ?? null,
       bank: account ? bankLabel(account.code, account.bankCode) : null,
       eligibility: eligibility ?? null,
       q,
+      columns: describeColumnFilters(column.values),
       incomplete,
-      releasedFrom: releasedFrom ?? null,
-      releasedTo: releasedTo ?? null,
+      releasedFrom: releasedFrom.raw || null,
+      releasedTo: releasedTo.raw || null,
+      sort: activeSort && !sameSort(activeSort, DEFAULT_SORT) ? describeSort(activeSort) : null,
     }),
     narrowingDescription: describeFilters({
       company: company?.code ?? null,
