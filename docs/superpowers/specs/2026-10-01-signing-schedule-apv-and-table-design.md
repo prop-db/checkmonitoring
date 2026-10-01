@@ -111,20 +111,28 @@ no meaning under the new rule. `/admin/sync`'s LAST AUTO-SIGN line now reads "N 
   own watermark on `LastModifiedOn` (Go-Live) / `APAdjust_lastModifiedDateTime` (MANUFACTURING),
   with the same 120-minute overlap. Bill column `AdjdRefNbr` / `ReferenceNbr_2` (`BILL_COLUMN`).
   Filters are single `gt` on the date column — no `or` of `eq`s (a 500 in Go-Live).
-- Each voucher is resolved with the existing `judgeLink` (exactly one live CHK cheque; voided and
-  ADR applications ignored; a number held twice is ambiguous). On `LINK`, the voucher is **unioned**
-  into `Check.apvNumbers` — never removed, never replacing — and one `voucher_linked_from_acumatica`
-  audit row is written per cheque changed. Status is **never** touched (rule 4). The readying step of
-  `scripts/link-vouchers-from-acumatica.ts` is not part of the sync.
-- Unresolved vouchers (`NO_LIVE_CHEQUE_HERE`, `AMBIGUOUS`) are counted on the sync run record and
-  shown on `/admin/sync`. They are not staged: they are a lookup that may resolve on the next run.
+- Each application is matched to its cheque by **the payment's own reference** (Go-Live `AdjgRefNbr`,
+  MANUFACTURING `ReferenceNbr`), which is exactly `Check.acumaticaPaymentId` (unique). That is an exact
+  join, blind to cheque numbers (which repeat across companies), so no "exactly one live cheque per
+  voucher" judgement is needed: a voucher split across two cheques legitimately appears on both.
+  `judgeLink` stays for the release-list script it was written for. Only `CHK` applied to a `Bill`
+  counts (payment side also carries VCK, PPM, ADR, REF; bill side `Debit Adj.`, `PPM` - measured
+  2026-10-01). On a match the voucher is **unioned** into `Check.apvNumbers` - never removed, never
+  replacing - and one `voucher_linked_from_acumatica` audit row is written per cheque changed. Status
+  is **never** touched (rule 4). The readying step of `scripts/link-vouchers-from-acumatica.ts` is
+  not part of the sync.
+- Volumes measured 2026-10-01 (read-only): Go-Live 20,059 rows since 2026-01-01 (8.3 s), 613 since
+  24 Sep (5.7 s); MANUFACTURING 180 / 3.
+- Inquiry payments this system does not hold are counted on the sync run record (`staged`) and
+  shown on `/admin/sync`. They are not staged as rows: they are a lookup that may resolve on the next run.
 - First run with no watermark reads the inquiry in full as a **terminal job**
   (`scripts/sync.ts --bills`), never from the cron — the same rule as the payment sync's first read.
   That run fills every cheque generated since 9 September.
 - The bills read records its own `SyncRun` row per tenant with `mode = 'BILLS'` (the existing
   `mode` string), so its `watermark` never mixes with the payment sync's; the payment sync's
-  "last watermark" lookup must filter on its own mode. Adds the unresolved counts as nullable
-  integer columns; migration required.
+  "last watermark" lookup must filter on its own mode. **No migration**: it reuses `SyncRun`'s
+  existing columns - `imported` = vouchers added, `updated` = cheques changed, `staged` = inquiry
+  payments this system does not hold, `errors`.
 - Acumatica stays read-only (rule 3): only `fetchPage` is used.
 
 ### B2. PO
@@ -140,7 +148,7 @@ no meaning under the new rule. `/admin/sync`'s LAST AUTO-SIGN line now reads "N 
 
 - A **PO NUMBER** column after APV NUMBER in the list, export and printed sheet (a new
   `ColumnKey`, `poNumbers`; the storage key version is bumped, see C3).
-- TODAY'S RELEASE panel on the TOTALS screen: APV and PO beside each cheque.
+- TODAY'S RELEASE shows totals only, so it carries no references.
 - Search already matches APV and PO; unchanged.
 
 ### B tests
