@@ -36,7 +36,9 @@ import { kickPortalDelivery } from '@/lib/sync/portal-kick'
  * audit row per changed cheque, never status. It has its own watermark (BILLS
  * rows on `SyncRun`); with none it records a refusal rather than reading the
  * year, because a first read is `scripts/sync.ts <TENANT> --bills` from a
- * terminal. A BILLS FAILED turns the response 500; a refusal does not.
+ * terminal. A BILLS FAILED turns the response 500; a refusal does not. It runs
+ * only for a tenant whose payment read RAN this time (SKIPPED_PAYMENT_NOT_RUN
+ * otherwise, not a failure).
  *
  * Then AUTO-SIGN (lib/sync/auto-sign.ts): on a Manila Tuesday, the Acumatica
  * cheques first read on the Monday become SIGNED; on any other day the run
@@ -92,8 +94,21 @@ export async function GET(request: Request): Promise<Response> {
 
   // The vouchers each cheque pays (lib/sync/bills.ts), after the payments so a
   // cheque first read this run is already here to be linked. Never status.
+  //
+  // ONLY after a payment read that RAN for the same tenant. Applications for
+  // cheques a failed, refused or in-progress payment read would have brought
+  // in would count as not held, and the BILLS watermark would move past them
+  // for good — a full re-read by hand would be the only way back. Skipping
+  // instead leaves the BILLS watermark where it was, so the next run (after a
+  // payment read that RAN) reads them. A skip is recorded in the response and
+  // is not a failure of the cron.
   const bills: ScheduledBillsOutcome[] = []
   for (const tenant of SYNC_TENANTS) {
+    const payment = outcomes.find((o) => o.tenant === tenant)
+    if (payment?.outcome !== 'RAN') {
+      bills.push({ tenant, outcome: 'SKIPPED_PAYMENT_NOT_RUN' })
+      continue
+    }
     bills.push(
       await runScheduledBillsSync(prisma, { tenant, now, client: () => createClientForTenant(tenant) }),
     )

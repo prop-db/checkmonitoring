@@ -299,6 +299,11 @@ export type ScheduledBillsOutcome =
   | { tenant: AcumaticaTenant; outcome: 'REFUSED_NO_WATERMARK'; syncRunId: string }
   | { tenant: AcumaticaTenant; outcome: 'IN_PROGRESS'; message: string }
   | { tenant: AcumaticaTenant; outcome: 'FAILED'; message: string }
+  /**
+   * The cron did not run the voucher read, because this tenant's payment read
+   * did not RUN (failed, refused, or already in progress). Not a failure.
+   */
+  | { tenant: AcumaticaTenant; outcome: 'SKIPPED_PAYMENT_NOT_RUN' }
 
 /**
  * One tenant's scheduled voucher read, never throwing — `runScheduledSync`

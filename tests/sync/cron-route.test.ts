@@ -150,7 +150,9 @@ describe('GET /api/cron/sync — the run', () => {
 
     const body = await res.json()
     expect(body.outcomes.map((o: { outcome: string }) => o.outcome)).toEqual(['FAILED', 'RAN'])
-    expect(state.requested).toEqual(['GOLIVE', 'MANUFACTURING', 'GOLIVE', 'MANUFACTURING'])
+    // GOLIVE's voucher read is skipped (its payment read did not run), so no
+    // second client is built for it.
+    expect(state.requested).toEqual(['GOLIVE', 'MANUFACTURING', 'MANUFACTURING'])
   })
 
   it('answers 200 when a tenant merely had no watermark — the refusal is recorded, not a fault of the cron', async () => {
@@ -182,6 +184,28 @@ describe('GET /api/cron/sync — the voucher read (BILLS)', () => {
     const body = await res.json()
     expect(body.outcomes.map((o: { outcome: string }) => o.outcome)).toEqual(['RAN', 'RAN'])
     expect(body.bills.map((b: { outcome: string }) => b.outcome)).toEqual(['RAN', 'FAILED'])
+  })
+
+  it('skips BILLS for a tenant whose payment read FAILED, with no BILLS SyncRun row; the other tenant still RAN', async () => {
+    await watermarked('GOLIVE')
+    await watermarked('MANUFACTURING')
+    state.failFor = 'GOLIVE'
+    const res = await get(`Bearer ${SECRET}`)
+    const body = await res.json()
+    expect(body.outcomes.map((o: { outcome: string }) => o.outcome)).toEqual(['FAILED', 'RAN'])
+    expect(body.bills.map((b: { tenant: string; outcome: string }) => [b.tenant, b.outcome]))
+      .toEqual([['GOLIVE', 'SKIPPED_PAYMENT_NOT_RUN'], ['MANUFACTURING', 'RAN']])
+    expect(await testDb.syncRun.count({ where: { mode: 'BILLS', tenant: 'GOLIVE', trigger: 'SCHEDULED' } })).toBe(0)
+    expect(await testDb.syncRun.count({ where: { mode: 'BILLS', tenant: 'MANUFACTURING', trigger: 'SCHEDULED' } })).toBe(1)
+  })
+
+  it('a skipped BILLS read is not a failure of the cron', async () => {
+    await watermarked('GOLIVE')
+    // MANUFACTURING has no payment watermark: its payment read is REFUSED_NO_WATERMARK.
+    const res = await get(`Bearer ${SECRET}`)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.bills.map((b: { outcome: string }) => b.outcome)).toEqual(['RAN', 'SKIPPED_PAYMENT_NOT_RUN'])
   })
 
   it('BILLS REFUSED_NO_WATERMARK is recorded and does not turn the response 500', async () => {
