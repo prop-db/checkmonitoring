@@ -3,7 +3,7 @@ import { cookies } from 'next/headers'
 import { requireUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { listChecks, countChecks, toTableRow, getFilterOptions } from '@/lib/queries'
-import { resolveDashboardQuery, type DashboardSearchParams } from '@/lib/dashboard-params'
+import { resolveDashboardQuery, type RawDashboardSearchParams } from '@/lib/dashboard-params'
 import { dashboardHref } from '@/lib/dashboard-view'
 import { formatMoney } from '@/lib/money'
 import { statusPillClass } from '@/lib/status-pill'
@@ -52,7 +52,7 @@ const fmtDate = (d: Date | null) =>
 export default async function PrintPage({
   searchParams,
 }: {
-  searchParams: Promise<DashboardSearchParams>
+  searchParams: Promise<RawDashboardSearchParams>
 }) {
   const user = await requireUser()
   const params = await searchParams

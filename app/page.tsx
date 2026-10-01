@@ -6,7 +6,7 @@ import {
   getSummary, getTodaysRelease, getPendingSignature, listChecks, countChecks, toTableRow, getFilterOptions,
   columnFilterFields, type ColumnFilters,
 } from '@/lib/queries'
-import { resolveDashboardQuery, type DashboardSearchParams } from '@/lib/dashboard-params'
+import { resolveDashboardQuery, type RawDashboardSearchParams } from '@/lib/dashboard-params'
 import { SORT_COOKIE } from '@/lib/list-sort'
 import { activeFilterColumns, columnParamsOf } from '@/lib/column-filters'
 import {
@@ -72,13 +72,13 @@ import { formatMoney } from '@/lib/money'
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<DashboardSearchParams & {
+  searchParams: Promise<RawDashboardSearchParams & {
     /**
      * TODAY'S RELEASE's confirmation step. It lives in the URL rather than in a
      * `confirm()` dialog so the step exists before any JavaScript does — on the
      * one action in this system that hands money over.
      */
-    confirm?: string
+    confirm?: string | string[]
   }>
 }) {
   const user = await requireUser()

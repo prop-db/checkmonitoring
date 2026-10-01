@@ -45,6 +45,23 @@ export type DashboardSearchParams = {
   dir?: string
 } & Partial<Record<FParam, string>>
 
+/**
+ * What Next actually hands a page: a key repeated in the URL arrives as a
+ * `string[]`. `resolveDashboardQuery` accepts this and reads the FIRST value
+ * of each, as the export route does, so `?f.payee=a&f.payee=b` cannot throw.
+ */
+export type RawDashboardSearchParams = Readonly<Record<string, string | readonly string[] | undefined>>
+
+/** Every parameter reduced to its first value, in one place. */
+function firstValues(raw: RawDashboardSearchParams): DashboardSearchParams {
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(raw)) {
+    const first = typeof v === 'string' ? v : v?.[0]
+    if (first !== undefined) out[k] = first
+  }
+  return out
+}
+
 export type DashboardQuery = {
   /** The trimmed search text, as the search box should render it back. */
   q: string
@@ -84,10 +101,12 @@ export type DashboardQuery = {
 }
 
 export function resolveDashboardQuery(
-  params: DashboardSearchParams,
+  raw: DashboardSearchParams | RawDashboardSearchParams,
   options: FilterOptions,
   context: { sortCookie?: string } = {},
 ): DashboardQuery {
+  // The first value of each key before anything reads one — see RawDashboardSearchParams.
+  const params = firstValues(raw)
   const showAll = params.scope === 'all'
   const live = params.scope === 'live'
 

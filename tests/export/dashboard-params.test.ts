@@ -243,6 +243,18 @@ describe('resolveDashboardQuery', () => {
   })
 
   describe('the column filters', () => {
+    it('reads the FIRST value of a repeated key (Next hands it to the page as string[]) and never throws', () => {
+      const r = resolveDashboardQuery(
+        { status: 'SIGNED', 'f.payee': ['henkel', 'other'], q: ['  first  ', 'second'] },
+        options,
+      )
+      expect(r.filters.payeeContains).toBe('henkel')
+      expect(r.columnValues).toEqual({ 'f.payee': 'henkel' })
+      expect(r.q).toBe('first')
+      expect(r.filters.q).toBe('first')
+      expect(r.refused).toBe(false)
+    })
+
     it('reach the filters, ride in base and open the list', () => {
       const r = resolveDashboardQuery({ status: 'SIGNED', 'f.payee': ' henkel ', 'f.amountMin': '1,000' }, options)
       expect(r.filters.payeeContains).toBe('henkel')
