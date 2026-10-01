@@ -1,4 +1,5 @@
 import { exportHref, printHref, type DashboardSelection } from '@/lib/dashboard-view'
+import { ExportLink } from '@/components/ExportLink'
 
 /**
  * The three things a Finance user does with the list in front of them.
@@ -20,12 +21,12 @@ export function QuickActions({ selection }: { selection: DashboardSelection }) {
       {/* `download` is deliberately absent: the filename is set by the route's
           Content-Disposition, which is the only place that knows the view and
           the date the file was actually generated. */}
-      <a
+      <ExportLink
         href={exportHref(selection)}
         className="rounded-lg bg-navy px-4 py-2 text-sm font-medium tracking-wide text-white transition hover:bg-navy/90"
       >
         EXPORT EXCEL
-      </a>
+      </ExportLink>
 
       <a
         href={printHref(selection)}

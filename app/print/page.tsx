@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { cookies } from 'next/headers'
 import { requireUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { listChecks, countChecks, toTableRow, getFilterOptions } from '@/lib/queries'
@@ -7,6 +8,8 @@ import { dashboardHref } from '@/lib/dashboard-view'
 import { formatMoney } from '@/lib/money'
 import { statusPillClass } from '@/lib/status-pill'
 import { PrintButton } from '@/components/PrintButton'
+import { SORT_COOKIE } from '@/lib/list-sort'
+import { describeRefusal } from '@/lib/column-filters'
 
 /**
  * PRINT RELEASE LIST.
@@ -54,15 +57,24 @@ export default async function PrintPage({
   const user = await requireUser()
   const params = await searchParams
 
+  // The remembered order (part C4): the sheet follows the screen's sort even
+  // when the URL names none. Its COLUMNS stay fixed — this is a release sheet
+  // carried to the vault, not a copy of the screen.
+  const sortCookie = (await cookies()).get(SORT_COOKIE)?.value
+
   const options = await getFilterOptions(prisma)
   const {
-    selection, filters, viewLabel, filterDescription, incomplete,
-  } = resolveDashboardQuery(params, options)
+    selection, filters, viewLabel, filterDescription, incomplete, sort, refused, filterErrors,
+  } = resolveDashboardQuery(params, options, { sortCookie })
 
-  const [rows, matching] = await Promise.all([
-    listChecks(prisma, filters, PRINT_ROW_LIMIT),
-    countChecks(prisma, filters),
-  ])
+  // A refused box prints the refusal, never rows: `buildWhere` would match
+  // nothing anyway, so the database is not asked.
+  const [rows, matching] = refused
+    ? [[] as Awaited<ReturnType<typeof listChecks>>, 0] as const
+    : await Promise.all([
+      listChecks(prisma, filters, PRINT_ROW_LIMIT, sort),
+      countChecks(prisma, filters),
+    ])
 
   // Mapped through `toTableRow` exactly as the dashboard table is: it is what
   // turns a `Prisma.Decimal` into a decimal string, and it drops the fields —
@@ -92,7 +104,9 @@ export default async function PrintPage({
       <header className="border-b-2 border-navy pb-3">
         <h1 className="text-lg font-semibold tracking-wide text-navy">CHECK RELEASE LIST</h1>
         <p className="mt-1 text-sm font-medium tracking-wide text-slate-700">{viewLabel}</p>
-        {filterDescription && (
+        {/* Not when refused: the description would name the very value that
+            could not be read, as if it were a filter this sheet applied. */}
+        {!refused && filterDescription && (
           <p className="mt-0.5 text-xs tracking-wide text-slate-600">{filterDescription}</p>
         )}
         <p className="mt-2 text-xs tracking-wide text-slate-500">
@@ -112,9 +126,15 @@ export default async function PrintPage({
             for the rest.
           </p>
         )}
+        {refused && (
+          // The sheet refuses with the screen and says why it holds no rows.
+          <p role="alert" className="mt-2 whitespace-pre-line text-xs font-semibold tracking-wide text-warning-ink">
+            {describeRefusal(filterErrors)}
+          </p>
+        )}
       </header>
 
-      {printed.length === 0 ? (
+      {refused ? null : printed.length === 0 ? (
         <p className="mt-8 text-sm text-slate-500">NO CHEQUES MATCH THIS SELECTION.</p>
       ) : (
         <table className="mt-4 w-full border-collapse text-xs">

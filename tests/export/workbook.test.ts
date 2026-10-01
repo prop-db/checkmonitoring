@@ -3,9 +3,10 @@ import ExcelJS from 'exceljs'
 import {
   buildExportWorkbook, REGISTER_SHEET, SUMMARY_SHEET,
   REGISTER_HEADERS, HEADER_ROW, FIRST_DATA_ROW,
+  exportColumnOrder, EXPORT_COLUMN_KEYS,
   type ExportInput, type ExportSummary,
 } from '@/lib/export/workbook'
-import { MAX_COLUMN_WIDTH, MIN_COLUMN_WIDTH } from '@/lib/export/report'
+import { MAX_COLUMN_WIDTH, MIN_COLUMN_WIDTH, currencyNumberFormat } from '@/lib/export/report'
 import type { CheckTableRow } from '@/lib/queries'
 
 const GENERATED_AT = new Date(2026, 8, 6, 14, 30)
@@ -431,5 +432,45 @@ describe('a large export', () => {
     }))).getWorksheet(REGISTER_SHEET)!
     expect(ws.getRow(FIRST_DATA_ROW + 2_499).getCell(1).value).toBe('60002' + '02499')
     expect(ws.getCell(`H${FIRST_DATA_ROW + 2_500 + 2}`).value).toBe(2500)
+  })
+})
+
+describe('CHECK REGISTER — the viewer’s column order', () => {
+  it('reads no cols as today’s order, and keeps every column whatever cols names', () => {
+    expect(exportColumnOrder(null)).toEqual([...EXPORT_COLUMN_KEYS])
+    expect(exportColumnOrder('status')).toHaveLength(EXPORT_COLUMN_KEYS.length)
+    expect(exportColumnOrder('status')[0]).toBe('status')
+  })
+
+  it('ignores ACTION, DATE RELEASED, unknown and repeated names', () => {
+    expect(exportColumnOrder('action,releasedAt,nope,amount,amount'))
+      .toEqual(['amount', ...EXPORT_COLUMN_KEYS.filter((k) => k !== 'amount')])
+  })
+
+  it('writes header and cells in that order, with the amount still a formatted number', async () => {
+    const ws = (await readBack(input({ columns: exportColumnOrder('amount,checkNumber') }))).getWorksheet(REGISTER_SHEET)!
+    const header = ws.getRow(HEADER_ROW)
+    expect([1, 2, 3].map((c) => header.getCell(c).value)).toEqual(['AMOUNT', 'CHECK NUMBER', 'APV NUMBER'])
+    const r = ws.getRow(FIRST_DATA_ROW)
+    expect(r.getCell(1).value).toBe(197715.42)
+    expect(r.getCell(1).numFmt).toBe(currencyNumberFormat('PHP'))
+    expect(r.getCell(2).value).toBe('6000240287')
+  })
+
+  it('writes the totals under AMOUNT wherever it stands, its label beside it when it is first', async () => {
+    const ws = (await readBack(input({ columns: exportColumnOrder('amount') }))).getWorksheet(REGISTER_SHEET)!
+    // One data row, one blank row, the count row, then the first currency row.
+    const totalRow = ws.getRow(FIRST_DATA_ROW + 3)
+    expect(totalRow.getCell(1).value).toBe(197715.42)
+    expect(String(totalRow.getCell(2).value)).toMatch(/^TOTAL VALUE — PHP/)
+  })
+
+  it('keeps a cheque with no recorded amount blank, never 0, when AMOUNT moves', async () => {
+    const ws = (await readBack(input({
+      rows: [row({ amount: null })],
+      columns: exportColumnOrder('status,amount'),
+    }))).getWorksheet(REGISTER_SHEET)!
+    expect(ws.getRow(HEADER_ROW).getCell(2).value).toBe('AMOUNT')
+    expect(ws.getRow(FIRST_DATA_ROW).getCell(2).value).toBeNull()
   })
 })

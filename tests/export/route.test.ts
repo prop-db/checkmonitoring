@@ -234,3 +234,59 @@ describe('GET /api/export — the download', () => {
     expect(ws.getCell('A2').value).toBe('SCHEDULED — NO CHEQUES MATCH')
   })
 })
+
+describe('GET /api/export — sort, filters, columns', () => {
+  async function getWithCookie(url: string, cookie: string) {
+    const { GET } = await import('@/app/api/export/route')
+    return GET(new Request(url, { headers: { cookie } }))
+  }
+  const column1 = (ws: ExcelJS.Worksheet) => {
+    const out: string[] = []
+    for (let r = FIRST_DATA_ROW; r <= FIRST_DATA_ROW + 5; r++) {
+      const v = ws.getRow(r).getCell(1).value
+      if (typeof v === 'string' && /^\d/.test(v)) out.push(v)
+    }
+    return out
+  }
+  const seed = async () => {
+    await makeCheck({ checkNumber: '6000000001', amount: '300.00', payeeName: 'HENKEL PHILIPPINES INC.' })
+    await makeCheck({ checkNumber: '6000000002', amount: '100.00', payeeName: 'SHELL PILIPINAS CORP.' })
+    await makeCheck({ checkNumber: '6000000003', amount: '200.00', payeeName: 'HENKEL PHILIPPINES INC.' })
+  }
+
+  it('sorts the file as the URL asks, across every matching cheque', async () => {
+    await seed()
+    const ws = (await sheetsFrom(await get('http://localhost/api/export?scope=all&sort=amount&dir=asc'))).getWorksheet(REGISTER_SHEET)!
+    expect(column1(ws)).toEqual(['6000000002', '6000000003', '6000000001'])
+  })
+
+  it('falls back to the remembered sort when the URL names none', async () => {
+    await seed()
+    const res = await getWithCookie('http://localhost/api/export?scope=all', 'cm_sort=amount:desc')
+    expect(column1((await sheetsFrom(res)).getWorksheet(REGISTER_SHEET)!)).toEqual(['6000000001', '6000000003', '6000000002'])
+  })
+
+  it('narrows by a column filter', async () => {
+    await seed()
+    const ws = (await sheetsFrom(await get('http://localhost/api/export?scope=all&f.payee=henk'))).getWorksheet(REGISTER_SHEET)!
+    expect(column1(ws).sort()).toEqual(['6000000001', '6000000003'])
+  })
+
+  it('orders the columns as the screen does', async () => {
+    await seed()
+    const ws = (await sheetsFrom(await get('http://localhost/api/export?scope=all&cols=amount%2CcheckNumber'))).getWorksheet(REGISTER_SHEET)!
+    expect(ws.getRow(HEADER_ROW).getCell(1).value).toBe('AMOUNT')
+    expect(ws.getRow(HEADER_ROW).getCell(2).value).toBe('CHECK NUMBER')
+  })
+
+  it('refuses with 400 and no file when a filter cannot be read', async () => {
+    await seed()
+    const res = await get('http://localhost/api/export?scope=all&f.amountMin=12x')
+    expect(res.status).toBe(400)
+    expect(res.headers.get('content-type')).toMatch(/^text\/plain/)
+    expect(res.headers.get('content-disposition')).toBeNull()
+    const body = await res.text()
+    expect(body).toContain('NOT AN AMOUNT')
+    expect(body.startsWith('PK')).toBe(false)
+  })
+})

@@ -1,8 +1,10 @@
 import { getSessionUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { getFilterOptions, listChecks, countChecks, toTableRow, getSummary } from '@/lib/queries'
-import { resolveDashboardQuery } from '@/lib/dashboard-params'
-import { buildExportWorkbook } from '@/lib/export/workbook'
+import { resolveDashboardQuery, type DashboardSearchParams } from '@/lib/dashboard-params'
+import { buildExportWorkbook, exportColumnOrder } from '@/lib/export/workbook'
+import { SORT_COOKIE, readCookie } from '@/lib/list-sort'
+import { describeRefusal } from '@/lib/column-filters'
 import { exportFilename } from '@/lib/export/report'
 import { loadSettings } from '@/lib/settings/read'
 
@@ -51,24 +53,32 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const params = new URL(request.url).searchParams
-  const read = (key: string) => params.get(key) ?? undefined
+  // The remembered order (part C4) arrives as a cookie on the download
+  // request — same origin, SameSite=Lax — so the file is ordered as the
+  // screen was even when the URL names no sort.
+  const sortCookie = readCookie(request.headers.get('cookie'), SORT_COOKIE)
 
   // Loaded before the filters are resolved because the company and cash-account
   // ids are validated against the rows the dashboard's dropdowns actually
   // offer — the same list, so the two cannot disagree about what is selectable.
   const [options, settings] = await Promise.all([getFilterOptions(prisma), loadSettings(prisma)])
 
-  const query = resolveDashboardQuery({
-    q: read('q'),
-    status: read('status'),
-    company: read('company'),
-    cashAccount: read('cashAccount'),
-    eligibility: read('eligibility'),
-    incomplete: read('incomplete'),
-    scope: read('scope'),
-    releasedFrom: read('releasedFrom'),
-    releasedTo: read('releasedTo'),
-  }, options)
+  // Every parameter the dashboard reads, through the dashboard's own resolver.
+  // An unknown one is simply never read.
+  // A cast, not a conversion: every value is a string, which is all the type claims.
+  const query = resolveDashboardQuery(
+    Object.fromEntries(params.entries()) as DashboardSearchParams, options, { sortCookie },
+  )
+
+  // A box the screen refused is refused here too — never a file of everything,
+  // and never an empty workbook, which would read as "nothing matches". Answered
+  // before anything is listed or built, so no title can name the refused value.
+  if (query.refused) {
+    return new Response(describeRefusal(query.filterErrors), {
+      status: 400,
+      headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' },
+    })
+  }
 
   const [rows, matching, summary] = await Promise.all([
     /**
@@ -78,7 +88,7 @@ export async function GET(request: Request): Promise<Response> {
      * rather than a slow one. `matching` is read alongside and written into the
      * sheet's title block, so a capped file always states what it left out.
      */
-    listChecks(prisma, query.filters, settings.values['caps.exportRows']),
+    listChecks(prisma, query.filters, settings.values['caps.exportRows'], query.sort),
     countChecks(prisma, query.filters),
     // No filters, exactly as the dashboard's summary cards are counted: a total
     // that quietly reported the filtered subset would read as the whole. The
@@ -101,6 +111,9 @@ export async function GET(request: Request): Promise<Response> {
       generatedBy: user.name,
       totalMatching: matching,
     },
+    // The viewer's on-screen order (added by ExportLink at click time). It
+    // reorders the file's columns and never removes one.
+    columns: exportColumnOrder(params.get('cols')),
   })
 
   const filename = exportFilename(query.viewLabel, generatedAt)

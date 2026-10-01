@@ -8,6 +8,7 @@ import {
 import {
   HEADER_FILL, BAND_FILL, GRID, DATE_FORMAT, COUNT_FORMAT, DATE_WIDTH_SAMPLE, styleHeaderCell,
 } from './sheet-style'
+import { COLUMN_LABELS, type ColumnKey } from '../table-columns'
 
 /**
  * The Excel export, as a workbook.
@@ -27,10 +28,26 @@ import {
 export const REGISTER_SHEET = 'CHECK REGISTER'
 export const SUMMARY_SHEET = 'SUMMARY'
 
-export const REGISTER_HEADERS = [
-  'CHECK NUMBER', 'APV NUMBER', 'PO NUMBER', 'SUPPLIER NAME', 'COMPANY', 'BANK',
-  'CHECK DATE', 'AMOUNT', 'STATUS', 'AVAILABLE DATE', 'PICKUP SCHEDULE',
-] as const
+/**
+ * The file's columns, in their default order — the table's columns less ACTION
+ * and DATE RELEASED. Since part C (2026-10-01) the viewer's on-screen order
+ * reorders them (`cols=`), but never removes one: a file missing AMOUNT because
+ * somebody hid it on screen would be read as complete.
+ */
+export const EXPORT_COLUMN_KEYS = [
+  'checkNumber', 'apvNumbers', 'poNumbers', 'payeeName', 'companyCode', 'bank',
+  'checkDate', 'amount', 'status', 'availablePickupDate', 'scheduledPickupDate',
+] as const satisfies readonly ColumnKey[]
+export type ExportColumnKey = (typeof EXPORT_COLUMN_KEYS)[number]
+
+export const REGISTER_HEADERS: readonly string[] = EXPORT_COLUMN_KEYS.map((k) => COLUMN_LABELS[k])
+
+/** The named columns first, in the order named; every other file column after, in default order. */
+export function exportColumnOrder(cols: string | null | undefined): ExportColumnKey[] {
+  const isExport = (k: string): k is ExportColumnKey => (EXPORT_COLUMN_KEYS as readonly string[]).includes(k)
+  const named = [...new Set((cols ?? '').split(',').map((s) => s.trim()).filter(isExport))]
+  return [...named, ...EXPORT_COLUMN_KEYS.filter((k) => !named.includes(k))]
+}
 
 /**
  * Four lines of title block, one blank row, then the header on row 6 and the
@@ -41,8 +58,6 @@ export const REGISTER_HEADERS = [
 export const TITLE_ROWS = 4
 export const HEADER_ROW = TITLE_ROWS + 2
 export const FIRST_DATA_ROW = HEADER_ROW + 1
-
-const AMOUNT_COLUMN = 8
 
 /**
  * The figures `getSummary` returns, structurally.
@@ -76,6 +91,8 @@ export type ExportInput = {
   rows: readonly CheckTableRow[]
   summary: ExportSummary
   meta: ExportMeta
+  /** The column order (`exportColumnOrder`); default order when absent. */
+  columns?: readonly ExportColumnKey[]
 }
 
 /**
@@ -96,6 +113,56 @@ export type ExportInput = {
  */
 function amountAsNumber(amount: string): number {
   return Number(amount)
+}
+
+type ExportCell = {
+  kind: 'text' | 'date' | 'amount'
+  value: (r: CheckTableRow) => ExcelJS.CellValue
+  /** What the column's width is fitted to — the formatted figure for AMOUNT. */
+  sample: (r: CheckTableRow) => string
+}
+
+const listOrNull = (xs: readonly string[]) => (xs.length ? xs.join(', ') : null)
+const dateCell = (pick: (r: CheckTableRow) => Date | null): ExportCell =>
+  ({ kind: 'date', value: pick, sample: (r) => (pick(r) ? DATE_WIDTH_SAMPLE : '') })
+
+/**
+ * Every file column: what its cell holds, and what its width is fitted to.
+ * Keyed rather than positional, so `cols=` can put them in any order.
+ */
+const EXPORT_CELLS: Record<ExportColumnKey, ExportCell> = {
+  checkNumber: { kind: 'text', value: (r) => r.checkNumber, sample: (r) => r.checkNumber },
+  apvNumbers: { kind: 'text', value: (r) => listOrNull(r.apvNumbers), sample: (r) => listOrNull(r.apvNumbers) ?? '' },
+  poNumbers: { kind: 'text', value: (r) => listOrNull(r.poNumbers), sample: (r) => listOrNull(r.poNumbers) ?? '' },
+  payeeName: { kind: 'text', value: (r) => r.payeeName, sample: (r) => r.payeeName ?? '' },
+  companyCode: { kind: 'text', value: (r) => r.companyCode, sample: (r) => r.companyCode },
+  bank: {
+    kind: 'text',
+    value: (r) => bankLabel(r.cashAccountCode, r.bankCode),
+    sample: (r) => bankLabel(r.cashAccountCode, r.bankCode) ?? '',
+  },
+  checkDate: dateCell((r) => r.checkDate),
+  /**
+   * BLANK, never 0, when the register recorded no amount — wherever AMOUNT stands.
+   *
+   * 129 production cheques are in this state. A zero here would be read as a
+   * cheque genuinely drawn for nothing, and once the file is on somebody's
+   * laptop there is no way left to tell the two apart. The dashboard renders
+   * the same fact as an em dash; a spreadsheet cell has a better answer,
+   * which is nothing at all — it also keeps the cheque out of any SUM the
+   * reader writes themselves.
+   *
+   * The width is measured on the FORMATTED figure ("₱1,234,567,890.12"), not on
+   * the raw decimal string, because the formatted one is what has to fit.
+   */
+  amount: {
+    kind: 'amount',
+    value: (r) => (r.amount === null ? null : amountAsNumber(r.amount)),
+    sample: (r) => (r.amount === null ? '' : formatMoney(r.amount, r.currency)),
+  },
+  status: { kind: 'text', value: (r) => statusWords(r.status), sample: (r) => statusWords(r.status) },
+  availablePickupDate: dateCell((r) => r.availablePickupDate),
+  scheduledPickupDate: dateCell((r) => r.scheduledPickupDate),
 }
 
 /**
@@ -133,7 +200,7 @@ function generatedLine(meta: ExportMeta): string {
   return `Generated ${stamp} by ${meta.generatedBy}`
 }
 
-function buildRegisterSheet(wb: ExcelJS.Workbook, { rows, meta }: ExportInput) {
+function buildRegisterSheet(wb: ExcelJS.Workbook, { rows, meta, columns }: ExportInput) {
   const ws = wb.addWorksheet(REGISTER_SHEET, {
     views: [{ state: 'frozen', ySplit: HEADER_ROW }],
     pageSetup: {
@@ -154,91 +221,55 @@ function buildRegisterSheet(wb: ExcelJS.Workbook, { rows, meta }: ExportInput) {
     generatedLine(meta),
   ])
 
+  // Always a full order, whatever the caller passed: `exportColumnOrder` puts
+  // back any column a partial list left out.
+  const order = exportColumnOrder((columns ?? EXPORT_COLUMN_KEYS).join(','))
+  const amountColumn = order.indexOf('amount') + 1
+
   const header = ws.getRow(HEADER_ROW)
-  REGISTER_HEADERS.forEach((label, i) => {
-    styleHeaderCell(header.getCell(i + 1), label, i + 1 === AMOUNT_COLUMN ? 'right' : 'left')
+  order.forEach((key, i) => {
+    styleHeaderCell(header.getCell(i + 1), COLUMN_LABELS[key], key === 'amount' ? 'right' : 'left')
   })
   header.height = 20
 
   // The text each column will actually show, gathered as the rows are written
-  // so the widths are fitted to real content rather than to a guess. The AMOUNT
-  // column is measured on the FORMATTED figure ("₱1,234,567,890.12"), not on
-  // the raw decimal string, because the formatted one is what has to fit.
-  const widthSamples: string[][] = REGISTER_HEADERS.map(() => [])
+  // so the widths are fitted to real content rather than to a guess.
+  const widthSamples: string[][] = order.map(() => [])
 
   rows.forEach((r, i) => {
     const excelRow = ws.getRow(FIRST_DATA_ROW + i)
-    const apv = r.apvNumbers.length ? r.apvNumbers.join(', ') : null
-    const po = r.poNumbers.length ? r.poNumbers.join(', ') : null
-    const bank = bankLabel(r.cashAccountCode, r.bankCode)
-    const status = statusWords(r.status)
-
-    excelRow.getCell(1).value = r.checkNumber
-    excelRow.getCell(2).value = apv
-    excelRow.getCell(3).value = po
-    excelRow.getCell(4).value = r.payeeName
-    excelRow.getCell(5).value = r.companyCode
-    excelRow.getCell(6).value = bank
-    excelRow.getCell(7).value = r.checkDate
-    /**
-     * BLANK, never 0, when the register recorded no amount.
-     *
-     * 129 production cheques are in this state. A zero here would be read as a
-     * cheque genuinely drawn for nothing, and once the file is on somebody's
-     * laptop there is no way left to tell the two apart. The dashboard renders
-     * the same fact as an em dash; a spreadsheet cell has a better answer,
-     * which is nothing at all — it also keeps the cheque out of any SUM the
-     * reader writes themselves.
-     */
-    excelRow.getCell(8).value = r.amount === null ? null : amountAsNumber(r.amount)
-    excelRow.getCell(9).value = status
-    excelRow.getCell(10).value = r.availablePickupDate
-    excelRow.getCell(11).value = r.scheduledPickupDate
-
-    for (let c = 1; c <= REGISTER_HEADERS.length; c++) {
-      const cell = excelRow.getCell(c)
+    order.forEach((key, c) => {
+      const spec = EXPORT_CELLS[key]
+      const cell = excelRow.getCell(c + 1)
+      cell.value = spec.value(r)
       cell.border = {
         bottom: { style: 'thin', color: { argb: GRID } },
         left: { style: 'thin', color: { argb: GRID } },
         right: { style: 'thin', color: { argb: GRID } },
       }
-      // Banded, so a wide row can be followed across eleven columns on paper.
-      if (i % 2 === 1) {
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BAND_FILL } }
+      // Banded, so a wide row can be followed across the columns on paper.
+      if (i % 2 === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BAND_FILL } }
+      if (spec.kind === 'date') cell.numFmt = DATE_FORMAT
+      if (spec.kind === 'amount') {
+        cell.numFmt = currencyNumberFormat(r.currency)
+        cell.alignment = { horizontal: 'right' }
       }
-    }
-
-    excelRow.getCell(7).numFmt = DATE_FORMAT
-    excelRow.getCell(10).numFmt = DATE_FORMAT
-    excelRow.getCell(11).numFmt = DATE_FORMAT
-    excelRow.getCell(8).numFmt = currencyNumberFormat(r.currency)
-    excelRow.getCell(8).alignment = { horizontal: 'right' }
-
-    widthSamples[0].push(r.checkNumber)
-    widthSamples[1].push(apv ?? '')
-    widthSamples[2].push(po ?? '')
-    widthSamples[3].push(r.payeeName ?? '')
-    widthSamples[4].push(r.companyCode)
-    widthSamples[5].push(bank ?? '')
-    widthSamples[6].push(r.checkDate ? DATE_WIDTH_SAMPLE : '')
-    widthSamples[7].push(r.amount === null ? '' : formatMoney(r.amount, r.currency))
-    widthSamples[8].push(status)
-    widthSamples[9].push(r.availablePickupDate ? DATE_WIDTH_SAMPLE : '')
-    widthSamples[10].push(r.scheduledPickupDate ? DATE_WIDTH_SAMPLE : '')
+      widthSamples[c].push(spec.sample(r))
+    })
   })
 
-  REGISTER_HEADERS.forEach((label, i) => {
-    ws.getColumn(i + 1).width = fitColumnWidth(label, widthSamples[i])
+  order.forEach((key, i) => {
+    ws.getColumn(i + 1).width = fitColumnWidth(COLUMN_LABELS[key], widthSamples[i])
   })
 
   // Over the header and the data only. Extending it across the totals would let
   // a filter hide or strand them.
   ws.autoFilter = {
     from: { row: HEADER_ROW, column: 1 },
-    to: { row: HEADER_ROW + rows.length, column: REGISTER_HEADERS.length },
+    to: { row: HEADER_ROW + rows.length, column: order.length },
   }
 
-  writeTotals(ws, rows)
+  writeTotals(ws, rows, amountColumn)
   return ws
 }
 
@@ -255,24 +286,29 @@ function buildRegisterSheet(wb: ExcelJS.Workbook, { rows, meta }: ExportInput) {
  * what a reader gets if they select the column in Excel. The SUMMARY sheet's
  * value figures answer a different question and say so on their own line.
  */
-function writeTotals(ws: ExcelJS.Worksheet, rows: readonly CheckTableRow[]) {
+function writeTotals(ws: ExcelJS.Worksheet, rows: readonly CheckTableRow[], amountColumn: number) {
+  // The labels sit left of AMOUNT, merged across the columns before it — or,
+  // when the reader put AMOUNT first, in the column right of it, unmerged.
+  const labelColumn = amountColumn > 1 ? 1 : 2
+  const mergeLabel = (row: number) => { if (amountColumn > 2) ws.mergeCells(row, 1, row, amountColumn - 1) }
+
   const totals = totalsByCurrency(rows)
   let r = FIRST_DATA_ROW + rows.length + 1 // one blank row below the table
 
   const countCell = ws.getCell(r, 1)
   countCell.value = `TOTAL — ${rows.length.toLocaleString('en-PH')} CHEQUES EXPORTED`
   countCell.font = { bold: true, size: 11 }
-  ws.mergeCells(r, 1, r, AMOUNT_COLUMN - 1)
+  mergeLabel(r)
   r += 1
 
   for (const t of totals) {
-    const label = ws.getCell(r, 1)
+    const label = ws.getCell(r, labelColumn)
     label.value = `TOTAL VALUE — ${t.currency} (${t.count.toLocaleString('en-PH')} CHEQUE${t.count === 1 ? '' : 'S'})`
     label.font = { bold: true }
-    label.alignment = { horizontal: 'right' }
-    ws.mergeCells(r, 1, r, AMOUNT_COLUMN - 1)
+    label.alignment = { horizontal: amountColumn > 1 ? 'right' : 'left' }
+    mergeLabel(r)
 
-    const value = ws.getCell(r, AMOUNT_COLUMN)
+    const value = ws.getCell(r, amountColumn)
     // null, not 0. Where no amount in the currency is known there is nothing to
     // total, and a ₱0.00 on a totals row is a figure a reader cannot challenge.
     value.value = t.total === null ? null : amountAsNumber(t.total)
