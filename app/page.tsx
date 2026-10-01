@@ -7,6 +7,7 @@ import {
 } from '@/lib/queries'
 import { resolveDashboardQuery, type DashboardSearchParams } from '@/lib/dashboard-params'
 import { SORT_COOKIE } from '@/lib/list-sort'
+import { activeFilterColumns } from '@/lib/column-filters'
 import {
   clearFiltersHref, dashboardScreen, describeView, incompleteHref,
   releaseConfirmHref, releaseCancelHref, signAllConfirmHref, signAllCancelHref, sortLinks, totalsHref,
@@ -123,7 +124,7 @@ export default async function DashboardPage({
 
   const {
     q, status, companyId, cashAccountId, eligibility, incomplete, showAll, selection, filters,
-    releasedFrom, releasedTo, narrowingDescription, sort, activeSort,
+    narrowingDescription, sort, activeSort, columnValues, filterErrors, refused,
   } = resolveDashboardQuery(params, options, { sortCookie })
 
   const narrow = { companyId, cashAccountId, eligibility }
@@ -240,8 +241,8 @@ export default async function DashboardPage({
 
   // LIST never loads TODAY'S RELEASE or the sync overview — that state belongs
   // to the totals screen, and this table has its own row counts to state. It
-  // does read the summary, for the EXCLUDING N WITH NO RECORDED AMOUNT line,
-  // narrowed by the same three dropdowns as the table.
+  // does not read the summary: the EXCLUDING N WITH NO RECORDED AMOUNT line
+  // counts the cheques with no amount that this list's own filters match.
   //
   // With a DATE RELEASED range in force, a third count: the released cheques
   // in this same view that carry NO release instant and so cannot match any
@@ -251,8 +252,8 @@ export default async function DashboardPage({
   const releasedRange = Boolean(filters.releasedFrom || filters.releasedTo)
   // SIGN ALL is offered only when the rows shown are exactly the set it would act on.
   const signAllOffered = status === 'SIGNATURE_PENDING' && !showAll && !q && !incomplete
-  const [summary, rows, matching, undatedReleases, pendingSign] = await Promise.all([
-    getSummary(prisma, narrow),
+  const [excludedIncomplete, rows, matching, undatedReleases, pendingSign] = await Promise.all([
+    countChecks(prisma, { ...filters, incomplete: true }),
     listChecks(prisma, filters, 200, sort),
     countChecks(prisma, filters),
     releasedRange
@@ -323,6 +324,15 @@ export default async function DashboardPage({
         </div>
       )}
 
+      {/* A box that could not be read lists NOTHING rather than being dropped
+          (part C2): an ignored filter reads as an applied one. The box itself
+          says what is wrong; this says why the table is empty. */}
+      {refused && (
+        <p role="alert" className="rounded-lg bg-warning-bg px-4 py-2 text-sm font-semibold text-warning-ink">
+          A FILTER COULD NOT BE READ, SO NOTHING IS LISTED. Correct the box marked in red, or press RESET.
+        </p>
+      )}
+
       {/* ── THE DISCLOSURE ──────────────────────────────────────────────────
           The client asked for the cheques with no recorded amount to be
           taken out of the counts and the table: "ignore them mean you have
@@ -338,10 +348,13 @@ export default async function DashboardPage({
 
           Only when the toggle is OFF: with it on, the reader is already
           looking at them and `describeView` above says so. */}
-      {!incomplete && summary.incomplete > 0 && (
+      {/* The cheques with no amount THIS list's own filters match — view,
+          search, column filters — so the count is exactly what 'Show them'
+          opens (part C2). */}
+      {!incomplete && excludedIncomplete > 0 && (
         <p className="text-xs font-medium tracking-wide text-slate-500">
-          EXCLUDING {summary.incomplete.toLocaleString('en-PH')} CHEQUE
-          {summary.incomplete === 1 ? '' : 'S'} WITH NO RECORDED AMOUNT — not counted in the
+          EXCLUDING {excludedIncomplete.toLocaleString('en-PH')} CHEQUE
+          {excludedIncomplete === 1 ? '' : 'S'} WITH NO RECORDED AMOUNT — not counted in the
           totals and not listed below.{' '}
           <Link href={incompleteHref(selection)} className="underline underline-offset-2">
             Show them
@@ -367,17 +380,12 @@ export default async function DashboardPage({
       )}
 
       <FilterBar
-        options={options}
         showAll={showAll}
         q={q}
         status={status ?? ''}
-        companyId={companyId ?? ''}
-        cashAccountId={cashAccountId ?? ''}
         eligibility={eligibility ?? ''}
         incomplete={incomplete}
-        releasedFrom={releasedFrom}
-        releasedTo={releasedTo}
-        showReleasedRange={status === 'RELEASED' || showAll}
+        hasColumnFilter={Object.keys(columnValues).length > 0}
         clearHref={clearFiltersHref(selection)}
         sort={selection.sort}
         hasSort={activeSort !== null}
@@ -412,6 +420,14 @@ export default async function DashboardPage({
         bulkCap={settings.values['caps.bulkSelection']}
         sort={sort}
         sortLinks={sortLinks(selection, activeSort)}
+        filters={{
+          options,
+          values: columnValues,
+          errors: filterErrors,
+          showStatus: showAll && !status,
+          showReleasedRange: status === 'RELEASED' || showAll,
+          filteredColumns: activeFilterColumns(columnValues),
+        }}
       />
     </main>
   )

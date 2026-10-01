@@ -10,7 +10,7 @@ import {
 } from '@/lib/row-receipts'
 import {
   COLUMN_KEYS, COLUMN_LABELS, ALWAYS_ON, DEFAULT_COLUMNS, COLUMN_STORAGE_KEY,
-  parseColumnPreference, serialiseColumnPreference, toggleColumn, moveColumn, canMoveColumn,
+  parseColumnPreference, serialiseColumnPreference, toggleColumn, moveColumn, canMoveColumn, withColumns,
   type ColumnKey,
 } from '@/lib/table-columns'
 import type { SortKey, SortSpec } from '@/lib/list-sort'
@@ -18,6 +18,7 @@ import type { SortLink } from '@/lib/dashboard-view'
 import { writeSortCookie } from './sort-cookie'
 import { StatusPill } from './StatusPill'
 import { BulkActionBar } from './BulkActionBar'
+import { ColumnFilterCell, type FilterRowState } from './ColumnFilterCell'
 import type { CheckTableRow } from '@/lib/queries'
 
 const fmtDate = (d: Date | null) =>
@@ -136,7 +137,7 @@ function DataCell({ column, r }: { column: DataColumn; r: CheckTableRow }) {
 }
 
 export function CheckTable({
-  rows, canRelease, bulkCap, sort, sortLinks,
+  rows, canRelease, bulkCap, sort, sortLinks, filters,
 }: {
   rows: CheckTableRow[]
   canRelease: boolean
@@ -144,6 +145,8 @@ export function CheckTable({
   /** The order in force (URL, cookie or default) — which header shows an arrow. */
   sort: SortSpec
   sortLinks: Readonly<Record<SortKey, SortLink>>
+  /** The filter row's state, from the server: values to render back, refusals, which boxes apply. */
+  filters: FilterRowState
 }) {
   const router = useRouter()
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
@@ -178,7 +181,8 @@ export function CheckTable({
     }
   }, [])
 
-  const visible = preference
+  // A column with a filter in force is never hidden (part C2).
+  const visible = withColumns(preference, filters.filteredColumns)
   const shown = visible.filter((k): k is DataColumn => k !== 'action')
   const hidden = COLUMN_KEYS.filter((k): k is DataColumn => k !== 'action' && !visible.includes(k))
 
@@ -256,7 +260,11 @@ export function CheckTable({
               <span>{COLUMN_LABELS[key]} <span className="text-slate-400">(ALWAYS SHOWN)</span></span>
             ) : (
               <label className="flex items-center gap-2">
-                <input type="checkbox" checked onChange={() => persist(toggleColumn(visible, key))} />
+                <input
+                  type="checkbox" checked onChange={() => persist(toggleColumn(visible, key))}
+                  disabled={filters.filteredColumns.includes(key)}
+                  title={filters.filteredColumns.includes(key) ? 'FILTERED — CLEAR ITS FILTER TO HIDE IT' : undefined}
+                />
                 {COLUMN_LABELS[key]}
               </label>
             )}
@@ -305,6 +313,19 @@ export function CheckTable({
               {shown.map((key) => <SortHeader key={key} column={key} sort={sort} link={sortLinks[key]} />)}
               <th className="px-4 py-3">OR / CR</th>
               <th className="px-4 py-3">{COLUMN_LABELS.action}</th>
+            </tr>
+            {/* THE FILTER ROW (part C2). Keyed on the dropdown values for the
+                reason FilterBar's form is: a soft navigation that changes them
+                from elsewhere leaves a mounted <select> showing the old one. */}
+            <tr key={`${filters.values.company ?? ''}|${filters.values.cashAccount ?? ''}|${filters.values['f.status'] ?? ''}`} className="align-top">
+              <th className="px-4 pb-3" />
+              {shown.map((key) => (
+                <th key={key} className="px-4 pb-3 font-normal">
+                  <ColumnFilterCell column={key} state={filters} />
+                </th>
+              ))}
+              <th className="px-4 pb-3" />
+              <th className="px-4 pb-3" />
             </tr>
           </thead>
           <tbody>

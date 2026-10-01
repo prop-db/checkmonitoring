@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   F_PARAMS, FILTER_MESSAGES, COLUMN_FILTER_PARAMS, parseAmountBound, parseColumnFilters,
-  describeColumnFilters, columnParamsOf, describeRefusal,
+  describeColumnFilters, columnParamsOf, describeRefusal, activeFilterColumns,
 } from '@/lib/column-filters'
 import { SORT_KEYS } from '@/lib/list-sort'
 
@@ -86,5 +86,15 @@ describe('columnParamsOf and describeRefusal', () => {
   it('states every refused box', () => {
     expect(describeRefusal({ 'f.amountMin': FILTER_MESSAGES.amount }))
       .toBe(`A FILTER COULD NOT BE READ, SO NOTHING WAS LISTED.\nAMOUNT (MIN): ${FILTER_MESSAGES.amount}`)
+  })
+})
+
+describe('activeFilterColumns', () => {
+  it('names each column with a box in force, in column order', () => {
+    expect(activeFilterColumns({ 'f.payee': 'x', company: 'c1', releasedTo: '2026-09-01', 'f.amountMin': '1' }))
+      .toEqual(['payeeName', 'companyCode', 'amount', 'releasedAt'])
+  })
+  it('ignores the search, the eligibility and an empty value', () => {
+    expect(activeFilterColumns({ q: 'x', eligibility: 'SUPPLIER', 'f.apv': '' })).toEqual([])
   })
 })

@@ -69,17 +69,23 @@ export function FilterAutoSubmit({ applyButtonId }: { applyButtonId: string }) {
       go()
     }
 
+    // The filter row's controls sit in the table head, outside the form
+    // element, joined to it by `form=` (part C2). Their events never bubble to
+    // the form, so listen on the document and keep only this form's controls.
+    const owns = (t: EventTarget | null): t is HTMLInputElement | HTMLSelectElement =>
+      (t instanceof HTMLInputElement || t instanceof HTMLSelectElement) && t.form === form
+
     const onChange = (e: Event) => {
-      // A `change` on the text box fires on blur and would double-submit behind
-      // the debounce. The dropdowns and the tick-box are what this is for.
       const t = e.target
+      if (!owns(t)) return
+      // A `change` on a text box fires on blur and would double-submit behind the debounce.
       if (t instanceof HTMLInputElement && t.type === 'text') return
       go()
     }
 
     const onInput = (e: Event) => {
       const t = e.target
-      if (!(t instanceof HTMLInputElement) || t.type !== 'text') return
+      if (!owns(t) || !(t instanceof HTMLInputElement) || t.type !== 'text') return
       if (timer.current) clearTimeout(timer.current)
       // Debounced rather than fired per keystroke: "6000240287" is ten
       // round trips to Neon and ten table renders, for nine results nobody
@@ -88,14 +94,14 @@ export function FilterAutoSubmit({ applyButtonId }: { applyButtonId: string }) {
     }
 
     form.addEventListener('submit', onSubmit)
-    form.addEventListener('change', onChange)
-    form.addEventListener('input', onInput)
+    document.addEventListener('change', onChange)
+    document.addEventListener('input', onInput)
 
     return () => {
       if (timer.current) clearTimeout(timer.current)
       form.removeEventListener('submit', onSubmit)
-      form.removeEventListener('change', onChange)
-      form.removeEventListener('input', onInput)
+      document.removeEventListener('change', onChange)
+      document.removeEventListener('input', onInput)
       // Put APPLY back if this ever unmounts while the form stays: leaving a
       // form with no way to submit is worse than an extra button.
       if (apply) apply.hidden = false

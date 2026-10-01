@@ -1,7 +1,6 @@
 import { ELIGIBILITIES } from '@/lib/queries'
-import type { FilterOptions } from '@/lib/queries'
-import { bankLabel } from '@/lib/export/report'
 import type { SortSpec } from '@/lib/list-sort'
+import { LIST_FILTER_FORM } from '@/lib/column-filters'
 import { FilterAutoSubmit } from './FilterAutoSubmit'
 import { ResetLink } from './ResetLink'
 
@@ -9,8 +8,9 @@ import { ResetLink } from './ResetLink'
 const APPLY_ID = 'filter-apply'
 
 /**
- * The dashboard's filter bar: one row — SEARCH · COMPANY · BANK · ELIGIBILITY ·
- * DATE RELEASED (RELEASED and ALL CHEQUES views only) · INCOMPLETE · RESET.
+ * The dashboard's filter bar: SEARCH · ELIGIBILITY · INCOMPLETE · RESET. Every
+ * other filter is a box in the table's filter row (components/ColumnFilterCell.tsx),
+ * joined to this form by `form="list-filters"` — a native submit still sends it.
  *
  * A plain `<form method="get">`, deliberately, and still one. Every control
  * writes a URL parameter, which is what makes a filtered view linkable,
@@ -30,11 +30,10 @@ const APPLY_ID = 'filter-apply'
  * that is not negotiable, so the button is hidden rather than removed.
  * ──────────────────────────────────────────────────────────────────────────
  *
- * The options are passed in, loaded from the database by the page. Nothing here
- * is hardcoded: a ninth company or a seventh cash account appears on this bar
- * without a code change. The eligibilities come from the domain's own list for
- * the same reason — a restatement is how one file ends up with a value another
- * one has never heard of.
+ * The company and bank options reach the filter row from the page, loaded from
+ * the database — nothing hardcoded. The eligibilities come from the domain's
+ * own list for the same reason — a restatement is how one file ends up with a
+ * value another one has never heard of.
  *
  * The page validates every value it reads back, so an unrecognised parameter is
  * ignored rather than passed to Prisma. See `parseStatusParam` and friends.
@@ -46,22 +45,15 @@ const APPLY_ID = 'filter-apply'
  * did not read the cards as filters while a dropdown was competing with them.
  */
 export function FilterBar({
-  options, showAll, q, status, companyId, cashAccountId, eligibility, incomplete,
-  releasedFrom, releasedTo, showReleasedRange, clearHref, sort, hasSort,
+  showAll, q, status, eligibility, incomplete, hasColumnFilter, clearHref, sort, hasSort,
 }: {
-  options: FilterOptions
   showAll: boolean
   q: string
   status: string
-  companyId: string
-  cashAccountId: string
   eligibility: string
   incomplete: boolean
-  /** The validated DATE RELEASED days, or `''`. */
-  releasedFrom: string
-  releasedTo: string
-  /** True on the RELEASED and ALL CHEQUES views — the only views a release date can narrow. */
-  showReleasedRange: boolean
+  /** A box in the table's filter row is in force, so RESET has something to clear. */
+  hasColumnFilter: boolean
   clearHref: string
   /** The URL's own sort (`selection.sort`), carried by the hidden inputs — never the cookie's. */
   sort: SortSpec | undefined
@@ -73,7 +65,7 @@ export function FilterBar({
   // The status is NOT counted. It is the view, not a filter, and RESET
   // deliberately keeps it: a bar offering RESET on an otherwise untouched
   // SIGNED view would promise to clear something it does not clear.
-  const anyFilter = Boolean(q || companyId || cashAccountId || eligibility || incomplete || releasedFrom || releasedTo || hasSort)
+  const anyFilter = Boolean(q || eligibility || incomplete || hasColumnFilter || hasSort)
 
   const field = 'h-10 rounded-lg border border-hairline bg-white px-3 text-sm text-slate-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy'
 
@@ -83,14 +75,15 @@ export function FilterBar({
     // "Back to the cheques with amounts") are soft navigations that leave this
     // form mounted — without a key the INCOMPLETE ONLY box kept its old state
     // and the next dropdown change silently submitted it, undoing the toggle.
-    // `q` and the two dates are deliberately NOT in the key: `FilterAutoSubmit`
+    // `q` is deliberately NOT in the key: `FilterAutoSubmit`
     // depends on the DOM surviving each debounced submit — that is what keeps
     // the caret in the search box — and a key carrying `q` remounted the form on
     // every keystroke's submit and threw the reader out (caught in review,
     // 2026-09-29). RESET below is a full navigation, which is how the text
     // boxes get their defaults re-applied.
     <form
-      key={`${status}|${companyId}|${cashAccountId}|${eligibility}|${incomplete}`}
+      id={LIST_FILTER_FORM}
+      key={`${status}|${showAll}|${eligibility}|${incomplete}`}
       className="flex flex-wrap items-center gap-2 rounded-2xl bg-white p-3 ring-1 ring-hairline"
       method="get"
     >
@@ -119,26 +112,6 @@ export function FilterBar({
         className={`${field} min-w-[16rem] flex-1`}
       />
 
-      <label className="sr-only" htmlFor="filter-company">COMPANY</label>
-      <select id="filter-company" name="company" defaultValue={companyId} className={field}>
-        <option value="">ALL COMPANIES</option>
-        {options.companies.map((c) => (
-          <option key={c.id} value={c.id}>{c.code}</option>
-        ))}
-      </select>
-
-      {/* Labelled by the cash account code — "BPI STK" is what Finance says out
-          loud, and the bank alone would not distinguish two accounts at the
-          same bank. The bank code is shown beside it for the reader who knows
-          the institution but not the account. */}
-      <label className="sr-only" htmlFor="filter-cash-account">BANK / CASH ACCOUNT</label>
-      <select id="filter-cash-account" name="cashAccount" defaultValue={cashAccountId} className={field}>
-        <option value="">ALL BANKS / CASH ACCOUNTS</option>
-        {options.cashAccounts.map((a) => (
-          <option key={a.id} value={a.id}>{bankLabel(a.code, a.bankCode)}</option>
-        ))}
-      </select>
-
       <label className="sr-only" htmlFor="filter-eligibility">ELIGIBILITY</label>
       <select id="filter-eligibility" name="eligibility" defaultValue={eligibility} className={field}>
         <option value="">ALL ELIGIBILITIES</option>
@@ -146,32 +119,6 @@ export function FilterBar({
           <option key={e} value={e}>{e}</option>
         ))}
       </select>
-
-      {/* DATE RELEASED — only where a released cheque can be. On NEEDS ACTION,
-          READY, SIGNED and PENDING the boxes are not rendered at all: a live
-          cheque has no release instant, so a range there could only empty the
-          table, and the resolver drops the parameters on those views anyway.
-          Two plain date inputs: a native GET submit sends them, the enhancement
-          submits them on change like the dropdowns, and `filterHref` drops an
-          empty one the way it drops an empty search. */}
-      {showReleasedRange && (
-        <>
-          <label htmlFor="filter-released-from" className="whitespace-nowrap text-[11px] font-semibold tracking-widest text-slate-500">
-            DATE RELEASED FROM
-          </label>
-          <input
-            id="filter-released-from" name="releasedFrom" type="date" defaultValue={releasedFrom}
-            className={field}
-          />
-          <label htmlFor="filter-released-to" className="whitespace-nowrap text-[11px] font-semibold tracking-widest text-slate-500">
-            TO
-          </label>
-          <input
-            id="filter-released-to" name="releasedTo" type="date" defaultValue={releasedTo}
-            className={field}
-          />
-        </>
-      )}
 
       {/* The 129 cheques whose amount the register never recorded. A narrowing
           filter, never a view: incompleteness cuts across every status (50

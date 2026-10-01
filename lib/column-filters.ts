@@ -1,6 +1,7 @@
 import type { CheckStatus } from '@prisma/client'
 import type { ColumnFilters } from './queries'
 import type { SortKey } from './list-sort'
+import { COLUMN_KEYS, type ColumnKey } from './table-columns'
 import { isIsoDay } from './domain/details'
 import { manilaDayStart, manilaDayEnd } from './audit-view'
 import { LIVE_STATUSES, CLOSED_STATUSES } from './domain/check-status'
@@ -47,6 +48,12 @@ export const COLUMN_FILTER_PARAMS = {
   scheduledPickupDate: ['f.scheduledPickupDateFrom', 'f.scheduledPickupDateTo'],
   releasedAt: ['releasedFrom', 'releasedTo'],
 } as const satisfies Record<SortKey, readonly string[]>
+
+/** The columns a box is in force on — kept on screen whatever the preference says. */
+export function activeFilterColumns(values: Readonly<Record<string, string>>): ColumnKey[] {
+  return COLUMN_KEYS.filter((k): k is keyof typeof COLUMN_FILTER_PARAMS =>
+    k !== 'action' && COLUMN_FILTER_PARAMS[k as keyof typeof COLUMN_FILTER_PARAMS].some((p) => Boolean(values[p])))
+}
 
 export const FILTER_MESSAGES = {
   day: 'NOT A DAY — TYPE YYYY-MM-DD',
