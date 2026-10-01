@@ -560,7 +560,12 @@ Plans 1 and 2 complete. Plan 3 is superseded by `docs/superpowers/plans/2026-09-
 `lib/sync/portal-outbox.ts` to the portal's `POST /api/integrations/check-monitoring/events`
 with `PORTAL_BASE_URL` / `PORTAL_TOKEN` (a bearer, no session), latest event per cheque wins,
 `/admin/portal` shows what parked. Pickup confirmations back (old Task 6) remain a follow-up.
-**1,625 tests across 121 files** (measured, full run 2026-10-01, 23.0 minutes, 0 failures, on the
+**1,777 tests across 125 files** (measured, full run 2026-10-01, 31.0 minutes, 0 failures, on
+`feature/apv-po-and-table` — parts B and C — after merging master) — +152 and 4 files over the 1,625:
+`sync/bills` and `integrations/acumatica-bills` (new, the BILLS read), `list-sort` and `column-filters`
+(new, part C), and `queries`, `dashboard-view`, `dashboard-links`, `table-columns`, `export/*`,
+`actions/bulk-actions`, `import/upsert`, `sync/run`, `sync/cron-route`, `admin/sync-overview` extended.
+1,625 across 121 (measured, full run 2026-10-01, 23.0 minutes, 0 failures, on the
 merge of both branches below). Two branches measured from the same 1,543 base on 2026-10-01, each 0 failures:
 **1,600 across 120** on `feature/numbering-cancel-guard` before its merge (22.2 minutes; the CANCELLED
 guard, close-unmatchable-cancelled and NUMBERING, +57 across 7 new files), and **1,568 across 114** on
