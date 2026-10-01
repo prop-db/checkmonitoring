@@ -3,7 +3,7 @@ import {
   isCardSelected, cardHref, incompleteHref, clearFiltersHref, describeView, viewStatusFilter,
   releaseConfirmHref, releaseCancelHref, signAllConfirmHref, signAllCancelHref, TODAYS_RELEASE_ANCHOR,
   exportHref, EXPORT_PATH, dashboardHref, printHref,
-  dashboardScreen, totalsHref,
+  dashboardScreen, totalsHref, sortHref,
   type DashboardSelection,
 } from '@/lib/dashboard-view'
 import { LIVE_STATUSES } from '@/lib/domain/check-status'
@@ -405,5 +405,45 @@ describe('SIGN ALL links', () => {
     const s: DashboardSelection = { status: 'SIGNATURE_PENDING', showAll: false, incomplete: false, live: false, base: { company: 'c1' } }
     expect(signAllConfirmHref(s)).toBe('/?company=c1&status=SIGNATURE_PENDING&confirm=sign')
     expect(signAllCancelHref(s)).toBe('/?company=c1&status=SIGNATURE_PENDING')
+  })
+})
+
+describe('the sort in the URL', () => {
+  const SORTED: DashboardSelection = { ...NARROWED, status: 'SIGNED', sort: { key: 'amount', dir: 'asc' } }
+
+  it('rides along on a card, after the view', () => {
+    expect(cardHref('RELEASED', SORTED))
+      .toBe('/?q=ACME&company=c1&cashAccount=a1&eligibility=ELIGIBLE&status=RELEASED&sort=amount&dir=asc')
+  })
+
+  it('rides along on the incomplete toggle, the export, the print and the way back', () => {
+    expect(incompleteHref(SORTED))
+      .toBe('/?q=ACME&company=c1&cashAccount=a1&eligibility=ELIGIBLE&status=SIGNED&incomplete=1&sort=amount&dir=asc')
+    expect(exportHref(SORTED)).toBe(`${EXPORT_PATH}?q=ACME&company=c1&cashAccount=a1&eligibility=ELIGIBLE&status=SIGNED&sort=amount&dir=asc`)
+    expect(dashboardHref(SORTED)).toBe('/?q=ACME&company=c1&cashAccount=a1&eligibility=ELIGIBLE&status=SIGNED&sort=amount&dir=asc')
+  })
+
+  it('rides along on SIGN ALL confirm and cancel', () => {
+    expect(signAllConfirmHref(SORTED)).toContain('sort=amount&dir=asc')
+    expect(signAllConfirmHref(SORTED)).toContain('confirm=sign')
+    expect(signAllCancelHref(SORTED)).toContain('sort=amount&dir=asc')
+    expect(signAllCancelHref(SORTED)).not.toContain('confirm')
+  })
+
+  it('is dropped by RESET and by BACK TO TOTALS', () => {
+    expect(clearFiltersHref(SORTED)).toBe('/?status=SIGNED')
+    expect(totalsHref(SORTED)).toBe('/?company=c1&cashAccount=a1&eligibility=ELIGIBLE')
+  })
+
+  it('writes the next sort, or none for the default — and stays on the list', () => {
+    expect(sortHref(SORTED, { key: 'payeeName', dir: 'desc' }))
+      .toBe('/?q=ACME&company=c1&cashAccount=a1&eligibility=ELIGIBLE&status=SIGNED&sort=payeeName&dir=desc')
+    expect(sortHref({ ...NOTHING, live: true }, null)).toBe('/?scope=live')
+    expect(sortHref(NOTHING, { key: 'amount', dir: 'asc' })).toBe('/?scope=live&sort=amount&dir=asc')
+  })
+
+  it('opens the LIST on its own, and so does any f.* filter', () => {
+    expect(dashboardScreen({ ...NOTHING, sort: { key: 'amount', dir: 'asc' } })).toBe('LIST')
+    expect(dashboardScreen({ ...NOTHING, base: { company: 'c1', 'f.payee': 'henkel' } })).toBe('LIST')
   })
 })

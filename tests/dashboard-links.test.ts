@@ -144,3 +144,10 @@ describe('dashboardHref', () => {
     expect(dashboardHref(sel)).not.toContain('confirm')
   })
 })
+
+describe('printHref carries the sort', () => {
+  it('as the screen had it', () => {
+    expect(printHref({ ...NOTHING, showAll: true, sort: { key: 'status', dir: 'desc' } }))
+      .toBe(`${PRINT_PATH}?scope=all&sort=status&dir=desc`)
+  })
+})

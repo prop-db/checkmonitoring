@@ -1,5 +1,6 @@
 import type { CheckStatus } from '@prisma/client'
 import { LIVE_STATUSES } from './domain/check-status'
+import type { SortSpec } from './list-sort'
 
 /**
  * The dashboard's filtering model, as URL arithmetic.
@@ -107,11 +108,18 @@ export type DashboardSelection = {
    * `describeView` says what it says. `status` and `scope=all` win over it.
    */
   live: boolean
+  /**
+   * The order the URL asked for (`sort` + `dir`), and ONLY that — absent when
+   * the URL names none, even if the `cm_sort` cookie supplied one. A cookie
+   * sort never enters a link; the export and print read the cookie
+   * themselves. Optional so the many literal selections in tests stay valid.
+   */
+  sort?: SortSpec
   base: Readonly<Record<string, string>>
 }
 
 type ViewState = Pick<DashboardSelection, 'status' | 'showAll'>
-type LinkState = ViewState & { incomplete: boolean; live?: boolean; confirmRelease?: boolean; confirmSign?: boolean }
+type LinkState = ViewState & { incomplete: boolean; live?: boolean; confirmRelease?: boolean; confirmSign?: boolean; sort?: SortSpec | null }
 
 /**
  * A dashboard URL. `base` first so the narrowing filters keep a stable order,
@@ -126,6 +134,7 @@ function query(base: Readonly<Record<string, string>>, view: LinkState): string 
   // opens the list. `status` and `scope=all` win.
   else if (view.live && !view.status) qs.set('scope', 'live')
   if (view.incomplete) qs.set('incomplete', '1')
+  if (view.sort) { qs.set('sort', view.sort.key); qs.set('dir', view.sort.dir) }
   // Only ever set by `releaseConfirmHref`. Every other caller omits it, which is
   // how choosing a card or clearing the filters also steps back out of a
   // half-made release rather than carrying the confirmation along.
@@ -168,11 +177,11 @@ export function cardHref(card: CardId, sel: DashboardSelection): string {
 
   // A deselected card lands on the NEEDS ACTION LIST, not on the totals: the
   // reader was looking at a table and clicked to widen it, not to leave it.
-  if (selected) return href(sel.base, { ...NEEDS_ACTION, incomplete: sel.incomplete, live: true })
+  if (selected) return href(sel.base, { ...NEEDS_ACTION, incomplete: sel.incomplete, live: true, sort: sel.sort })
 
-  if (card === 'TOTAL_CHECKS') return href(sel.base, { status: null, showAll: true, incomplete: sel.incomplete })
+  if (card === 'TOTAL_CHECKS') return href(sel.base, { status: null, showAll: true, incomplete: sel.incomplete, sort: sel.sort })
 
-  return href(sel.base, { status: card, showAll: false, incomplete: sel.incomplete })
+  return href(sel.base, { status: card, showAll: false, incomplete: sel.incomplete, sort: sel.sort })
 }
 
 /**
@@ -195,7 +204,7 @@ export function incompleteHref(sel: DashboardSelection): string {
   // TOTALS for one company. `live` writes `scope=live` there (review, 2026-09-29).
   return href(sel.base, {
     status: sel.status, showAll: sel.showAll, incomplete: !sel.incomplete,
-    live: sel.live || (!sel.status && !sel.showAll),
+    live: sel.live || (!sel.status && !sel.showAll), sort: sel.sort,
   })
 }
 
@@ -204,6 +213,7 @@ export function incompleteHref(sel: DashboardSelection): string {
  * the view being read. It is not a link to `/` — clearing a search should not
  * also throw the user back to a different set of cheques.
  */
+// RESET also drops the sort; the button deletes the remembered one too — components/ResetLink.tsx.
 export function clearFiltersHref(sel: DashboardSelection): string {
   // RESET sits on the list's filter bar, so what it leaves must still be the
   // list: on NEEDS ACTION, with every filter gone, that is a bare `/` — the
@@ -277,7 +287,7 @@ export const EXPORT_PATH = '/api/export'
  */
 export function exportHref(sel: DashboardSelection): string {
   const s = query(sel.base, {
-    status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete, live: sel.live,
+    status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete, live: sel.live, sort: sel.sort,
   })
   return s ? `${EXPORT_PATH}?${s}` : EXPORT_PATH
 }
@@ -290,7 +300,7 @@ export function exportHref(sel: DashboardSelection): string {
  */
 export function dashboardHref(sel: DashboardSelection): string {
   return href(sel.base, {
-    status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete, live: sel.live,
+    status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete, live: sel.live, sort: sel.sort,
   })
 }
 
@@ -311,7 +321,7 @@ export const PRINT_PATH = '/print'
  */
 export function printHref(sel: DashboardSelection): string {
   const s = query(sel.base, {
-    status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete, live: sel.live,
+    status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete, live: sel.live, sort: sel.sort,
   })
   return s ? `${PRINT_PATH}?${s}` : PRINT_PATH
 }
@@ -386,22 +396,37 @@ export function describeView(sel: DashboardSelection): string {
  * LIST. It fails closed on purpose: a filter the TOTALS screen does not read
  * must not render as totals it silently does not narrow. `base` is only ever
  * built from validated, non-empty values (`resolveDashboardQuery`), so an
- * empty search box does not count as one.
+ * empty search box does not count as one. A `sort` on the URL is a LIST
+ * parameter too: the TOTALS screen does not sort.
  */
 export type DashboardScreen = 'TOTALS' | 'LIST'
 
 export function dashboardScreen(sel: DashboardSelection): DashboardScreen {
-  const listed = sel.status !== null || sel.showAll || sel.incomplete || sel.live
+  const listed = sel.status !== null || sel.showAll || sel.incomplete || sel.live || sel.sort !== undefined
     || Object.keys(sel.base).some((k) => !(TOTALS_KEYS as readonly string[]).includes(k))
   return listed ? 'LIST' : 'TOTALS'
 }
 
 /** SIGN ALL's confirmation: the same list, with `confirm=sign`. */
 export function signAllConfirmHref(sel: DashboardSelection): string {
-  return href(sel.base, { status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete, confirmSign: true })
+  return href(sel.base, { status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete, confirmSign: true, sort: sel.sort })
 }
 
 /** CANCEL: the same list, confirmation dropped. */
 export function signAllCancelHref(sel: DashboardSelection): string {
-  return href(sel.base, { status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete })
+  return href(sel.base, { status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete, sort: sel.sort })
+}
+
+/**
+ * A header click: the same list, with `next` as its order — or with no
+ * order at all (`null`, the third click), which falls back to the cookie
+ * and then the default; the header's click handler deletes the cookie in
+ * that case (components/sort-cookie.ts). `scope=live` on NEEDS ACTION for
+ * the reason `incompleteHref` gives: a bare `/` is the TOTALS.
+ */
+export function sortHref(sel: DashboardSelection, next: SortSpec | null): string {
+  return href(sel.base, {
+    status: sel.status, showAll: sel.showAll, incomplete: sel.incomplete,
+    live: sel.live || (!sel.status && !sel.showAll), sort: next,
+  })
 }
