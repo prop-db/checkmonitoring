@@ -119,8 +119,8 @@ describe('GET /api/export — the download', () => {
     const ws = wb.getWorksheet(REGISTER_SHEET)!
     expect(ws.getRow(HEADER_ROW).getCell(1).value).toBe('CHECK NUMBER')
     expect(ws.getRow(FIRST_DATA_ROW).getCell(1).value).toBe(check.checkNumber)
-    expect(ws.getRow(FIRST_DATA_ROW).getCell(3).value).toBe('HENKEL PHILIPPINES INC.')
-    expect(ws.getRow(FIRST_DATA_ROW).getCell(7).value).toBe(197715.42)
+    expect(ws.getRow(FIRST_DATA_ROW).getCell(4).value).toBe('HENKEL PHILIPPINES INC.')
+    expect(ws.getRow(FIRST_DATA_ROW).getCell(8).value).toBe(197715.42)
   })
 
   it('names the user who generated it', async () => {
@@ -161,8 +161,8 @@ describe('GET /api/export — the download', () => {
     // The default exclusion rides along, as of 2026-09-06 — see the note on the
     // unrecognised-parameter test below.
     expect(ws.getCell('A3').value).toBe('SEARCH: "henkel"  ·  EXCLUDES RECORDS WITH NO AMOUNT')
-    expect(ws.getRow(FIRST_DATA_ROW).getCell(3).value).toBe('HENKEL PHILIPPINES INC.')
-    expect(ws.getRow(FIRST_DATA_ROW + 1).getCell(3).value).toBeNull()
+    expect(ws.getRow(FIRST_DATA_ROW).getCell(4).value).toBe('HENKEL PHILIPPINES INC.')
+    expect(ws.getRow(FIRST_DATA_ROW + 1).getCell(4).value).toBeNull()
   })
 
   it('opens on the NEEDS ACTION view when no parameters are given, like the dashboard', async () => {
@@ -207,7 +207,7 @@ describe('GET /api/export — the download', () => {
     await makeCheck({ status: 'SIGNED', amount: null })
     const ws = (await sheetsFrom(await get('http://localhost/api/export?status=SIGNED&incomplete=1')))
       .getWorksheet(REGISTER_SHEET)!
-    expect(ws.getRow(FIRST_DATA_ROW).getCell(7).value).toBeNull()
+    expect(ws.getRow(FIRST_DATA_ROW).getCell(8).value).toBeNull()
   })
 
   it('writes the system-wide figures onto the SUMMARY sheet', async () => {
