@@ -2,7 +2,8 @@ import Link from 'next/link'
 import { formatMoney } from '@/lib/money'
 import { TODAYS_RELEASE_ANCHOR } from '@/lib/dashboard-view'
 import type { TodaysRelease } from '@/lib/queries'
-import { ReleaseAllConfirm, type ReleaseNarrowing } from './ReleaseAllConfirm'
+import { releaseAllReadyAction } from '@/app/checks/bulk-actions'
+import { ConfirmAllForm, type ConfirmNarrowing } from './ConfirmAllForm'
 
 /**
  * TODAY'S RELEASE — the answer to "what do I do today".
@@ -35,7 +36,7 @@ export function TodaysReleasePanel({
   confirming: boolean
   confirmHref: string
   cancelHref: string
-  narrow: ReleaseNarrowing
+  narrow: ConfirmNarrowing
 }) {
   const { count, totalsByCurrency } = todays
   const nothingToDo = count === 0
@@ -89,25 +90,41 @@ export function TodaysReleasePanel({
         </>
       )}
 
-      {canRelease && !nothingToDo && (
+      {/* While confirming, the block stays mounted even once the count reaches
+          zero: the action revalidates this page, and when every cheque was
+          released the count IS zero — unmounting here would throw away the
+          "N OF N RELEASED" report the reader is waiting for. */}
+      {canRelease && (
         confirming ? (
           <div className="mt-4 rounded-xl bg-white p-4 ring-1 ring-rose-300">
-            {/* The confirmation names the count AND the total, because those are
-                the two facts being agreed to. Rendered by the SERVER: reaching
-                this text required following a link, not a click that fired. */}
-            <p className="text-sm font-semibold text-rose-900">
-              RELEASE {count.toLocaleString('en-PH')} CHEQUE{count === 1 ? '' : 'S'}
-              {totalsByCurrency.length > 0 && ' — '}
-              {totalsByCurrency.map((t) => formatMoney(t.total, t.currency)).join(' + ')}?
-            </p>
-            <p className="mt-1 text-sm text-slate-700">
-              This records that the cheques have been physically handed over. It cannot be undone:
-              the only status after RELEASED is VOIDED. Each cheque is checked on its own, and any
-              that cannot be released will be listed here by number.
-            </p>
-            <ReleaseAllConfirm count={count} cancelHref={cancelHref} narrow={narrow} />
+            <ConfirmAllForm
+              action={releaseAllReadyAction}
+              confirm="release"
+              count={count}
+              cancelHref={cancelHref}
+              narrow={narrow}
+              labels={{ submit: 'RELEASE ALL', pending: 'RELEASING…', done: 'RELEASED', back: 'BACK TO TODAY’S RELEASE' }}
+              tone="rose"
+              prompt={
+                <>
+                  {/* The confirmation names the count AND the total, because those are
+                      the two facts being agreed to. Rendered by the SERVER: reaching
+                      this text required following a link, not a click that fired. */}
+                  <p className="text-sm font-semibold text-rose-900">
+                    RELEASE {count.toLocaleString('en-PH')} CHEQUE{count === 1 ? '' : 'S'}
+                    {totalsByCurrency.length > 0 && ' — '}
+                    {totalsByCurrency.map((t) => formatMoney(t.total, t.currency)).join(' + ')}?
+                  </p>
+                  <p className="mt-1 text-sm text-slate-700">
+                    This records that the cheques have been physically handed over. It cannot be undone:
+                    the only status after RELEASED is VOIDED. Each cheque is checked on its own, and any
+                    that cannot be released will be listed here by number.
+                  </p>
+                </>
+              }
+            />
           </div>
-        ) : (
+        ) : !nothingToDo && (
           // A link, not a submit. One click cannot release anything; it can only
           // ask for the confirmation above.
           <Link

@@ -14,7 +14,8 @@ import { SummaryCards } from '@/components/SummaryCards'
 import { TotalsFilterBar } from '@/components/TotalsFilterBar'
 import { ReleaseTimeline } from '@/components/ReleaseTimeline'
 import { TodaysReleasePanel } from '@/components/TodaysReleasePanel'
-import { SignAllConfirm } from '@/components/SignAllConfirm'
+import { ConfirmAllForm } from '@/components/ConfirmAllForm'
+import { signAllPendingAction } from '@/app/checks/bulk-actions'
 import { QuickActions } from '@/components/QuickActions'
 import { FilterBar } from '@/components/FilterBar'
 import { CheckTable } from '@/components/CheckTable'
@@ -289,20 +290,28 @@ export default async function DashboardPage({
         <QuickActions selection={selection} />
       </div>
 
-      {pendingSign && pendingSign.count > 0 && (
+      {/* Kept mounted while ?confirm=sign is on the URL even at a count of zero:
+          the action revalidates this page, and when every cheque signed the
+          count IS zero — unmounting would throw the "N OF N SIGNED" report away. */}
+      {pendingSign && (pendingSign.count > 0 || params.confirm === 'sign') && (
         <div className="rounded-2xl bg-white px-4 py-3 ring-1 ring-hairline">
           {params.confirm === 'sign' ? (
-            <>
-              <p className="text-sm font-semibold tracking-wide text-slate-900">
-                SIGN {pendingSign.count.toLocaleString('en-PH')} CHEQUE{pendingSign.count === 1 ? '' : 'S'}
-                {pendingSign.totalsByCurrency.map((t) => ` · ${t.total === null ? t.currency + ' —' : formatMoney(t.total, t.currency)}`).join('')}?
-              </p>
-              <SignAllConfirm
-                count={pendingSign.count}
-                cancelHref={signAllCancelHref(selection)}
-                narrow={{ company: companyId ?? '', cashAccount: cashAccountId ?? '', eligibility: eligibility ?? '' }}
-              />
-            </>
+            <ConfirmAllForm
+              action={signAllPendingAction}
+              confirm="sign"
+              count={pendingSign.count}
+              cancelHref={signAllCancelHref(selection)}
+              narrow={{ company: companyId ?? '', cashAccount: cashAccountId ?? '', eligibility: eligibility ?? '' }}
+              labels={{ submit: 'SIGN ALL', pending: 'SIGNING…', done: 'SIGNED', back: 'BACK TO THE LIST' }}
+              tone="navy"
+              prompt={
+                <p className="text-sm font-semibold tracking-wide text-slate-900">
+                  SIGN {pendingSign.count.toLocaleString('en-PH')} CHEQUE{pendingSign.count === 1 ? '' : 'S'}
+                  {pendingSign.totalsByCurrency.length > 0 && ' — '}
+                  {pendingSign.totalsByCurrency.map((t) => formatMoney(t.total, t.currency)).join(' + ')}?
+                </p>
+              }
+            />
           ) : (
             <Link href={signAllConfirmHref(selection)}
               className="inline-block rounded-lg bg-navy px-4 py-2 text-sm font-semibold tracking-wide text-white hover:bg-navy/90">

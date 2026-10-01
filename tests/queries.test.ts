@@ -944,7 +944,11 @@ describe('SIGN ALL set', () => {
     expect(s.count).toBe(2)
     expect(s.totalsByCurrency).toEqual([{ currency: 'PHP', total: '350.5', count: 2 }])
 
-    expect(await listPendingSignatureIds(testDb, { companyId: a.companyId })).toContain(a.id)
+    // makeCheck gives every cheque its own company, so b is in a second one.
+    expect(b.companyId).not.toBe(a.companyId)
+    expect(await listPendingSignatureIds(testDb, { companyId: a.companyId })).toEqual([a.id])
+    expect(await getPendingSignature(testDb, { companyId: a.companyId }))
+      .toEqual({ count: 1, totalsByCurrency: [{ currency: 'PHP', total: '100', count: 1 }] })
     expect(await getPendingSignature(testDb, { companyId: 'no-such-company' })).toEqual({ count: 0, totalsByCurrency: [] })
   })
 })

@@ -45,8 +45,8 @@ const ids = (f: FormData) => f.getAll('checkId').map((v) => String(v))
 const str = (f: FormData, k: string) => String(f.get(k) ?? '').trim()
 
 /**
- * The narrowing the TOTALS screen was showing when RELEASE ALL was pressed,
- * read back off the form. `null` means a field was SENT and does not parse
+ * The narrowing on screen when RELEASE ALL (TOTALS screen) or SIGN ALL (the
+ * SIGNATURE PENDING list) was pressed, read back off the form. `null` means a field was SENT and does not parse
  * to a recognised value — the caller refuses, because dropping it would
  * silently widen the set from one company to every company. A field that is
  * not on the request at all is no narrowing: the unfiltered screen, and the
@@ -220,60 +220,57 @@ export async function bulkRecordReceiptsAction(formData: FormData): Promise<Bulk
 }
 
 /**
- * TODAY'S RELEASE — release everything that is ready, in one confirmed action.
+ * What differs between the two server-confirmed "ALL" actions. Everything else
+ * — the guards, the order they run in, the batching — is `runConfirmedAll`.
+ */
+type ConfirmedAll = {
+  /** The value the confirmation form submits as `confirm`. */
+  confirm: 'release' | 'sign'
+  /** The set, read from the database for the narrowing on the form. */
+  listIds: (narrow: SummaryNarrowing) => Promise<string[]>
+  /** One cheque, through `lib/domain/actions.ts`. */
+  apply: (checkId: string, now: Date) => Promise<unknown>
+  messages: {
+    notConfirmed: string
+    badCount: string
+    badFilter: string
+    empty: string
+    moreThanConfirmed: (now: number, confirmed: number) => string
+  }
+}
+
+/**
+ * THE CONFIRMED "ALL" ACTIONS — RELEASE ALL and SIGN ALL — share this.
+ * Not exported: a 'use server' module may export only server actions.
  *
- * The highest-risk action in the system (design decision D11) and effectively
- * terminal: only VOIDED follows RELEASED. Three separate things stand between a
- * misclick and every cheque Finance has prepared leaving the building at once,
- * and none of them is the button being hard to reach.
+ * Two things stand between a misclick and every cheque in the set moving at
+ * once, and neither of them is the button being hard to reach (the role check,
+ * where there is one, stays in the action that needs it):
  *
- *  1. **FINANCE_ADMIN only**, checked here rather than by hiding a control. A
- *     server action is an HTTP endpoint. It RETURNS the refusal — `requireAdmin`
- *     redirects, Next implements a redirect by throwing, and `runEach`'s catch
- *     would swallow it and report "Something went wrong" instead.
- *  2. **The confirmation is a field on the request**, not only a step in the
- *     page. The panel links to `?confirm=release`, which server-renders a second
- *     form naming the count and the total; that form is the only thing that
- *     submits `confirm=release`. A POST that never went through it writes
- *     nothing.
- *  3. **The count the user read is submitted back.** If MORE cheques are ready
- *     now than were on screen — a colleague marked twenty more ready while the
- *     confirmation sat open — the figures agreed to were never the figures that
- *     would move, so the action refuses and asks for a fresh look. FEWER is
- *     fine: somebody released some, and releasing the remainder is what was
- *     agreed to.
+ *  1. **The confirmation is a field on the request**, not only a step in the
+ *     page. The page links to `?confirm=release` (or `=sign`), which
+ *     server-renders a second form naming the count and the total; that form
+ *     is the only thing that submits the `confirm` field. A POST that never went
+ *     through it writes nothing.
+ *  2. **The count the user read is submitted back.** If MORE cheques are in the
+ *     set now than were on screen — a colleague marked twenty more ready while
+ *     the confirmation sat open — the figures agreed to were never the figures
+ *     that would move, so the action refuses and asks for a fresh look. FEWER is
+ *     fine: somebody acted on some, and doing the remainder is what was agreed
+ *     to.
  *
  * The SET is read from the database, not from the form. The button names a
  * count, not a list, and a form carrying 81 ids is a form somebody can edit.
  *
- * The release itself is `markReleased`, once per cheque, through the same
- * `runEach` as every other bulk action: one transaction, one set of guards and
- * one audit row each, and an INTERNAL cheque still produces no portal event
+ * Each cheque goes through the domain call once, through the same `runEach` as
+ * every other bulk action: one transaction, one set of guards and one audit row
+ * each — and for a release, an INTERNAL cheque still produces no portal event
  * because `markReleased` is where that decision lives.
- *
- * **The `(previousState, formData)` signature is `useActionState`'s**, and it is
- * why the confirmation works with no JavaScript at all. Passed straight to
- * `useActionState`, Next renders the form with a real POST target, so the
- * confirm button submits and the release happens whether or not the bundle
- * loaded; a client-side wrapper closure would have been a button that does
- * nothing until React hydrates. The previous state is not read — the action's
- * answer depends on the request and on the database, never on what it said last
- * time.
  */
-export async function releaseAllReadyAction(
-  _previousState: BulkActionResult | null,
-  formData: FormData,
-): Promise<BulkActionResult> {
-  const user = await requireUser()
-  if (user.role !== 'FINANCE_ADMIN') {
-    return { ok: false, message: 'Only a Finance Admin can mark a cheque RELEASED.' }
-  }
-
-  if (str(formData, 'confirm') !== 'release') {
-    return {
-      ok: false,
-      message: 'This release was not confirmed. Open TODAY’S RELEASE and confirm the figures first.',
-    }
+async function runConfirmedAll(formData: FormData, spec: ConfirmedAll): Promise<BulkActionResult> {
+  const { messages } = spec
+  if (str(formData, 'confirm') !== spec.confirm) {
+    return { ok: false, message: messages.notConfirmed }
   }
 
   /**
@@ -289,34 +286,25 @@ export async function releaseAllReadyAction(
   const rawExpected = str(formData, 'expectedCount')
   const expectedCount = /^\d+$/.test(rawExpected) ? Number(rawExpected) : Number.NaN
   if (!Number.isInteger(expectedCount)) {
-    return {
-      ok: false,
-      message: 'This release could not be confirmed. Open TODAY’S RELEASE again and re-read the figures.',
-    }
+    return { ok: false, message: messages.badCount }
   }
 
   const settings = await loadSettings(prisma)
   const cap = settings.values['caps.bulkSelection']
+  // A filter that is present but names nothing REFUSES — dropping it would
+  // silently widen the set from one company to every company.
   const narrow = await readNarrowing(formData)
   if (narrow === null) {
-    return {
-      ok: false,
-      message: 'The filter on screen was not recognised. Open TODAY’S RELEASE again and re-read the figures.',
-    }
+    return { ok: false, message: messages.badFilter }
   }
-  const checkIds = await listTodaysReleaseIds(prisma, narrow)
+  const checkIds = await spec.listIds(narrow)
 
   if (checkIds.length === 0) {
-    return { ok: false, message: 'No cheques are ready to release right now.' }
+    return { ok: false, message: messages.empty }
   }
 
   if (checkIds.length > expectedCount) {
-    return {
-      ok: false,
-      message:
-        `${checkIds.length} cheques are ready now, but ${expectedCount} were on screen when you ` +
-        'confirmed. Re-read TODAY’S RELEASE and confirm the current figures.',
-    }
+    return { ok: false, message: messages.moreThanConfirmed(checkIds.length, expectedCount) }
   }
 
   /**
@@ -337,6 +325,7 @@ export async function releaseAllReadyAction(
    * batches buy is that every id still passes through `parseSelection`, the
    * single gate every bulk write in this system goes through.
    */
+  // One timestamp for the whole action: these cheques moved in one act.
   const now = new Date()
   const outcomes: BulkOutcome[] = []
   for (const batch of chunkSelection(checkIds, cap)) {
@@ -346,8 +335,7 @@ export async function releaseAllReadyAction(
     // returned refusal is a thrown one half way through a release.
     if (!selection.ok) return { ok: false, message: selection.message }
 
-    const batchResult = await runEach(prisma, selection.checkIds, (checkId) =>
-      markReleased(prisma, { checkId, userId: user.id, now }))
+    const batchResult = await runEach(prisma, selection.checkIds, (checkId) => spec.apply(checkId, now))
     // `runEach` only reports `ok: false` for a refusal it was handed, which
     // cannot happen above; the narrowing is for the type, not for the case.
     if (!batchResult.ok) return batchResult
@@ -361,12 +349,58 @@ export async function releaseAllReadyAction(
 }
 
 /**
+ * TODAY'S RELEASE — release everything that is ready, in one confirmed action.
+ *
+ * The highest-risk action in the system (design decision D11) and effectively
+ * terminal: only VOIDED follows RELEASED. **FINANCE_ADMIN only**, checked here
+ * rather than by hiding a control — a server action is an HTTP endpoint. It
+ * RETURNS the refusal: `requireAdmin` redirects, Next implements a redirect by
+ * throwing, and `runEach`'s catch would swallow it and report "Something went
+ * wrong" instead. The confirmation field, the count read back and the
+ * server-side set are `runConfirmedAll`'s.
+ *
+ * **The `(previousState, formData)` signature is `useActionState`'s**, and it is
+ * why the confirmation works with no JavaScript at all. Passed straight to
+ * `useActionState`, Next renders the form with a real POST target, so the
+ * confirm button submits and the release happens whether or not the bundle
+ * loaded; a client-side wrapper closure would have been a button that does
+ * nothing until React hydrates. The previous state is not read — the action's
+ * answer depends on the request and on the database, never on what it said last
+ * time.
+ */
+export async function releaseAllReadyAction(
+  _previousState: BulkActionResult | null,
+  formData: FormData,
+): Promise<BulkActionResult> {
+  const user = await requireUser()
+  if (user.role !== 'FINANCE_ADMIN') {
+    return { ok: false, message: 'Only a Finance Admin can mark a cheque RELEASED.' }
+  }
+
+  return runConfirmedAll(formData, {
+    confirm: 'release',
+    listIds: (narrow) => listTodaysReleaseIds(prisma, narrow),
+    apply: (checkId, now) => markReleased(prisma, { checkId, userId: user.id, now }),
+    messages: {
+      notConfirmed: 'This release was not confirmed. Open TODAY’S RELEASE and confirm the figures first.',
+      badCount: 'This release could not be confirmed. Open TODAY’S RELEASE again and re-read the figures.',
+      badFilter: 'The filter on screen was not recognised. Open TODAY’S RELEASE again and re-read the figures.',
+      empty: 'No cheques are ready to release right now.',
+      moreThanConfirmed: (n, expected) =>
+        `${n} cheques are ready now, but ${expected} were on screen when you ` +
+        'confirmed. Re-read TODAY’S RELEASE and confirm the current figures.',
+    },
+  })
+}
+
+/**
  * SIGN ALL (client, 2026-10-01: "All checks on Tuesday to Friday will have a 1
  * click button"). The RELEASE ALL pattern, for a lower-risk act that can be
  * undone (`revertSignature`): open to every Finance user, but the confirmation
  * is still a field on the request, the count read is submitted back, and the
- * set is the server's, never ids from the form. `useActionState`'s signature,
- * for the same no-JavaScript reason as `releaseAllReadyAction`.
+ * set is the server's, never ids from the form (`runConfirmedAll`).
+ * `useActionState`'s signature, for the same no-JavaScript reason as
+ * `releaseAllReadyAction`.
  */
 export async function signAllPendingAction(
   _previousState: BulkActionResult | null,
@@ -374,40 +408,17 @@ export async function signAllPendingAction(
 ): Promise<BulkActionResult> {
   const user = await requireUser()
 
-  if (str(formData, 'confirm') !== 'sign') {
-    return { ok: false, message: 'This was not confirmed. Press SIGN ALL and confirm the figures first.' }
-  }
-  const rawExpected = str(formData, 'expectedCount')
-  const expectedCount = /^\d+$/.test(rawExpected) ? Number(rawExpected) : Number.NaN
-  if (!Number.isInteger(expectedCount)) {
-    return { ok: false, message: 'This could not be confirmed. Press SIGN ALL again and re-read the figures.' }
-  }
-
-  const settings = await loadSettings(prisma)
-  const cap = settings.values['caps.bulkSelection']
-  const narrow = await readNarrowing(formData)
-  if (narrow === null) {
-    return { ok: false, message: 'The filter on screen was not recognised. Press SIGN ALL again and re-read the figures.' }
-  }
-  const checkIds = await listPendingSignatureIds(prisma, narrow)
-  if (checkIds.length === 0) return { ok: false, message: 'No cheques are waiting for a signature.' }
-  if (checkIds.length > expectedCount) {
-    return {
-      ok: false,
-      message: `${checkIds.length} cheques are pending now, but ${expectedCount} were on screen when you confirmed. Re-read and confirm the current figures.`,
-    }
-  }
-
-  const now = new Date()
-  const outcomes: BulkOutcome[] = []
-  for (const batch of chunkSelection(checkIds, cap)) {
-    const selection = parseSelection(batch, cap)
-    if (!selection.ok) return { ok: false, message: selection.message }
-    const batchResult = await runEach(prisma, selection.checkIds, (checkId) =>
-      markSigned(prisma, { checkId, userId: user.id, now }))
-    if (!batchResult.ok) return batchResult
-    outcomes.push(...batchResult.outcomes)
-  }
-  const succeeded = outcomes.filter((o) => o.ok).length
-  return { ok: true, succeeded, failed: outcomes.length - succeeded, outcomes }
+  return runConfirmedAll(formData, {
+    confirm: 'sign',
+    listIds: (narrow) => listPendingSignatureIds(prisma, narrow),
+    apply: (checkId, now) => markSigned(prisma, { checkId, userId: user.id, now }),
+    messages: {
+      notConfirmed: 'This was not confirmed. Press SIGN ALL and confirm the figures first.',
+      badCount: 'This could not be confirmed. Press SIGN ALL again and re-read the figures.',
+      badFilter: 'The filter on screen was not recognised. Press SIGN ALL again and re-read the figures.',
+      empty: 'No cheques are waiting for a signature.',
+      moreThanConfirmed: (n, expected) =>
+        `${n} cheques are pending now, but ${expected} were on screen when you confirmed. Re-read and confirm the current figures.`,
+    },
+  })
 }
