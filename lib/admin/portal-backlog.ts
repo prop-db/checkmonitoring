@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { writeAudit } from '@/lib/audit'
 import { portalRoute, type Eligibility } from '@/lib/domain/eligibility'
+import { portalApvs } from '@/lib/integrations/portal/apvs'
 import { kindMatchesStatus } from '@/lib/sync/portal-outbox'
 
 type Db = PrismaClient | Prisma.TransactionClient
@@ -47,6 +48,10 @@ export async function summariseBacklog(db: Db) {
  * have queued - one per cheque, with a SYSTEM audit row in the same
  * transaction. Idempotent: a cheque that has any CANCELLED event is skipped,
  * so a second apply queues nothing.
+ *
+ * Only a routed cheque with at least one APV number (portalApvs) is queued:
+ * the portal matches on APV, so a CANCELLED event for a cheque without one
+ * would park forever.
  */
 export async function queueCancelledForStale(db: Db, args: { now: Date; apply: boolean }) {
   const candidates = await db.check.findMany({
@@ -59,10 +64,13 @@ export async function queueCancelledForStale(db: Db, args: { now: Date; apply: b
       },
     },
     orderBy: [{ checkNumber: 'asc' }, { id: 'asc' }],
-    select: { id: true, checkNumber: true, payeeName: true, status: true, eligibility: true },
+    select: {
+      id: true, checkNumber: true, payeeName: true, status: true, eligibility: true,
+      apvNumbers: true, bills: { select: { apvNumber: true } },
+    },
   })
   // portalRoute is the rule; the query's `not INTERNAL` only narrows the read.
-  const cheques = candidates.filter((c) => portalRoute(c.eligibility as Eligibility) !== null)
+  const cheques = candidates.filter((c) => portalRoute(c.eligibility as Eligibility) !== null && portalApvs(c).length > 0)
   if (!args.apply) return { found: cheques.length, queued: 0, cheques }
 
   const runIso = args.now.toISOString()

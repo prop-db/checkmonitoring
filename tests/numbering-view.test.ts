@@ -1,0 +1,48 @@
+import { describe, it, expect } from 'vitest'
+import {
+  numberingHref, isMissingOnly, visibleEntries, describeNumberingFilters, missingLabel, numberingFilename,
+  NUMBERING_EXPORT_PATH,
+} from '@/lib/numbering-view'
+import type { SeriesEntry } from '@/lib/numbering/series'
+
+describe('numberingHref', () => {
+  it('writes only what is set, in a fixed order', () => {
+    expect(numberingHref({})).toBe('/numbering')
+    expect(numberingHref({ company: 'c1', account: 'a1', missing: true })).toBe('/numbering?company=c1&account=a1&missing=1')
+    expect(numberingHref({ account: ' ', missing: false })).toBe('/numbering')
+    expect(numberingHref({ account: 'a1' }, NUMBERING_EXPORT_PATH)).toBe('/api/export/numbering?account=a1')
+  })
+})
+
+describe('isMissingOnly', () => {
+  it('is true only for exactly 1', () => {
+    expect(isMissingOnly('1')).toBe(true)
+    expect(isMissingOnly(' 1 ')).toBe(true)
+    expect(isMissingOnly('true')).toBe(false)
+    expect(isMissingOnly(undefined)).toBe(false)
+    expect(isMissingOnly(null)).toBe(false)
+  })
+})
+
+describe('visibleEntries', () => {
+  const cheque: SeriesEntry = { kind: 'CHEQUE', duplicate: false, cheque: { id: 'x', checkNumber: '1', checkDate: null, payeeName: null, amount: null, currency: 'PHP', status: 'VOIDED' } }
+  const gap: SeriesEntry = { kind: 'MISSING', from: '2', to: '3', count: '2' }
+  it('keeps everything, or only the MISSING lines', () => {
+    expect(visibleEntries([cheque, gap], false)).toEqual([cheque, gap])
+    expect(visibleEntries([cheque, gap], true)).toEqual([gap])
+  })
+})
+
+describe('labels', () => {
+  it('describes the filters', () => {
+    expect(describeNumberingFilters({})).toBe('No filters applied')
+    expect(describeNumberingFilters({ company: 'STK', account: 'BPI STK', missingOnly: true })).toBe('COMPANY: STK  ·  ACCOUNT: BPI STK  ·  MISSING ONLY')
+  })
+  it('a missing run reads as a range, a single number as itself', () => {
+    expect(missingLabel({ from: '6000354301', to: '6000354349', count: '49' })).toBe('6000354301 – 6000354349 · MISSING · 49')
+    expect(missingLabel({ from: '102', to: '102', count: '1' })).toBe('102 · MISSING · 1')
+  })
+  it('names the file by the Manila day', () => {
+    expect(numberingFilename('2026-10-01')).toBe('cheque-numbering-2026-10-01.xlsx')
+  })
+})

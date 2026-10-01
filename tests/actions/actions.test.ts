@@ -456,7 +456,7 @@ describe('voidCheck', () => {
   // cheque, so the supplier portal stops showing a cheque the ERP says no
   // longer exists.
   it('queues a CANCELLED portal event for a portal-routed cheque', async () => {
-    const check = await makeCheck({ status: 'SIGNATURE_PENDING', eligibility: 'SUPPLIER' })
+    const check = await makeCheck({ status: 'SIGNATURE_PENDING', eligibility: 'SUPPLIER', apvNumbers: ['AP-ST000003'] })
     await voidCheck(testDb, { checkId: check.id, reason: 'Voided in Acumatica.', now: NOW })
     const event = await testDb.portalEvent.findFirstOrThrow({ where: { checkId: check.id } })
     expect(event.kind).toBe('CANCELLED')

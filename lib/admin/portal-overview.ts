@@ -13,8 +13,9 @@ export type PortalAttentionRow = {
  * closes a row SYNCED without sending it when a newer event supersedes it
  * (`superseded by …`) or its kind no longer matches the cheque (`stale: …`).
  * Counting those as "delivered" would overstate what the portal was told.
+ * …or the cheque has no APV for the portal to match (`unmatchable: …`, closed by scripts/close-unmatchable-cancelled.ts).
  */
-export type PortalClosedCounts = { delivered: number; superseded: number; stale: number }
+export type PortalClosedCounts = { delivered: number; superseded: number; stale: number; unmatchable: number }
 
 export type PortalOverview = { counts: Record<PortalEventStatus, number>; closed: PortalClosedCounts; attention: PortalAttentionRow[] }
 
@@ -27,7 +28,8 @@ export async function getPortalOverview(db: Db): Promise<PortalOverview> {
   for (const g of grouped) counts[g.status] = g._count._all
   const superseded = await db.portalEvent.count({ where: { status: 'SYNCED', lastError: { startsWith: 'superseded by' } } })
   const stale = await db.portalEvent.count({ where: { status: 'SYNCED', lastError: { startsWith: 'stale:' } } })
-  const closed = { delivered: counts.SYNCED - superseded - stale, superseded, stale }
+  const unmatchable = await db.portalEvent.count({ where: { status: 'SYNCED', lastError: { startsWith: 'unmatchable:' } } })
+  const closed = { delivered: counts.SYNCED - superseded - stale - unmatchable, superseded, stale, unmatchable }
   const rows = await db.portalEvent.findMany({
     where: { status: { in: ['PARKED', 'FAILED'] } },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
