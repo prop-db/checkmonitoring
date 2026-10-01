@@ -3,6 +3,7 @@ import type {
   ClearingStatus as PrismaClearing,
 } from '@prisma/client'
 import { writeAudit } from '@/lib/audit'
+import { portalApvs } from '@/lib/integrations/portal/apvs'
 import { loadSettings } from '@/lib/settings/read'
 import { DomainError } from './errors'
 import { portalRoute, type Eligibility } from './eligibility'
@@ -71,6 +72,30 @@ async function queueCancelled(tx: Prisma.TransactionClient, checkId: string, che
       payload: { action: 'CANCELLED', checkNumber },
     },
   })
+}
+
+/** Recorded on the audit row when a routed cheque's CANCELLED event is skipped. */
+export const NO_APV_SKIP_REASON = 'no APV numbers'
+
+/**
+ * Whether a CANCELLED event for this cheque could ever be delivered. The portal
+ * matches on APV and the client refuses an event with none, so an event queued
+ * for a cheque with no APV parks on its first attempt and RETRY parks it again
+ * (spec 2026-10-01-cheque-numbering-and-cancel-guard-design §A1). The plainest
+ * case is a cheque the sync creates already voided: the portal was never told
+ * it existed. Bills are read only when `apvNumbers` is empty — the same
+ * fallback as the client, through the same function.
+ */
+async function portalCanMatch(tx: Prisma.TransactionClient, check: { id: string; apvNumbers: string[] }): Promise<boolean> {
+  if (check.apvNumbers.length) return true
+  const bills = await tx.checkBill.findMany({ where: { checkId: check.id }, select: { apvNumber: true } })
+  return portalApvs({ apvNumbers: check.apvNumbers, bills }).length > 0
+}
+
+/** The audit keys for the portal decision; none for an unrouted (INTERNAL) cheque. */
+function portalAuditDetails(routed: boolean, pushes: boolean): { portalNotified?: boolean; portalSkipReason?: string } {
+  if (!routed) return {}
+  return pushes ? { portalNotified: true } : { portalNotified: false, portalSkipReason: NO_APV_SKIP_REASON }
 }
 
 async function load(tx: Prisma.TransactionClient, checkId: string) {
@@ -744,7 +769,9 @@ export const VOID_AFTER_RELEASE_WARNING =
  * supplier portal must stop showing a cheque the ERP says no longer exists,
  * whichever side declared it gone. The payload carries no `reason` and no
  * distinction between a Finance cancel and an Acumatica void — the portal only
- * needs to know the cheque is CANCELLED, never why.
+ * needs to know the cheque is CANCELLED, never why. Only when the cheque carries
+ * an APV the portal can match it on (spec 2026-10-01 §A1); otherwise nothing is
+ * queued and the audit row says so.
  */
 export async function voidCheck(
   db: Db, args: { checkId: string; reason: string; now: Date },
@@ -758,7 +785,7 @@ export async function voidCheck(
     assertTransition(from, 'VOIDED')
 
     const route = portalRoute(check.eligibility as Eligibility)
-    const pushes = route !== null
+    const pushes = route !== null && await portalCanMatch(tx, check)
 
     const updated = await tx.check.update({
       where: { id: check.id },
@@ -783,7 +810,10 @@ export async function voidCheck(
       checkId: check.id,
       actorType: 'SYSTEM',
       action: afterRelease ? 'voided_after_release' : 'voided',
-      details: { fromStatus: from, releasedAt: check.releasedAt?.toISOString() ?? null },
+      details: {
+        fromStatus: from, releasedAt: check.releasedAt?.toISOString() ?? null,
+        ...portalAuditDetails(route !== null, pushes),
+      },
       remarks: afterRelease ? `${VOID_AFTER_RELEASE_WARNING} ${args.reason}` : args.reason,
     })
 
@@ -958,7 +988,7 @@ export async function cancelCheck(
     assertTransition(check.status as CheckStatus, 'CANCELLED')
 
     const route = portalRoute(check.eligibility as Eligibility)
-    const pushes = route !== null
+    const pushes = route !== null && await portalCanMatch(tx, check)
 
     const updated = await tx.check.update({
       where: { id: check.id },
@@ -972,9 +1002,11 @@ export async function cancelCheck(
       },
     })
     if (pushes) await queueCancelled(tx, check.id, check.checkNumber, args.now)
+    const portal = portalAuditDetails(route !== null, pushes)
     await writeAudit(tx, {
       checkId: check.id, actorType: 'USER', userId: args.userId,
       action: 'cancelled', remarks: args.reason,
+      ...(Object.keys(portal).length ? { details: portal } : {}),
     })
     return updated
   })

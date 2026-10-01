@@ -534,6 +534,18 @@ describe('upsertCheck — voiding', () => {
     expect(check.portalSyncStatus).toBe('PENDING')
   })
 
+  it('a cheque created already voided, with no APV, queues no portal event (spec 2026-10-01 §A1)', async () => {
+    await seedCompany()
+    await upsert(row({
+      source: 'ACUMATICA', voided: true, sourceSheet: null, sourceRow: null, apvNumbers: [],
+      acumaticaDocType: 'Voided Payment', acumaticaStatus: 'Closed',
+    }))
+    const check = await testDb.check.findFirstOrThrow()
+    expect(check.status).toBe('VOIDED')
+    expect(check.portalSyncStatus).toBe('NOT_APPLICABLE')
+    expect(await testDb.portalEvent.count({ where: { checkId: check.id } })).toBe(0)
+  })
+
   it('is idempotent: re-importing a voided cheque does not void it twice', async () => {
     await seedCompany()
     const voidedRow = row({
