@@ -42,9 +42,11 @@ export default async function NumberingPage({
     )
   }
 
+  // With an account open the company filter is not applied, so it must not be described or counted either.
+  const scopedCompany = account ? undefined : company
   const [accounts, noAccountCount] = await Promise.all([
-    listNumberingAccounts(prisma, { companyId: account ? undefined : company?.id, cashAccountId: account?.id }),
-    countChequesWithoutAccount(prisma, { companyId: company?.id }),
+    listNumberingAccounts(prisma, { companyId: scopedCompany?.id, cashAccountId: account?.id }),
+    account ? Promise.resolve(0) : countChequesWithoutAccount(prisma, { companyId: scopedCompany?.id }),
   ])
   const current = { company: company?.id, account: account?.id, missing: missingOnly }
   const one = account ? accounts[0] : undefined
@@ -73,7 +75,7 @@ export default async function NumberingPage({
         <div className="space-y-1">
           <p className="text-xs font-medium tracking-wide text-slate-600">
             {account ? account.code : `${accounts.length.toLocaleString('en-PH')} CASH ACCOUNT${accounts.length === 1 ? '' : 'S'}`}
-            {' · '}{describeNumberingFilters({ company: company?.code, account: account?.code, missingOnly })}
+            {' · '}{describeNumberingFilters({ company: scopedCompany?.code, account: account?.code, missingOnly })}
           </p>
           {!account && noAccountCount > 0 && (
             <p className="text-xs font-medium tracking-wide text-slate-500">
@@ -104,7 +106,9 @@ export default async function NumberingPage({
         const entries = visibleEntries(one.series.entries, missingOnly)
         return (
           <>
-            {entries.length === 0
+            {entries.length === 0 && one.series.summary.first === null && !missingOnly
+              ? <EmptyState title="NO NUMERIC CHEQUES">Every cheque on this account carries a number that is not all digits; they are listed below.</EmptyState>
+              : entries.length === 0
               ? <EmptyState title="NOTHING MISSING" tone="good">Every number from {one.series.summary.first ?? '—'} to {one.series.summary.last ?? '—'} is held here.</EmptyState>
               : <NumberingEntriesTable entries={entries} />}
             {!missingOnly && one.series.notNumeric.length > 0 && (

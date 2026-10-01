@@ -53,6 +53,19 @@ describe('GET /api/export/numbering', () => {
     expect(wb.worksheets[0].name).toBe(NUMBERING_SUMMARY_SHEET)
   })
 
+  it('with an account set, a company filter does not leak into the file description', async () => {
+    const a = await makeCheck({ checkNumber: '1' })
+    const b = await makeCheck({ checkNumber: '2' })
+    expect(a.companyId).not.toBe(b.companyId)
+    const res = await get(`http://localhost/api/export/numbering?company=${a.companyId}&account=${b.cashAccountId}`)
+    expect(res.status).toBe(200)
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(await res.arrayBuffer())
+    const a2 = String(wb.getWorksheet(NUMBERING_SUMMARY_SHEET)!.getCell('A2').value)
+    expect(a2).toContain('ACCOUNT:')
+    expect(a2).not.toContain('COMPANY:')
+  })
+
   it('refuses an unknown account with 404 rather than widening to every account', async () => {
     await makeCheck({ checkNumber: '1' })
     const res = await get('http://localhost/api/export/numbering?account=nope')

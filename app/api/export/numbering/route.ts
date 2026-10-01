@@ -33,16 +33,18 @@ export async function GET(request: Request): Promise<Response> {
   if (accountParam && !account) return new Response('UNKNOWN ACCOUNT', { status: 404, headers: TEXT })
   const missingOnly = isMissingOnly(params.get('missing'))
 
+  // With an account open the company filter is not applied, so it must not be described or counted either.
+  const scopedCompany = account ? undefined : company
   const [accounts, noAccountCount] = await Promise.all([
-    listNumberingAccounts(prisma, { companyId: account ? undefined : company?.id, cashAccountId: account?.id }),
-    countChequesWithoutAccount(prisma, { companyId: company?.id }),
+    listNumberingAccounts(prisma, { companyId: scopedCompany?.id, cashAccountId: account?.id }),
+    account ? Promise.resolve(0) : countChequesWithoutAccount(prisma, { companyId: scopedCompany?.id }),
   ])
 
   const workbook = await buildNumberingWorkbook({
     accounts,
     meta: {
       generatedAt: now, generatedBy: user.name, missingOnly, noAccountCount,
-      filterDescription: describeNumberingFilters({ company: company?.code, account: account?.code, missingOnly }),
+      filterDescription: describeNumberingFilters({ company: scopedCompany?.code, account: account?.code, missingOnly }),
       rowLimit: settings.values['caps.exportRows'],
     },
   })

@@ -42,6 +42,12 @@ describe('buildSeries', () => {
     expect(s.summary).toMatchObject({ held: 2, duplicates: 2, missingNumbers: '0' })
   })
 
+  it('flags 007 and 7 in one account as duplicates, counted once as held', () => {
+    const s = buildSeries([c('007'), c('7'), c('8')])
+    expect(s.entries.filter((e) => e.kind === 'CHEQUE' && e.duplicate)).toHaveLength(2)
+    expect(s.summary).toMatchObject({ held: 2, duplicates: 2, missingNumbers: '0' })
+  })
+
   it('keeps non-numeric numbers out of the sequence and lists them', () => {
     const s = buildSeries([c('AP-DG001931'), c('5'), c('6')])
     expect(shape(s.entries)).toEqual(['5', '6'])

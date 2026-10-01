@@ -97,6 +97,7 @@ export async function buildNumberingWorkbook(
   let budget = meta.rowLimit
   for (const { a, entries } of lines) {
     if (budget <= 0) break
+    if (meta.missingOnly && entries.length === 0) continue // nothing missing: no empty sheet
     const sheet = wb.addWorksheet(sheetNameFor(a.account, used), { views: [{ state: 'frozen', ySplit: 1 }] })
     const h = sheet.getRow(1)
     NUMBERING_ACCOUNT_HEADERS.forEach((label, i) => styleHeaderCell(h.getCell(i + 1), label, label === 'AMOUNT' || label === 'COUNT' ? 'right' : 'left'))

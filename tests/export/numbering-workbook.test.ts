@@ -94,6 +94,16 @@ describe('buildNumberingWorkbook', () => {
     expect(ws.getRow(2).getCell(4).value).toBe('MISSING')
   })
 
+  it('missing-only writes no sheet for an account with nothing missing', async () => {
+    const wb = await load(await buildNumberingWorkbook({
+      accounts: [account('FULL', [ch('101'), ch('102')]), account('GAPPY', [ch('201'), ch('204')])],
+      meta: { ...META, missingOnly: true },
+    }))
+    expect(wb.getWorksheet('FULL')).toBeUndefined()
+    expect(wb.getWorksheet('GAPPY')).toBeDefined()
+    expect(wb.getWorksheet(NUMBERING_SUMMARY_SHEET)).toBeDefined()
+  })
+
   it('lists non-numeric cheques after the sequence', async () => {
     const wb = await load(await buildNumberingWorkbook({ accounts: [account('BPI STK', [ch('5'), ch('MEMO')])], meta: META }))
     const ws = wb.getWorksheet('BPI STK')!

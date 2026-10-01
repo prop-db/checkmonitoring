@@ -6,6 +6,10 @@
  *   npx.cmd tsx scripts/close-unmatchable-cancelled.ts           # dry run: lists them
  *   npx.cmd tsx scripts/close-unmatchable-cancelled.ts --apply   # snapshot, then close each
  *
+ * Run it after the first cron delivery following the deploy: a no-APV CANCELLED
+ * still PENDING at deploy time parks only on its next attempt, so an earlier
+ * run would miss it.
+ *
  * Nothing is sent to the portal. Prints no amounts. DATABASE_URL is PRODUCTION.
  */
 import 'dotenv/config'

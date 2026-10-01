@@ -44,7 +44,7 @@ export function buildSeries(cheques: readonly SeriesCheque[]): AccountSeries {
     else notNumeric.push(cheque)
   }
   numeric.sort((a, b) => (a.n < b.n ? -1 : a.n > b.n ? 1 : a.cheque.id < b.cheque.id ? -1 : a.cheque.id > b.cheque.id ? 1 : 0))
-  notNumeric.sort((a, b) => a.checkNumber.localeCompare(b.checkNumber))
+  notNumeric.sort((a, b) => a.checkNumber.localeCompare(b.checkNumber) || a.id.localeCompare(b.id))
 
   const perNumber = new Map<bigint, number>()
   for (const x of numeric) perNumber.set(x.n, (perNumber.get(x.n) ?? 0) + 1)
