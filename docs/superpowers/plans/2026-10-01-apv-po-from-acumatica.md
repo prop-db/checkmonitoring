@@ -4,7 +4,7 @@
 
 **Goal:** Every cheque the sync brings in carries the AP vouchers (APV) it pays, read from Acumatica's `AP-PAYMENTS-WITH-BILLS` at every scheduled run; and a PO NUMBER column sits beside APV in the list, the Excel export and the printed sheet.
 
-**Architecture:** A pure mapper (`lib/integrations/acumatica/bills.ts`) turns an inquiry row into `{ paymentRef, voucher, lastModifiedOn }`. A runner (`lib/sync/bills.ts`) reads the inquiry incrementally per tenant with its own watermark — `SyncRun` rows with `mode = 'BILLS'` — and unions vouchers into `Check.apvNumbers`, matching on the payment's own reference (`Check.acumaticaPaymentId`), never on a cheque number. The cron route runs it after the payment syncs. PO is display-only: `CheckBill.poNumber` ∪ `Check.poNumbers`.
+**Architecture:** A pure mapper (`lib/integrations/acumatica/bills.ts`) turns an inquiry row into `{ paymentRef, voucher, lastModifiedOn }`. A runner (`lib/sync/bills.ts`) reads the inquiry incrementally per tenant with its own watermark — `SyncRun` rows with `mode = 'BILLS'` — and unions vouchers into `Check.apvNumbers`, matching on the payment's own reference (`Check.acumaticaPaymentId`), never on a cheque number. The cron route runs it after the payment syncs. PO is display-only: `CheckBill.poNumber` (the approval workbook's Vendor Ref). **`Check` has no `poNumbers` column** — the register's POs were parsed onto `StagedCheck` only — so there is nothing else to union, and PO search already works (`bills.some.poNumber contains`).
 
 **Tech Stack:** Next.js 15 App Router, Prisma 6 on Neon, Vitest, TypeScript strict, ExcelJS.
 
@@ -39,7 +39,7 @@ Spec: `docs/superpowers/specs/2026-10-01-signing-schedule-apv-and-table-design.m
 | `app/api/cron/sync/route.ts` | run BILLS for both tenants after the payment syncs |
 | `scripts/sync.ts` | `--bills` for the first read |
 | `app/admin/sync/page.tsx` | BILLS rows labelled |
-| `lib/table-columns.ts`, `lib/queries.ts`, `components/CheckTable.tsx` | PO NUMBER column, PO search |
+| `lib/table-columns.ts`, `lib/queries.ts`, `components/CheckTable.tsx` | PO NUMBER column (search already covers PO via bills) |
 | `lib/export/workbook.ts`, `app/print/page.tsx` | APV + PO in the file and on paper |
 | spec, `CLAUDE.md` | deviations, behaviour |
 
@@ -280,7 +280,7 @@ add `bills.some((b) => b.outcome === 'FAILED')` to `failed`, and `bills` to the 
 
 **Files:**
 - Modify: `lib/table-columns.ts` (key, label, storage key)
-- Modify: `lib/queries.ts` (`CheckTableRow.poNumbers`, `toTableRow`, search)
+- Modify: `lib/queries.ts` (`CheckTableRow.poNumbers`, `toTableRow`)
 - Modify: `components/CheckTable.tsx`
 - Modify: `lib/export/workbook.ts`
 - Modify: `app/print/page.tsx`
@@ -291,17 +291,17 @@ add `bills.some((b) => b.outcome === 'FAILED')` to `failed`, and `bills` to the 
 
 - [ ] **Step 1: Failing tests.**
   - `tests/table-columns.test.ts`: `COLUMN_KEYS` has `poNumbers` right after `apvNumbers`; `COLUMN_LABELS.poNumbers === 'PO NUMBER'`; storage key is `.v2` (a v1 value is not read — say why in the test name: "a new column must appear for viewers who chose columns before it existed").
-  - `tests/queries.test.ts`: `toTableRow` gives `poNumbers` = union of `Check.poNumbers` and the bills' non-null `poNumber`, deduplicated, sorted (create a cheque with `poNumbers: ['PO-2']` and a `CheckBill` with `poNumber: 'PO-1'` — read how other tests in the file create bills); searching `po-2` (lower case) finds it (exact match on the array, upper-cased); searching `PO-` does NOT (array elements are not substring-searchable — pin that, like the APV comment says).
+  - `tests/queries.test.ts`: `toTableRow` gives `poNumbers` = the bills' non-null `poNumber`, deduplicated, sorted (bills with `poNumber` `'PO-2'`, `'PO-1'`, `'PO-2'` and `null` → `['PO-1', 'PO-2']`; read how other tests in the file create bills); a cheque with no bills gives `[]`; searching `po-1` finds it through the existing bills `contains` search (pin it; no search code changes).
   - workbook test: header row has `PO NUMBER` at column 3; a row's PO cell is the joined list; AMOUNT is now column 8 and still numeric.
 - [ ] **Step 2: Run, expect FAIL.**
 - [ ] **Step 3: Implement.**
   - `lib/table-columns.ts`: add `'poNumbers'` after `'apvNumbers'` in `COLUMN_KEYS`; label; bump the storage key to `v2` with a comment: "v2 (2026-10-01): PO NUMBER added. A v1 choice was a list of the columns that existed then, and read under v2 it would hide the new one for everybody who had ever ticked a box."
-  - `lib/queries.ts`: `poNumbers: string[]` on `CheckTableRow`; in `toTableRow`: `poNumbers: [...new Set([...r.poNumbers, ...r.bills.map((b) => b.poNumber).filter((p): p is string => p !== null)])].sort()` with a comment mirroring the APV one; confirm `CheckRow` includes `poNumbers` (Prisma scalar — it does with `include`). In the search `OR`, beside the `apvNumbers: { has: … }` clause, add `{ poNumbers: { has: q.toUpperCase() } }` with a one-line comment pointing at the APV comment.
+  - `lib/queries.ts`: `poNumbers: string[]` on `CheckTableRow`; in `toTableRow`: `poNumbers: [...new Set(r.bills.map((b) => b.poNumber).filter((p): p is string => p !== null))].sort()` with a comment: the approval workbook's Vendor Ref is the only PO a cheque carries — `Check` has no PO column (the register's POs reached `StagedCheck` only) and Acumatica publishes none (checked 2026-10-01). No search change: `bills.some.poNumber contains` already matches PO.
   - `components/CheckTable.tsx`: header `{shows('poNumbers') && <th …>{COLUMN_LABELS.poNumbers}</th>}` after APV, and the cell `{r.poNumbers.length ? r.poNumbers.join(', ') : '—'}` with the same classes as APV.
   - `lib/export/workbook.ts`: header after APV; `AMOUNT_COLUMN = 8`; write PO into cell 3 and shift cells 3–10 to 4–11. Grep the file and its tests for any other hard-coded column index and update it.
   - `app/print/page.tsx`: add `APV NUMBER` and `PO NUMBER` header cells after CHECK NUMBER and the two cells in each row (joined lists, `—` when empty). The print rows come from `listChecks` + the same row shape — if the page maps rows itself, map APV with the same union as `toTableRow` (prefer calling `toTableRow`).
 - [ ] **Step 4: Run** the touched test files → PASS; tsc clean.
-- [ ] **Step 5: Commit** — `feat(list): PO NUMBER beside APV in the list, search, Excel and print`.
+- [ ] **Step 5: Commit** — `feat(list): PO NUMBER beside APV in the list, Excel and print`.
 
 ---
 
