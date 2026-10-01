@@ -189,7 +189,10 @@ export default async function SyncPage() {
         ) : (
           <p className="mt-2 text-sm text-slate-600">
             {fmtDateTime(lastAutoSign.at)} — {lastAutoSign.outcome}
-            {lastAutoSign.outcome === 'OK' && <>: {n(lastAutoSign.signed)} Monday cheque(s) signed</>}
+            {/* A run recorded before the Monday rule (2026-10-01) is described by its own rule. */}
+            {lastAutoSign.outcome === 'OK' && (lastAutoSign.legacyDays !== null
+              ? <>: {n(lastAutoSign.signed)} cheque(s) signed after {n(lastAutoSign.legacyDays)} day(s)</>
+              : <>: {n(lastAutoSign.signed)} Monday cheque(s) signed</>)}
             {lastAutoSign.outcome === 'IDLE' && <>: not a Tuesday — nothing due</>}
             {lastAutoSign.skipped > 0 && <>, {n(lastAutoSign.skipped)} skipped because they changed first</>}
             {lastAutoSign.outcome === 'DISABLED' && <>: switched off in settings</>}

@@ -20,6 +20,24 @@ import { loadSettings } from '@/lib/settings/read'
 const TX_OPTIONS = { timeout: 30_000, maxWait: 15_000 } as const
 const MAX_ERROR = 300
 
+/**
+ * The UTC hour of the LAST scheduled run of the day — vercel.json's
+ * `"0 10 * * *"` entry on /api/cron/sync, 18:00 Manila. The other entry,
+ * `"0 4 * * *"`, is 12:00 Manila. A Tuesday run cut off before this hour
+ * is retried by the 18:00 run (same Monday window); one cut off at or after
+ * it is not, because Wednesday is IDLE. Change it with vercel.json.
+ */
+export const LAST_RUN_UTC_HOUR = 10
+const HOUR_MS = 3_600_000
+
+/** What happens to cheques a Tuesday run left unsigned at its deadline. */
+function leftoverFate(now: Date): string {
+  // `mondayWindow(now).to` is 00:00 Manila on this Tuesday = 16:00 UTC Monday,
+  // so 18:00 Manila (10:00 UTC) is 18 hours after it.
+  const lastRun = mondayWindow(now).to.getTime() + (LAST_RUN_UTC_HOUR + 8) * HOUR_MS
+  return now.getTime() < lastRun ? 'the 18:00 run continues' : 'they wait for SIGN ALL'
+}
+
 export type AutoSignRun = {
   outcome: 'OK' | 'DISABLED' | 'IDLE' | 'FAILED'
   signed: number
@@ -68,13 +86,12 @@ export async function runAutoSign(
       for (let i = 0; i < candidates.length; i++) {
         // Checked before each cheque. Vercel's 60s ceiling can cut a run off
         // mid-backlog; when it does, the run must still leave a record rather
-        // than being killed silently — FAILED, with what is left still due,
-        // so the next scheduled run is known to continue rather than to have
-        // caught everything.
+        // than being killed silently — FAILED, with what is left still due and
+        // whether the 18:00 run will pick it up or SIGN ALL must.
         if (args.deadline && Date.now() >= args.deadline.getTime()) {
           const left = candidates.length - i
           run.outcome = 'FAILED'
-          run.error = `time budget reached with ${left} cheque(s) still due; the next run continues`
+          run.error = `time budget reached with ${left} cheque(s) still due; ${leftoverFate(args.now)}`
           break
         }
         const c = candidates[i]
@@ -105,7 +122,15 @@ export async function runAutoSign(
   return run
 }
 
-export type LastAutoSign = AutoSignRun & { at: Date }
+export type LastAutoSign = AutoSignRun & {
+  at: Date
+  /**
+   * A run recorded under the old "N days after creation" rule (before
+   * 2026-10-01) stored `days` and no `enabled`. Non-null only for such a row,
+   * so /admin/sync can describe it in its own terms rather than as Monday's.
+   */
+  legacyDays: number | null
+}
 
 export async function getLastAutoSign(db: PrismaClient): Promise<LastAutoSign | null> {
   const row = await db.auditLog.findFirst({
@@ -113,9 +138,11 @@ export async function getLastAutoSign(db: PrismaClient): Promise<LastAutoSign | 
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
   })
   if (!row) return null
-  const d = (row.details ?? {}) as Partial<AutoSignRun>
+  const d = (row.details ?? {}) as Partial<AutoSignRun> & { days?: unknown }
+  const legacyDays = d.enabled === undefined && typeof d.days === 'number' ? d.days : null
   return {
     at: row.createdAt,
+    legacyDays,
     outcome: d.outcome ?? 'FAILED',
     signed: d.signed ?? 0,
     skipped: d.skipped ?? 0,

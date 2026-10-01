@@ -113,7 +113,17 @@ export function ConfirmAllForm({
         )}
 
         {done && !done.ok && (
-          <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{done.message}</p>
+          <div className="space-y-2">
+            <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{done.message}</p>
+            {/* The form is spent after a refusal too; without this the reader is
+                left on a confirmation with no button and no way back. */}
+            <Link
+              href={cancelHref}
+              className="inline-block text-xs font-medium tracking-wide text-slate-600 underline underline-offset-2"
+            >
+              {labels.back}
+            </Link>
+          </div>
         )}
 
         {done?.ok && (

@@ -10,9 +10,9 @@
  * prepared Monday after the 18:00 read first arrives at Tuesday's 12:00 read,
  * carries a Tuesday `createdAt`, and waits for SIGN ALL. Accepted.
  *
- * Only on a Manila TUESDAY, and only the Monday immediately before it: a run
- * that failed is retried by hand the same day, and never reaches back to an
- * earlier Monday — older cheques are SIGN ALL's.
+ * Only on a Manila TUESDAY, and only the Monday immediately before it: the
+ * 18:00 run retries what the 12:00 run left; anything left after 18:00 waits
+ * for SIGN ALL, and no run ever reaches back to an earlier Monday.
  *
  * A cheque a person reverted (`signature_reverted`) is never signed by the
  * clock again: next Tuesday's run would otherwise quietly undo the revert.

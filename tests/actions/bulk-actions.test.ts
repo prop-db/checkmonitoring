@@ -850,4 +850,18 @@ describe('bulkRevertToPendingAction', () => {
     const row = await testDb.auditLog.findFirstOrThrow({ where: { checkId: s.id, action: 'signature_reverted' } })
     expect(row.remarks).toBe('Signed too early')
   })
+
+  it('refuses a selection larger than the cap and writes nothing', async () => {
+    const { bulkRevertToPendingAction } = await import('@/app/checks/bulk-actions')
+    const real = await makeCheck({ status: 'SIGNED' })
+    const padding = Array.from({ length: MAX_BULK_SELECTION }, (_, i) => `missing-${i}`)
+
+    const result = await bulkRevertToPendingAction(fd([real.id, ...padding]))
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.message).toContain(String(MAX_BULK_SELECTION))
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: real.id } })).status).toBe('SIGNED')
+    expect(await testDb.auditLog.count({ where: { action: 'signature_reverted' } })).toBe(0)
+  })
 })

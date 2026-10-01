@@ -28,8 +28,10 @@ Replaces the 2026-09-25 rule (`autoSign.afterDays`, "3 Manila calendar days afte
   clock next week).
 - The rule runs **only on a Manila Tuesday**. `isDueForAutoSign(facts, now, enabled)` stays pure:
   `now` must be a Manila Tuesday, and `createdAt` must fall on the Manila day before it. A Tuesday
-  run that failed is retried by hand the same day from `/admin/sync`; it does not reach back to
-  earlier Mondays. Older pending cheques are signed with SIGN ALL (A2).
+  run that fails is not retried by hand — there is no such control: the 18:00 run retries what the
+  12:00 run left (same Monday window), and anything left after 18:00 waits for SIGN ALL (A2). The
+  FAILED message says which. No run reaches back to an earlier Monday; older pending cheques are
+  signed with SIGN ALL.
 - "Prepared on Monday" is read as "first read by the sync on a Manila Monday" — `createdAt`.
   Acumatica publishes no creation time, and `PaymentDate` is post-dated on some cheques.
   Consequence, accepted: a cheque prepared Monday after the 18:00 read is first read at Tuesday's
@@ -217,5 +219,7 @@ A second header row, one control per visible column:
 ## Out of scope
 
 - Holidays: a Tuesday holiday still auto-signs Monday's cheques.
+- A first full sync: run on a Monday, it gives every newly read cheque a Monday `createdAt`, so the
+  Tuesday run would sign all of them; run a first read on another day.
 - Pulling a status from the portal (rule 12) and any supplier-facing change (rule 1).
 - Server-side storage of column preferences (per browser, as today).

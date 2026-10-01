@@ -149,10 +149,20 @@ export async function revertSignature(
   return inTx(db, async (tx) => {
     const check = await load(tx, args.checkId)
     assertTransition(check.status as CheckStatus, 'SIGNATURE_PENDING')
-    const updated = await tx.check.update({
-      where: { id: check.id },
+    // Guarded on SIGNED, as `autoSign` guards on SIGNATURE_PENDING: a change
+    // between the read above and this write (a second revert, a mark-ready)
+    // must refuse with the ladder's own error rather than overwrite it.
+    const { count } = await tx.check.updateMany({
+      where: { id: check.id, status: 'SIGNED' },
       data: { status: 'SIGNATURE_PENDING', signedById: null, signedAt: null },
     })
+    if (count === 0) {
+      const current = await tx.check.findUnique({ where: { id: check.id }, select: { status: true } })
+      throw new DomainError(
+        'ILLEGAL_TRANSITION',
+        `Cannot move a check from ${current?.status ?? 'a changed status'} to SIGNATURE_PENDING.`,
+      )
+    }
     const reason = args.reason?.trim() || null
     await writeAudit(tx, {
       checkId: check.id, actorType: 'USER', userId: args.userId, action: SIGNATURE_REVERTED_ACTION,
@@ -162,7 +172,7 @@ export async function revertSignature(
       },
       ...(reason ? { remarks: reason } : {}),
     })
-    return updated
+    return tx.check.findUniqueOrThrow({ where: { id: check.id } })
   })
 }
 

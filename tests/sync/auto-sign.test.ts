@@ -78,13 +78,26 @@ describe('runAutoSign', () => {
     const c = await pendingAt(new Date('2026-09-28T09:00:00Z'))
     expect(await runAutoSign(testDb, { now: tuesdayNoon })).toEqual({ outcome: 'DISABLED', signed: 0, skipped: 0, enabled: false })
     expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('SIGNATURE_PENDING')
+    expect((await getLastAutoSign(testDb))?.outcome).toBe('DISABLED')
   })
 
-  it('stops at the deadline as FAILED, naming what is left', async () => {
-    await pendingAt(new Date('2026-09-28T09:00:00Z'))
+  it('stops at the deadline as FAILED at 12:00, naming what is left for the 18:00 run', async () => {
+    const c = await pendingAt(new Date('2026-09-28T09:00:00Z'))
     const run = await runAutoSign(testDb, { now: tuesdayNoon, deadline: new Date(0) })
-    expect(run.outcome).toBe('FAILED')
-    expect(run.error).toMatch(/1 cheque\(s\) still due/)
+    expect(run).toMatchObject({ outcome: 'FAILED', signed: 0 })
+    expect(run.error).toBe('time budget reached with 1 cheque(s) still due; the 18:00 run continues')
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('SIGNATURE_PENDING')
+    const rows = await testDb.auditLog.findMany({ where: { action: AUTO_SIGN_RUN_ACTION } })
+    expect(rows).toHaveLength(1)
+    expect(rows[0].details).toMatchObject({ outcome: 'FAILED' })
+  })
+
+  it('stops at the deadline at 18:00 and leaves what is left to SIGN ALL', async () => {
+    await pendingAt(new Date('2026-09-28T09:00:00Z'))
+    const tuesdayEvening = new Date('2026-09-29T10:00:00Z')   // 18:00 Manila, the last run
+    const run = await runAutoSign(testDb, { now: tuesdayEvening, deadline: new Date(0) })
+    expect(run).toMatchObject({ outcome: 'FAILED', signed: 0 })
+    expect(run.error).toBe('time budget reached with 1 cheque(s) still due; they wait for SIGN ALL')
   })
   it('records FAILED and returns rather than throwing', async () => {
     await pendingAt(new Date('2026-09-28T09:00:00Z'))
@@ -120,6 +133,13 @@ describe('runAutoSign', () => {
 describe('getLastAutoSign', () => {
   it('reads back the newest run, with enabled', async () => {
     await runAutoSign(testDb, { now: wednesdayNoon })
-    expect(await getLastAutoSign(testDb)).toMatchObject({ outcome: 'IDLE', enabled: true })
+    expect(await getLastAutoSign(testDb)).toMatchObject({ outcome: 'IDLE', enabled: true, legacyDays: null })
+  })
+
+  it('reads a run recorded under the old days rule as legacy', async () => {
+    await testDb.auditLog.create({
+      data: { actorType: 'SYSTEM', action: AUTO_SIGN_RUN_ACTION, details: { outcome: 'OK', signed: 2, skipped: 0, days: 3 } },
+    })
+    expect(await getLastAutoSign(testDb)).toMatchObject({ outcome: 'OK', signed: 2, enabled: null, legacyDays: 3 })
   })
 })
