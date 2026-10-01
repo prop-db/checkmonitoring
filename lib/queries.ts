@@ -402,6 +402,11 @@ async function pendingSignatureWhere(
 ): Promise<Prisma.CheckWhereInput> {
   const where = await whereFor(db, {
     ...columnFilterFields(columns),
+    // A refusal is carried through on its own: `columnFilterFields` copies the
+    // twelve named filters only, and a refused filter that vanished here would
+    // hand SIGN ALL every pending cheque. It can only narrow, so letting it in
+    // cannot widen the set.
+    refused: (columns as { refused?: unknown }).refused === true ? true : undefined,
     status: 'SIGNATURE_PENDING', incomplete: false,
     companyId: narrow.companyId, cashAccountId: narrow.cashAccountId, eligibility: narrow.eligibility,
   })

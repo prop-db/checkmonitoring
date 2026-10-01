@@ -1214,4 +1214,13 @@ describe('SIGN ALL set with column filters', () => {
     const ids = await listPendingSignatureIds(testDb, {}, { status: 'SIGNED', incomplete: true } as never)
     expect(ids).toEqual([p.id])
   })
+
+  // SIGN ALL is a bulk status write: a filter that could not be read must empty
+  // the set, never fall back to every pending cheque.
+  it('is empty when a column filter was refused', async () => {
+    await makeCheck({ status: 'SIGNATURE_PENDING', amount: '100.00' })
+    await makeCheck({ status: 'SIGNATURE_PENDING', amount: '200.00' })
+    expect(await listPendingSignatureIds(testDb, {}, { refused: true } as never)).toEqual([])
+    expect((await getPendingSignature(testDb, {}, { refused: true } as never)).count).toBe(0)
+  })
 })
