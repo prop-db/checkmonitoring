@@ -87,8 +87,9 @@ export const NO_APV_SKIP_REASON = 'no APV numbers'
  * fallback as the client, through the same function.
  */
 async function portalCanMatch(tx: Prisma.TransactionClient, check: { id: string; apvNumbers: string[] }): Promise<boolean> {
-  if (check.apvNumbers.length) return true
-  const bills = await tx.checkBill.findMany({ where: { checkId: check.id }, select: { apvNumber: true } })
+  const bills = check.apvNumbers.length
+    ? []
+    : await tx.checkBill.findMany({ where: { checkId: check.id }, select: { apvNumber: true } })
   return portalApvs({ apvNumbers: check.apvNumbers, bills }).length > 0
 }
 

@@ -63,6 +63,14 @@ describe('CANCELLED portal event', () => {
     expect(audit.details).toMatchObject({ portalNotified: false, portalSkipReason: NO_APV_SKIP_REASON })
   })
 
+  it('voidCheck on a RELEASED routed cheque with no APV queues nothing and audits voided_after_release with the skip reason', async () => {
+    const check = await makeCheck({ status: 'RELEASED', eligibility: 'SUPPLIER', apvNumbers: [] })
+    await voidCheck(testDb, { checkId: check.id, reason: 'Voided in Acumatica', now: NOW })
+    expect(await testDb.portalEvent.count({ where: { checkId: check.id } })).toBe(0)
+    const audit = await testDb.auditLog.findFirstOrThrow({ where: { checkId: check.id, action: 'voided_after_release' } })
+    expect(audit.details).toMatchObject({ portalNotified: false, portalSkipReason: NO_APV_SKIP_REASON })
+  })
+
   it('a cheque with no apvNumbers but a bill still queues — the bill is an APV', async () => {
     const check = await makeCheck({ status: 'SIGNED', eligibility: 'SUPPLIER', apvNumbers: [] })
     await testDb.checkBill.create({ data: { checkId: check.id, apvNumber: 'AP-ST000004', amount: '1.00' } })

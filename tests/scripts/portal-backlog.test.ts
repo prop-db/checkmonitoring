@@ -36,8 +36,8 @@ describe('queueCancelledForStale', () => {
   const NOW = new Date('2026-09-26T10:00:00+08:00')
 
   async function scenario() {
-    const cancelled = await makeCheck({ status: 'CANCELLED', payeeName: 'HENKEL' })
-    const voided = await makeCheck({ status: 'VOIDED' })
+    const cancelled = await makeCheck({ status: 'CANCELLED', payeeName: 'HENKEL', apvNumbers: ['AP-ST000101'] })
+    const voided = await makeCheck({ status: 'VOIDED', apvNumbers: ['AP-ST000102'] })
     await mkEvent(cancelled.id, 'MARK_AVAILABLE', new Date('2026-09-05'))
     await mkEvent(voided.id, 'MARK_AVAILABLE', new Date('2026-09-05'), 'FAILED')
     // Not candidates: already has a CANCELLED event; MARK_AVAILABLE already
@@ -53,6 +53,17 @@ describe('queueCancelledForStale', () => {
     await mkEvent(internal.id, 'MARK_AVAILABLE', new Date('2026-09-05'))
     return { cancelled, voided }
   }
+
+  it('a cancelled routed cheque with an open MARK_AVAILABLE and no APV is not found and gets no CANCELLED event', async () => {
+    const noApv = await makeCheck({ status: 'CANCELLED', eligibility: 'SUPPLIER', apvNumbers: [] })
+    await mkEvent(noApv.id, 'MARK_AVAILABLE', new Date('2026-09-05'))
+    const dry = await queueCancelledForStale(testDb, { now: NOW, apply: false })
+    expect(dry.found).toBe(0)
+    expect(dry.cheques.map((c) => c.id)).not.toContain(noApv.id)
+    const r = await queueCancelledForStale(testDb, { now: NOW, apply: true })
+    expect(r).toMatchObject({ found: 0, queued: 0 })
+    expect(await testDb.portalEvent.count({ where: { checkId: noApv.id, kind: 'CANCELLED' } })).toBe(0)
+  })
 
   it('dry run counts the cheques and writes nothing', async () => {
     const { cancelled, voided } = await scenario()
