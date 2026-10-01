@@ -3,6 +3,7 @@
   "framework": "nextjs",
   "regions": ["sin1"],
   "crons": [
+    { "path": "/api/cron/sync", "schedule": "0 4 * * *" },
     { "path": "/api/cron/sync", "schedule": "0 10 * * *" }
   ],
   "headers": [

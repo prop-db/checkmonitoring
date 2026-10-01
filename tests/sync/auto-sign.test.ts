@@ -1,132 +1,125 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { testDb, resetDb } from '../helpers/db'
-import { makeCheck } from '../helpers/factory'
+import { makeCheck, makeUser } from '../helpers/factory'
 import { runAutoSign, listAutoSignCandidates, getLastAutoSign } from '@/lib/sync/auto-sign'
 import { AUTO_SIGN_RUN_ACTION } from '@/lib/domain/auto-sign'
+import { markSigned, revertSignature } from '@/lib/domain/actions'
 
-const DAY = 86_400_000
-const now = new Date('2026-09-25T10:00:00Z')
+const tuesdayNoon = new Date('2026-09-29T04:00:00Z')
+const wednesdayNoon = new Date('2026-09-30T04:00:00Z')
 
-async function pending(daysInApp: number, o: { acumatica?: boolean; acumaticaStatus?: string | null } = {}) {
+async function pendingAt(createdAt: Date, o: { acumatica?: boolean; acumaticaStatus?: string | null } = {}) {
   const c = await makeCheck({ status: 'SIGNATURE_PENDING' })
   return testDb.check.update({
     where: { id: c.id },
     data: {
       acumaticaPaymentId: o.acumatica === false ? null : `PAY-${c.id}`,
       acumaticaStatus: o.acumaticaStatus === undefined ? 'Balanced' : o.acumaticaStatus,
-      createdAt: new Date(now.getTime() - daysInApp * DAY),
+      createdAt,
     },
-  })
-}
-
-/** Same shape as `pending`, but at an exact `createdAt` rather than N days back. */
-async function pendingAt(createdAt: Date) {
-  const c = await makeCheck({ status: 'SIGNATURE_PENDING' })
-  return testDb.check.update({
-    where: { id: c.id },
-    data: { acumaticaPaymentId: `PAY-${c.id}`, acumaticaStatus: 'Balanced', createdAt },
   })
 }
 
 beforeEach(resetDb)
 
 describe('listAutoSignCandidates', () => {
-  it('lists only the due, including a null Acumatica status, excluding Voided and register-only', async () => {
-    const due = await pending(4)
-    const dueNullStatus = await pending(3, { acumaticaStatus: null })
-    await pending(1)
-    await pending(9, { acumaticaStatus: 'Voided' })
-    await pending(9, { acumatica: false })
-    const ids = (await listAutoSignCandidates(testDb, now, 3)).map((c) => c.id).sort()
-    expect(ids).toEqual([due.id, dueNullStatus.id].sort())
+  it('lists Monday’s Acumatica cheques only, on a Tuesday', async () => {
+    const monEarly = await pendingAt(new Date('2026-09-27T16:00:00Z'))       // Mon 00:00 Manila
+    const monNull = await pendingAt(new Date('2026-09-28T09:00:00Z'), { acumaticaStatus: null })
+    await pendingAt(new Date('2026-09-27T15:59:59Z'))                         // Sun 23:59:59 Manila
+    await pendingAt(new Date('2026-09-28T16:00:00Z'))                         // Tue 00:00 Manila
+    await pendingAt(new Date('2026-09-21T09:00:00Z'))                         // the Monday before
+    await pendingAt(new Date('2026-09-28T09:00:00Z'), { acumaticaStatus: 'Voided' })
+    await pendingAt(new Date('2026-09-28T09:00:00Z'), { acumatica: false })
+    const ids = (await listAutoSignCandidates(testDb, tuesdayNoon)).map((c) => c.id).sort()
+    expect(ids).toEqual([monEarly.id, monNull.id].sort())
   })
 
-  it('is the Manila calendar-day rule, not the old 72-hour one', async () => {
-    // Monday 18:05 Manila — a few minutes into that run. Elapsed time would
-    // not reach 72h by Thursday 18:00, but Monday's Manila day is 3 calendar
-    // days before Thursday's, so it is listed.
-    const mondayRun = await pendingAt(new Date('2026-09-21T10:05:00Z'))
-    // Tuesday 00:01 Manila — not due yet at the same Thursday check, because
-    // its Manila day is only 2 days before Thursday's.
-    const tuesdayJustAfterMidnight = await pendingAt(new Date('2026-09-21T16:01:00Z'))
-    const checkedThursday = new Date('2026-09-24T10:00:00Z') // 18:00 Manila Thursday
-    const ids = (await listAutoSignCandidates(testDb, checkedThursday, 3)).map((c) => c.id)
-    expect(ids).toEqual([mondayRun.id])
-    expect(ids).not.toContain(tuesdayJustAfterMidnight.id)
+  it('leaves out a reverted cheque', async () => {
+    const u = await makeUser()
+    const c = await pendingAt(new Date('2026-09-28T09:00:00Z'))
+    await markSigned(testDb, { checkId: c.id, userId: u.id, now: new Date('2026-09-28T10:00:00Z') })
+    await revertSignature(testDb, { checkId: c.id, userId: u.id, now: new Date('2026-09-28T11:00:00Z') })
+    expect(await listAutoSignCandidates(testDb, tuesdayNoon)).toEqual([])
+  })
+
+  it('lists nothing on any other day', async () => {
+    await pendingAt(new Date('2026-09-28T09:00:00Z'))
+    expect(await listAutoSignCandidates(testDb, wednesdayNoon)).toEqual([])
   })
 })
 
 describe('runAutoSign', () => {
-  it('signs the due cheques and records one run row with no checkId', async () => {
-    const a = await pending(3)
-    const b = await pending(10)
-    await pending(1)
+  it('signs Monday’s cheques on Tuesday and records one run row with no checkId', async () => {
+    const a = await pendingAt(new Date('2026-09-28T01:00:00Z'))
+    const b = await pendingAt(new Date('2026-09-28T09:00:00Z'))
+    const tue = await pendingAt(new Date('2026-09-29T01:00:00Z'))
 
-    const run = await runAutoSign(testDb, { now })
-    expect(run).toEqual({ outcome: 'OK', signed: 2, skipped: 0, days: 3 })
-    const statuses = await testDb.check.findMany({ where: { id: { in: [a.id, b.id] } }, select: { status: true } })
-    expect(statuses.every((s) => s.status === 'SIGNED')).toBe(true)
-
+    const run = await runAutoSign(testDb, { now: tuesdayNoon })
+    expect(run).toEqual({ outcome: 'OK', signed: 2, skipped: 0, enabled: true })
+    const after = await testDb.check.findMany({ where: { id: { in: [a.id, b.id, tue.id] } }, select: { id: true, status: true } })
+    expect(Object.fromEntries(after.map((r) => [r.id, r.status]))).toEqual({
+      [a.id]: 'SIGNED', [b.id]: 'SIGNED', [tue.id]: 'SIGNATURE_PENDING',
+    })
     const rows = await testDb.auditLog.findMany({ where: { action: AUTO_SIGN_RUN_ACTION } })
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ checkId: null, actorType: 'SYSTEM' })
-    expect(rows[0].details).toMatchObject({ outcome: 'OK', signed: 2, skipped: 0, days: 3 })
+    expect(rows[0].details).toMatchObject({ outcome: 'OK', signed: 2, enabled: true })
   })
 
-  it('records DISABLED and signs nothing when the setting is 0', async () => {
-    await testDb.setting.create({ data: { key: 'autoSign.afterDays', value: '0' } })
-    const c = await pending(30)
-    expect(await runAutoSign(testDb, { now })).toEqual({ outcome: 'DISABLED', signed: 0, skipped: 0, days: 0 })
+  it('is IDLE on a non-Tuesday and signs nothing', async () => {
+    const c = await pendingAt(new Date('2026-09-28T09:00:00Z'))
+    expect(await runAutoSign(testDb, { now: wednesdayNoon })).toEqual({ outcome: 'IDLE', signed: 0, skipped: 0, enabled: true })
     expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('SIGNATURE_PENDING')
-    expect((await getLastAutoSign(testDb))?.outcome).toBe('DISABLED')
   })
 
+  it('is DISABLED when the setting is 0', async () => {
+    await testDb.setting.create({ data: { key: 'autoSign.mondayEnabled', value: '0' } })
+    const c = await pendingAt(new Date('2026-09-28T09:00:00Z'))
+    expect(await runAutoSign(testDb, { now: tuesdayNoon })).toEqual({ outcome: 'DISABLED', signed: 0, skipped: 0, enabled: false })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('SIGNATURE_PENDING')
+  })
+
+  it('stops at the deadline as FAILED, naming what is left', async () => {
+    await pendingAt(new Date('2026-09-28T09:00:00Z'))
+    const run = await runAutoSign(testDb, { now: tuesdayNoon, deadline: new Date(0) })
+    expect(run.outcome).toBe('FAILED')
+    expect(run.error).toMatch(/1 cheque\(s\) still due/)
+  })
   it('records FAILED and returns rather than throwing', async () => {
-    await pending(5)
+    await pendingAt(new Date('2026-09-28T09:00:00Z'))
     const spy = vi.spyOn(testDb.check, 'findMany').mockRejectedValueOnce(new Error('neon went away'))
-    const run = await runAutoSign(testDb, { now })
+    const run = await runAutoSign(testDb, { now: tuesdayNoon })
     spy.mockRestore()
     expect(run).toMatchObject({ outcome: 'FAILED', signed: 0, error: 'neon went away' })
-    const last = await getLastAutoSign(testDb)
-    expect(last).toMatchObject({ outcome: 'FAILED', error: 'neon went away' })
+    expect(await getLastAutoSign(testDb)).toMatchObject({ outcome: 'FAILED', error: 'neon went away' })
   })
 
   it('getLastAutoSign is null before any run', async () => {
     expect(await getLastAutoSign(testDb)).toBeNull()
   })
 
-  it('records FAILED with what is left when the time budget is already spent', async () => {
-    await pending(4)
-    await pending(5)
-    const run = await runAutoSign(testDb, { now, deadline: new Date(0) })
-    expect(run).toMatchObject({ outcome: 'FAILED', signed: 0 })
-    expect(run.error).toContain('2 cheque(s) still due')
-    const statuses = await testDb.check.findMany({ where: { status: 'SIGNATURE_PENDING' } })
-    expect(statuses).toHaveLength(2)
-    const rows = await testDb.auditLog.findMany({ where: { action: AUTO_SIGN_RUN_ACTION } })
-    expect(rows).toHaveLength(1)
-    expect(rows[0].details).toMatchObject({ outcome: 'FAILED' })
-  })
-
   it('skips a cheque deleted between listing and signing instead of failing the whole run', async () => {
-    // `a` is older, so listAutoSignCandidates (ordered by createdAt asc) visits
-    // it first; deleting it inside the first $transaction call makes autoSign's
-    // own load() throw the real DomainError('NOT_FOUND'), rather than mocking
-    // the throw directly.
-    const a = await pending(4)
-    const b = await pending(3)
-
+    // `a` is older, so it is visited first; deleting it inside the first
+    // $transaction makes autoSign's own load() throw the real NOT_FOUND.
+    const a = await pendingAt(new Date('2026-09-28T01:00:00Z'))
+    const b = await pendingAt(new Date('2026-09-28T09:00:00Z'))
     const real = testDb.$transaction.bind(testDb)
     const spy = vi.spyOn(testDb, '$transaction').mockImplementationOnce((async (fn: any, opts: any) => {
       await testDb.check.delete({ where: { id: a.id } })
       return real(fn, opts)
     }) as any)
-
-    const run = await runAutoSign(testDb, { now })
+    const run = await runAutoSign(testDb, { now: tuesdayNoon })
     spy.mockRestore()
-
-    expect(run).toEqual({ outcome: 'OK', signed: 1, skipped: 1, days: 3 })
+    expect(run).toEqual({ outcome: 'OK', signed: 1, skipped: 1, enabled: true })
     expect((await testDb.check.findUnique({ where: { id: b.id } }))?.status).toBe('SIGNED')
     expect(await testDb.check.findUnique({ where: { id: a.id } })).toBeNull()
+  })
+})
+
+describe('getLastAutoSign', () => {
+  it('reads back the newest run, with enabled', async () => {
+    await runAutoSign(testDb, { now: wednesdayNoon })
+    expect(await getLastAutoSign(testDb)).toMatchObject({ outcome: 'IDLE', enabled: true })
   })
 })

@@ -7,8 +7,8 @@ import { runAutoSign } from '@/lib/sync/auto-sign'
 import { kickPortalDelivery } from '@/lib/sync/portal-kick'
 
 /**
- * THE SCHEDULED SYNC. Vercel calls this once a day — `crons` in vercel.json,
- * `0 10 * * *` UTC, which is 18:00 Manila and never drifts because the
+ * THE SCHEDULED SYNC. Vercel calls this twice a day — `crons` in vercel.json,
+ * `0 4 * * *` and `0 10 * * *` UTC, 12:00 and 18:00 Manila, and never drifts because the
  * Philippines has no daylight saving.
  *
  * ── SECURITY ──────────────────────────────────────────────────────────────
@@ -29,10 +29,10 @@ import { kickPortalDelivery } from '@/lib/sync/portal-kick'
  * Vercel's cron log shows the failure; a refusal for want of a watermark or a
  * run already in progress is recorded and is not a failure of the cron.
  *
- * Then AUTO-SIGN (lib/sync/auto-sign.ts): an Acumatica cheque still at
- * SIGNATURE_PENDING `autoSign.afterDays` days after it reached the app becomes
- * SIGNED. It runs even when a tenant failed, and its own failure also turns the
- * response 500.
+ * Then AUTO-SIGN (lib/sync/auto-sign.ts): on a Manila Tuesday, the Acumatica
+ * cheques first read on the Monday become SIGNED; on any other day the run
+ * records IDLE. It runs even when a tenant failed, and its own failure also
+ * turns the response 500.
  */
 
 // ExcelJS is not involved, but the Prisma client is Node-only all the same.

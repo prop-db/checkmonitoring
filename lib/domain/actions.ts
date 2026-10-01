@@ -101,19 +101,20 @@ export async function markSigned(
 }
 
 /**
- * The 3-day rule's write (lib/domain/auto-sign.ts). No user: `signedById`
+ * The Monday rule's write (lib/domain/auto-sign.ts). No user: `signedById`
  * stays null, because a name on a signature nobody gave is worse than none.
- * `signedAt` is the moment the system recorded it. Re-judged on the row as
- * loaded, so a cheque someone signed or cancelled after the candidates were
- * listed is skipped (null), never overwritten. No portal event — `markSigned`
- * queues none either.
+ * Reached only when the setting is on — the run decides that. Re-judged on
+ * the row as loaded, so a cheque someone signed, reverted or cancelled after
+ * the candidates were listed is skipped (null), never overwritten. No portal
+ * event — `markSigned` queues none either.
  */
 export async function autoSign(
-  db: Db, args: { checkId: string; now: Date; days: number },
+  db: Db, args: { checkId: string; now: Date },
 ): Promise<Check | null> {
   return inTx(db, async (tx) => {
     const check = await load(tx, args.checkId)
-    if (!isDueForAutoSign(check, args.now, args.days)) return null
+    const reverted = (await tx.auditLog.count({ where: { checkId: check.id, action: SIGNATURE_REVERTED_ACTION } })) > 0
+    if (!isDueForAutoSign({ ...check, reverted }, args.now, true)) return null
     assertTransition(check.status as CheckStatus, 'SIGNED')
     const { count } = await tx.check.updateMany({
       where: { id: check.id, status: 'SIGNATURE_PENDING' },
@@ -124,14 +125,10 @@ export async function autoSign(
       checkId: check.id,
       actorType: 'SYSTEM',
       action: AUTO_SIGNED_ACTION,
-      details: {
-        from: 'SIGNATURE_PENDING', to: 'SIGNED',
-        inAppSince: check.createdAt.toISOString(), afterDays: args.days,
-      },
+      details: { from: 'SIGNATURE_PENDING', to: 'SIGNED', rule: 'MONDAY', inAppSince: check.createdAt.toISOString() },
       remarks:
-        `Signed automatically: this Acumatica cheque had been in the app since ` +
-        `${check.createdAt.toISOString()} and was still pending after ${args.days} day(s). ` +
-        'No one signed it here, so no signing user is recorded.',
+        `Signed automatically at Tuesday's run: this Acumatica cheque first reached the app on ` +
+        `Monday (${check.createdAt.toISOString()}). No one signed it here, so no signing user is recorded.`,
     })
     return tx.check.findUniqueOrThrow({ where: { id: check.id } })
   })

@@ -50,7 +50,7 @@ Replaces the 2026-09-25 rule (`autoSign.afterDays`, "3 Manila calendar days afte
 
 ### A1b. The setting
 
-`autoSign.afterDays` (int) is replaced by **`autoSign.mondayEnabled`** (boolean, default ON),
+`autoSign.afterDays` (int) is replaced by **`autoSign.mondayEnabled`** (an int setting, 1 = ON, 0 = OFF, default 1 — the registry has only `int` and `list` kinds),
 labelled "AUTO-SIGN MONDAY'S ACUMATICA CHEQUES ON TUESDAY". The registry's exhaustiveness and the
 settings form follow. A stored `autoSign.afterDays` row is ignored, not migrated: the old number has
 no meaning under the new rule. `/admin/sync`'s LAST AUTO-SIGN line is unchanged.

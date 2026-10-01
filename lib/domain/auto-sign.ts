@@ -1,24 +1,24 @@
 /**
- * AUTO-SIGN, THE RULE. Client, 2026-09-24: "all checks generated from acumatica,
- * it will automatically transfer to signed checks 3 days from the creation date".
+ * AUTO-SIGN, THE RULE. Client, 2026-10-01, replacing the 2026-09-24 "3 days
+ * after creation": "All checks prepared on Monday — automatically will be
+ * transferred to signed by Tuesday. All checks on Tuesday to Friday will have
+ * a 1 click button."
  *
- * The clock is `createdAt` — when the sync first wrote the cheque — because
- * Acumatica publishes no creation timestamp and its one date, PaymentDate, is
- * post-dated on some cheques.
+ * "Prepared on Monday" is read as "first read by the sync on a Manila
+ * Monday" — `createdAt` — because Acumatica publishes no creation timestamp
+ * and its one date, PaymentDate, is post-dated on some cheques. A cheque
+ * prepared Monday after the 18:00 read first arrives at Tuesday's 12:00 read,
+ * carries a Tuesday `createdAt`, and waits for SIGN ALL. Accepted.
  *
- * Manila CALENDAR days, not elapsed time: a cheque is due when its Manila
- * calendar day is `days` days at or before today's Manila calendar day. A
- * cheque inserted a few minutes into Monday's 18:00 run is not yet 72 hours
- * old at Thursday's run — Vercel fires anywhere within the hour — so counting
- * elapsed hours would slip it to Friday. "Generated Monday, SIGNED Thursday"
- * is a statement about calendar days, and that is what this counts. The
- * number of days is the `autoSign.afterDays` setting; 0 or less switches the
- * rule off.
+ * Only on a Manila TUESDAY, and only the Monday immediately before it: a run
+ * that failed is retried by hand the same day, and never reaches back to an
+ * earlier Monday — older cheques are SIGN ALL's.
+ *
+ * A cheque a person reverted (`signature_reverted`) is never signed by the
+ * clock again: next Tuesday's run would otherwise quietly undo the revert.
  *
  * The Philippines is UTC+8 with no daylight saving, so a fixed offset is
- * exact, not an approximation.
- *
- * Pure. No database, no clock: the caller passes `now`.
+ * exact. Pure. No database, no clock: the caller passes `now`.
  */
 
 export const AUTO_SIGNED_ACTION = 'auto_signed'
@@ -28,6 +28,9 @@ export const SIGNATURE_REVERTED_ACTION = 'signature_reverted'
 
 const DAY_MS = 86_400_000
 const MANILA_OFFSET_MS = 8 * 3_600_000
+/** 1970-01-01 was a Thursday; with Sunday = 0 that is weekday 4. */
+const EPOCH_WEEKDAY = 4
+const TUESDAY = 2
 
 export type AutoSignFacts = {
   status: string
@@ -35,6 +38,8 @@ export type AutoSignFacts = {
   isCheque: boolean
   acumaticaStatus: string | null
   createdAt: Date
+  /** Carries a `signature_reverted` audit row. */
+  reverted: boolean
 }
 
 /** The Manila calendar day index (days since the epoch, in UTC+8) an instant falls on. */
@@ -42,18 +47,24 @@ function dayIndex(t: number): number {
   return Math.floor((t + MANILA_OFFSET_MS) / DAY_MS)
 }
 
-/**
- * The first instant (UTC) of the Manila day AFTER the one `days` days before
- * today — so a cheque is due when `createdAt` falls strictly before it, i.e.
- * its Manila day is today minus `days` or earlier. (On 25 Sep with 3 days:
- * 23 Sep 00:00 Manila, so 22 Sep and earlier are due.)
- */
-export function dueBefore(now: Date, days: number): Date {
-  return new Date((dayIndex(now.getTime()) - days + 1) * DAY_MS - MANILA_OFFSET_MS)
+/** The UTC instant at which Manila day `index` begins. */
+function dayStart(index: number): Date {
+  return new Date(index * DAY_MS - MANILA_OFFSET_MS)
 }
 
-export function isDueForAutoSign(c: AutoSignFacts, now: Date, days: number): boolean {
-  if (days <= 0) return false
+export function isManilaTuesday(now: Date): boolean {
+  return (dayIndex(now.getTime()) + EPOCH_WEEKDAY) % 7 === TUESDAY
+}
+
+/** The Manila day before `now`'s: `from` inclusive, `to` exclusive. On a Tuesday, Monday. */
+export function mondayWindow(now: Date): { from: Date; to: Date } {
+  const today = dayIndex(now.getTime())
+  return { from: dayStart(today - 1), to: dayStart(today) }
+}
+
+export function isDueForAutoSign(c: AutoSignFacts, now: Date, enabled: boolean): boolean {
+  if (!enabled) return false
+  if (!isManilaTuesday(now)) return false
   if (c.status !== 'SIGNATURE_PENDING') return false
   // Only what Acumatica generated. A register-only cheque waits for a person.
   if (c.acumaticaPaymentId === null) return false
@@ -61,5 +72,8 @@ export function isDueForAutoSign(c: AutoSignFacts, now: Date, days: number): boo
   if (!c.isCheque) return false
   // A voided payment is the sync's or a person's to settle, not the clock's.
   if (c.acumaticaStatus === 'Voided') return false
-  return c.createdAt.getTime() < dueBefore(now, days).getTime()
+  if (c.reverted) return false
+  const { from, to } = mondayWindow(now)
+  const t = c.createdAt.getTime()
+  return t >= from.getTime() && t < to.getTime()
 }

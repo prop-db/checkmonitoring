@@ -1,20 +1,20 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { testDb, resetDb } from '../helpers/db'
-import { makeCheck } from '../helpers/factory'
-import { autoSign } from '@/lib/domain/actions'
+import { makeCheck, makeUser } from '../helpers/factory'
+import { autoSign, revertSignature, markSigned } from '@/lib/domain/actions'
 import { AUTO_SIGNED_ACTION } from '@/lib/domain/auto-sign'
 
-const DAY = 86_400_000
-const now = new Date('2026-09-25T10:00:00Z')
+const tuesdayNoon = new Date('2026-09-29T04:00:00Z')
+const mondayMorning = new Date('2026-09-28T01:00:00Z') // 09:00 Manila Monday
 
-async function acumaticaPending(daysInApp: number, o: { isCheque?: boolean; acumaticaStatus?: string | null } = {}) {
+async function acumaticaPending(createdAt: Date, o: { isCheque?: boolean; acumaticaStatus?: string | null } = {}) {
   const c = await makeCheck({ status: 'SIGNATURE_PENDING', isCheque: o.isCheque ?? true })
   return testDb.check.update({
     where: { id: c.id },
     data: {
       acumaticaPaymentId: `PAY-${c.id}`,
       acumaticaStatus: o.acumaticaStatus === undefined ? 'Balanced' : o.acumaticaStatus,
-      createdAt: new Date(now.getTime() - daysInApp * DAY),
+      createdAt,
     },
   })
 }
@@ -22,36 +22,38 @@ async function acumaticaPending(daysInApp: number, o: { isCheque?: boolean; acum
 beforeEach(resetDb)
 
 describe('autoSign', () => {
-  it('signs a due cheque with no signing user, and writes one SYSTEM audit row', async () => {
-    const c = await acumaticaPending(3)
-    const signed = await autoSign(testDb, { checkId: c.id, now, days: 3 })
+  it('signs a Monday cheque at Tuesday’s run, no signing user, one SYSTEM row', async () => {
+    const c = await acumaticaPending(mondayMorning)
+    const signed = await autoSign(testDb, { checkId: c.id, now: tuesdayNoon })
     expect(signed).toMatchObject({ status: 'SIGNED', signedById: null })
-    expect(signed!.signedAt!.toISOString()).toBe(now.toISOString())
-
+    expect(signed!.signedAt!.toISOString()).toBe(tuesdayNoon.toISOString())
     const audit = await testDb.auditLog.findMany({ where: { checkId: c.id, action: AUTO_SIGNED_ACTION } })
     expect(audit).toHaveLength(1)
     expect(audit[0]).toMatchObject({ actorType: 'SYSTEM', userId: null })
     expect(audit[0].details).toMatchObject({
-      from: 'SIGNATURE_PENDING', to: 'SIGNED', afterDays: 3, inAppSince: c.createdAt.toISOString(),
+      from: 'SIGNATURE_PENDING', to: 'SIGNED', rule: 'MONDAY', inAppSince: c.createdAt.toISOString(),
     })
   })
 
   it('queues no portal event', async () => {
-    const c = await acumaticaPending(5)
-    await autoSign(testDb, { checkId: c.id, now, days: 3 })
-    expect(await testDb.portalEvent.count()).toBe(0)
+    const c = await acumaticaPending(mondayMorning)
+    await autoSign(testDb, { checkId: c.id, now: tuesdayNoon })
+    expect(await testDb.portalEvent.count({ where: { checkId: c.id } })).toBe(0)
   })
 
-  it('returns null and writes nothing for a cheque that is not due as it stands', async () => {
-    const young = await acumaticaPending(2)
-    const signedByHand = await acumaticaPending(9)
-    await testDb.check.update({ where: { id: signedByHand.id }, data: { status: 'SIGNED' } })
-    const debitAdv = await acumaticaPending(9, { isCheque: false })
+  it('skips (null) a cheque someone reverted', async () => {
+    const u = await makeUser()
+    const c = await acumaticaPending(mondayMorning)
+    await markSigned(testDb, { checkId: c.id, userId: u.id, now: mondayMorning })
+    await revertSignature(testDb, { checkId: c.id, userId: u.id, now: mondayMorning })
+    expect(await autoSign(testDb, { checkId: c.id, now: tuesdayNoon })).toBeNull()
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('SIGNATURE_PENDING')
+  })
 
-    for (const c of [young, signedByHand, debitAdv]) {
-      expect(await autoSign(testDb, { checkId: c.id, now, days: 3 })).toBeNull()
-    }
-    expect(await testDb.auditLog.count({ where: { action: AUTO_SIGNED_ACTION } })).toBe(0)
-    expect((await testDb.check.findUniqueOrThrow({ where: { id: young.id } })).status).toBe('SIGNATURE_PENDING')
+  it('skips (null) a Tuesday cheque and any run on another day', async () => {
+    const tue = await acumaticaPending(new Date('2026-09-29T01:00:00Z'))
+    expect(await autoSign(testDb, { checkId: tue.id, now: tuesdayNoon })).toBeNull()
+    const mon = await acumaticaPending(mondayMorning)
+    expect(await autoSign(testDb, { checkId: mon.id, now: new Date('2026-09-30T04:00:00Z') })).toBeNull()
   })
 })
