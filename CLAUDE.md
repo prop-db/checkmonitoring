@@ -322,8 +322,14 @@ once more on the next run; if `/admin/portal` shows one, run the script again.
 status — VOIDED, CANCELLED and no-amount included — in BigInt order; each unused number between an
 account's first and last is one MISSING line, however large (user ruling 2026-10-01: "every number
 counts", not a booklet heuristic). The cash account is the series key because the sync publishes
-no cheque book. MISSING is bounded by the sync's scope (2026 onward, CHK only) and by memo-numbered
-cheques sitting on `/admin/staged`; the page says so. `next build` failed with *Cannot mix BigInt
+no cheque book. MISSING is bounded by the sync's scope (2026 onward, CHK only). A number Acumatica
+re-used with a trailing dot — a second payment document on the same cheque number, which Acumatica
+will not accept twice on one cash account — sits on `/admin/staged` as NO_CHECK_NUMBER and is shown
+as a **STAGED** line, never MISSING (`stagedSeriesNumber`, spec §C, 2026-10-02). Measured that day:
+169 staged payments end in dots, 66 of them on a number a different payment already holds here under
+the same company — **do not strip the dot at import**; it would collapse two payments onto one
+`(companyId, checkNumber)` cheque. Memo-numbered cheques (`PCF26-00001`) still hide behind MISSING;
+the page says so. `next build` failed with *Cannot mix BigInt
 and other types* (Next's file tracer) on `1n`-style literal arithmetic in `lib/numbering/series.ts`;
 it uses `BigInt(0)` / `BigInt(1)` constants instead — keep it that way.
 
