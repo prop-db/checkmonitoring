@@ -119,6 +119,17 @@ describe('upsertCheck — creating', () => {
     expect(check.crNumber).toBeNull()
   })
 
+  it('an Acumatica row whose CashAccount is a cheque book gets that book; a non-book code gets none (spec §D)', async () => {
+    const { company, cashAccount } = await seedCompany()
+    const book = await testDb.checkBook.create({ data: { code: 'BPI-S-4636', bankId: cashAccount.bankId, companyId: company.id } })
+    await upsert(row({ source: 'ACUMATICA', sourceSheet: null, sourceRow: null, acumaticaPaymentId: 'CV-ST-1', checkNumber: '6000400001', checkBookCode: 'BPI-S-4636', cashAccountCode: 'BPI-S-4636' }))
+    await upsert(row({ source: 'ACUMATICA', sourceSheet: null, sourceRow: null, acumaticaPaymentId: 'CV-ST-2', checkNumber: '6000400002', checkBookCode: 'PCF-SITIO', cashAccountCode: 'PCF-SITIO' }))
+    const a = await testDb.check.findFirstOrThrow({ where: { checkNumber: '6000400001' } })
+    const b = await testDb.check.findFirstOrThrow({ where: { checkNumber: '6000400002' } })
+    expect(a.checkBookId).toBe(book.id)
+    expect(b.checkBookId).toBeNull()
+  })
+
   it('creates with no receipt when the source states none', async () => {
     await seedCompany()
     await upsert(row({ receiptRef: null }))
