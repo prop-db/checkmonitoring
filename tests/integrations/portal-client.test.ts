@@ -1,11 +1,13 @@
 // tests/integrations/portal-client.test.ts
 import { describe, it, expect } from 'vitest'
+import { Prisma } from '@prisma/client'
 import { buildPortalEventBody, createPortalClient, manilaDay, PortalPayloadError, type CheckForPortal } from '@/lib/integrations/portal/client'
 
 const bank = { bank: { code: 'BPI' } }
 const check = (over: Partial<CheckForPortal> = {}): CheckForPortal => ({
   id: 'chk1', checkNumber: '6000353106', apvNumbers: ['AP-1001', 'AP-1002'], eligibility: 'SUPPLIER',
   availablePickupDate: new Date('2026-09-30T00:00:00Z'), releasedAt: null, orNumber: null, orDate: null, releasedBy: null,
+  receiptType: null, receiptAmount: null, receiptFile: null,
   cashAccount: bank, checkBook: null,
   bills: [{ apvNumber: 'AP-1001', poNumber: 'PO-77' }, { apvNumber: 'AP-1002', poNumber: null }],
   ...over,
@@ -114,6 +116,20 @@ describe('buildPortalEventBody', () => {
     for (const kind of ['REVERT', 'CANCELLED'] as const) {
       expect(() => buildPortalEventBody({ id: 'e', kind }, check({ availablePickupDate: null, releasedAt: null }))).not.toThrow()
     }
+  })
+
+  it('RECEIPT carries type, number, date, amount string, base64 file and releaser', () => {
+    const body = buildPortalEventBody({ id: 'r1', kind: 'RECEIPT' }, check({
+      releasedAt: new Date('2026-10-02T02:00:00Z'), orNumber: 'OR-9', orDate: new Date('2026-10-02T00:00:00Z'),
+      receiptType: 'OR', receiptAmount: new Prisma.Decimal('1000.5'), releasedBy: { name: 'Ana Cruz' },
+      receiptFile: { fileName: 'or.pdf', contentType: 'application/pdf', bytes: Buffer.from('%PDF') },
+    }))
+    expect(body).toMatchObject({ kind: 'RECEIPT', receiptType: 'OR', orNumber: 'OR-9', orDate: '2026-10-02', amount: '1000.50', releasedBy: 'Ana Cruz',
+      file: { name: 'or.pdf', contentType: 'application/pdf', base64: Buffer.from('%PDF').toString('base64') } })
+  })
+  it('RECEIPT without a reference or type is a payload defect', () => {
+    expect(() => buildPortalEventBody({ id: 'r', kind: 'RECEIPT' }, check({ orNumber: null })))
+      .toThrow(PortalPayloadError)
   })
 })
 
