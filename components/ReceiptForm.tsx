@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { recordReceiptAction } from '@/app/checks/actions'
 import type { ActionResult } from '@/app/checks/actions'
+import { MAX_RECEIPT_FILE_BYTES, RECEIPT_FILE_TYPES } from '@/lib/domain/receipt'
 import { ReceiptFields, EMPTY_RECEIPT, receiptTypeMissing, type ReceiptValue } from './ReceiptFields'
 
 /**
@@ -51,11 +52,11 @@ export function ReceiptForm({ checkId }: { checkId: string }) {
 
       <label className="block text-xs font-medium tracking-wide text-slate-600" htmlFor="record-receipt-file">
         RECEIPT FILE (PDF, JPG OR PNG, UP TO 3 MB)
-        <input id="record-receipt-file" name="receiptFile" type="file" accept="application/pdf,image/jpeg,image/png"
+        <input id="record-receipt-file" name="receiptFile" type="file" accept={RECEIPT_FILE_TYPES.join(',')}
           disabled={pending}
           onChange={(e) => {
             const f = e.currentTarget.files?.[0]
-            setFileError(f && f.size > 3 * 1024 * 1024 ? 'That file is larger than 3 MB.' : null)
+            setFileError(f && f.size > MAX_RECEIPT_FILE_BYTES ? 'That file is larger than 3 MB.' : null)
           }}
           className="mt-1 block w-full text-sm text-slate-600 file:mr-4 file:rounded-lg file:border-0 file:bg-navy-bg file:px-4 file:py-2 file:text-sm file:font-medium file:tracking-wide file:text-navy hover:file:bg-navy-bg/70" />
       </label>

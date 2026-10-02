@@ -60,6 +60,7 @@ describe('readReceiptFields', () => {
   it('an empty file input is no file', async () => {
     const fd = new FormData(); fd.set('receiptFile', new File([], ''))
     const r = await readReceiptFields(fd)
+    expect(r).toMatchObject({ ok: true })
     if (r.ok) expect(r.receiptFile).toBeUndefined()
   })
 })
