@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { readRowReceipts } from '@/lib/receipt-form'
+import { readReceiptFields, readRowReceipts } from '@/lib/receipt-form'
 
 const form = (entries: [string, string][]) => {
   const f = new FormData()
@@ -45,5 +45,21 @@ describe('readRowReceipts', () => {
   it('refuses the old single-box fields rather than silently dropping a typed receipt', () => {
     const r = readRowReceipts(form([['orNumber', 'OR-1'], ['receiptType', 'OR']]), ['a'])
     expect(r).toEqual({ ok: false, message: 'This page is out of date. Reload it and type the receipt in the row.' })
+  })
+})
+
+describe('readReceiptFields', () => {
+  it('reads the amount and the receipt file', async () => {
+    const fd = new FormData()
+    fd.set('orNumber', 'OR-1'); fd.set('receiptType', 'OR'); fd.set('receiptAmount', '1,000.50')
+    fd.set('receiptFile', new File([new Uint8Array([0x25, 0x50, 0x44, 0x46])], 'or.pdf', { type: 'application/pdf' }))
+    const r = await readReceiptFields(fd)
+    expect(r).toMatchObject({ ok: true, receiptAmount: '1,000.50' })
+    if (r.ok) { expect(r.receiptFile?.fileName).toBe('or.pdf'); expect(r.receiptFile?.bytes.length).toBe(4) }
+  })
+  it('an empty file input is no file', async () => {
+    const fd = new FormData(); fd.set('receiptFile', new File([], ''))
+    const r = await readReceiptFields(fd)
+    if (r.ok) expect(r.receiptFile).toBeUndefined()
   })
 })

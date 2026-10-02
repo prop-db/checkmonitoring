@@ -10,7 +10,7 @@ import { afterResponse, kickPortalDelivery } from '@/lib/sync/portal-kick'
 import {
   markSigned, markReadyForRelease, revertAvailability,
   markReleased, recordClearing, cancelCheck, deleteIncompleteCheck, recordReceipt,
-  reverseRelease, updateDetails, revertSignature,
+  reverseRelease, updateDetails, revertSignature, attachReceiptFile,
 } from '@/lib/domain/actions'
 import { readReceiptFields } from '@/lib/receipt-form'
 
@@ -111,13 +111,15 @@ export async function reverseReleaseAction(formData: FormData): Promise<ActionRe
 export async function releaseAction(formData: FormData): Promise<ActionResult> {
   const user = await requireUser()
   const checkId = str(formData, 'checkId')
-  const receipt = readReceiptFields(formData)
+  const receipt = await readReceiptFields(formData)
   if (!receipt.ok) return { ok: false, message: receipt.message }
   return run(checkId, () => markReleased(prisma, {
     checkId, userId: user.id,
     orNumber: receipt.orNumber,
     orDate: receipt.orDate,
     receiptType: receipt.receiptType,
+    receiptAmount: receipt.receiptAmount,
+    receiptFile: receipt.receiptFile,
     remarks: str(formData, 'remarks') || undefined,
     now: new Date(),
   }))
@@ -134,14 +136,30 @@ export async function releaseAction(formData: FormData): Promise<ActionResult> {
 export async function recordReceiptAction(formData: FormData): Promise<ActionResult> {
   const user = await requireUser()
   const checkId = str(formData, 'checkId')
-  const receipt = readReceiptFields(formData)
+  const receipt = await readReceiptFields(formData)
   if (!receipt.ok) return { ok: false, message: receipt.message }
   return run(checkId, () => recordReceipt(prisma, {
     checkId, userId: user.id,
     orNumber: receipt.orNumber ?? '',
     orDate: receipt.orDate,
     receiptType: receipt.receiptType,
+    receiptAmount: receipt.receiptAmount,
+    receiptFile: receipt.receiptFile,
     now: new Date(),
+  }))
+}
+
+/**
+ * Add the amount and/or the file to a receipt already recorded (add-only; the
+ * domain refuses an overwrite). user request 2026-10-01.
+ */
+export async function attachReceiptFileAction(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser()
+  const checkId = str(formData, 'checkId')
+  const receipt = await readReceiptFields(formData)
+  if (!receipt.ok) return { ok: false, message: receipt.message }
+  return run(checkId, () => attachReceiptFile(prisma, {
+    checkId, userId: user.id, receiptAmount: receipt.receiptAmount, receiptFile: receipt.receiptFile, now: new Date(),
   }))
 }
 

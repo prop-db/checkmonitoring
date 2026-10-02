@@ -4,6 +4,7 @@ import { requireUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { AppHeader } from '@/components/AppHeader'
 import { ReceiptForm } from '@/components/ReceiptForm'
+import { AttachReceiptFileForm } from '@/components/AttachReceiptFileForm'
 import { RECEIPT_TYPE_LABELS } from '@/lib/domain/receipt'
 import { RECEIPT_RECLASSIFIED_ACTION } from '@/lib/admin/repair-cr-receipts'
 
@@ -29,7 +30,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
 
   const check = await prisma.check.findUnique({
     where: { id },
-    include: { company: true, releasedBy: true },
+    include: { company: true, releasedBy: true, receiptFile: { select: { fileName: true, sizeBytes: true } } },
   })
   if (!check) notFound()
 
@@ -88,6 +89,13 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
               )}
             </p>
             <p className="text-sm text-slate-600">RECEIPT DATE {fmtDate(check.orDate)}</p>
+            <p className="text-sm text-slate-600">AMOUNT {check.receiptAmount?.toFixed(2) ?? '—'}</p>
+            <p className="text-sm text-slate-600">
+              FILE {check.receiptFile ? `${check.receiptFile.fileName} (${Math.ceil(check.receiptFile.sizeBytes / 1024)} KB)` : 'Not attached'}
+            </p>
+            {(check.receiptAmount === null || !check.receiptFile) && (
+              <AttachReceiptFileForm checkId={check.id} needsAmount={check.receiptAmount === null} needsFile={!check.receiptFile} />
+            )}
             {fromRegister && (
               <p className="text-xs text-slate-500">
                 FROM THE REGISTER. This number was typed into the register&rsquo;s REMARKS column and
