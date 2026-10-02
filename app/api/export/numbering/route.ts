@@ -3,7 +3,7 @@ import { getSessionUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { getFilterOptions } from '@/lib/queries'
 import { manilaDay } from '@/lib/forecast/buckets'
-import { listNumberingAccounts, countChequesWithoutAccount } from '@/lib/numbering/query'
+import { listNumberingAccounts, countChequesWithoutCheckBook, listCheckBookOptions } from '@/lib/numbering/query'
 import { isMissingOnly, describeNumberingFilters, numberingFilename } from '@/lib/numbering-view'
 import { buildNumberingWorkbook } from '@/lib/export/numbering-workbook'
 import { loadSettings } from '@/lib/settings/read'
@@ -11,8 +11,9 @@ import { loadSettings } from '@/lib/settings/read'
 /**
  * EXPORT THE CHEQUE NUMBERING. The file is the view: company, account and
  * MISSING ONLY are in the title block. Authenticates on its first line — 401,
- * not a redirect — as every export route does; never on the public list. An
- * account id that names no account is a 404, never a widened file.
+ * not a redirect — as every export route does; never on the public list. The
+ * `account` parameter names a cheque book; an id that names no cheque book is
+ * a 404, never a widened file.
  */
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -26,18 +27,18 @@ export async function GET(request: Request): Promise<Response> {
 
   const params = new URL(request.url).searchParams
   const now = new Date()
-  const [options, settings] = await Promise.all([getFilterOptions(prisma), loadSettings(prisma)])
+  const [options, books, settings] = await Promise.all([getFilterOptions(prisma), listCheckBookOptions(prisma), loadSettings(prisma)])
   const company = options.companies.find((c) => c.id === (params.get('company')?.trim() || undefined))
   const accountParam = params.get('account')?.trim() || undefined
-  const account = options.cashAccounts.find((a) => a.id === accountParam)
-  if (accountParam && !account) return new Response('UNKNOWN ACCOUNT', { status: 404, headers: TEXT })
+  const account = books.find((b) => b.id === accountParam)
+  if (accountParam && !account) return new Response('UNKNOWN CHEQUE BOOK', { status: 404, headers: TEXT })
   const missingOnly = isMissingOnly(params.get('missing'))
 
   // With an account open the company filter is not applied, so it must not be described or counted either.
   const scopedCompany = account ? undefined : company
   const [accounts, noAccountCount] = await Promise.all([
-    listNumberingAccounts(prisma, { companyId: scopedCompany?.id, cashAccountId: account?.id }),
-    account ? Promise.resolve(null) : countChequesWithoutAccount(prisma, { companyId: scopedCompany?.id }),
+    listNumberingAccounts(prisma, { companyId: scopedCompany?.id, checkBookId: account?.id }),
+    account ? Promise.resolve(null) : countChequesWithoutCheckBook(prisma, { companyId: scopedCompany?.id }),
   ])
 
   const workbook = await buildNumberingWorkbook({

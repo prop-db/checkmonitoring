@@ -19,7 +19,7 @@ export const NUMBERING_SUMMARY_SHEET = 'SUMMARY'
 export const NUMBERING_ACCOUNT_HEADERS = [
   'CHECK NUMBER', 'CHEQUE DATE', 'PAYEE', 'STATUS', 'CURRENCY', 'AMOUNT', 'FROM', 'TO', 'COUNT', 'NOTE',
 ] as const
-const SUMMARY_HEADERS = ['ACCOUNT', 'BANK', 'COMPANY', 'FIRST', 'LAST', 'HELD', 'VOIDED', 'CANCELLED', 'STAGED', 'MISSING NUMBERS', 'MISSING RUNS', 'NOT NUMERIC'] as const
+const SUMMARY_HEADERS = ['CHEQUE BOOK', 'BANK', 'COMPANY', 'FIRST', 'LAST', 'HELD', 'VOIDED', 'CANCELLED', 'STAGED', 'MISSING NUMBERS', 'MISSING RUNS', 'NOT NUMERIC'] as const
 
 export type NumberingMeta = {
   generatedAt: Date; generatedBy: string; filterDescription: string
@@ -78,7 +78,7 @@ export async function buildNumberingWorkbook(
   ws.getCell('A3').font = { size: 10, color: { argb: MUTED_INK } }
   ws.getCell('A4').value = meta.noAccountCount === null
     ? NUMBERING_SCOPE_NOTE
-    : `${NUMBERING_SCOPE_NOTE} Not in any series: ${fmt(meta.noAccountCount)} cheque${meta.noAccountCount === 1 ? '' : 's'} with no cash account.`
+    : `${NUMBERING_SCOPE_NOTE} Not in any series: ${fmt(meta.noAccountCount)} cheque${meta.noAccountCount === 1 ? '' : 's'} with no cheque book.`
   ws.getCell('A4').font = { size: 10, color: { argb: MUTED_INK } }
 
   const header = ws.getRow(6)

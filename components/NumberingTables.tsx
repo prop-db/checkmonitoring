@@ -11,14 +11,14 @@ const fmtDay = (d: Date | null) =>
 const fmtCount = (s: string) => (s.length <= 15 ? Number(s).toLocaleString('en-PH') : s)
 const th = 'px-4 py-3'
 
-/** One row per cash account. The account links to its own series. */
+/** One row per cheque book. The cheque book links to its own series. */
 export function NumberingSummaryTable({ accounts, company }: { accounts: readonly NumberingAccount[]; company?: string }) {
   return (
     <section className="overflow-x-auto rounded-2xl bg-white ring-1 ring-hairline">
       <table className="w-full text-sm">
         <thead className="border-b border-hairline text-left text-[11px] font-semibold tracking-widest text-slate-400">
           <tr>
-            <th className={th}>ACCOUNT</th><th className={th}>BANK</th><th className={th}>COMPANY</th>
+            <th className={th}>CHEQUE BOOK</th><th className={th}>BANK</th><th className={th}>COMPANY</th>
             <th className={th}>FIRST</th><th className={th}>LAST</th>
             <th className={`${th} text-right`}>HELD</th><th className={`${th} text-right`}>VOIDED</th>
             <th className={`${th} text-right`}>CANCELLED</th><th className={`${th} text-right`}>STAGED</th><th className={`${th} text-right`}>MISSING</th>
