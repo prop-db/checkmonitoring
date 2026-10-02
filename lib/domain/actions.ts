@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type {
   Check, Prisma, PrismaClient, PortalEventKind,
   ClearingStatus as PrismaClearing,
@@ -8,7 +9,10 @@ import { loadSettings } from '@/lib/settings/read'
 import { DomainError } from './errors'
 import { portalRoute, type Eligibility } from './eligibility'
 import { checkDeletable } from './incomplete'
-import { checkReceipt, normaliseReceipt, hasReceipt, type Receipt, type ReceiptType } from './receipt'
+import {
+  checkReceipt, normaliseReceipt, hasReceipt, checkReceiptAmount, checkReceiptFile,
+  type Receipt, type ReceiptType, type ReceiptFileInput,
+} from './receipt'
 import { checkReleaseReversible } from './reversal'
 import { normaliseDetails, diffDetails, dayToDate, isoDay, type DetailInput, type DetailValues } from './details'
 import {
@@ -22,9 +26,14 @@ type Db = PrismaClient | Prisma.TransactionClient
 // Every action runs in one transaction that updates the check AND appends its
 // audit row. A caller can pass an existing transaction client; otherwise we
 // open our own.
-async function inTx<T>(db: Db, fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+//
+// `options` is for the three receipt actions only: a 3 MB BYTEA insert to
+// ap-southeast-1 can outrun Prisma's 5 s interactive-transaction default (the
+// same trap `TX_OPTIONS` in lib/import/upsert.ts avoids; spec 2026-10-02).
+type TxOptions = { timeout?: number; maxWait?: number }
+async function inTx<T>(db: Db, fn: (tx: Prisma.TransactionClient) => Promise<T>, options?: TxOptions): Promise<T> {
   if ('$transaction' in db && typeof db.$transaction === 'function') {
-    return (db as PrismaClient).$transaction(fn)
+    return (db as PrismaClient).$transaction(fn, options)
   }
   return fn(db as Prisma.TransactionClient)
 }
@@ -70,6 +79,58 @@ async function queueCancelled(tx: Prisma.TransactionClient, checkId: string, che
       checkId, direction: 'OUT', kind: 'CANCELLED', status: 'PENDING',
       idempotencyKey: portalEventKey(checkId, 'CANCELLED', now),
       payload: { action: 'CANCELLED', checkNumber },
+    },
+  })
+}
+
+/** For the receipt actions, which may carry a 3 MB file into the transaction. */
+const RECEIPT_TX_OPTIONS: TxOptions = { timeout: 30_000, maxWait: 10_000 }
+
+/** Validates amount + file together; throws the first refusal. */
+function receiptExtras(args: { receiptAmount?: string; receiptFile?: ReceiptFileInput }): { amount: string | null; file: ReceiptFileInput | null } {
+  const a = checkReceiptAmount(args.receiptAmount)
+  if (!a.ok) throw new DomainError(a.code, a.message)
+  const f = checkReceiptFile(args.receiptFile)
+  if (!f.ok) throw new DomainError(f.code, f.message)
+  return { amount: a.amount ?? null, file: args.receiptFile ?? null }
+}
+
+/** What an audit row says about a stored file: never its bytes (rule 7). */
+type ReceiptFileMeta = { fileName: string; contentType: string; sizeBytes: number; sha256: string }
+
+async function storeReceiptFile(
+  tx: Prisma.TransactionClient, checkId: string, userId: string, file: ReceiptFileInput, now: Date,
+): Promise<ReceiptFileMeta> {
+  const bytes = Buffer.from(file.bytes)
+  const meta: ReceiptFileMeta = {
+    fileName: file.fileName.slice(0, 200) || 'receipt',
+    contentType: file.contentType,
+    sizeBytes: bytes.length,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+  }
+  await tx.checkReceiptFile.create({
+    data: { checkId, ...meta, bytes, uploadedById: userId, uploadedAt: now },
+  })
+  return meta
+}
+
+/**
+ * The sixth kind (user request 2026-10-01). The body is rebuilt from the
+ * cheque at delivery, so the payload is a record only: never the file.
+ */
+async function queueReceipt(
+  tx: Prisma.TransactionClient,
+  check: { id: string; checkNumber: string; apvNumbers: string[] },
+  args: { orNumber: string | null; amount: string | null; hasFile: boolean; now: Date },
+): Promise<void> {
+  // Same guard as CANCELLED (review 2026-10-02): the portal matches on APV, so
+  // a cheque with none could only ever park; the receipt stays recorded here.
+  if (!(await portalCanMatch(tx, check))) return
+  await tx.portalEvent.create({
+    data: {
+      checkId: check.id, direction: 'OUT', kind: 'RECEIPT', status: 'PENDING',
+      idempotencyKey: portalEventKey(check.id, 'RECEIPT', args.now),
+      payload: { action: 'RECEIPT', checkNumber: check.checkNumber, orNumber: args.orNumber, amount: args.amount, hasFile: args.hasFile },
     },
   })
 }
@@ -463,7 +524,9 @@ export async function applyPickupConfirmation(
  * cannot be reconstructed afterwards from timestamps, because a release and a
  * late entry on the same afternoon look identical.
  *
- * Amounts are never in here. A receipt is a reference, not a figure.
+ * The receipt's own amount and file (user request 2026-10-01) ride along as
+ * `extras` when they were given: the amount as the decimal string written, the
+ * file as metadata only — name, type, size, sha256, never its bytes (rule 7).
  */
 const RECEIPT_REMARK_LABELS: Record<ReceiptType | 'UNSTATED', string> = {
   OR: 'Official Receipt',
@@ -473,7 +536,10 @@ const RECEIPT_REMARK_LABELS: Record<ReceiptType | 'UNSTATED', string> = {
 
 async function writeReceiptAudit(
   tx: Prisma.TransactionClient,
-  args: { checkId: string; userId: string; receipt: Receipt; withRelease: boolean; now: Date },
+  args: {
+    checkId: string; userId: string; receipt: Receipt; withRelease: boolean; now: Date
+    extras?: { amount: string | null; file: ReceiptFileMeta | null }
+  },
 ): Promise<void> {
   await writeAudit(tx, {
     checkId: args.checkId,
@@ -488,6 +554,7 @@ async function writeReceiptAudit(
       receiptType: args.receipt.receiptType,
       withRelease: args.withRelease,
       recordedAt: args.now.toISOString(),
+      ...(args.extras ? { amount: args.extras.amount, file: args.extras.file } : {}),
     },
     // The null arm cannot be reached — `checkReceipt` refuses a reference with
     // no type — and is written out anyway rather than folded into the OR
@@ -510,6 +577,9 @@ export async function markReleased(
      * which is what RELEASE ALL at the counter depends on.
      */
     orNumber?: string; orDate?: Date; receiptType?: ReceiptType | null
+    /** The receipt's amount and scanned file (user request 2026-10-01); both
+     * belong to the reference above and are refused without it. */
+    receiptAmount?: string; receiptFile?: ReceiptFileInput
     remarks?: string; now: Date
   },
 ): Promise<Check> {
@@ -519,6 +589,9 @@ export async function markReleased(
   const guard = checkReceipt(args)
   if (!guard.ok) throw new DomainError(guard.code, guard.message)
   const receipt = normaliseReceipt(args)
+  const extras = receiptExtras(args)
+  const hasExtras = extras.amount !== null || extras.file !== null
+  if (hasExtras && !hasReceipt(receipt)) throw receiptExtrasOrphaned()
 
   return inTx(db, async (tx) => {
     const check = await load(tx, args.checkId)
@@ -546,9 +619,16 @@ export async function markReleased(
         'overwritten from here — if it is wrong, raise it with a Finance Admin.',
       )
     }
+    // Unreachable today (an amount or file without a typed reference is refused
+    // above, and a typed reference against a recorded one just now), and kept
+    // so the amount/file can never land on a receipt this release did not write.
+    if (hasExtras && alreadyHasReceipt) throw receiptExtrasOrphaned()
 
     const route = portalRoute(check.eligibility as Eligibility)
     const pushes = route !== null
+    // The receipt columns are written by this release: it carries a reference
+    // and the cheque had none. Only then do the amount and file go with them.
+    const writesReceipt = !alreadyHasReceipt && hasReceipt(receipt)
 
     const updated = await tx.check.update({
       where: { id: check.id },
@@ -562,6 +642,7 @@ export async function markReleased(
         ...(alreadyHasReceipt
           ? {}
           : { orNumber: receipt.orNumber, orDate: receipt.orDate, receiptType: receipt.receiptType }),
+        ...(writesReceipt && extras.amount !== null ? { receiptAmount: extras.amount } : {}),
         remarks: args.remarks ?? check.remarks,
         portalSyncStatus: pushes ? 'PENDING' : 'NOT_APPLICABLE',
       },
@@ -600,6 +681,15 @@ export async function markReleased(
       })
     }
 
+    const fileMeta = writesReceipt && extras.file
+      ? await storeReceiptFile(tx, check.id, args.userId, extras.file, args.now)
+      : null
+    // RELEASED and RECEIPT share `now` and still never collide: the kind is
+    // part of the key (user request 2026-10-01).
+    if (pushes && writesReceipt) {
+      await queueReceipt(tx, check, { orNumber: receipt.orNumber, amount: extras.amount, hasFile: fileMeta !== null, now: args.now })
+    }
+
     await writeAudit(tx, {
       checkId: check.id, actorType: 'USER', userId: args.userId, action: 'released',
       remarks: args.remarks,
@@ -609,10 +699,16 @@ export async function markReleased(
     if (hasReceipt(receipt)) {
       await writeReceiptAudit(tx, {
         checkId: check.id, userId: args.userId, receipt, withRelease: true, now: args.now,
+        extras: hasExtras ? { amount: extras.amount, file: fileMeta } : undefined,
       })
     }
     return updated
-  })
+  }, RECEIPT_TX_OPTIONS)
+}
+
+/** An amount or file with no receipt reference of this action's own to belong to. */
+function receiptExtrasOrphaned(): DomainError {
+  return new DomainError('RECEIPT_REQUIRED', 'An amount or file needs the receipt reference it belongs to.')
 }
 
 /**
@@ -636,25 +732,23 @@ export async function markReleased(
  * correction, it should be its own action with its own reason, not this one
  * quietly widened.
  *
- * **It queues no portal event.** `markReleased` already queued RELEASED with
- * whatever the receipt was at the time — null, for every cheque that reaches
- * here — and the outbox is an append-only record of what the portal was told,
- * not a mutable draft. A late receipt therefore does not reach the supplier
- * portal; nothing does yet, since Plan 3 is paused for want of an `encoder`
- * service account, and adding a fourth `PortalEventKind` is that plan's
- * decision to make rather than this one's.
+ * **It queues RECEIPT** (user request 2026-10-01) for a routed cheque, so the
+ * late receipt reaches the portal's Payments page; amount and file are add-only
+ * like the reference.
  */
 export async function recordReceipt(
   db: Db,
   args: {
     checkId: string; userId: string
     orNumber: string; orDate?: Date; receiptType: ReceiptType | null
+    receiptAmount?: string; receiptFile?: ReceiptFileInput
     now: Date
   },
 ): Promise<Check> {
   const guard = checkReceipt(args)
   if (!guard.ok) throw new DomainError(guard.code, guard.message)
   const receipt = normaliseReceipt(args)
+  const extras = receiptExtras(args)
 
   // Distinct from the guard above: this endpoint exists to ADD a receipt, so an
   // empty box is nothing to do rather than a silent clearing of one.
@@ -686,22 +780,84 @@ export async function recordReceipt(
 
     const updated = await tx.check.update({
       where: { id: check.id },
-      // Only the three receipt columns. Not `status`, which is already
-      // RELEASED and is not this action's to move; and emphatically not
-      // `crNumber` or `clearingStatus`, which are the BANK's clearing facts.
+      // Only the receipt columns. Not `status`, which is already RELEASED and
+      // is not this action's to move; and emphatically not `crNumber` or
+      // `clearingStatus`, which are the BANK's clearing facts.
       data: {
         orNumber: receipt.orNumber,
         orDate: receipt.orDate,
         receiptType: receipt.receiptType,
+        ...(extras.amount !== null ? { receiptAmount: extras.amount } : {}),
       },
     })
 
+    const fileMeta = extras.file ? await storeReceiptFile(tx, check.id, args.userId, extras.file, args.now) : null
+    if (portalRoute(check.eligibility as Eligibility) !== null) {
+      await queueReceipt(tx, check, { orNumber: receipt.orNumber, amount: extras.amount, hasFile: fileMeta !== null, now: args.now })
+    }
+
     await writeReceiptAudit(tx, {
       checkId: check.id, userId: args.userId, receipt, withRelease: false, now: args.now,
+      extras: extras.amount !== null || fileMeta !== null ? { amount: extras.amount, file: fileMeta } : undefined,
     })
 
     return updated
-  })
+  }, RECEIPT_TX_OPTIONS)
+}
+
+/**
+ * Adds the amount and/or scanned file to a receipt recorded without them
+ * (user request 2026-10-01: "allow the OR/CR to be uploaded after payment").
+ * Add-only, like the reference: an amount or file already on record is
+ * refused, never replaced. Queues RECEIPT for a routed cheque.
+ */
+export async function attachReceiptFile(
+  db: Db,
+  args: { checkId: string; userId: string; receiptAmount?: string; receiptFile?: ReceiptFileInput; now: Date },
+): Promise<Check> {
+  const extras = receiptExtras(args)
+  if (extras.amount === null && !extras.file) {
+    throw new DomainError('RECEIPT_NOTHING_TO_ATTACH', 'Choose the receipt file or enter its amount.')
+  }
+  return inTx(db, async (tx) => {
+    const check = await load(tx, args.checkId)
+    if (check.orNumber === null) {
+      throw new DomainError('RECEIPT_REQUIRED', 'Record the receipt reference first; the file and amount belong to it.')
+    }
+    if (extras.amount !== null && check.receiptAmount !== null) {
+      throw new DomainError(
+        'RECEIPT_AMOUNT_ALREADY_RECORDED',
+        `This receipt already records ${check.receiptAmount.toFixed(2)}. A recorded amount is not overwritten ` +
+        'from here — if it is wrong, raise it with a Finance Admin.',
+      )
+    }
+    const existingFile = await tx.checkReceiptFile.findUnique({ where: { checkId: check.id }, select: { checkId: true } })
+    if (extras.file && existingFile) {
+      throw new DomainError(
+        'RECEIPT_FILE_ALREADY_ATTACHED',
+        'This receipt already has its file. A recorded file is not replaced from here — if it is wrong, raise it with a Finance Admin.',
+      )
+    }
+    const updated = extras.amount !== null
+      ? await tx.check.update({ where: { id: check.id }, data: { receiptAmount: extras.amount } })
+      : check
+    const fileMeta = extras.file ? await storeReceiptFile(tx, check.id, args.userId, extras.file, args.now) : null
+    if (portalRoute(check.eligibility as Eligibility) !== null) {
+      await queueReceipt(tx, check, {
+        orNumber: check.orNumber,
+        amount: extras.amount ?? check.receiptAmount?.toFixed(2) ?? null,
+        hasFile: fileMeta !== null || existingFile !== null,
+        now: args.now,
+      })
+    }
+    await writeAudit(tx, {
+      checkId: check.id, actorType: 'USER', userId: args.userId, action: 'receipt_attached',
+      // Metadata only — never the bytes (rule 7).
+      details: { orNumber: check.orNumber, amount: extras.amount, file: fileMeta },
+      remarks: `Receipt ${check.orNumber}: ${[extras.amount !== null ? 'amount' : null, fileMeta ? 'file' : null].filter(Boolean).join(' and ')} added`,
+    })
+    return updated as Check
+  }, RECEIPT_TX_OPTIONS)
 }
 
 /**
