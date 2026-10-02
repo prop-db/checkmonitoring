@@ -109,7 +109,7 @@ export default async function NumberingPage({
             {entries.length === 0 && one.series.summary.first === null && !missingOnly
               ? <EmptyState title="NO NUMERIC CHEQUES">Every cheque on this account carries a number that is not all digits; they are listed below.</EmptyState>
               : entries.length === 0
-              ? <EmptyState title="NOTHING MISSING" tone="good">Every number from {one.series.summary.first ?? '—'} to {one.series.summary.last ?? '—'} is held here.</EmptyState>
+              ? <EmptyState title="NOTHING MISSING" tone="good">Every number from {one.series.summary.first ?? '—'} to {one.series.summary.last ?? '—'} is used here — held as a cheque or staged as a re-use.</EmptyState>
               : <NumberingEntriesTable entries={entries} />}
             {!missingOnly && one.series.notNumeric.length > 0 && (
               <>

@@ -54,9 +54,10 @@ export async function listNumberingAccounts(db: Db, f: NumberingFilters): Promis
 
   const stagedRows = await db.stagedCheck.findMany({
     where: { source: 'ACUMATICA', reason: 'NO_CHECK_NUMBER', promotedCheckId: null, cashAccountCode: { not: null } },
-    select: { acumaticaRef: true, statedCheckRef: true, checkDate: true, payeeName: true, amount: true, currency: true, cashAccountCode: true },
+    orderBy: [{ acumaticaTenant: 'asc' }, { acumaticaRef: 'asc' }],
+    select: { acumaticaTenant: true, acumaticaRef: true, statedCheckRef: true, checkDate: true, payeeName: true, amount: true, currency: true, cashAccountCode: true },
   })
-  const dotted = stagedRows.filter((s) => s.acumaticaRef && stagedSeriesNumber(s.statedCheckRef) !== null)
+  const dotted = stagedRows.filter((s) => s.acumaticaTenant && s.acumaticaRef && stagedSeriesNumber(s.statedCheckRef) !== null)
   const codes = [...new Set(dotted.map((s) => s.cashAccountCode!))]
   const accounts = codes.length
     ? await db.cashAccount.findMany({
@@ -73,7 +74,7 @@ export async function listNumberingAccounts(db: Db, f: NumberingFilters): Promis
     const a = accountByCode.get(s.cashAccountCode!)
     if (!a) continue
     groupFor(a).staged.push({
-      acumaticaRef: s.acumaticaRef!, statedCheckRef: s.statedCheckRef!, checkDate: s.checkDate, payeeName: s.payeeName,
+      acumaticaTenant: s.acumaticaTenant!, acumaticaRef: s.acumaticaRef!, statedCheckRef: s.statedCheckRef!, checkDate: s.checkDate, payeeName: s.payeeName,
       amount: s.amount?.toFixed(2) ?? null, currency: s.currency,
     })
   }

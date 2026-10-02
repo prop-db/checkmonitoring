@@ -133,7 +133,7 @@ describe('buildNumberingWorkbook', () => {
 })
 
 const stg = (ref: string, cv: string): SeriesStaged =>
-  ({ acumaticaRef: cv, statedCheckRef: ref, checkDate: new Date('2026-09-02T00:00:00Z'), payeeName: 'HENKEL', amount: '500.00', currency: 'PHP' })
+  ({ acumaticaTenant: 'GOLIVE', acumaticaRef: cv, statedCheckRef: ref, checkDate: new Date('2026-09-02T00:00:00Z'), payeeName: 'HENKEL', amount: '500.00', currency: 'PHP' })
 
 describe('STAGED lines', () => {
   it('writes a STAGED row with the stated reference verbatim and the CV in NOTE', async () => {

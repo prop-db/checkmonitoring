@@ -12,9 +12,18 @@ const shape = (entries: SeriesEntry[]) =>
     : `MISSING ${e.from}-${e.to} (${e.count})`))
 
 const st = (statedCheckRef: string, acumaticaRef = `CV-${statedCheckRef}`): SeriesStaged =>
-  ({ acumaticaRef, statedCheckRef, checkDate: null, payeeName: null, amount: '1.00', currency: 'PHP' })
+  ({ acumaticaTenant: 'GOLIVE', acumaticaRef, statedCheckRef, checkDate: null, payeeName: null, amount: '1.00', currency: 'PHP' })
 
 describe('buildSeries', () => {
+  it('staged rows with the same ref in different tenants both appear, in tenant order', () => {
+    const s = buildSeries([c('100'), c('102')], [
+      { ...st('101.', 'CV-ST1'), acumaticaTenant: 'MANUFACTURING' },
+      { ...st('101.', 'CV-ST1'), acumaticaTenant: 'GOLIVE' },
+    ])
+    const staged = s.entries.flatMap((e) => (e.kind === 'STAGED' ? [e.staged.acumaticaTenant] : []))
+    expect(staged).toEqual(['GOLIVE', 'MANUFACTURING'])
+  })
+
   it('a consecutive run has no MISSING line', () => {
     const s = buildSeries([c('103'), c('101'), c('102')])
     expect(shape(s.entries)).toEqual(['101', '102', '103'])

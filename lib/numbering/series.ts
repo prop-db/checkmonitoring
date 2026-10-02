@@ -21,7 +21,7 @@ export type SeriesCheque = {
   amount: string | null; currency: string; status: CheckStatus
 }
 export type SeriesStaged = {
-  acumaticaRef: string; statedCheckRef: string; checkDate: Date | null; payeeName: string | null
+  acumaticaTenant: string; acumaticaRef: string; statedCheckRef: string; checkDate: Date | null; payeeName: string | null
   amount: string | null; currency: string | null
 }
 export type SeriesEntry =
@@ -77,7 +77,7 @@ export function buildSeries(cheques: readonly SeriesCheque[], staged: readonly S
   }
   for (const s of staged) {
     const number = stagedSeriesNumber(s.statedCheckRef)
-    if (number !== null) items.push({ n: BigInt(number), text: number, order: `1${s.acumaticaRef}`, staged: s })
+    if (number !== null) items.push({ n: BigInt(number), text: number, order: `1${s.acumaticaTenant}|${s.acumaticaRef}`, staged: s })
   }
   items.sort((a, b) => (a.n < b.n ? -1 : a.n > b.n ? 1 : a.order < b.order ? -1 : a.order > b.order ? 1 : 0))
   notNumeric.sort((a, b) => a.checkNumber.localeCompare(b.checkNumber) || a.id.localeCompare(b.id))

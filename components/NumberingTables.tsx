@@ -98,7 +98,7 @@ export function NumberingEntriesTable({ entries }: { entries: readonly SeriesEnt
               </tr>
             )
             : e.kind === 'STAGED'
-            ? <StagedRow key={`s-${e.staged.acumaticaRef}`} s={e.staged} />
+            ? <StagedRow key={`s-${e.staged.acumaticaTenant}-${e.staged.acumaticaRef}`} s={e.staged} />
             : <ChequeRow key={e.cheque.id} c={e.cheque} note={e.duplicate ? 'DUPLICATE NUMBER' : undefined} />)}
         </tbody>
       </table>
