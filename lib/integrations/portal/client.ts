@@ -22,6 +22,8 @@ export type CheckForPortal = Pick<
   cashAccount: { bank: { code: string } } | null
   checkBook: { bank: { code: string } } | null
   bills: { apvNumber: string; poNumber: string | null }[]
+  // Who released it (portal "recorded by", user request 2026-10-01).
+  releasedBy?: { name: string } | null
 }
 
 export type PortalEventBody = {
@@ -35,6 +37,7 @@ export type PortalEventBody = {
   releaseDate?: string
   orNumber?: string
   orDate?: string
+  releasedBy?: string
 }
 
 export type PortalOutcome = 'applied' | 'already' | 'noop' | 'refused'
@@ -123,6 +126,7 @@ export function buildPortalEventBody(event: { id: string; kind: PortalEventKind 
     body.releaseDate = manilaDay(check.releasedAt)
     if (check.orNumber) body.orNumber = check.orNumber
     if (check.orDate) body.orDate = manilaDay(check.orDate)
+    if (check.releasedBy?.name) body.releasedBy = check.releasedBy.name
   }
   return body
 }
