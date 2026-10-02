@@ -269,3 +269,27 @@ reports the worker outcome; `/admin/portal` is admin-only. `npx tsc --noEmit` cl
 
 Pickup confirmations flowing back to Check Monitoring (`SCHEDULED`); a pull/reconciliation
 feed; removing the Excel import; staff email.
+
+## Addendum 2026-10-02: the RECEIPT kind and outbox lanes
+
+A new outbox kind, `RECEIPT`, carries the supplier's receipt (OR/CR reference, type, optional
+amount, optional scanned file) to the portal. Latest-wins from section 2.3 now runs per **lane**,
+two per cheque:
+
+- **Status lane:** MARK_AVAILABLE, REVERT, RELEASED, RELEASE_REVERSED, CANCELLED.
+- **Receipt lane:** RECEIPT.
+
+Supersede happens inside a lane only; a RECEIPT never closes a status event and vice versa.
+Ordering: a RECEIPT is held until its cheque's newest status-lane event is SYNCED (delivered,
+superseded or closed stale), across runs and while that event is PARKED, so the portal hears
+RELEASED before the receipt that goes with it. A RECEIPT settling never writes
+`Check.portalSyncStatus` or `portalTradeId`; those belong to the status lane.
+
+Payload: the queued event is a record only (`orNumber`, `amount`, `hasFile`); the body is built
+from the cheque at delivery. The amount is `Decimal(18,2)` sent as a 2-decimal string. The file
+is at most 3 MB (PDF, JPG or PNG), stored in `CheckReceiptFile` (BYTEA), loaded only for RECEIPT
+deliveries and sent base64 inside the request, so a RECEIPT gets a 30 s request timeout and is
+not started with less than 15 s left in the run. An INTERNAL cheque, or one with no APV, queues
+no RECEIPT (the receipt stays recorded in Check Monitoring). `attachReceiptFile` adds a missing
+amount or file after the receipt exists (add-only, never a replacement). Server actions accept a
+4 MB body.
