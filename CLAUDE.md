@@ -555,9 +555,13 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
   dropped it (`checkBookCode: null`) and looked it up as a cash account, which never matches: 3,844
   Acumatica cheques had no cheque book and 3,501 cheques neither, 1,091 of them dated since the register
   stopped. The sync now records it; `scripts/backfill-check-books.ts` fills the rest (company-checked:
-  a book under another company is reported, never set). NUMBERING groups by cheque book. **The dashboard
-  BANK filter/column and RECON still key on the cash-account label and so see only ~1,342 cheques** —
-  an open follow-up. `PCF-SITIO`, `PAYROLL`, `PCF-SILANG`, `RSB-S-0869`, `MBTC-S-988` are no cheque book.
+  a book under another company is reported, never set). The sync applies the same company check as the
+  repair: a book under another company is refused and noted (`checkBookRefused`) in the import audit
+  row. NUMBERING groups by cheque book. **The dashboard BANK filter/column still keys on the
+  cash-account label and sees only ~1,342 cheques** — an open follow-up. RECON's bank filter and BANK
+  column, the forecast's bank split, `/vouchers`' BANK column and portal event bodies already fall back
+  to the cheque book's bank, so they fill in as books are recorded; RECON still groups per cash
+  account. `PCF-SITIO`, `PAYROLL`, `PCF-SILANG`, `RSB-S-0869`, `MBTC-S-988` are no cheque book.
 - A voided cheque is **two feed rows** under one reference; the original's positive amount survives.
 - **Which cheque pays an AP voucher is answered on `/vouchers`, and `CHECK BY VOUCHER.xlsx` is
   its extract.** The Finance Executive Report's `AP Local` sheet used to find a payable's cheque

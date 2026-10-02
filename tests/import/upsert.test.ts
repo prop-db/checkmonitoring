@@ -8,6 +8,7 @@ import {
 } from '@/lib/import/upsert'
 import { VOID_AFTER_RELEASE_WARNING } from '@/lib/domain/actions'
 import type { NormalisedRow } from '@/lib/normalised-row'
+import { mapPayment } from '@/lib/integrations/acumatica/map'
 
 const NOW = new Date('2026-09-04T13:32:00+08:00')
 const OWN_COMPANIES = ['STARKSON PACKAGING INC.']
@@ -78,6 +79,31 @@ function row(overrides: Partial<NormalisedRow> = {}): NormalisedRow {
 const upsert = (r: NormalisedRow, sheets?: readonly string[]) =>
   upsertCheck(testDb, { row: r, ownCompanyNames: OWN_COMPANIES, now: NOW, sheets })
 
+// An Acumatica row exactly as the sync hands it over: a raw `AP-Checks and
+// Payments` feed row through the real `mapPayment`, so `checkBookCode`,
+// `cashAccountCode`, the company (Branch ST -> STK in Go-Live) and the empty
+// voucher array are the mapper's, not a hand-built imitation of them.
+function acumaticaRow(feed: Record<string, unknown> = {}): NormalisedRow {
+  const mapped = mapPayment({
+    Type: 'Payment',
+    ReferenceNbr: 'CV-ST-1',
+    Vendor: 'V001234',
+    VendorName: 'HENKEL PHILIPPINES INC.',
+    Status: 'Balanced',
+    PaymentDate: '2026-09-30T00:00:00',
+    PaymentRef: 'BPI 6000400001',
+    PaymentAmount: '1000.00',
+    Currency: 'PHP',
+    CashAccount: 'BPI-S-4636',
+    PaymentMethod: 'CHK',
+    Branch: 'ST',
+    LastModifiedOn: '2026-09-30T09:15:00',
+    ...feed,
+  }, 'GOLIVE')
+  if (!mapped) throw new Error('fixture is not an imported document type')
+  return mapped
+}
+
 describe('upsertCheck — creating', () => {
   it('creates a check that does not exist, at the status the sheet implies', async () => {
     await seedCompany()
@@ -122,12 +148,36 @@ describe('upsertCheck — creating', () => {
   it('an Acumatica row whose CashAccount is a cheque book gets that book; a non-book code gets none (spec §D)', async () => {
     const { company, cashAccount } = await seedCompany()
     const book = await testDb.checkBook.create({ data: { code: 'BPI-S-4636', bankId: cashAccount.bankId, companyId: company.id } })
-    await upsert(row({ source: 'ACUMATICA', sourceSheet: null, sourceRow: null, acumaticaPaymentId: 'CV-ST-1', checkNumber: '6000400001', checkBookCode: 'BPI-S-4636', cashAccountCode: 'BPI-S-4636' }))
-    await upsert(row({ source: 'ACUMATICA', sourceSheet: null, sourceRow: null, acumaticaPaymentId: 'CV-ST-2', checkNumber: '6000400002', checkBookCode: 'PCF-SITIO', cashAccountCode: 'PCF-SITIO' }))
+    await upsert(acumaticaRow({ ReferenceNbr: 'CV-ST-1', PaymentRef: 'BPI 6000400001', CashAccount: 'BPI-S-4636' }))
+    await upsert(acumaticaRow({ ReferenceNbr: 'CV-ST-2', PaymentRef: 'BPI 6000400002', CashAccount: 'PCF-SITIO' }))
     const a = await testDb.check.findFirstOrThrow({ where: { checkNumber: '6000400001' } })
     const b = await testDb.check.findFirstOrThrow({ where: { checkNumber: '6000400002' } })
+    expect(a.companyId).toBe(company.id)
     expect(a.checkBookId).toBe(book.id)
     expect(b.checkBookId).toBeNull()
+    // Neither is a refusal: one book is the cheque's company's, the other code is no book.
+    const audits = await testDb.auditLog.findMany({ where: { action: 'imported' } })
+    expect(audits).toHaveLength(2)
+    for (const audit of audits) expect(audit.details).not.toHaveProperty('checkBookRefused')
+  })
+
+  it('refuses a cheque book under another company on create, and notes it (spec §D2)', async () => {
+    await seedCompany()
+    const a1 = await seedCompany('A1+', 'A1+ Multinational Packaging Inc.')
+    // The code names A1+'s book; Branch ST files the cheque under STK.
+    const sibling = await testDb.checkBook.create({
+      data: { code: 'BPI-A-7001', bankId: a1.cashAccount.bankId, companyId: a1.company.id },
+    })
+    const out = await upsert(acumaticaRow({ CashAccount: 'BPI-A-7001' }))
+    expect(out).toMatchObject({ outcome: 'CREATED' })
+
+    const check = await testDb.check.findFirstOrThrow()
+    expect(check.companyId).not.toBe(a1.company.id)
+    expect(check.checkBookId).toBeNull()
+    const audit = await testDb.auditLog.findFirstOrThrow({ where: { action: 'imported', checkId: check.id } })
+    expect(audit.details).toMatchObject({
+      checkBookRefused: { code: 'BPI-A-7001', bookCompanyId: sibling.companyId },
+    })
   })
 
   it('creates with no receipt when the source states none', async () => {
@@ -431,8 +481,9 @@ describe('upsertCheck — re-importing', () => {
     await seedCompany()
     await upsert(row())
     // An Acumatica row for the same cheque: the payments inquiry publishes no
-    // checkbook, no category and no receipt reference. Null there
-    // means "this feed does not carry it", not "the register was wrong".
+    // category and no receipt reference, and its CashAccount (the cheque book,
+    // spec §D) can be blank. Null there means "this feed does not carry it",
+    // not "the register was wrong".
     await upsert(row({
       source: 'ACUMATICA', checkBookCode: null, cvNumber: null,
       checkDate: null, amount: null, sourceSheet: null, sourceRow: null,
@@ -447,6 +498,53 @@ describe('upsertCheck — re-importing', () => {
     expect(check.checkBookId).not.toBeNull()
     // ...while what the feed does state is written.
     expect(check.acumaticaDocType).toBe('Payment')
+  })
+
+  it('moves a cheque to the same-company book Acumatica now names, and records the move', async () => {
+    const { company, cashAccount } = await seedCompany()
+    const bookA = await testDb.checkBook.create({ data: { code: 'BPI-S-4636', bankId: cashAccount.bankId, companyId: company.id } })
+    const bookB = await testDb.checkBook.create({ data: { code: 'BPI-S-4637', bankId: cashAccount.bankId, companyId: company.id } })
+    await upsert(acumaticaRow({ CashAccount: 'BPI-S-4636' }))
+    expect((await testDb.check.findFirstOrThrow()).checkBookId).toBe(bookA.id)
+
+    const out = await upsert(acumaticaRow({ CashAccount: 'BPI-S-4637' }))
+    expect(out).toMatchObject({ outcome: 'UPDATED' })
+    const check = await testDb.check.findFirstOrThrow()
+    expect(check.checkBookId).toBe(bookB.id)
+    const audit = await testDb.auditLog.findFirstOrThrow({ where: { action: 'import_updated', checkId: check.id } })
+    expect(audit.details).toMatchObject({
+      checkBookChanged: { from: bookA.id, to: bookB.id, code: 'BPI-S-4637' },
+    })
+    expect(audit.details).not.toHaveProperty('checkBookRefused')
+  })
+
+  it('keeps the recorded book when Acumatica names one under another company, and notes the refusal', async () => {
+    const { company, cashAccount } = await seedCompany()
+    const a1 = await seedCompany('A1+', 'A1+ Multinational Packaging Inc.')
+    const bookA = await testDb.checkBook.create({ data: { code: 'BPI-S-4636', bankId: cashAccount.bankId, companyId: company.id } })
+    await testDb.checkBook.create({ data: { code: 'BPI-A-7001', bankId: a1.cashAccount.bankId, companyId: a1.company.id } })
+    await upsert(acumaticaRow({ CashAccount: 'BPI-S-4636' }))
+
+    const out = await upsert(acumaticaRow({ CashAccount: 'BPI-A-7001' }))
+    expect(out).toMatchObject({ outcome: 'UPDATED' })
+    const check = await testDb.check.findFirstOrThrow()
+    expect(check.companyId).toBe(company.id)
+    expect(check.checkBookId).toBe(bookA.id)
+    const audit = await testDb.auditLog.findFirstOrThrow({ where: { action: 'import_updated', checkId: check.id } })
+    expect(audit.details).toMatchObject({
+      checkBookRefused: { code: 'BPI-A-7001', bookCompanyId: a1.company.id },
+    })
+    expect(audit.details).not.toHaveProperty('checkBookChanged')
+  })
+
+  it('records no book change when Acumatica names the book already recorded', async () => {
+    const { company, cashAccount } = await seedCompany()
+    await testDb.checkBook.create({ data: { code: 'BPI-S-4636', bankId: cashAccount.bankId, companyId: company.id } })
+    await upsert(acumaticaRow())
+    await upsert(acumaticaRow())
+    const audit = await testDb.auditLog.findFirstOrThrow({ where: { action: 'import_updated' } })
+    expect(audit.details).not.toHaveProperty('checkBookChanged')
+    expect(audit.details).not.toHaveProperty('checkBookRefused')
   })
 })
 
