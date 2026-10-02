@@ -36,6 +36,7 @@ export async function resetDb() {
     await tx.portalEvent.deleteMany()
     await tx.notification.deleteMany()
     await tx.checkBill.deleteMany()
+    await tx.checkReceiptFile.deleteMany()
     await tx.check.deleteMany()
     // PlannedOutflow's bankId/companyId/createdById FKs are ON DELETE RESTRICT
     // (migration 20260912000000), so a row surviving from an earlier test would
