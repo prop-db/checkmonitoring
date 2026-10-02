@@ -706,3 +706,13 @@ Production is `check_monitoring_prod` on Neon. Both outstanding migrations were 
    bank (EXPECTED OUT, on the cheque page; the forecast places it there) and planned non-cheque
    outflows — payroll, tax, loans, transfers — as one-off lines on `/forecast/planned`, open until
    marked PAID or CANCELLED, never deleted. The daily cash position is no longer cheques only.
+11. **Cheque-book companies are unverified** (2026-10-02, spec §D). `CheckBook.companyId` comes from
+   the retired register's cheque-book table — the same reference data the 2026-09-06 ruling called
+   "wrong somewhere". The sync and `backfill-check-books.ts` refuse a book under another company than
+   the cheque's (audited as `checkBookRefused`; reported as `companyMismatch`), and a cheque refiled
+   to another company keeps its old book when Acumatica names none or a refused one — deliberately:
+   the booklet a cheque was written from is a physical fact, and nulling it would drop the cheque out
+   of its NUMBERING series and fake MISSING numbers. **Next:** count cheques whose book's company
+   differs from theirs, grouped by (book, book company, cheque company), plus the dry run's
+   `companyMismatch`; if a book is systematically under the wrong company, put it to the client and
+   correct `CheckBook.companyId` in reference data (snapshot, audited) — not per cheque.
