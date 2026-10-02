@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import ExcelJS from 'exceljs'
 import { buildNumberingWorkbook, sheetNameFor, NUMBERING_SUMMARY_SHEET, NUMBERING_ACCOUNT_HEADERS } from '@/lib/export/numbering-workbook'
-import { buildSeries, type SeriesCheque } from '@/lib/numbering/series'
+import { buildSeries, type SeriesCheque, type SeriesStaged } from '@/lib/numbering/series'
 import type { NumberingAccount } from '@/lib/numbering/query'
 
 const ch = (n: string, status: SeriesCheque['status'] = 'RELEASED'): SeriesCheque =>
@@ -129,5 +129,33 @@ describe('buildNumberingWorkbook', () => {
     expect(wb.getWorksheet('B')).toBeUndefined()
     const text = wb.getWorksheet(NUMBERING_SUMMARY_SHEET)!.getSheetValues().flat().filter((v) => typeof v === 'string').join(' ')
     expect(text).toContain('first 2 of 4 lines')
+  })
+})
+
+const stg = (ref: string, cv: string): SeriesStaged =>
+  ({ acumaticaRef: cv, statedCheckRef: ref, checkDate: new Date('2026-09-02T00:00:00Z'), payeeName: 'HENKEL', amount: '500.00', currency: 'PHP' })
+
+describe('STAGED lines', () => {
+  it('writes a STAGED row with the stated reference verbatim and the CV in NOTE', async () => {
+    const acc = { accountId: 'acc-X', account: 'BPI STK', bank: 'BPI', company: 'STK', series: buildSeries([ch('101'), ch('103')], [stg('102.', 'CV-ST000102')]) }
+    const wb = await load(await buildNumberingWorkbook({ accounts: [acc], meta: META }))
+    const ws = wb.getWorksheet('BPI STK')!
+    const row = ws.getRow(3)
+    expect(row.getCell(1).value).toBe('102.')
+    expect(row.getCell(4).value).toBe('STAGED')
+    expect(row.getCell(6).value).toBe(500)
+    expect(String(row.getCell(10).value)).toContain('CV-ST000102')
+    expect(ws.rowCount).toBe(4) // header, 101, STAGED 102, 103 — no MISSING line
+  })
+
+  it('SUMMARY carries a STAGED column', async () => {
+    const acc = { accountId: 'acc-X', account: 'BPI STK', bank: 'BPI', company: 'STK', series: buildSeries([ch('101')], [stg('102.', 'CV-1'), stg('102..', 'CV-2')]) }
+    const wb = await load(await buildNumberingWorkbook({ accounts: [acc], meta: META }))
+    const summary = wb.getWorksheet(NUMBERING_SUMMARY_SHEET)!
+    const header = summary.getRow(6)
+    const labels = Array.from({ length: 12 }, (_, i) => header.getCell(i + 1).value)
+    const col = labels.indexOf('STAGED') + 1
+    expect(col).toBeGreaterThan(0)
+    expect(summary.getRow(7).getCell(col).value).toBe(2)
   })
 })

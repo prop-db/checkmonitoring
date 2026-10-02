@@ -1,4 +1,5 @@
 import type { CheckStatus } from '@prisma/client'
+import { canonicalCheckNumber, isBareCheckNumber } from '@/lib/import/normalise'
 
 /**
  * One cash account's cheques in number order, with every unused number between
@@ -9,19 +10,31 @@ import type { CheckStatus } from '@prisma/client'
  * 999 after 1000). A gap is one line, never one row per number: the jump between
  * two booklets on one account can be billions. Every number and count leaves
  * this function as a decimal string.
+ *
+ * Staged re-uses (spec §C, 2026-10-02): Acumatica refuses a duplicate cheque
+ * reference on a cash account, so a second payment document on the same cheque
+ * number is entered with a dot appended. Such payments sit on the staged queue
+ * (NO_CHECK_NUMBER); their number is USED, so it is a STAGED line, never MISSING.
  */
 export type SeriesCheque = {
   id: string; checkNumber: string; checkDate: Date | null; payeeName: string | null
   amount: string | null; currency: string; status: CheckStatus
 }
+export type SeriesStaged = {
+  acumaticaRef: string; statedCheckRef: string; checkDate: Date | null; payeeName: string | null
+  amount: string | null; currency: string | null
+}
 export type SeriesEntry =
   | { kind: 'CHEQUE'; cheque: SeriesCheque; duplicate: boolean }
+  | { kind: 'STAGED'; staged: SeriesStaged; number: string }
   | { kind: 'MISSING'; from: string; to: string; count: string }
 export type SeriesSummary = {
   first: string | null; last: string | null
-  /** Distinct numbers held — a duplicate counts once. */
+  /** Distinct numbers held by CHEQUES — a duplicate counts once; staged lines do not count. */
   held: number
   voided: number; cancelled: number
+  /** STAGED lines: numbers Acumatica re-used with a trailing dot. */
+  staged: number
   missingNumbers: string; missingRuns: number
   notNumeric: number
   /** Cheques sharing a number with another cheque in the account. */
@@ -35,26 +48,49 @@ const NUMERIC = /^\d+$/
 const ZERO = BigInt(0)
 const ONE = BigInt(1)
 
-export function buildSeries(cheques: readonly SeriesCheque[]): AccountSeries {
-  const numeric: { n: bigint; text: string; cheque: SeriesCheque }[] = []
+/**
+ * The cheque number a staged dotted re-use stands for, or null. The ONLY rule:
+ * the trimmed reference must end with at least one dot, and with only those
+ * trailing dots removed it must pass the import's own cheque-number rule. A
+ * reference without a dot is not a re-use; a memo (`PCF26-00001.`) is not a
+ * number. Nothing else is loosened.
+ */
+export function stagedSeriesNumber(statedCheckRef: string | null | undefined): string | null {
+  const raw = (statedCheckRef ?? '').trim()
+  if (!raw.endsWith('.')) return null
+  const canonical = canonicalCheckNumber(raw.replace(/\.+$/, ''))
+  return isBareCheckNumber(canonical) ? canonical : null
+}
+
+type Item =
+  | { n: bigint; text: string; order: string; cheque: SeriesCheque; staged?: undefined }
+  | { n: bigint; text: string; order: string; staged: SeriesStaged; cheque?: undefined }
+
+export function buildSeries(cheques: readonly SeriesCheque[], staged: readonly SeriesStaged[] = []): AccountSeries {
+  const items: Item[] = []
   const notNumeric: SeriesCheque[] = []
   for (const cheque of cheques) {
     const text = cheque.checkNumber.trim()
-    if (NUMERIC.test(text)) numeric.push({ n: BigInt(text), text, cheque })
+    // '0' sorts a cheque before any staged line on the same number.
+    if (NUMERIC.test(text)) items.push({ n: BigInt(text), text, order: `0${cheque.id}`, cheque })
     else notNumeric.push(cheque)
   }
-  numeric.sort((a, b) => (a.n < b.n ? -1 : a.n > b.n ? 1 : a.cheque.id < b.cheque.id ? -1 : a.cheque.id > b.cheque.id ? 1 : 0))
+  for (const s of staged) {
+    const number = stagedSeriesNumber(s.statedCheckRef)
+    if (number !== null) items.push({ n: BigInt(number), text: number, order: `1${s.acumaticaRef}`, staged: s })
+  }
+  items.sort((a, b) => (a.n < b.n ? -1 : a.n > b.n ? 1 : a.order < b.order ? -1 : a.order > b.order ? 1 : 0))
   notNumeric.sort((a, b) => a.checkNumber.localeCompare(b.checkNumber) || a.id.localeCompare(b.id))
 
   const perNumber = new Map<bigint, number>()
-  for (const x of numeric) perNumber.set(x.n, (perNumber.get(x.n) ?? 0) + 1)
+  for (const x of items) if (x.cheque) perNumber.set(x.n, (perNumber.get(x.n) ?? 0) + 1)
   const isDuplicate = (n: bigint) => (perNumber.get(n) ?? 0) > 1
 
   const entries: SeriesEntry[] = []
   let missing = ZERO
   let runs = 0
   let prev: { n: bigint; text: string } | null = null
-  for (const x of numeric) {
+  for (const x of items) {
     if (prev && x.n > prev.n + ONE) {
       const from = prev.n + ONE
       const to = x.n - ONE
@@ -69,24 +105,28 @@ export function buildSeries(cheques: readonly SeriesCheque[]): AccountSeries {
       missing += count
       runs += 1
     }
-    entries.push({ kind: 'CHEQUE', cheque: x.cheque, duplicate: isDuplicate(x.n) })
+    entries.push(x.cheque
+      ? { kind: 'CHEQUE', cheque: x.cheque, duplicate: isDuplicate(x.n) }
+      : { kind: 'STAGED', staged: x.staged, number: x.text })
     prev = { n: x.n, text: x.text }
   }
 
-  const every = [...numeric.map((x) => x.cheque), ...notNumeric]
+  const chequeItems = items.filter((x) => x.cheque)
+  const every = [...chequeItems.map((x) => x.cheque!), ...notNumeric]
   return {
     entries,
     notNumeric,
     summary: {
-      first: numeric.length ? numeric[0].text : null,
-      last: numeric.length ? numeric[numeric.length - 1].text : null,
+      first: items.length ? items[0].text : null,
+      last: items.length ? items[items.length - 1].text : null,
       held: perNumber.size,
       voided: every.filter((x) => x.status === 'VOIDED').length,
       cancelled: every.filter((x) => x.status === 'CANCELLED').length,
+      staged: items.length - chequeItems.length,
       missingNumbers: missing.toString(),
       missingRuns: runs,
       notNumeric: notNumeric.length,
-      duplicates: numeric.filter((x) => isDuplicate(x.n)).length,
+      duplicates: chequeItems.filter((x) => isDuplicate(x.n)).length,
     },
   }
 }
