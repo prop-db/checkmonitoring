@@ -402,7 +402,15 @@ describe('deliverPortalEvents', () => {
     expect(chk.portalTradeId).toBe(before.portalTradeId)
     expect(await testDb.auditLog.count({ where: { checkId: check.id, action: 'portal_event_synced' } })).toBe(1)
   })
-  it('a RECEIPT is left untouched when the run has under 15 s left (review 2026-10-02)', async () => {
+  it('an ordinary 8 s after-action kick still sends a RECEIPT (review 2026-10-02, second pass)', async () => {
+    const check = await releasedCheck('AP-9')
+    await testDb.check.update({ where: { id: check.id }, data: { orNumber: 'OR-9', receiptType: 'OR' } })
+    await queue(check.id, 'RECEIPT', NOW)
+    const client = fakeClient(() => ok())
+    await deliverPortalEvents(testDb, { now: LATER, deadline: new Date(LATER.getTime() + 8_000), client })
+    expect(client.sent.map((b) => b.kind)).toEqual(['RECEIPT'])
+  })
+  it('a RECEIPT is left untouched when the run has under 6 s left (review 2026-10-02)', async () => {
     const check = await releasedCheck('AP-8')
     await testDb.check.update({ where: { id: check.id }, data: { orNumber: 'OR-8', receiptType: 'OR' } })
     const receipt = await queue(check.id, 'RECEIPT', NOW)

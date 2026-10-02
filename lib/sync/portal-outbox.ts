@@ -38,9 +38,11 @@ export const RECEIPT_REQUEST_TIMEOUT_MS = 30_000
 /**
  * A RECEIPT is not started with less than this left in the run (review
  * 2026-10-02): a request likely to time out would only cost an attempt.
- * The row is left untouched for the next run.
+ * The row is left untouched for the next run. 6 s, below the 8 s after-action
+ * kick, so an ordinary kick still sends a receipt; the receipt actions kick with
+ * 25 s (review 2026-10-02, second pass).
  */
-export const RECEIPT_MIN_REMAINING_MS = 15_000
+export const RECEIPT_MIN_REMAINING_MS = 6_000
 const MIN_REQUEST_TIMEOUT_MS = 1_000
 
 export type PortalOutboxOutcome = {

@@ -26,9 +26,14 @@ const date = (f: FormData, k: string) => {
 
 const clearingStatusSchema = z.enum(['NONE', 'DEPOSITED', 'ENCASHED', 'CLEARED'])
 
+// A receipt event carries up to ~4 MB; give its kick the same 25 s as the
+// admin "Deliver now" so it goes out now, not at the next cron (review
+// 2026-10-02, second pass).
+const RECEIPT_KICK = 25_000
+
 // Domain errors carry user-facing copy written to the spec; anything else is a
 // bug and must not leak its message to a Finance user.
-async function run(checkId: string, fn: () => Promise<unknown>): Promise<ActionResult> {
+async function run(checkId: string, fn: () => Promise<unknown>, opts: { budgetMs?: number } = {}): Promise<ActionResult> {
   try {
     await fn()
     // Deliver the outbox row this action just wrote, after the response is
@@ -38,7 +43,7 @@ async function run(checkId: string, fn: () => Promise<unknown>): Promise<ActionR
     // review 2026-09-26): the action has committed, so nothing thrown while
     // scheduling the kick may turn it into { ok: false }.
     try {
-      afterResponse(() => kickPortalDelivery(prisma, { budgetMs: 8_000 }))
+      afterResponse(() => kickPortalDelivery(prisma, { budgetMs: opts.budgetMs ?? 8_000 }))
     } catch (e) {
       console.error('portal delivery could not be scheduled:', e instanceof Error ? e.message : e)
     }
@@ -122,7 +127,7 @@ export async function releaseAction(formData: FormData): Promise<ActionResult> {
     receiptFile: receipt.receiptFile,
     remarks: str(formData, 'remarks') || undefined,
     now: new Date(),
-  }))
+  }), receipt.orNumber ? { budgetMs: RECEIPT_KICK } : {})
 }
 
 /**
@@ -146,7 +151,7 @@ export async function recordReceiptAction(formData: FormData): Promise<ActionRes
     receiptAmount: receipt.receiptAmount,
     receiptFile: receipt.receiptFile,
     now: new Date(),
-  }))
+  }), { budgetMs: RECEIPT_KICK })
 }
 
 /**
@@ -160,7 +165,7 @@ export async function attachReceiptFileAction(formData: FormData): Promise<Actio
   if (!receipt.ok) return { ok: false, message: receipt.message }
   return run(checkId, () => attachReceiptFile(prisma, {
     checkId, userId: user.id, receiptAmount: receipt.receiptAmount, receiptFile: receipt.receiptFile, now: new Date(),
-  }))
+  }), { budgetMs: RECEIPT_KICK })
 }
 
 /**
