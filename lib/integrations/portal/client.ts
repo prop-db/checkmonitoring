@@ -141,6 +141,10 @@ export function buildPortalEventBody(event: { id: string; kind: PortalEventKind 
     if (!check.orNumber || !check.receiptType) {
       throw new PortalPayloadError('INVALID_PAYLOAD', `RECEIPT cheque ${check.id} has no receipt reference and type`)
     }
+    // The portal files a receipt against the cheque number (review 2026-10-02).
+    if (!check.checkNumber.trim()) {
+      throw new PortalPayloadError('INVALID_PAYLOAD', `RECEIPT cheque ${check.id} has no cheque number; the portal requires checkNo`)
+    }
     body.receiptType = check.receiptType
     body.orNumber = check.orNumber
     if (check.orDate) body.orDate = manilaDay(check.orDate)

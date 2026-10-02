@@ -130,6 +130,18 @@ describe('buildPortalEventBody', () => {
   it('RECEIPT without a reference or type is a payload defect', () => {
     expect(() => buildPortalEventBody({ id: 'r', kind: 'RECEIPT' }, check({ orNumber: null })))
       .toThrow(PortalPayloadError)
+    // A reference without its type is just as unusable (review 2026-10-02).
+    expect(() => buildPortalEventBody({ id: 'r', kind: 'RECEIPT' }, check({ orNumber: 'OR-1', receiptType: null })))
+      .toThrow(PortalPayloadError)
+  })
+  it('RECEIPT with a blank cheque number is a payload defect (the portal requires checkNo; review 2026-10-02)', () => {
+    try {
+      buildPortalEventBody({ id: 'r', kind: 'RECEIPT' }, check({ checkNumber: '  ', orNumber: 'OR-1', receiptType: 'OR' }))
+      expect.fail('expected a payload defect')
+    } catch (err) {
+      expect(err).toBeInstanceOf(PortalPayloadError)
+      expect((err as PortalPayloadError).code).toBe('INVALID_PAYLOAD')
+    }
   })
 })
 
