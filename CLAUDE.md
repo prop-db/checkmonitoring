@@ -312,7 +312,11 @@ which is how `6000354350` and `1791259553` reached `/admin/portal`. `voidCheck` 
 ask `portalApvs` (`lib/integrations/portal/apvs.ts`, the same rule the client uses) first; a routed
 cheque with none gets `portalSyncStatus = NOT_APPLICABLE` and `portalNotified: false` on its audit
 row. Only CANCELLED is guarded. `scripts/close-unmatchable-cancelled.ts` closes the ones already
-parked (`unmatchable: no APV numbers`, counted on `/admin/portal`).
+parked (`unmatchable: no APV numbers`, counted on `/admin/portal`). **Run once, 2026-10-01, by the
+user with `--apply`: closed 2 of 2 (`6000354350`, `1791259553`), 0 left, snapshot
+`snapshots/close-unmatchable-cancelled-2026-10-01T10-08-40-568Z.json`.** It ran just BEFORE that
+day's deploy rather than after a cron delivery, so a no-APV CANCELLED still PENDING then could park
+once more on the next run; if `/admin/portal` shows one, run the script again.
 
 **NUMBERING (`/numbering`) checks cheque consecutives per cash account.** Every cheque of every
 status — VOIDED, CANCELLED and no-amount included — in BigInt order; each unused number between an
