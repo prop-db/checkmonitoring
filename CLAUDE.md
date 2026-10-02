@@ -156,6 +156,7 @@ npx tsx scripts/mark-ready-from-release-list.ts "<for-release>.xlsx" --apply    
 npx tsx scripts/revert-detail1-ready.ts "<for-release>.xlsx" <ready-from-list snapshot> [--apply]  # Detail1-only READY back to prior status (run 2026-09-25)
 npx tsx scripts/void-acumatica-voided.ts [--apply]                # void what Acumatica voided (live or RELEASED here)
 npx tsx scripts/close-unmatchable-cancelled.ts [--apply]         # parked CANCELLED events whose cheque has no APV: close unsent
+npx tsx scripts/backfill-check-books.ts GOLIVE [--apply]       # Acumatica cheques with no cheque book: record it from CashAccount (MANUFACTURING likewise)
 npx tsx scripts/link-vouchers-from-acumatica.ts "<for-release>.xlsx" [--apply]  # link list vouchers via AP-PAYMENTS-WITH-BILLS, ready their cheques
 npx tsx scripts/sync.ts GOLIVE --bills --dry-run     # read AP-PAYMENTS-WITH-BILLS, write nothing (MANUFACTURING likewise)
 npx tsx scripts/sync.ts GOLIVE --bills               # snapshot, then union vouchers into apvNumbers; add --full to re-read
@@ -318,11 +319,11 @@ user with `--apply`: closed 2 of 2 (`6000354350`, `1791259553`), 0 left, snapsho
 day's deploy rather than after a cron delivery, so a no-APV CANCELLED still PENDING then could park
 once more on the next run; if `/admin/portal` shows one, run the script again.
 
-**NUMBERING (`/numbering`) checks cheque consecutives per cash account.** Every cheque of every
-status — VOIDED, CANCELLED and no-amount included — in BigInt order; each unused number between an
-account's first and last is one MISSING line, however large (user ruling 2026-10-01: "every number
-counts", not a booklet heuristic). The cash account is the series key because the sync publishes
-no cheque book. MISSING is bounded by the sync's scope (2026 onward, CHK only). A number Acumatica
+**NUMBERING (`/numbering`) checks cheque consecutives per cheque book.** Every cheque of every
+status — VOIDED, CANCELLED and no-amount included — in BigInt order; each unused number between a
+book's first and last is one MISSING line, however large (user ruling 2026-10-01: "every number
+counts", not a booklet heuristic). The cheque book is the series key — Acumatica's CashAccount value
+(spec §D, 2026-10-02); cheques with no book are a stated count. MISSING is bounded by the sync's scope (2026 onward, CHK only). A number Acumatica
 re-used with a trailing dot — a second payment document on the same cheque number, which Acumatica
 will not accept twice on one cash account — sits on `/admin/staged` as NO_CHECK_NUMBER and is shown
 as a **STAGED** line, never MISSING (`stagedSeriesNumber`, spec §C, 2026-10-02). Measured that day:
@@ -548,6 +549,15 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
   resolves every payment to no company.
 - **`PaymentMethod` decides `isCheque`**, alongside the China-branch rule. `DEBIT ADV` and `CASH` are
   not cheques and must not offer a SIGN button.
+- **Acumatica's `CashAccount` column is the CHEQUE BOOK, not this system's cash account.** It states
+  `BPI-S-4636`, `MBT-A-4155`, `BDO-A-3838` — the eight `CheckBook` codes the register used — while
+  `CashAccount` here holds six register labels (`BPI STK`, `MBTC A1+`, …). Until 2026-10-02 `map.ts`
+  dropped it (`checkBookCode: null`) and looked it up as a cash account, which never matches: 3,844
+  Acumatica cheques had no cheque book and 3,501 cheques neither, 1,091 of them dated since the register
+  stopped. The sync now records it; `scripts/backfill-check-books.ts` fills the rest (company-checked:
+  a book under another company is reported, never set). NUMBERING groups by cheque book. **The dashboard
+  BANK filter/column and RECON still key on the cash-account label and so see only ~1,342 cheques** —
+  an open follow-up. `PCF-SITIO`, `PAYROLL`, `PCF-SILANG`, `RSB-S-0869`, `MBTC-S-988` are no cheque book.
 - A voided cheque is **two feed rows** under one reference; the original's positive amount survives.
 - **Which cheque pays an AP voucher is answered on `/vouchers`, and `CHECK BY VOUCHER.xlsx` is
   its extract.** The Finance Executive Report's `AP Local` sheet used to find a payable's cheque
