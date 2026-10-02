@@ -230,9 +230,11 @@ describe('mapPayment: the rest of the shared row contract', () => {
     expect(r.vendorCode).toBe('V001234')
     expect(r.cashAccountCode).toBe('BPI STK')
     expect(r.acumaticaStatus).toBe('Closed')
-    // The inquiry's CashAccount IS the cheque book (spec §D): Acumatica states
-    // `BPI-S-4636` where the register wrote the cheque book. Passed through
-    // verbatim; upsertCheck resolves it or leaves it null.
+    // The inquiry's CashAccount IS the cheque book (spec §D); live it reads
+    // `BPI-S-4636`. This fixture's `BPI STK` is not a book code, which is the
+    // point: the mapper passes the value through verbatim as BOTH codes and
+    // judges nothing — upsertCheck resolves it against CheckBook.code or
+    // leaves the book null.
     expect(r.checkBookCode).toBe('BPI STK')
     expect(r.category).toBeNull()
     // Provenance belongs to the workbook path.

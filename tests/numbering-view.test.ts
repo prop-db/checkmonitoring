@@ -36,7 +36,7 @@ describe('visibleEntries', () => {
 describe('labels', () => {
   it('describes the filters', () => {
     expect(describeNumberingFilters({})).toBe('No filters applied')
-    expect(describeNumberingFilters({ company: 'STK', account: 'BPI STK', missingOnly: true })).toBe('COMPANY: STK  ·  ACCOUNT: BPI STK  ·  MISSING ONLY')
+    expect(describeNumberingFilters({ company: 'STK', account: 'BPI STK', missingOnly: true })).toBe('COMPANY: STK  ·  CHEQUE BOOK: BPI STK  ·  MISSING ONLY')
   })
   it('a missing run reads as a range, a single number as itself', () => {
     expect(missingLabel({ from: '6000354301', to: '6000354349', count: '49' })).toBe('6000354301 – 6000354349 · MISSING · 49')

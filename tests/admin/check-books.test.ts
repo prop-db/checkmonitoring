@@ -39,6 +39,9 @@ describe('planCheckBookBackfill', () => {
     expect(plan.notABook).toEqual({ 'PCF-SITIO': 1 })
     expect(plan.companyMismatch).toEqual([{ checkNumber: '6000000003', checkBookCode: 'MBT-A-4155' }])
     expect(plan.notInFeed).toBe(1) // CV-4
+    // A dry run writes nothing: the plan is a read.
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).checkBookId).toBeNull()
+    expect(await testDb.auditLog.count({ where: { action: CHECK_BOOK_BACKFILL_ACTION } })).toBe(0)
     void b; void c; void d
   })
 

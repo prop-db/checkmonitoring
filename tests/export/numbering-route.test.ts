@@ -75,7 +75,7 @@ describe('GET /api/export/numbering', () => {
     const wb = new ExcelJS.Workbook()
     await wb.xlsx.load(await res.arrayBuffer())
     const a2 = String(wb.getWorksheet(NUMBERING_SUMMARY_SHEET)!.getCell('A2').value)
-    expect(a2).toContain('ACCOUNT:')
+    expect(a2).toContain('CHEQUE BOOK:')
     expect(a2).not.toContain('COMPANY:')
   })
 

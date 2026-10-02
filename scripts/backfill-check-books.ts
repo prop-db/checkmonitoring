@@ -42,7 +42,11 @@ async function main(): Promise<void> {
     const now = new Date()
     await mkdir(join(process.cwd(), 'snapshots'), { recursive: true })
     const snap = join(process.cwd(), 'snapshots', `check-books-${tenant}-${now.toISOString().replace(/[:.]/g, '-')}.json`)
-    await writeFile(snap, JSON.stringify({ takenAt: now.toISOString(), tenant, candidates: plan.candidates }, null, 2))
+    await writeFile(snap, JSON.stringify({
+      takenAt: now.toISOString(), tenant,
+      // Every candidate was selected with no book, so the prior value is null by construction; stated anyway.
+      candidates: plan.candidates.map((c) => ({ ...c, priorCheckBookId: null })),
+    }, null, 2))
     console.log(`\nSnapshot written: ${snap}`)
     const set = await applyCheckBookBackfill(db, plan.candidates)
     console.log(`\nDONE  set ${set} of ${plan.candidates.length}\n`)
