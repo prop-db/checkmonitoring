@@ -64,6 +64,71 @@ describe('listNumberingAccounts', () => {
   })
 })
 
+async function stage(cashAccountCode: string | null, statedCheckRef: string, extra: Record<string, unknown> = {}) {
+  const workbook = extra.source === 'WORKBOOK'
+  return testDb.stagedCheck.create({
+    data: {
+      source: workbook ? 'WORKBOOK' : 'ACUMATICA',
+      ...(workbook
+        ? { sourceSheet: 'BPI RELEASED', sourceRow: Math.floor(Math.random() * 1e6) }
+        : { acumaticaRef: `CV-T${Math.random().toString(36).slice(2, 9)}`, acumaticaTenant: 'GOLIVE' }),
+      reason: 'NO_CHECK_NUMBER', impliedStatus: 'SIGNATURE_PENDING',
+      statedCheckRef, cashAccountCode, amount: '500.00', currency: 'PHP', payeeName: 'HENKEL',
+      apvNumbers: [], poNumbers: [], conflictingCompanies: [],
+      ...(extra.promotedCheckId ? { promotedCheckId: extra.promotedCheckId as string } : {}),
+    },
+  })
+}
+
+describe('listNumberingAccounts — staged dotted re-uses', () => {
+  it('joins a dotted staged payment to its cash account as a STAGED line', async () => {
+    const first = await makeCheck({ checkNumber: '1000' })
+    await onAccountOf(first, { checkNumber: '1003' })
+    const acc = await testDb.cashAccount.findUniqueOrThrow({ where: { id: first.cashAccountId! } })
+    await stage(acc.code, '1001.')
+    const [a] = await listNumberingAccounts(testDb, {})
+    const kinds = a.series.entries.map((e) => (e.kind === 'MISSING' ? `M${e.from}` : e.kind === 'STAGED' ? `S${e.number}` : e.cheque.checkNumber))
+    expect(kinds).toEqual(['1000', 'S1001', 'M1002', '1003'])
+    expect(a.series.summary.staged).toBe(1)
+    const s = a.series.entries.find((e) => e.kind === 'STAGED')
+    expect(s?.kind === 'STAGED' && s.staged.amount).toBe('500.00')
+  })
+
+  it('ignores a promoted row, a row without a dot, a WORKBOOK row and an unknown cash account', async () => {
+    const first = await makeCheck({ checkNumber: '2000' })
+    await onAccountOf(first, { checkNumber: '2005' })
+    const acc = await testDb.cashAccount.findUniqueOrThrow({ where: { id: first.cashAccountId! } })
+    await stage(acc.code, '2001.', { promotedCheckId: first.id })
+    await stage(acc.code, '2002')
+    await stage(acc.code, '2003.', { source: 'WORKBOOK' })
+    await stage('NO SUCH ACCOUNT', '2004.')
+    const [a] = await listNumberingAccounts(testDb, {})
+    expect(a.series.summary.staged).toBe(0)
+    expect(a.series.summary.missingNumbers).toBe('4')
+  })
+
+  it('an account with only staged numbers still appears', async () => {
+    const other = await makeCheck({ checkNumber: '1' })
+    const bank = await testDb.bank.create({ data: { code: `B${Math.random().toString(36).slice(2, 7)}`, name: 'BPI' } })
+    const empty = await testDb.cashAccount.create({ data: { code: 'EMPTY ACC', bankId: bank.id, companyId: other.companyId } })
+    await stage('EMPTY ACC', '30.')
+    const out = await listNumberingAccounts(testDb, {})
+    const e = out.find((x) => x.accountId === empty.id)
+    expect(e?.series.summary).toMatchObject({ first: '30', last: '30', held: 0, staged: 1 })
+  })
+
+  it('honours the company and account filters for staged rows', async () => {
+    const a = await makeCheck({ checkNumber: '10' })
+    const b = await makeCheck({ checkNumber: '20' })
+    const accA = await testDb.cashAccount.findUniqueOrThrow({ where: { id: a.cashAccountId! } })
+    await stage(accA.code, '11.')
+    const onlyB = await listNumberingAccounts(testDb, { companyId: b.companyId })
+    expect(onlyB.flatMap((x) => x.series.entries).some((e) => e.kind === 'STAGED')).toBe(false)
+    const onlyAccB = await listNumberingAccounts(testDb, { cashAccountId: b.cashAccountId! })
+    expect(onlyAccB.flatMap((x) => x.series.entries).some((e) => e.kind === 'STAGED')).toBe(false)
+  })
+})
+
 describe('countChequesWithoutAccount', () => {
   it('counts cheques with no cash account, narrowed by the cheque\'s company', async () => {
     const a = await makeCheck({ checkNumber: '1' })
