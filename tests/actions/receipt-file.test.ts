@@ -47,6 +47,13 @@ describe('recordReceipt with amount and file', () => {
     expect(await receiptEvents(check.id)).toHaveLength(0)
     expect(await testDb.checkReceiptFile.findUnique({ where: { checkId: check.id } })).not.toBeNull()
   })
+  it('a legacy receipt with no OR/CR type takes a file but queues nothing (final review 2026-10-02)', async () => {
+    const { user, check } = await released()
+    await testDb.check.update({ where: { id: check.id }, data: { orNumber: 'OLD-1', receiptType: null } })
+    await attachReceiptFile(testDb, { checkId: check.id, userId: user.id, receiptFile: file(), now: LATER })
+    expect(await receiptEvents(check.id)).toHaveLength(0)
+    expect(await testDb.checkReceiptFile.findUnique({ where: { checkId: check.id } })).not.toBeNull()
+  })
   it('an INTERNAL cheque stores the receipt but queues nothing', async () => {
     const { user, check } = await released('INTERNAL')
     await recordReceipt(testDb, { checkId: check.id, userId: user.id, orNumber: 'OR-1', receiptType: 'OR', receiptFile: file(), now: LATER })

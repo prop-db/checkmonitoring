@@ -121,8 +121,11 @@ async function storeReceiptFile(
 async function queueReceipt(
   tx: Prisma.TransactionClient,
   check: { id: string; checkNumber: string; apvNumbers: string[] },
-  args: { orNumber: string | null; amount: string | null; hasFile: boolean; now: Date },
+  args: { orNumber: string | null; receiptType: string | null; amount: string | null; hasFile: boolean; now: Date },
 ): Promise<void> {
+  // A legacy receipt with no OR/CR type would only park (the portal requires
+  // the type; final review 2026-10-02).
+  if (!args.orNumber || !args.receiptType) return
   // Same guard as CANCELLED (review 2026-10-02): the portal matches on APV, so
   // a cheque with none could only ever park; the receipt stays recorded here.
   if (!(await portalCanMatch(tx, check))) return
@@ -687,7 +690,7 @@ export async function markReleased(
     // RELEASED and RECEIPT share `now` and still never collide: the kind is
     // part of the key (user request 2026-10-01).
     if (pushes && writesReceipt) {
-      await queueReceipt(tx, check, { orNumber: receipt.orNumber, amount: extras.amount, hasFile: fileMeta !== null, now: args.now })
+      await queueReceipt(tx, check, { orNumber: receipt.orNumber, receiptType: receipt.receiptType, amount: extras.amount, hasFile: fileMeta !== null, now: args.now })
     }
 
     await writeAudit(tx, {
@@ -793,7 +796,7 @@ export async function recordReceipt(
 
     const fileMeta = extras.file ? await storeReceiptFile(tx, check.id, args.userId, extras.file, args.now) : null
     if (portalRoute(check.eligibility as Eligibility) !== null) {
-      await queueReceipt(tx, check, { orNumber: receipt.orNumber, amount: extras.amount, hasFile: fileMeta !== null, now: args.now })
+      await queueReceipt(tx, check, { orNumber: receipt.orNumber, receiptType: receipt.receiptType, amount: extras.amount, hasFile: fileMeta !== null, now: args.now })
     }
 
     await writeReceiptAudit(tx, {
@@ -845,6 +848,7 @@ export async function attachReceiptFile(
     if (portalRoute(check.eligibility as Eligibility) !== null) {
       await queueReceipt(tx, check, {
         orNumber: check.orNumber,
+        receiptType: check.receiptType,
         amount: extras.amount ?? check.receiptAmount?.toFixed(2) ?? null,
         hasFile: fileMeta !== null || existingFile !== null,
         now: args.now,

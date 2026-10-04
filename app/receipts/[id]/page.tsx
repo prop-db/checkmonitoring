@@ -24,6 +24,10 @@ import { RECEIPT_RECLASSIFIED_ACTION } from '@/lib/admin/repair-cr-receipts'
  * is no middleware protecting anything in this application (see CLAUDE.md), and
  * a page that forgot this guard would be readable by anyone with the URL.
  */
+// The receipt actions on this page kick portal delivery with a 25 s budget
+// after the response (review 2026-10-02); give the function room for it.
+export const maxDuration = 60
+
 export default async function ReceiptPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser()
   const { id } = await params
