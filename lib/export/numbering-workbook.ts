@@ -3,13 +3,14 @@ import ExcelJS from 'exceljs'
 import { currencyNumberFormat } from './report'
 import { BAND_FILL, COUNT_FORMAT, DATE_FORMAT, styleHeaderCell } from './sheet-style'
 import type { NumberingAccount } from '@/lib/numbering/query'
-import type { SeriesCheque } from '@/lib/numbering/series'
+import type { SeriesCheque, SeriesStaged } from '@/lib/numbering/series'
 import { visibleEntries, NUMBERING_SCOPE_NOTE } from '@/lib/numbering-view'
 
 /**
  * The numbering report as a workbook: SUMMARY, then one sheet per account with
- * every cheque in number order and each MISSING run as one row whose FROM, TO
- * and COUNT have their own columns — so a filter on STATUS = MISSING works
+ * every cheque in number order, each MISSING run as one row whose FROM, TO
+ * and COUNT have their own columns, and each number Acumatica re-used with a
+ * trailing dot as a STAGED row (spec §C) — so a filter on STATUS = MISSING works
  * (spec 2026-10-01-cheque-numbering-and-cancel-guard-design §B4). Cheque
  * numbers are text cells. Amounts are Excel numbers in the cells, the one
  * sanctioned use of a JS number for money, as in `recon-workbook.ts`.
@@ -18,7 +19,7 @@ export const NUMBERING_SUMMARY_SHEET = 'SUMMARY'
 export const NUMBERING_ACCOUNT_HEADERS = [
   'CHECK NUMBER', 'CHEQUE DATE', 'PAYEE', 'STATUS', 'CURRENCY', 'AMOUNT', 'FROM', 'TO', 'COUNT', 'NOTE',
 ] as const
-const SUMMARY_HEADERS = ['ACCOUNT', 'BANK', 'COMPANY', 'FIRST', 'LAST', 'HELD', 'VOIDED', 'CANCELLED', 'MISSING NUMBERS', 'MISSING RUNS', 'NOT NUMERIC'] as const
+const SUMMARY_HEADERS = ['ACCOUNT', 'BANK', 'COMPANY', 'FIRST', 'LAST', 'HELD', 'VOIDED', 'CANCELLED', 'STAGED', 'MISSING NUMBERS', 'MISSING RUNS', 'NOT NUMERIC'] as const
 
 export type NumberingMeta = {
   generatedAt: Date; generatedBy: string; filterDescription: string
@@ -86,7 +87,7 @@ export async function buildNumberingWorkbook(
     const s = a.series.summary
     const row = ws.getRow(7 + i)
     const values: (string | number | null)[] = [
-      a.account, a.bank, a.company, s.first, s.last, s.held, s.voided, s.cancelled,
+      a.account, a.bank, a.company, s.first, s.last, s.held, s.voided, s.cancelled, s.staged,
       countCell(s.missingNumbers), s.missingRuns, s.notNumeric,
     ]
     values.forEach((v, col) => {
@@ -95,7 +96,7 @@ export async function buildNumberingWorkbook(
     })
     if (i % 2 === 1) row.eachCell({ includeEmpty: true }, (c) => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BAND_FILL } } })
   })
-  ;[22, 10, 10, 14, 14, 10, 10, 12, 18, 14, 14].forEach((w, i) => { ws.getColumn(i + 1).width = w })
+  ;[22, 10, 10, 14, 14, 10, 10, 12, 10, 18, 14, 14].forEach((w, i) => { ws.getColumn(i + 1).width = w })
 
   const used = new Set([NUMBERING_SUMMARY_SHEET.toUpperCase()])
   let budget = meta.rowLimit
@@ -118,11 +119,24 @@ export async function buildNumberingWorkbook(
       row.getCell(6).numFmt = currencyNumberFormat(c.currency)
       row.getCell(10).value = note
     }
+    const stagedRow = (s: SeriesStaged) => {
+      const row = sheet.getRow(r++)
+      row.getCell(1).value = s.statedCheckRef
+      row.getCell(2).value = s.checkDate
+      if (s.checkDate) row.getCell(2).numFmt = DATE_FORMAT
+      row.getCell(3).value = s.payeeName
+      row.getCell(4).value = 'STAGED'
+      row.getCell(5).value = s.currency
+      row.getCell(6).value = s.amount === null ? null : Number(s.amount)
+      if (s.currency) row.getCell(6).numFmt = currencyNumberFormat(s.currency)
+      row.getCell(10).value = `Acumatica ${s.acumaticaRef}: the same cheque number used again (staged)`
+    }
     const rows = [...entries.map((e) => ({ e })), ...(meta.missingOnly ? [] : a.series.notNumeric.map((c) => ({ c })))]
     for (const item of rows.slice(0, budget)) {
       if ('c' in item) { chequeRow(item.c, 'NOT NUMERIC'); continue }
       const e = item.e
       if (e.kind === 'CHEQUE') { chequeRow(e.cheque, e.duplicate ? 'DUPLICATE NUMBER' : null); continue }
+      if (e.kind === 'STAGED') { stagedRow(e.staged); continue }
       const row = sheet.getRow(r++)
       row.getCell(1).value = e.from === e.to ? e.from : `${e.from} – ${e.to}`
       row.getCell(4).value = 'MISSING'

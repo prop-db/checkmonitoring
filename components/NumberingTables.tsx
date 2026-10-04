@@ -4,7 +4,7 @@ import { formatMoney } from '@/lib/money'
 import { StatusPill } from '@/components/StatusPill'
 import { missingLabel, numberingHref } from '@/lib/numbering-view'
 import type { NumberingAccount } from '@/lib/numbering/query'
-import type { SeriesCheque, SeriesEntry } from '@/lib/numbering/series'
+import type { SeriesCheque, SeriesEntry, SeriesStaged } from '@/lib/numbering/series'
 
 const fmtDay = (d: Date | null) =>
   d ? d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : '—'
@@ -21,7 +21,7 @@ export function NumberingSummaryTable({ accounts, company }: { accounts: readonl
             <th className={th}>ACCOUNT</th><th className={th}>BANK</th><th className={th}>COMPANY</th>
             <th className={th}>FIRST</th><th className={th}>LAST</th>
             <th className={`${th} text-right`}>HELD</th><th className={`${th} text-right`}>VOIDED</th>
-            <th className={`${th} text-right`}>CANCELLED</th><th className={`${th} text-right`}>MISSING</th>
+            <th className={`${th} text-right`}>CANCELLED</th><th className={`${th} text-right`}>STAGED</th><th className={`${th} text-right`}>MISSING</th>
             <th className={`${th} text-right`}>NOT NUMERIC</th>
           </tr>
         </thead>
@@ -38,6 +38,7 @@ export function NumberingSummaryTable({ accounts, company }: { accounts: readonl
                 <td className={`${th} text-right tabular-nums`}>{s.held.toLocaleString('en-PH')}</td>
                 <td className={`${th} text-right tabular-nums`}>{s.voided.toLocaleString('en-PH')}</td>
                 <td className={`${th} text-right tabular-nums`}>{s.cancelled.toLocaleString('en-PH')}</td>
+                <td className={`${th} text-right tabular-nums`}>{s.staged.toLocaleString('en-PH')}</td>
                 <td className={`${th} text-right tabular-nums ${s.missingRuns ? 'font-semibold text-amber-700' : ''}`}>
                   {fmtCount(s.missingNumbers)}{s.missingRuns ? ` (${s.missingRuns.toLocaleString('en-PH')})` : ''}
                 </td>
@@ -63,7 +64,25 @@ function ChequeRow({ c, note }: { c: SeriesCheque; note?: string }) {
   )
 }
 
-/** One account's series in number order, each MISSING run as one highlighted line. */
+function StagedRow({ s }: { s: SeriesStaged }) {
+  return (
+    <tr className="border-b border-slate-100 bg-slate-50 text-slate-600">
+      <td className={`${th} tabular-nums`}>{s.statedCheckRef}</td>
+      <td className={th}>{fmtDay(s.checkDate)}</td>
+      <td className={th}>{s.payeeName ?? '—'}</td>
+      <td className={`${th} text-right tabular-nums`}>{s.currency ? formatMoney(s.amount, s.currency) : '—'}</td>
+      <td className={th}>
+        <span className="inline-block whitespace-nowrap rounded-full bg-slate-200 px-2.5 py-1 text-xs font-semibold tracking-wide text-slate-700">STAGED</span>
+        <span className="ml-2 text-xs text-slate-500">Acumatica {s.acumaticaRef}</span>
+      </td>
+    </tr>
+  )
+}
+
+/**
+ * One account's series in number order, each MISSING run as one highlighted line
+ * and each number Acumatica re-used with a trailing dot as a grey STAGED line.
+ */
 export function NumberingEntriesTable({ entries }: { entries: readonly SeriesEntry[] }) {
   return (
     <section className="overflow-x-auto rounded-2xl bg-white ring-1 ring-hairline">
@@ -78,6 +97,8 @@ export function NumberingEntriesTable({ entries }: { entries: readonly SeriesEnt
                 <td colSpan={5} className={`${th} font-semibold tabular-nums text-amber-800`}>{missingLabel(e)}</td>
               </tr>
             )
+            : e.kind === 'STAGED'
+            ? <StagedRow key={`s-${e.staged.acumaticaTenant}-${e.staged.acumaticaRef}`} s={e.staged} />
             : <ChequeRow key={e.cheque.id} c={e.cheque} note={e.duplicate ? 'DUPLICATE NUMBER' : undefined} />)}
         </tbody>
       </table>

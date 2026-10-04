@@ -49,5 +49,6 @@ export function numberingFilename(day: string): string {
 export const NUMBERING_SCOPE_NOTE =
   'MISSING means no cheque in this system holds the number. The Acumatica sync reads payments dated 2026 ' +
   'onward, so an account\'s first number may sit partway through a booklet and earlier numbers are not known ' +
-  'here. A cheque Acumatica holds with a memo in place of its number is on /admin/staged, not here — its ' +
-  'number may be one of the MISSING.'
+  'here. A number Acumatica re-used with a trailing dot (a second payment on the same cheque number) counts as ' +
+  'used and is listed as STAGED. A cheque Acumatica holds with a memo in place of its number is on /admin/staged, ' +
+  'not here — its number may still be one of the MISSING.'

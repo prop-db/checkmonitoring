@@ -1,11 +1,14 @@
 // lib/numbering/query.ts
 import type { Prisma, PrismaClient } from '@prisma/client'
-import { buildSeries, type AccountSeries, type SeriesCheque } from './series'
+import { buildSeries, stagedSeriesNumber, type AccountSeries, type SeriesCheque, type SeriesStaged } from './series'
 
 type Db = PrismaClient | Prisma.TransactionClient
 
 export type NumberingFilters = { companyId?: string; cashAccountId?: string }
 export type NumberingAccount = { accountId: string; account: string; bank: string; company: string; series: AccountSeries }
+
+type Group = { account: string; bank: string; company: string; cheques: SeriesCheque[]; staged: SeriesStaged[] }
+type AccountRef = { id: string; code: string; bank: { code: string }; company: { code: string } }
 
 /**
  * Every cheque that holds a number in a cash account's series: `isCheque`, a
@@ -14,6 +17,10 @@ export type NumberingAccount = { accountId: string; account: string; bank: strin
  * 2026-10-01-cheque-numbering-and-cancel-guard-design §B1). The cash account is
  * the series key: the sync publishes no cheque book. One query, grouped here;
  * ~12,000 rows.
+ *
+ * Plus the staged Acumatica payments that re-used a cheque number with a
+ * trailing dot (spec §C): not promoted, joined to their account by
+ * `cashAccountCode`, qualifying by `stagedSeriesNumber`. Read only.
  */
 export async function listNumberingAccounts(db: Db, f: NumberingFilters): Promise<NumberingAccount[]> {
   const rows = await db.check.findMany({
@@ -28,22 +35,52 @@ export async function listNumberingAccounts(db: Db, f: NumberingFilters): Promis
     },
   })
 
-  const byAccount = new Map<string, { account: string; bank: string; company: string; cheques: SeriesCheque[] }>()
+  const byAccount = new Map<string, Group>()
+  const groupFor = (a: AccountRef): Group => {
+    let g = byAccount.get(a.id)
+    if (!g) {
+      g = { account: a.code, bank: a.bank.code, company: a.company.code, cheques: [], staged: [] }
+      byAccount.set(a.id, g)
+    }
+    return g
+  }
   for (const r of rows) {
     if (!r.cashAccount) continue
-    let group = byAccount.get(r.cashAccount.id)
-    if (!group) {
-      group = { account: r.cashAccount.code, bank: r.cashAccount.bank.code, company: r.cashAccount.company.code, cheques: [] }
-      byAccount.set(r.cashAccount.id, group)
-    }
-    group.cheques.push({
+    groupFor(r.cashAccount).cheques.push({
       id: r.id, checkNumber: r.checkNumber, checkDate: r.checkDate, payeeName: r.payeeName,
       amount: r.amount?.toFixed(2) ?? null, currency: r.currency, status: r.status,
     })
   }
 
+  const stagedRows = await db.stagedCheck.findMany({
+    where: { source: 'ACUMATICA', reason: 'NO_CHECK_NUMBER', promotedCheckId: null, cashAccountCode: { not: null } },
+    orderBy: [{ acumaticaTenant: 'asc' }, { acumaticaRef: 'asc' }],
+    select: { acumaticaTenant: true, acumaticaRef: true, statedCheckRef: true, checkDate: true, payeeName: true, amount: true, currency: true, cashAccountCode: true },
+  })
+  const dotted = stagedRows.filter((s) => s.acumaticaTenant && s.acumaticaRef && stagedSeriesNumber(s.statedCheckRef) !== null)
+  const codes = [...new Set(dotted.map((s) => s.cashAccountCode!))]
+  const accounts = codes.length
+    ? await db.cashAccount.findMany({
+      where: {
+        code: { in: codes },
+        ...(f.cashAccountId ? { id: f.cashAccountId } : {}),
+        ...(f.companyId ? { companyId: f.companyId } : {}),
+      },
+      select: { id: true, code: true, bank: { select: { code: true } }, company: { select: { code: true } } },
+    })
+    : []
+  const accountByCode = new Map(accounts.map((a) => [a.code, a]))
+  for (const s of dotted) {
+    const a = accountByCode.get(s.cashAccountCode!)
+    if (!a) continue
+    groupFor(a).staged.push({
+      acumaticaTenant: s.acumaticaTenant!, acumaticaRef: s.acumaticaRef!, statedCheckRef: s.statedCheckRef!, checkDate: s.checkDate, payeeName: s.payeeName,
+      amount: s.amount?.toFixed(2) ?? null, currency: s.currency,
+    })
+  }
+
   return [...byAccount.entries()]
-    .map(([accountId, g]) => ({ accountId, account: g.account, bank: g.bank, company: g.company, series: buildSeries(g.cheques) }))
+    .map(([accountId, g]) => ({ accountId, account: g.account, bank: g.bank, company: g.company, series: buildSeries(g.cheques, g.staged) }))
     .sort((a, b) => a.account.localeCompare(b.account) || a.company.localeCompare(b.company) || a.accountId.localeCompare(b.accountId))
 }
 

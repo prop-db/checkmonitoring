@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildSeries, type SeriesCheque, type SeriesEntry } from '@/lib/numbering/series'
+import { buildSeries, stagedSeriesNumber, type SeriesCheque, type SeriesEntry, type SeriesStaged } from '@/lib/numbering/series'
 
 let seq = 0
 function c(checkNumber: string, status: SeriesCheque['status'] = 'RELEASED'): SeriesCheque {
@@ -7,9 +7,23 @@ function c(checkNumber: string, status: SeriesCheque['status'] = 'RELEASED'): Se
   return { id: `id${String(seq).padStart(4, '0')}`, checkNumber, checkDate: null, payeeName: null, amount: '1.00', currency: 'PHP', status }
 }
 const shape = (entries: SeriesEntry[]) =>
-  entries.map((e) => (e.kind === 'CHEQUE' ? e.cheque.checkNumber : `MISSING ${e.from}-${e.to} (${e.count})`))
+  entries.map((e) => (e.kind === 'CHEQUE' ? e.cheque.checkNumber
+    : e.kind === 'STAGED' ? `STAGED ${e.number}`
+    : `MISSING ${e.from}-${e.to} (${e.count})`))
+
+const st = (statedCheckRef: string, acumaticaRef = `CV-${statedCheckRef}`): SeriesStaged =>
+  ({ acumaticaTenant: 'GOLIVE', acumaticaRef, statedCheckRef, checkDate: null, payeeName: null, amount: '1.00', currency: 'PHP' })
 
 describe('buildSeries', () => {
+  it('staged rows with the same ref in different tenants both appear, in tenant order', () => {
+    const s = buildSeries([c('100'), c('102')], [
+      { ...st('101.', 'CV-ST1'), acumaticaTenant: 'MANUFACTURING' },
+      { ...st('101.', 'CV-ST1'), acumaticaTenant: 'GOLIVE' },
+    ])
+    const staged = s.entries.flatMap((e) => (e.kind === 'STAGED' ? [e.staged.acumaticaTenant] : []))
+    expect(staged).toEqual(['GOLIVE', 'MANUFACTURING'])
+  })
+
   it('a consecutive run has no MISSING line', () => {
     const s = buildSeries([c('103'), c('101'), c('102')])
     expect(shape(s.entries)).toEqual(['101', '102', '103'])
@@ -68,7 +82,57 @@ describe('buildSeries', () => {
     expect(buildSeries([c('42')]).summary).toMatchObject({ first: '42', last: '42', held: 1, missingRuns: 0 })
     expect(buildSeries([])).toEqual({
       entries: [], notNumeric: [],
-      summary: { first: null, last: null, held: 0, voided: 0, cancelled: 0, missingNumbers: '0', missingRuns: 0, notNumeric: 0, duplicates: 0 },
+      summary: { first: null, last: null, held: 0, voided: 0, cancelled: 0, staged: 0, missingNumbers: '0', missingRuns: 0, notNumeric: 0, duplicates: 0 },
     })
+  })
+})
+
+describe('stagedSeriesNumber', () => {
+  it('reads a number that Acumatica re-used with trailing dots', () => {
+    expect(stagedSeriesNumber('6000146879.')).toBe('6000146879')
+    expect(stagedSeriesNumber('1791361883..')).toBe('1791361883')
+    expect(stagedSeriesNumber(' 6000146879. ')).toBe('6000146879')
+    expect(stagedSeriesNumber('BPI 6000146879.')).toBe('6000146879')
+  })
+  it('ignores anything else', () => {
+    expect(stagedSeriesNumber('6000146879')).toBeNull()      // no dot: not a re-use
+    expect(stagedSeriesNumber('PCF26-00001.')).toBeNull()    // not a number once the dots go
+    expect(stagedSeriesNumber('AP-IND000469')).toBeNull()
+    expect(stagedSeriesNumber('6000146879.5')).toBeNull()    // a dot inside is not a trailer
+    expect(stagedSeriesNumber('.')).toBeNull()
+    expect(stagedSeriesNumber(null)).toBeNull()
+  })
+})
+
+describe('buildSeries with staged re-uses', () => {
+  it('a number used only by a staged payment is STAGED, not MISSING', () => {
+    const s = buildSeries([c('101'), c('104')], [st('102.')])
+    expect(shape(s.entries)).toEqual(['101', 'STAGED 102', 'MISSING 103-103 (1)', '104'])
+    expect(s.summary).toMatchObject({ held: 2, staged: 1, missingNumbers: '1', missingRuns: 1 })
+  })
+
+  it('a cheque and its dotted re-use: the cheque row first, never a duplicate', () => {
+    const s = buildSeries([c('7')], [st('7.'), st('7..', 'CV-second')])
+    expect(shape(s.entries)).toEqual(['7', 'STAGED 7', 'STAGED 7'])
+    expect(s.summary).toMatchObject({ held: 1, staged: 2, duplicates: 0, missingNumbers: '0' })
+    expect(s.entries[0]).toMatchObject({ kind: 'CHEQUE', duplicate: false })
+  })
+
+  it('a staged number extends the range', () => {
+    const s = buildSeries([c('5')], [st('9.')])
+    expect(shape(s.entries)).toEqual(['5', 'MISSING 6-8 (3)', 'STAGED 9'])
+    expect(s.summary).toMatchObject({ first: '5', last: '9' })
+  })
+
+  it('an account with only staged numbers still has a series', () => {
+    const s = buildSeries([], [st('20.'), st('22.')])
+    expect(shape(s.entries)).toEqual(['STAGED 20', 'MISSING 21-21 (1)', 'STAGED 22'])
+    expect(s.summary).toMatchObject({ first: '20', last: '22', held: 0, staged: 2 })
+  })
+
+  it('a staged row that does not qualify is ignored entirely', () => {
+    const s = buildSeries([c('1'), c('3')], [st('PCF26-00001.'), st('2')])
+    expect(shape(s.entries)).toEqual(['1', 'MISSING 2-2 (1)', '3'])
+    expect(s.summary.staged).toBe(0)
   })
 })

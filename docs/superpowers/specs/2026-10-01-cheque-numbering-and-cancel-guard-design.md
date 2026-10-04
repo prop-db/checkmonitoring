@@ -198,3 +198,82 @@ Same parameters (`company`, `account`, `missing`), session-guarded like `/api/ex
 - Guarding event kinds other than CANCELLED.
 - Recording an explanation against a MISSING number (spoiled form, etc.). Worth having once
   Finance has worked the list once and knows what the explanations are.
+
+---
+
+## C. Addendum, 2026-10-02 — dotted re-uses count as used numbers
+
+**Request:** "do the trailing-dot fix" — then, after measurement, the user chose to show dotted
+references on NUMBERING rather than change the import.
+
+### Why not strip the dot at import
+
+Measured 2026-10-02 (read-only) over the 773 Acumatica payments staged `NO_CHECK_NUMBER`:
+169 state a cheque number followed only by dots (`6000146879.`, `1791361883..`; trailers seen:
+`.` 158, `..` 8, `...` 1, `....` 1, `,` 1). Of those, **66 share the undotted number with a
+cheque already held here under the same company — under a DIFFERENT Acumatica payment**, often
+the adjacent CV (`CV-ST012434 "6000146879."` vs `CV-ST012433 6000146879`, VOIDED). Acumatica
+refuses a duplicate cheque reference on a cash account, so a second payment document on the same
+physical cheque number is entered with a dot appended (one more dot each further time) — a void
+and re-issue, or two vouchers on one cheque. **The dot is Acumatica's "this cheque number again"
+marker, not a typo.** Stripping it at import would collapse a second payment onto an existing
+cheque under the `(companyId, checkNumber)` key — 66 at least, some onto VOIDED cheques — which is
+the silent collision `lib/import/normalise.ts` warns against. The import is unchanged.
+
+### C1. The rule
+
+A staged row counts in a cash account's series when **all** hold:
+- `source = ACUMATICA`, `reason = NO_CHECK_NUMBER`, `promotedCheckId` is null;
+- its `statedCheckRef`, trimmed, **ends with at least one `.`**, and with only the trailing dots
+  removed it passes the existing rule — `canonicalCheckNumber` then `isBareCheckNumber` (so a
+  known bank prefix is fine, nothing else is loosened). One pure function,
+  `stagedSeriesNumber(statedCheckRef): string | null`, in `lib/numbering/series.ts`;
+- its `cashAccountCode` names a cash account here. The series is that account's.
+
+Read only. Nothing is written, promoted or re-keyed; the staged queue is unchanged.
+
+### C2. The series
+
+`buildSeries(cheques, staged = [])` — the second argument is optional, so every existing caller
+is unchanged.
+- MISSING is computed over the union of cheque numbers and staged numbers, so a number used only
+  by a dotted payment is **not** MISSING.
+- A new entry kind, `{ kind: 'STAGED'; staged; number }`, sits at its number; at a number a
+  cheque also holds, the cheque row comes first, then the STAGED line(s).
+- `first` / `last` span both. `held` stays distinct **cheque** numbers. New summary field
+  `staged`: the count of STAGED entries. A staged line never sets `duplicate` on a cheque.
+- MISSING ONLY shows MISSING lines only, as now.
+
+### C3. Query
+
+`listNumberingAccounts` also reads the qualifying staged rows (≈800 at most), maps each by
+`cashAccountCode` to a cash account, honours the same `companyId` / `cashAccountId` filters, and
+passes them to `buildSeries`. An account that holds only staged numbers still gets a series.
+Staged amounts are two-decimal strings, as cheques are.
+
+### C4. Screen and file
+
+- **Screen:** a STAGED line shows the stated reference verbatim (`6000146879.`), the cheque date,
+  payee, amount and a grey **STAGED** label with `Acumatica <CV>` beside it. No link —
+  `/admin/staged` is admin-only. The summary table gains a **STAGED** column.
+- **File:** a STAGED row: CHECK NUMBER = the stated reference verbatim, STATUS = `STAGED`, NOTE =
+  `Acumatica <CV>: the same cheque number used again (staged)`. SUMMARY gains a STAGED column after
+  CANCELLED.
+- **Scope note** (`NUMBERING_SCOPE_NOTE`): a number Acumatica re-used with a trailing dot now
+  counts as used and is listed as STAGED; a memo reference with no number (`PCF26-00001`) can
+  still hide behind a MISSING line.
+
+### C5. Tests
+
+`numbering/series` (pure): a staged-only number closes a gap; cheque + staged on one number;
+`..` and a bank prefix; a reference without a dot, or not a number once dots are removed, is
+ignored; staged extends `last`; `held` / `staged` / `duplicates` counts. `numbering/query`:
+qualifying staged rows join their account; a promoted row, a non-dotted row and a WORKBOOK row
+are ignored; the company filter applies. `export/numbering-workbook`: a STAGED row and the
+SUMMARY column. `numbering-view`: none unless the scope note is pinned.
+
+### C6. Out of scope
+
+Register-staged rows; any change to the staged queue or to import keying; promoting dotted
+payments to cheques (the `(companyId, checkNumber)` key cannot hold two payments on one number —
+a model change, if it is ever wanted).
