@@ -289,7 +289,7 @@ Payload: the queued event is a record only (`orNumber`, `amount`, `hasFile`); th
 from the cheque at delivery. The amount is `Decimal(18,2)` sent as a 2-decimal string. The file
 is at most 3 MB (PDF, JPG or PNG), stored in `CheckReceiptFile` (BYTEA), loaded only for RECEIPT
 deliveries and sent base64 inside the request, so a RECEIPT gets a 30 s request timeout and is
-not started with less than 15 s left in the run. An INTERNAL cheque, or one with no APV, queues
+not started with less than 6 s left in the run (receipt actions kick with a 25 s budget). An INTERNAL cheque, or one with no APV, queues
 no RECEIPT (the receipt stays recorded in Check Monitoring). `attachReceiptFile` adds a missing
 amount or file after the receipt exists (add-only, never a replacement). Server actions accept a
 4 MB body.

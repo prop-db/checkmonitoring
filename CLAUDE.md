@@ -237,8 +237,10 @@ These are safety properties, not preferences. Each exists because of a specific 
     RELEASE_REVERSED, CANCELLED. Receipt lane: RECEIPT. Latest-wins supersedes within a lane only,
     so a RECEIPT never closes a status event. A RECEIPT is held until the cheque's newest
     status-lane event is SYNCED, across runs and while that event is PARKED. A RECEIPT settling
-    never writes `Check.portalSyncStatus` or `portalTradeId`, and it is skipped when less than 15 s
-    of the run remain (`lib/sync/portal-outbox.ts`).
+    never writes `Check.portalSyncStatus` or `portalTradeId`, and it is skipped when less than 6 s
+    of the run remain (`lib/sync/portal-outbox.ts`); the receipt actions kick delivery with 25 s, the
+    other actions with 8 s. Rollback is forward-fix only: Postgres cannot drop the `RECEIPT` enum
+    value, so older code must not run while RECEIPT rows exist (review 2026-10-02).
 12. **The portal client sends only.** Nothing reads a status from the portal into a cheque;
     `lib/integrations/portal/client.ts` has one method.
 
