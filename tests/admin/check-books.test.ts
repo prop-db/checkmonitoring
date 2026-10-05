@@ -28,21 +28,38 @@ describe('planCheckBookBackfill', () => {
     const d = await acumaticaCheque('CV-4', '6000000004')
     const bookA = await bookFor(a, 'BPI-S-4636')
     const other = await makeCheck({ checkNumber: '1' })
-    await bookFor(other, 'MBT-A-4155') // a book under ANOTHER company
+    // A book on record under ANOTHER company: books are shared across companies, so it is still c's (spec §E).
+    const shared = await bookFor(other, 'MBT-A-4155')
     const plan = await planCheckBookBackfill(testDb, fake([
       pay('CV-1', 'BPI-S-4636'), pay('CV-1', 'BPI-S-4636', 'Voided Payment'),
       pay('CV-2', 'PCF-SITIO'),
       pay('CV-3', 'MBT-A-4155'),
     ]), 'GOLIVE')
     expect(plan.scanned).toBe(4)
-    expect(plan.candidates).toEqual([{ checkId: a.id, checkNumber: '6000000001', acumaticaPaymentId: 'CV-1', checkBookId: bookA.id, checkBookCode: 'BPI-S-4636' }])
+    expect(plan.candidates).toEqual([
+      { checkId: a.id, checkNumber: '6000000001', acumaticaPaymentId: 'CV-1', checkBookId: bookA.id, checkBookCode: 'BPI-S-4636' },
+      { checkId: c.id, checkNumber: '6000000003', acumaticaPaymentId: 'CV-3', checkBookId: shared.id, checkBookCode: 'MBT-A-4155' },
+    ])
     expect(plan.notABook).toEqual({ 'PCF-SITIO': 1 })
-    expect(plan.companyMismatch).toEqual([{ checkNumber: '6000000003', checkBookCode: 'MBT-A-4155' }])
+    expect(plan).not.toHaveProperty('companyMismatch')
     expect(plan.notInFeed).toBe(1) // CV-4
     // A dry run writes nothing: the plan is a read.
     expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).checkBookId).toBeNull()
     expect(await testDb.auditLog.count({ where: { action: CHECK_BOOK_BACKFILL_ACTION } })).toBe(0)
-    void b; void c; void d
+    void b; void d
+  })
+
+  it('applies a book on record under another company: the former mismatch gets its book (spec §E)', async () => {
+    const c = await acumaticaCheque('CV-3', '6000000003')
+    const other = await makeCheck({ checkNumber: '1' })
+    const shared = await bookFor(other, 'MBT-A-4155')
+    expect(shared.companyId).not.toBe(c.companyId)
+    const plan = await planCheckBookBackfill(testDb, fake([pay('CV-3', 'MBT-A-4155')]), 'GOLIVE')
+    expect(await applyCheckBookBackfill(testDb, plan.candidates)).toBe(1)
+    const after = await testDb.check.findUniqueOrThrow({ where: { id: c.id } })
+    expect(after.checkBookId).toBe(shared.id)
+    expect(after.companyId).toBe(c.companyId)
+    expect(after.status).toBe('SIGNED')
   })
 
   it('ignores cheques that already have a book, have no payment id, or belong to the other tenant', async () => {

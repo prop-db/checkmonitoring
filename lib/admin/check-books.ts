@@ -11,8 +11,10 @@ import { paymentsInScopeFilter } from '@/lib/sync/run'
  * `CashAccount` column states the cheque-book code (`BPI-S-4636`), but until
  * 2026-10-02 the sync dropped it, so 3,844 cheques carry no book. This reads
  * the payments feed (read-only), maps each cheque's payment to a CheckBook by
- * code, and sets `checkBookId` — only when the book's company is the cheque's
- * company. Nothing else is written; status never (rule 4).
+ * code, and sets `checkBookId` — whichever company the book is filed under: a
+ * cheque book is a bank account shared across companies (spec §E, measured
+ * 2026-10-05), so there is no company check. Nothing else is written; status
+ * never (rule 4).
  */
 export const CHECK_BOOK_BACKFILL_ACTION = 'check_book_backfilled_from_acumatica'
 const TX_OPTIONS = { timeout: 30_000, maxWait: 15_000 } as const
@@ -24,7 +26,6 @@ export type CheckBookPlan = {
   candidates: CheckBookCandidate[]
   notInFeed: number
   notABook: Record<string, number>
-  companyMismatch: { checkNumber: string; checkBookCode: string }[]
 }
 
 export async function planCheckBookBackfill(db: PrismaClient, client: AcumaticaClient, tenant: AcumaticaTenant): Promise<CheckBookPlan> {
@@ -43,21 +44,20 @@ export async function planCheckBookBackfill(db: PrismaClient, client: AcumaticaC
     if (!codeByRef.has(ref) || text(r.Type) === 'Payment') codeByRef.set(ref, code)
   }
 
-  const books = await db.checkBook.findMany({ select: { id: true, code: true, companyId: true } })
+  const books = await db.checkBook.findMany({ select: { id: true, code: true } })
   const bookByCode = new Map(books.map((b) => [b.code, b]))
   const cheques = await db.check.findMany({
     where: { acumaticaTenant: tenant, acumaticaPaymentId: { not: null }, checkBookId: null },
-    select: { id: true, checkNumber: true, acumaticaPaymentId: true, companyId: true },
+    select: { id: true, checkNumber: true, acumaticaPaymentId: true },
     orderBy: [{ checkNumber: 'asc' }, { id: 'asc' }],
   })
 
-  const plan: CheckBookPlan = { scanned: cheques.length, candidates: [], notInFeed: 0, notABook: {}, companyMismatch: [] }
+  const plan: CheckBookPlan = { scanned: cheques.length, candidates: [], notInFeed: 0, notABook: {} }
   for (const c of cheques) {
     const code = codeByRef.get(c.acumaticaPaymentId!)
     if (!code) { plan.notInFeed++; continue }
     const book = bookByCode.get(code)
     if (!book) { plan.notABook[code] = (plan.notABook[code] ?? 0) + 1; continue }
-    if (book.companyId !== c.companyId) { plan.companyMismatch.push({ checkNumber: c.checkNumber, checkBookCode: code }); continue }
     plan.candidates.push({ checkId: c.id, checkNumber: c.checkNumber, acumaticaPaymentId: c.acumaticaPaymentId!, checkBookId: book.id, checkBookCode: code })
   }
   return plan

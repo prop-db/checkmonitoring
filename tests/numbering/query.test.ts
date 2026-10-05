@@ -58,21 +58,74 @@ describe('listNumberingAccounts', () => {
     expect(amountOf('2')).toBe('500.00')
   })
 
-  it('returns nothing when the cheque book belongs to a different company than companyId', async () => {
+  it('a named cheque book is shown whole: a companyId with no cheque in it does not empty it (spec §E)', async () => {
     const a = await makeCheck({ checkNumber: '1' })
     const b = await makeCheck({ checkNumber: '2' })
     const bookA = await bookFor(a)
     const bookB = await bookFor(b)
-    expect(await listNumberingAccounts(testDb, { companyId: bookB.companyId, checkBookId: bookA.id })).toEqual([])
+    const out = await listNumberingAccounts(testDb, { companyId: bookB.companyId, checkBookId: bookA.id })
+    expect(out.map((x) => x.accountId)).toEqual([bookA.id])
+    expect(out[0].series.summary.held).toBe(1)
   })
 
-  it('narrows by the cheque book\'s company, and by one cheque book', async () => {
+  it('narrows by the books the company\'s cheques use, and by one cheque book', async () => {
     const a = await makeCheck({ checkNumber: '1' })
     const b = await makeCheck({ checkNumber: '2' })
     const bookA = await bookFor(a)
     const bookB = await bookFor(b)
-    expect((await listNumberingAccounts(testDb, { companyId: bookA.companyId })).map((x) => x.accountId)).toEqual([bookA.id])
+    expect((await listNumberingAccounts(testDb, { companyId: a.companyId })).map((x) => x.accountId)).toEqual([bookA.id])
     expect((await listNumberingAccounts(testDb, { checkBookId: bookB.id })).map((x) => x.accountId)).toEqual([bookB.id])
+  })
+
+  it('a company with no cheque in any book gets no series', async () => {
+    const a = await makeCheck({ checkNumber: '1' })
+    await bookFor(a)
+    const loose = await makeCheck({ checkNumber: '2' }) // its company's only cheque carries no book
+    expect(await listNumberingAccounts(testDb, { companyId: loose.companyId })).toEqual([])
+  })
+})
+
+describe('listNumberingAccounts — a cheque book shared across companies (spec §E)', () => {
+  /** Book 500-502: X holds 500 and 502, Y holds 501. A second book holds only X's 900. */
+  async function sharedBook() {
+    const x1 = await makeCheck({ checkNumber: '500' })
+    const book = await bookFor(x1)
+    const x2 = await inBook(book, { checkNumber: '502' })
+    await testDb.check.update({ where: { id: x2.id }, data: { companyId: x1.companyId } })
+    const y = await inBook(book, { checkNumber: '501' })
+    const x3 = await makeCheck({ checkNumber: '900' })
+    await testDb.check.update({ where: { id: x3.id }, data: { companyId: x1.companyId } })
+    const xOnly = await bookFor({ ...x3, companyId: x1.companyId }, 'ZZZ-X-ONLY')
+    const X = await testDb.company.findUniqueOrThrow({ where: { id: x1.companyId } })
+    const Y = await testDb.company.findUniqueOrThrow({ where: { id: y.companyId } })
+    return { book, xOnly, X, Y }
+  }
+
+  it('one series per book, its company listing every company in it, most cheques first', async () => {
+    const { book, X, Y } = await sharedBook()
+    const out = await listNumberingAccounts(testDb, {})
+    const shared = out.filter((x) => x.accountId === book.id)
+    expect(shared).toHaveLength(1)
+    expect(shared[0].company).toBe(`${X.code}, ${Y.code}`)
+    expect(shared[0].series.summary).toMatchObject({ first: '500', last: '502', held: 3, missingRuns: 0 })
+  })
+
+  it('a company filter returns the whole shared book, with no MISSING where another company\'s cheque sits', async () => {
+    const { book, X, Y } = await sharedBook()
+    const out = await listNumberingAccounts(testDb, { companyId: Y.id })
+    expect(out.map((x) => x.accountId)).toEqual([book.id])
+    expect(out[0].series.summary).toMatchObject({ first: '500', last: '502', held: 3, missingRuns: 0 })
+    expect(out[0].series.entries.some((e) => e.kind === 'MISSING')).toBe(false)
+    expect(out[0].company).toBe(`${X.code}, ${Y.code}`)
+  })
+
+  it('a book holding none of the company\'s cheques is left out', async () => {
+    const { book, xOnly, X, Y } = await sharedBook()
+    expect((await listNumberingAccounts(testDb, { companyId: Y.id })).map((x) => x.accountId)).not.toContain(xOnly.id)
+    const forX = await listNumberingAccounts(testDb, { companyId: X.id })
+    // Sorted by book code: BPI-S-… before ZZZ-X-ONLY.
+    expect(forX.map((x) => x.accountId)).toEqual([book.id, xOnly.id])
+    expect(forX.find((x) => x.accountId === xOnly.id)?.company).toBe(X.code)
   })
 
   it('a cheque with a cash account but no cheque book is in no series', async () => {
@@ -139,6 +192,8 @@ describe('listNumberingAccounts — staged dotted re-uses', () => {
     const out = await listNumberingAccounts(testDb, {})
     const e = out.find((x) => x.accountId === empty.id)
     expect(e?.series.summary).toMatchObject({ first: '30', last: '30', held: 0, staged: 1 })
+    // No cheques, so no company: the book's own reference company is not shown (spec §E).
+    expect(e?.company).toBe('')
   })
 
   it('honours the company and cheque-book filters for staged rows', async () => {

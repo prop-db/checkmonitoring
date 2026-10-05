@@ -33,8 +33,6 @@ async function main(): Promise<void> {
     for (const c of plan.candidates) byBook[c.checkBookCode] = (byBook[c.checkBookCode] ?? 0) + 1
     for (const [code, n] of Object.entries(byBook).sort((a, b) => b[1] - a[1])) console.log(`    ${code.padEnd(14)} ${n}`)
     console.log(`  not a cheque book:      ${Object.values(plan.notABook).reduce((a, b) => a + b, 0)}`, plan.notABook)
-    console.log(`  company mismatch (left): ${plan.companyMismatch.length}`)
-    for (const m of plan.companyMismatch.slice(0, 20)) console.log(`    ${m.checkNumber} -> ${m.checkBookCode}`)
     console.log(`  payment not in the feed: ${plan.notInFeed}`)
     if (!APPLY) { console.log('\nDRY RUN — nothing written. Re-run with --apply.\n'); return }
     if (plan.candidates.length === 0) { console.log('\nNothing to set.\n'); return }

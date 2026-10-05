@@ -323,7 +323,8 @@ once more on the next run; if `/admin/portal` shows one, run the script again.
 status — VOIDED, CANCELLED and no-amount included — in BigInt order; each unused number between a
 book's first and last is one MISSING line, however large (user ruling 2026-10-01: "every number
 counts", not a booklet heuristic). The cheque book is the series key — Acumatica's CashAccount value
-(spec §D, 2026-10-02); cheques with no book are a stated count. MISSING is bounded by the sync's scope (2026 onward, CHK only). A number Acumatica
+(spec §D, 2026-10-02); cheques with no book are a stated count. A series holds every company's
+cheques in that book; the company filter selects the books a company uses and shows them whole. MISSING is bounded by the sync's scope (2026 onward, CHK only). A number Acumatica
 re-used with a trailing dot — a second payment document on the same cheque number, which Acumatica
 will not accept twice on one cash account — sits on `/admin/staged` as NO_CHECK_NUMBER and is shown
 as a **STAGED** line, never MISSING (`stagedSeriesNumber`, spec §C, 2026-10-02). Measured that day:
@@ -554,10 +555,9 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
   `CashAccount` here holds six register labels (`BPI STK`, `MBTC A1+`, …). Until 2026-10-02 `map.ts`
   dropped it (`checkBookCode: null`) and looked it up as a cash account, which never matches: 3,844
   Acumatica cheques had no cheque book and 3,501 cheques neither, 1,091 of them dated since the register
-  stopped. The sync now records it; `scripts/backfill-check-books.ts` fills the rest (company-checked:
-  a book under another company is reported, never set). The sync applies the same company check as the
-  repair: a book under another company is refused and noted (`checkBookRefused`) in the import audit
-  row. NUMBERING groups by cheque book. **The dashboard BANK filter/column still keys on the
+  stopped. The sync now records it; `scripts/backfill-check-books.ts` fills the rest. A cheque book is a bank account shared across companies — the register itself filed
+  STK, A1+, HAMFI and IND cheques under one book — so neither the sync nor the repair checks the book's
+  company (user ruling 2026-10-05, spec §E). NUMBERING groups by cheque book. **The dashboard BANK filter/column still keys on the
   cash-account label and sees only ~1,342 cheques** — an open follow-up. RECON's bank filter and BANK
   column, the forecast's bank split, `/vouchers`' BANK column and portal event bodies already fall back
   to the cheque book's bank, so they fill in as books are recorded; RECON still groups per cash
@@ -711,13 +711,4 @@ Production is `check_monitoring_prod` on Neon. Both outstanding migrations were 
    bank (EXPECTED OUT, on the cheque page; the forecast places it there) and planned non-cheque
    outflows — payroll, tax, loans, transfers — as one-off lines on `/forecast/planned`, open until
    marked PAID or CANCELLED, never deleted. The daily cash position is no longer cheques only.
-11. **Cheque-book companies are unverified** (2026-10-02, spec §D). `CheckBook.companyId` comes from
-   the retired register's cheque-book table — the same reference data the 2026-09-06 ruling called
-   "wrong somewhere". The sync and `backfill-check-books.ts` refuse a book under another company than
-   the cheque's (audited as `checkBookRefused`; reported as `companyMismatch`), and a cheque refiled
-   to another company keeps its old book when Acumatica names none or a refused one — deliberately:
-   the booklet a cheque was written from is a physical fact, and nulling it would drop the cheque out
-   of its NUMBERING series and fake MISSING numbers. **Next:** count cheques whose book's company
-   differs from theirs, grouped by (book, book company, cheque company), plus the dry run's
-   `companyMismatch`; if a book is systematically under the wrong company, put it to the client and
-   correct `CheckBook.companyId` in reference data (snapshot, audited) — not per cheque.
+11. **Closed 2026-10-05:** cheque books are shared across companies (spec §E); `CheckBook.companyId` is reference data nothing decides on.

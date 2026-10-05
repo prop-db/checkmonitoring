@@ -155,17 +155,17 @@ describe('upsertCheck — creating', () => {
     expect(a.companyId).toBe(company.id)
     expect(a.checkBookId).toBe(book.id)
     expect(b.checkBookId).toBeNull()
-    // Neither is a refusal: one book is the cheque's company's, the other code is no book.
+    // No refusal is ever noted: there is no company check any more (spec §E).
     const audits = await testDb.auditLog.findMany({ where: { action: 'imported' } })
     expect(audits).toHaveLength(2)
     for (const audit of audits) expect(audit.details).not.toHaveProperty('checkBookRefused')
   })
 
-  it('refuses a cheque book under another company on create, and notes it (spec §D2)', async () => {
+  it('sets a cheque book filed under another company on create: books are shared (spec §E)', async () => {
     await seedCompany()
     const a1 = await seedCompany('A1+', 'A1+ Multinational Packaging Inc.')
-    // The code names A1+'s book; Branch ST files the cheque under STK.
-    const sibling = await testDb.checkBook.create({
+    // The code names a book on record under A1+; Branch ST files the cheque under STK.
+    const shared = await testDb.checkBook.create({
       data: { code: 'BPI-A-7001', bankId: a1.cashAccount.bankId, companyId: a1.company.id },
     })
     const out = await upsert(acumaticaRow({ CashAccount: 'BPI-A-7001' }))
@@ -173,11 +173,9 @@ describe('upsertCheck — creating', () => {
 
     const check = await testDb.check.findFirstOrThrow()
     expect(check.companyId).not.toBe(a1.company.id)
-    expect(check.checkBookId).toBeNull()
+    expect(check.checkBookId).toBe(shared.id)
     const audit = await testDb.auditLog.findFirstOrThrow({ where: { action: 'imported', checkId: check.id } })
-    expect(audit.details).toMatchObject({
-      checkBookRefused: { code: 'BPI-A-7001', bookCompanyId: sibling.companyId },
-    })
+    expect(audit.details).not.toHaveProperty('checkBookRefused')
   })
 
   it('creates with no receipt when the source states none', async () => {
@@ -500,7 +498,7 @@ describe('upsertCheck — re-importing', () => {
     expect(check.acumaticaDocType).toBe('Payment')
   })
 
-  it('moves a cheque to the same-company book Acumatica now names, and records the move', async () => {
+  it('moves a cheque to another book of its own company Acumatica now names, and records the move', async () => {
     const { company, cashAccount } = await seedCompany()
     const bookA = await testDb.checkBook.create({ data: { code: 'BPI-S-4636', bankId: cashAccount.bankId, companyId: company.id } })
     const bookB = await testDb.checkBook.create({ data: { code: 'BPI-S-4637', bankId: cashAccount.bankId, companyId: company.id } })
@@ -518,23 +516,23 @@ describe('upsertCheck — re-importing', () => {
     expect(audit.details).not.toHaveProperty('checkBookRefused')
   })
 
-  it('keeps the recorded book when Acumatica names one under another company, and notes the refusal', async () => {
+  it('moves a cheque to a book Acumatica names under another company, and records the move (spec §E)', async () => {
     const { company, cashAccount } = await seedCompany()
     const a1 = await seedCompany('A1+', 'A1+ Multinational Packaging Inc.')
     const bookA = await testDb.checkBook.create({ data: { code: 'BPI-S-4636', bankId: cashAccount.bankId, companyId: company.id } })
-    await testDb.checkBook.create({ data: { code: 'BPI-A-7001', bankId: a1.cashAccount.bankId, companyId: a1.company.id } })
+    const shared = await testDb.checkBook.create({ data: { code: 'BPI-A-7001', bankId: a1.cashAccount.bankId, companyId: a1.company.id } })
     await upsert(acumaticaRow({ CashAccount: 'BPI-S-4636' }))
 
     const out = await upsert(acumaticaRow({ CashAccount: 'BPI-A-7001' }))
     expect(out).toMatchObject({ outcome: 'UPDATED' })
     const check = await testDb.check.findFirstOrThrow()
     expect(check.companyId).toBe(company.id)
-    expect(check.checkBookId).toBe(bookA.id)
+    expect(check.checkBookId).toBe(shared.id)
     const audit = await testDb.auditLog.findFirstOrThrow({ where: { action: 'import_updated', checkId: check.id } })
     expect(audit.details).toMatchObject({
-      checkBookRefused: { code: 'BPI-A-7001', bookCompanyId: a1.company.id },
+      checkBookChanged: { from: bookA.id, to: shared.id, code: 'BPI-A-7001' },
     })
-    expect(audit.details).not.toHaveProperty('checkBookChanged')
+    expect(audit.details).not.toHaveProperty('checkBookRefused')
   })
 
   it('records no book change when Acumatica names the book already recorded', async () => {

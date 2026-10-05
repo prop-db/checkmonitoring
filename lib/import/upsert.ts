@@ -262,19 +262,13 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
   const foundBook = row.checkBookCode
     ? await db.checkBook.findUnique({ where: { code: row.checkBookCode } })
     : null
-  // THE SAME COMPANY CHECK AS THE REPAIR (spec §D2; mirrors
-  // `planCheckBookBackfill`). A cheque book belongs to one company, and a book
-  // under a sibling company would mis-file the cheque: its bank, its NUMBERING
-  // series and every per-book report would say the other company's money
-  // moved. `company` is the company the cheque is written under on every path
-  // (on the misfiled path, the corrected one), so a book is accepted only when
-  // it is that company's. A refused book is never written — null on create,
-  // left as it is on update — and is noted as `checkBookRefused` in the import
-  // audit row.
-  const checkBook = foundBook && foundBook.companyId === company.id ? foundBook : null
-  const checkBookRefused = foundBook && !checkBook
-    ? { code: foundBook.code, bookCompanyId: foundBook.companyId }
-    : undefined
+  // NO COMPANY CHECK (spec §E, measured 2026-10-05; user ruling the same day).
+  // A cheque book is a bank account shared across companies — the register
+  // itself filed STK, A1+, HAMFI and IND cheques under one book — so
+  // `CheckBook.companyId` decides nothing. Acumatica's CashAccount is the
+  // fact: whatever book it names is the cheque's book, whichever company the
+  // book's reference row happens to name.
+  const checkBook = foundBook
 
   return inTx(db, async (tx) => {
     const exact = await tx.check.findUnique({
@@ -444,7 +438,6 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
           eligibilityReason: classified.reason,
           sourceSheet: row.sourceSheet,
           sourceRow: row.sourceRow,
-          ...(checkBookRefused ? { checkBookRefused } : {}),
         },
         remarks: `Imported from ${row.source} at ${implied.status}.`,
       })
@@ -524,10 +517,10 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
     // would call ['AP-Z','AP-A'] + [] an addition. `mergeVouchers` applies no
     // normalisation beyond dedupe and sort, so the raw strings compare like
     // with like.
-    // Acumatica wins a same-company book: a different one replaces what is
-    // recorded, and the move goes into `import_updated` so the trail shows
-    // which book the cheque left. A refused book is `checkBook === null` here
-    // and changes nothing.
+    // Acumatica wins the book, whichever company it is filed under (spec §E):
+    // a different one replaces what is recorded, and the move goes into
+    // `import_updated` so the trail shows which book the cheque left. A code
+    // that names no book is `checkBook === null` here and changes nothing.
     const checkBookChanged = checkBook && checkBook.id !== existing.checkBookId
       ? { from: existing.checkBookId, to: checkBook.id, code: checkBook.code }
       : undefined
@@ -598,7 +591,6 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
         eligibilityOverridden: overridden,
         sourceSheet: row.sourceSheet,
         sourceRow: row.sourceRow,
-        ...(checkBookRefused ? { checkBookRefused } : {}),
         ...(checkBookChanged ? { checkBookChanged } : {}),
       },
       remarks: `Updated from ${row.source}; status left at ${existing.status}.`,

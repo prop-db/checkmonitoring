@@ -5,11 +5,23 @@ import { buildSeries, stagedSeriesNumber, type AccountSeries, type SeriesCheque,
 type Db = PrismaClient | Prisma.TransactionClient
 
 export type NumberingFilters = { companyId?: string; checkBookId?: string }
-/** One series. `accountId` / `account` name the cheque book (`CheckBook.id` / `.code`). */
+/**
+ * One series. `accountId` / `account` name the cheque book (`CheckBook.id` /
+ * `.code`). `company` is the companies among the series' cheques, most
+ * cheques first, joined ", " — `""` for a book holding staged lines only.
+ */
 export type NumberingAccount = { accountId: string; account: string; bank: string; company: string; series: AccountSeries }
 
-type Group = { account: string; bank: string; company: string; cheques: SeriesCheque[]; staged: SeriesStaged[] }
-type BookRef = { id: string; code: string; bank: { code: string }; company: { code: string } }
+type Group = { account: string; bank: string; companies: Map<string, number>; cheques: SeriesCheque[]; staged: SeriesStaged[] }
+type BookRef = { id: string; code: string; bank: { code: string } }
+
+/** The series' companies, most cheques first, then by code. */
+function companyLabel(counts: Map<string, number>): string {
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([code]) => code)
+    .join(', ')
+}
 
 /**
  * Every cheque that holds a number in a cheque book's series: `isCheque`, a
@@ -18,24 +30,41 @@ type BookRef = { id: string; code: string; bank: { code: string }; company: { co
  * 2026-10-01-cheque-numbering-and-cancel-guard-design §B1). The series key is
  * the cheque book (`CheckBook`) — the bank account Acumatica states in its
  * CashAccount column, e.g. `BPI-S-4636` (spec §D). The register's cash-account
- * label is not the series: most cheques carry none. One query, grouped here;
- * ~13,000 rows.
+ * label is not the series: most cheques carry none. ~13,000 rows.
+ *
+ * A cheque book is a bank account SHARED across companies (spec §E, measured
+ * 2026-10-05), so a series holds every company's cheques in that book. The
+ * company filter therefore selects BOOKS — those at least one of the
+ * company's cheques uses — and shows each whole: narrowing to the company's
+ * own cheques would turn every other company's number in the book into a
+ * fake MISSING line. With a cheque book named, that book is shown whole and
+ * the company is not applied to its cheques.
  *
  * Plus the staged Acumatica payments that re-used a cheque number with a
  * trailing dot (spec §C): not promoted, joined to their cheque book by
- * `CheckBook.code = StagedCheck.cashAccountCode`, qualifying by
- * `stagedSeriesNumber`. Read only.
+ * `CheckBook.code = StagedCheck.cashAccountCode` within the same book set,
+ * qualifying by `stagedSeriesNumber`. Read only.
  */
 export async function listNumberingAccounts(db: Db, f: NumberingFilters): Promise<NumberingAccount[]> {
+  // The book set: the one named book, the books the company uses, or every book (undefined).
+  let bookIds: string[] | undefined
+  if (f.checkBookId) {
+    bookIds = [f.checkBookId]
+  } else if (f.companyId) {
+    const used = await db.check.findMany({
+      where: { isCheque: true, companyId: f.companyId, checkBookId: { not: null } },
+      select: { checkBookId: true },
+      distinct: ['checkBookId'],
+    })
+    bookIds = used.map((r) => r.checkBookId!)
+  }
+
   const rows = await db.check.findMany({
-    where: {
-      isCheque: true,
-      checkBookId: f.checkBookId ?? { not: null },
-      ...(f.companyId ? { checkBook: { companyId: f.companyId } } : {}),
-    },
+    where: { isCheque: true, checkBookId: bookIds ? { in: bookIds } : { not: null } },
     select: {
       id: true, checkNumber: true, checkDate: true, payeeName: true, amount: true, currency: true, status: true,
-      checkBook: { select: { id: true, code: true, bank: { select: { code: true } }, company: { select: { code: true } } } },
+      company: { select: { code: true } },
+      checkBook: { select: { id: true, code: true, bank: { select: { code: true } } } },
     },
   })
 
@@ -43,14 +72,16 @@ export async function listNumberingAccounts(db: Db, f: NumberingFilters): Promis
   const groupFor = (b: BookRef): Group => {
     let g = byBook.get(b.id)
     if (!g) {
-      g = { account: b.code, bank: b.bank.code, company: b.company.code, cheques: [], staged: [] }
+      g = { account: b.code, bank: b.bank.code, companies: new Map(), cheques: [], staged: [] }
       byBook.set(b.id, g)
     }
     return g
   }
   for (const r of rows) {
     if (!r.checkBook) continue
-    groupFor(r.checkBook).cheques.push({
+    const g = groupFor(r.checkBook)
+    g.companies.set(r.company.code, (g.companies.get(r.company.code) ?? 0) + 1)
+    g.cheques.push({
       id: r.id, checkNumber: r.checkNumber, checkDate: r.checkDate, payeeName: r.payeeName,
       amount: r.amount?.toFixed(2) ?? null, currency: r.currency, status: r.status,
     })
@@ -65,12 +96,8 @@ export async function listNumberingAccounts(db: Db, f: NumberingFilters): Promis
   const codes = [...new Set(dotted.map((s) => s.cashAccountCode!))]
   const books = codes.length
     ? await db.checkBook.findMany({
-      where: {
-        code: { in: codes },
-        ...(f.checkBookId ? { id: f.checkBookId } : {}),
-        ...(f.companyId ? { companyId: f.companyId } : {}),
-      },
-      select: { id: true, code: true, bank: { select: { code: true } }, company: { select: { code: true } } },
+      where: { code: { in: codes }, ...(bookIds ? { id: { in: bookIds } } : {}) },
+      select: { id: true, code: true, bank: { select: { code: true } } },
     })
     : []
   const bookByCode = new Map(books.map((b) => [b.code, b]))
@@ -84,8 +111,8 @@ export async function listNumberingAccounts(db: Db, f: NumberingFilters): Promis
   }
 
   return [...byBook.entries()]
-    .map(([accountId, g]) => ({ accountId, account: g.account, bank: g.bank, company: g.company, series: buildSeries(g.cheques, g.staged) }))
-    .sort((a, b) => a.account.localeCompare(b.account) || a.company.localeCompare(b.company) || a.accountId.localeCompare(b.accountId))
+    .map(([accountId, g]) => ({ accountId, account: g.account, bank: g.bank, company: companyLabel(g.companies), series: buildSeries(g.cheques, g.staged) }))
+    .sort((a, b) => a.account.localeCompare(b.account) || a.accountId.localeCompare(b.accountId))
 }
 
 /** Cheques in no series because they carry no cheque book — stated on the page, not listed. */
