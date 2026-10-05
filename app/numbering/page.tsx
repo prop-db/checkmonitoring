@@ -97,7 +97,7 @@ export default async function NumberingPage({
       </div>
 
       {!account && (accounts.length === 0
-        ? <EmptyState title="NO CHEQUES IN ANY CHEQUE BOOK">{company ? 'No cheque book of this company holds a cheque.' : 'No cheque carries a cheque book yet.'}</EmptyState>
+        ? <EmptyState title="NO CHEQUES IN ANY CHEQUE BOOK">{company ? 'No cheque of this company is in any cheque book.' : 'No cheque carries a cheque book yet.'}</EmptyState>
         : <NumberingSummaryTable accounts={accounts} company={company?.id} />)}
 
       {account && !one && <EmptyState title="NO CHEQUES IN THIS CHEQUE BOOK">No cheque on record carries this cheque book.</EmptyState>}
