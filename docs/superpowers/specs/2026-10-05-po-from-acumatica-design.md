@@ -56,10 +56,13 @@ per bill). Rule 7 is untouched: no AuditLog writes per bill; the run writes its 
 `'BILL_REFS'` on `SyncRun` (existing columns: `imported` = rows upserted, `updated` = rows deleted,
 `staged` = documents with a VendorRef but no PO, `errors`). Same shape as the BILLS read:
 
-- `fetchAll('AP-Bills and Adjustments', { select: [Type, ReferenceNbr, VendorRef, LastModifiedOn
-  (GOLIVE) / the MANUFACTURING name — measure it before coding], filter: since ? LastModifiedOn ge
+- `fetchAll('AP-Bills and Adjustments', { select: [Type, ReferenceNbr, VendorRef, LastModifiedOn — measured 2026-10-05: MANUFACTURING uses the same column names in this inquiry, so one column map serves both tenants], filter: since ? LastModifiedOn ge
   datetime'…' : date column ge 2026-01-01, orderby: date asc, pageSize: 2000 })`. Acumatica stays
   read-only (rule 3).
+- Only `Type = 'Bill'` rows are stored; the 2026 scope is enforced on `Date` in the mapper (one OData
+  condition per request); `vendorRef` is stored trimmed; the delete is tenant-guarded; `imported`
+  counts rows actually written (unchanged bills are skipped); writes are set-based batches of 500;
+  the cron gates BILL_REFS on the payment read only (not on BILLS).
 - Upsert/delete per row in batches; watermark = max − 120 min; held (null) when any write failed;
   fetch failure → errors 1, null, rethrow; in-progress guard on its own mode.
 - Payment-side readers already exclude `BILLS`; they must exclude `BILL_REFS` too
@@ -79,10 +82,13 @@ de-duplicated and sorted. One function computes it (`displayPoNumbers`) and ever
 the list, Excel, print, the in-app PO sort, the PO filter box (raw SQL step: add an
 `EXISTS (… "AcumaticaBill" ab WHERE ab."apvNumber" = ANY(c."apvNumbers") AND EXISTS(unnest(ab."poNumbers") ILIKE …))`
 alongside the CheckBill condition) and the global search (PO: same condition, exact/contains as
-the plan decides and states).
+the plan decides and states): the search matches an Acumatica PO by substring, case-insensitively
+(as the bills' PO arm), via the same SQL fragment as the PO filter box. `listChecks` attaches
+`poNumbers` with one `AcumaticaBill` query per page; the PO sort runs one query over every matching cheque.
 
 ## Out of scope
 
 - Writing POs onto `Check` or `CheckBill`; changing what the approval workbook import does.
 - POs for documents before 2026 (the sync's scope).
 - A VENDOR REF column (client chose "only real POs").
+- Portal event bodies keep `CheckBill.poNumber` only.

@@ -233,7 +233,7 @@ export function paymentsInScopeFilter(): string {
  */
 export async function lastSyncWatermark(db: Db, tenant: AcumaticaTenant): Promise<Date | null> {
   const run = await db.syncRun.findFirst({
-    // BILLS rows are the voucher read's, lib/sync/bills.ts; their watermark is on a different feed.
+    // Rows of NON_PAYMENT_MODES (lib/sync/modes.ts: BILLS, BILL_REFS) are other feeds' reads; their watermarks are on different feeds.
     where: { tenant, mode: { notIn: [...NON_PAYMENT_MODES] }, watermark: { not: null } },
     orderBy: { startedAt: 'desc' },
     select: { watermark: true },
