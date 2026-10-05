@@ -605,7 +605,13 @@ Plans 1 and 2 complete. Plan 3 is superseded by `docs/superpowers/plans/2026-09-
 `lib/sync/portal-outbox.ts` to the portal's `POST /api/integrations/check-monitoring/events`
 with `PORTAL_BASE_URL` / `PORTAL_TOKEN` (a bearer, no session), latest event per cheque wins,
 `/admin/portal` shows what parked. Pickup confirmations back (old Task 6) remain a follow-up.
-**1,805 tests across 126 files** (measured, full run 2026-10-05, 45.4 minutes, on
+**1,913 tests across 130 files** (measured 2026-10-05 on `feature/po-from-acumatica` after merging
+master b190a79: one full run, 1,903 passed and 10 failed on 5-second timeouts in 7 files while this
+machine's connection to the Neon test database was intermittently dropping — "Can't reach database
+server" — and all 7 files then passed when re-run alone, 185/185; PO from Acumatica added
+`integrations/acumatica-bill-refs`, `sync/bill-refs`, `sync/modes` and extended `queries`,
+`sync/cron-route`, `sync/run`, `sync/bills`, `admin/sync-overview`, `schema`, `export/route`) —
+1,805 across 126 (measured, full run 2026-10-05, 45.4 minutes, on
 `feature/check-books`: the cheque book from Acumatica, `backfill-check-books`, NUMBERING by book —
 `admin/check-books` new, `import/upsert`, `integrations/acumatica-map`, `numbering/query`,
 `export/numbering-route` extended. 5 cases in `admin/actions`, `admin/backfill-apv-numbers` and
