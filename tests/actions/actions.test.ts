@@ -517,6 +517,9 @@ describe('portal event identity', () => {
       // outbox queues it instead of discarding it as already-sent.
       [`${check.id}:MARK_AVAILABLE:${LATER.toISOString()}`]: 'MARK_AVAILABLE',
       [`${check.id}:RELEASED:${LATER.toISOString()}`]: 'RELEASED',
+      // No RECEIPT although this release records one: the cheque has no APV,
+      // so the portal could never match it (review 2026-10-02; covered with
+      // APVs in tests/actions/receipt-file.test.ts).
     })
   })
 })

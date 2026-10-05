@@ -226,6 +226,22 @@ These are safety properties, not preferences. Each exists because of a specific 
    null, one `receipt_reclassified_from_register` audit row each, a JSON snapshot first), and the
    sniffer now reads such a cell as `RECEIPT_REF`, written on create to the receipt columns and
    never to `crNumber`. Every `crNumber` in production after the repair is one Finance typed.
+    **Since 2026-10-02 the receipt also has an amount and a scanned file, both add-only.** The
+    amount is `Check.receiptAmount` (`Decimal(18,2)`, sent to the portal as a 2-decimal string,
+    never a JS number); the file (PDF/JPG/PNG, at most 3 MB, signature-checked) is stored in
+    `CheckReceiptFile` (BYTEA) and read only when a RECEIPT is delivered. Once recorded neither is
+    overwritten: `attachReceiptFile` adds a missing amount or file later and refuses to replace one
+    that is there. They travel to the portal as the `RECEIPT` outbox event, queued only for a
+    portal-routed cheque with an APV (an INTERNAL or APV-less cheque records the receipt here and
+    queues nothing). Server actions allow a 4 MB body (`bodySizeLimit` in `next.config.ts`).
+    **The outbox has two lanes per cheque.** Status lane: MARK_AVAILABLE, REVERT, RELEASED,
+    RELEASE_REVERSED, CANCELLED. Receipt lane: RECEIPT. Latest-wins supersedes within a lane only,
+    so a RECEIPT never closes a status event. A RECEIPT is held until the cheque's newest
+    status-lane event is SYNCED, across runs and while that event is PARKED. A RECEIPT settling
+    never writes `Check.portalSyncStatus` or `portalTradeId`, and it is skipped when less than 6 s
+    of the run remain (`lib/sync/portal-outbox.ts`); the receipt actions kick delivery with 25 s, the
+    other actions with 8 s. Rollback is forward-fix only: Postgres cannot drop the `RECEIPT` enum
+    value, so older code must not run while RECEIPT rows exist (review 2026-10-02).
 12. **The portal client sends only.** Nothing reads a status from the portal into a cheque;
     `lib/integrations/portal/client.ts` has one method.
 

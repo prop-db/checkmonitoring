@@ -24,6 +24,10 @@ export type CheckForPortal = Pick<
   bills: { apvNumber: string; poNumber: string | null }[]
   // Who released it (portal "recorded by", user request 2026-10-01).
   releasedBy?: { name: string } | null
+  // RECEIPT only (user request 2026-10-01); optional so other kinds' literals compile.
+  receiptType?: Check['receiptType']
+  receiptAmount?: Check['receiptAmount']
+  receiptFile?: { fileName: string; contentType: string; bytes: Uint8Array } | null
 }
 
 export type PortalEventBody = {
@@ -38,6 +42,11 @@ export type PortalEventBody = {
   orNumber?: string
   orDate?: string
   releasedBy?: string
+  // RECEIPT (user request 2026-10-01): the amount is a two-decimal string,
+  // never a JS number; the file is the scanned receipt, ≤ 3 MB raw (spec 2026-10-02).
+  receiptType?: 'OR' | 'CR'
+  amount?: string
+  file?: { name: string; contentType: string; base64: string }
 }
 
 export type PortalOutcome = 'applied' | 'already' | 'noop' | 'refused'
@@ -126,6 +135,26 @@ export function buildPortalEventBody(event: { id: string; kind: PortalEventKind 
     body.releaseDate = manilaDay(check.releasedAt)
     if (check.orNumber) body.orNumber = check.orNumber
     if (check.orDate) body.orDate = manilaDay(check.orDate)
+    if (check.releasedBy?.name) body.releasedBy = check.releasedBy.name
+  }
+  if (event.kind === 'RECEIPT') {
+    if (!check.orNumber || !check.receiptType) {
+      throw new PortalPayloadError('INVALID_PAYLOAD', `RECEIPT cheque ${check.id} has no receipt reference and type`)
+    }
+    // The portal files a receipt against the cheque number (review 2026-10-02).
+    if (!check.checkNumber.trim()) {
+      throw new PortalPayloadError('INVALID_PAYLOAD', `RECEIPT cheque ${check.id} has no cheque number; the portal requires checkNo`)
+    }
+    body.receiptType = check.receiptType
+    body.orNumber = check.orNumber
+    if (check.orDate) body.orDate = manilaDay(check.orDate)
+    if (check.receiptAmount) body.amount = check.receiptAmount.toFixed(2)
+    if (check.receiptFile) {
+      body.file = {
+        name: check.receiptFile.fileName, contentType: check.receiptFile.contentType,
+        base64: Buffer.from(check.receiptFile.bytes).toString('base64'),
+      }
+    }
     if (check.releasedBy?.name) body.releasedBy = check.releasedBy.name
   }
   return body

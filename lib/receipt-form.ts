@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { RECEIPT_TYPES, type ReceiptType } from '@/lib/domain/receipt'
+import { RECEIPT_TYPES, type ReceiptType, type ReceiptFileInput } from '@/lib/domain/receipt'
 import { ROW_OR_NUMBER, ROW_RECEIPT_TYPE } from './row-receipts'
 
 /**
@@ -25,6 +25,8 @@ export type ReceiptFormFields = {
   orNumber: string | undefined
   orDate: Date | undefined
   receiptType: ReceiptType | null
+  receiptAmount: string | undefined
+  receiptFile: ReceiptFileInput | undefined
 }
 
 export type ReceiptFormResult =
@@ -40,7 +42,14 @@ const date = (f: FormData, k: string) => {
   return Number.isNaN(d.getTime()) ? undefined : d
 }
 
-export function readReceiptFields(formData: FormData): ReceiptFormResult {
+// An empty file input still posts a zero-byte File; that is "no file" (user request 2026-10-01).
+async function file(f: FormData, k: string): Promise<ReceiptFileInput | undefined> {
+  const v = f.get(k)
+  if (!(v instanceof File) || v.size === 0) return undefined
+  return { fileName: v.name, contentType: v.type, bytes: new Uint8Array(await v.arrayBuffer()) }
+}
+
+export async function readReceiptFields(formData: FormData): Promise<ReceiptFormResult> {
   const raw = str(formData, 'receiptType')
   let receiptType: ReceiptType | null = null
   if (raw !== '') {
@@ -53,6 +62,8 @@ export function readReceiptFields(formData: FormData): ReceiptFormResult {
     orNumber: str(formData, 'orNumber') || undefined,
     orDate: date(formData, 'orDate'),
     receiptType,
+    receiptAmount: str(formData, 'receiptAmount') || undefined,
+    receiptFile: await file(formData, 'receiptFile'),
   }
 }
 

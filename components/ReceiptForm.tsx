@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { recordReceiptAction } from '@/app/checks/actions'
 import type { ActionResult } from '@/app/checks/actions'
+import { MAX_RECEIPT_FILE_BYTES, RECEIPT_FILE_TYPES } from '@/lib/domain/receipt'
 import { ReceiptFields, EMPTY_RECEIPT, receiptTypeMissing, type ReceiptValue } from './ReceiptFields'
 
 /**
@@ -20,6 +21,7 @@ export function ReceiptForm({ checkId }: { checkId: string }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [result, setResult] = useState<ActionResult | null>(null)
+  const [fileError, setFileError] = useState<string | null>(null)
   const [receipt, setReceipt] = useState<ReceiptValue>(EMPTY_RECEIPT)
 
   const nothingTyped = receipt.orNumber.trim() === ''
@@ -48,9 +50,21 @@ export function ReceiptForm({ checkId }: { checkId: string }) {
         value={receipt} onChange={setReceipt} idPrefix="record-receipt" disabled={pending}
       />
 
+      <label className="block text-xs font-medium tracking-wide text-slate-600" htmlFor="record-receipt-file">
+        RECEIPT FILE (PDF, JPG OR PNG, UP TO 3 MB)
+        <input id="record-receipt-file" name="receiptFile" type="file" accept={RECEIPT_FILE_TYPES.join(',')}
+          disabled={pending}
+          onChange={(e) => {
+            const f = e.currentTarget.files?.[0]
+            setFileError(f && f.size > MAX_RECEIPT_FILE_BYTES ? 'That file is larger than 3 MB.' : null)
+          }}
+          className="mt-1 block w-full text-sm text-slate-600 file:mr-4 file:rounded-lg file:border-0 file:bg-navy-bg file:px-4 file:py-2 file:text-sm file:font-medium file:tracking-wide file:text-navy hover:file:bg-navy-bg/70" />
+      </label>
+      {fileError && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{fileError}</p>}
+
       <button
         type="submit"
-        disabled={pending || nothingTyped || typeMissing}
+        disabled={pending || nothingTyped || typeMissing || fileError !== null}
         className="rounded-lg bg-navy px-5 py-2.5 text-sm font-semibold tracking-wide text-white disabled:opacity-50"
       >
         {pending ? 'SAVING…' : 'RECORD RECEIPT'}

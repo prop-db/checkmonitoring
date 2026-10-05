@@ -103,3 +103,48 @@ export function normaliseReceipt(input: ReceiptInput): Receipt {
 export function hasReceipt(receipt: Receipt): boolean {
   return receipt.orNumber !== null
 }
+
+/**
+ * The receipt's amount and scanned file (user request 2026-10-01). Pure, like
+ * the rest of this module. The file is capped at 3 MB (spec 2026-10-02): the
+ * portal receives it base64 inside one request and Vercel caps a request at
+ * ~4.5 MB. The leading bytes must agree with the stated type, so a renamed
+ * file is refused rather than stored under a type it is not.
+ */
+export const MAX_RECEIPT_FILE_BYTES = 3 * 1024 * 1024
+export const RECEIPT_FILE_TYPES = ['application/pdf', 'image/jpeg', 'image/png'] as const
+export type ReceiptFileInput = { fileName: string; contentType: string; bytes: Uint8Array }
+
+const SIGNATURES: Record<(typeof RECEIPT_FILE_TYPES)[number], number[]> = {
+  'application/pdf': [0x25, 0x50, 0x44, 0x46],
+  'image/jpeg': [0xff, 0xd8, 0xff],
+  'image/png': [0x89, 0x50, 0x4e, 0x47],
+}
+
+/**
+ * A decimal string with two places, or null for a blank box. Never a JS
+ * number (rule 8): `Number` loses precision past 2^53, inside the sixteen
+ * integer digits `Decimal(18,2)` holds, so leading zeros are stripped as text.
+ */
+export function checkReceiptAmount(raw: string | null | undefined): GuardResult & { amount?: string | null } {
+  const s = String(raw ?? '').replace(/,/g, '').trim()
+  if (s === '') return { ok: true, amount: null }
+  if (!/^\d{1,16}(\.\d{1,2})?$/.test(s)) {
+    return { ok: false, code: 'RECEIPT_AMOUNT_INVALID', message: 'Enter the receipt amount as a number, for example 12,500.00.' }
+  }
+  const [whole, frac = ''] = s.split('.')
+  return { ok: true, amount: `${whole.replace(/^0+(?=\d)/, '')}.${frac.padEnd(2, '0')}` }
+}
+
+export function checkReceiptFile(file: ReceiptFileInput | null | undefined): GuardResult {
+  if (!file) return { ok: true }
+  if (file.bytes.length === 0) return { ok: false, code: 'RECEIPT_FILE_EMPTY', message: 'The receipt file is empty.' }
+  if (file.bytes.length > MAX_RECEIPT_FILE_BYTES) {
+    return { ok: false, code: 'RECEIPT_FILE_TOO_LARGE', message: 'The receipt file is larger than 3 MB. Scan it at a lower resolution or save it as a smaller PDF.' }
+  }
+  const sig = SIGNATURES[file.contentType as keyof typeof SIGNATURES]
+  if (!sig || !sig.every((b, i) => file.bytes[i] === b)) {
+    return { ok: false, code: 'RECEIPT_FILE_TYPE', message: 'The receipt file must be a PDF, JPG or PNG.' }
+  }
+  return { ok: true }
+}
