@@ -394,3 +394,53 @@ a candidate and gets its book on apply. `numbering/query`: a book holding two co
 one series with `company` listing both; filtering by either company returns that whole book (no
 MISSING where the other company's cheques sit); a book with none of the company's cheques is left
 out.
+
+---
+
+## F. Addendum, 2026-10-05 — OUT OF PATTERN numbers leave the gap count
+
+**Found** on the live NUMBERING tab right after §E shipped: MISSING read in the billions
+(`BPI-S-4636` 600,031,002,200). Measured read-only the same day, per book: each has one dominant
+number shape and a few cheques that break it — `BPI-S-4636` 5,974 ten-digit `6000…` plus 18 of
+another length (`60000`, `600039037`, `60003162116`, `000006`) and 18 `1791…`; `BPI-A-5713` 610
+`6000…` plus 21 off-length and 19 `1791…`; `MBT-A-4155` 2,584 `1791…` plus 10 off-length and 20
+`6000…`; `MBT-A-9048` one 11-digit `17913405552`; `BDO-A-3838` 285 six-digit plus 36 written
+`0000179xxx` (the same BDO numbers, zero-padded) and a few `1791…`; `BPI-S-8879`, `BPI-A-8879`,
+`MBT-S-1121` clean. Almost all misfits are Acumatica rows — a digit dropped or added, or another
+bank's number keyed under this account. One of them stretches a series across billions. **User
+ruling 2026-10-05: list them separately.** Nothing in the data changes.
+
+### F1. The rule (pure, in `lib/numbering/series.ts`)
+
+- A number's **shape** is `(digits, lead)`: `digits` = its length with leading zeros removed,
+  `lead` = its first two digits after leading zeros are removed. `0000179241` → `(6, "17")`, the
+  same shape as `179241`; `6000354350` → `(10, "60")`; `1791361374` → `(10, "17")`; `0000` → `(0, "")`.
+- A book's **pattern** is the shape held by the most numeric cheques (ties broken by more digits,
+  then by `lead`). Staged lines do not vote.
+- **Only a series with at least 20 numeric cheques is checked** (`PATTERN_MIN_CHEQUES = 20`). Below
+  that there is too little evidence to call any number a misfit, and every number stays in.
+- A numeric cheque or staged line whose shape differs from the pattern is **OUT OF PATTERN**: it is
+  not placed in the sequence and does not bound any MISSING run. Everything else is as before.
+- `AccountSeries` gains `outOfPattern: SeriesEntry[]` (CHEQUE and STAGED entries, in BigInt order)
+  and `pattern: { digits: number; lead: string } | null`; `SeriesSummary` gains `outOfPattern:
+  number`. `first` / `last` span only the in-pattern numbers.
+
+### F2. Screen and file
+
+- Summary table and SUMMARY sheet: an **OUT OF PATTERN** column after NOT NUMERIC.
+- One book: after the table, an **OUT OF PATTERN — NOT IN THE SEQUENCE** section listing those
+  cheques (number linked to the cheque page, date, payee, amount, status) and staged lines, with a
+  line stating the pattern, e.g. "This book's numbers are 10 digits starting 60; these are not."
+  Hidden under MISSING ONLY, as NOT NUMERIC is.
+- Workbook: those rows after the sequence, NOTE `OUT OF PATTERN (expected 10 digits starting 60)`.
+- Scope note: add "A number that does not match its book's usual length and first digits is listed
+  as OUT OF PATTERN — usually a mistyped or misfiled cheque number in Acumatica — and left out of
+  the gap count."
+
+### F3. Tests
+
+`numbering/series` (pure): below 20 cheques nothing is out of pattern; 20+ ten-digit `60…` plus one
+`60000` and one `1791…` → both out of pattern, MISSING only between the in-pattern numbers;
+`0000179241` among six-digit `17…` numbers is in pattern; a staged line of the wrong shape goes out;
+`first`/`last` and counts. `export/numbering-workbook`: the rows and the column. Existing tests keep
+their meaning (they use fewer than 20 cheques).
