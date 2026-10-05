@@ -576,7 +576,13 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
   `CashAccount` here holds six register labels (`BPI STK`, `MBTC A1+`, …). Until 2026-10-02 `map.ts`
   dropped it (`checkBookCode: null`) and looked it up as a cash account, which never matches: 3,844
   Acumatica cheques had no cheque book and 3,501 cheques neither, 1,091 of them dated since the register
-  stopped. The sync now records it; `scripts/backfill-check-books.ts` fills the rest. A cheque book is a bank account shared across companies — the register itself filed
+  stopped. The sync now records it; `scripts/backfill-check-books.ts` fills the rest — **run
+  2026-10-05 by the user, `--apply` on both tenants (GOLIVE twice: before and after §E dropped the
+  company check), 3,055 `check_book_backfilled_from_acumatica` rows, snapshots
+  `snapshots/check-books-<TENANT>-2026-10-05T*.json`. After: 12,129 of 13,037 cheques carry a book;
+  908 do not — 868 Acumatica payments on non-book accounts (`PAYROLL` 864, `MBT-S-9048` 3, a
+  separate account from `MBT-A-9048` with no CheckBook row, `RSB-S-0869` 1) and 40 register-only.**
+  A cheque book is a bank account shared across companies — the register itself filed
   STK, A1+, HAMFI and IND cheques under one book — so neither the sync nor the repair checks the book's
   company (user ruling 2026-10-05, spec §E). NUMBERING groups by cheque book. **The dashboard BANK filter/column still keys on the
   cash-account label and sees only ~1,342 cheques** — an open follow-up. RECON's bank filter and BANK
