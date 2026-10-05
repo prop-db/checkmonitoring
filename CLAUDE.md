@@ -351,7 +351,10 @@ the same company — **do not strip the dot at import**; it would collapse two p
 `(companyId, checkNumber)` cheque. A number whose shape (digits without leading zeros, first two
 digits) differs from its book's usual one is OUT OF PATTERN — listed separately and left out of the
 gap count — once the book has 20+ numeric cheques (spec §F, 2026-10-05; measured ~100 such Acumatica
-cheques, e.g. `60003162116`, `17913405552`, `1791…` numbers under BPI books). Memo-numbered cheques (`PCF26-00001`) still hide behind MISSING;
+cheques, e.g. `60003162116`, `17913405552`, `1791…` numbers under BPI books). **Known limit:** the
+shape includes the first two digits, so a book that rolls over a lead or a digit count (`179999` →
+`180000`, `999999` → `1000000`) would put the new booklet in OUT OF PATTERN until it outnumbers the
+old one; if a book starts showing a whole run there, that is the cause. Memo-numbered cheques (`PCF26-00001`) still hide behind MISSING;
 the page says so. `next build` failed with *Cannot mix BigInt
 and other types* (Next's file tracer) on `1n`-style literal arithmetic in `lib/numbering/series.ts`;
 it uses `BigInt(0)` / `BigInt(1)` constants instead — keep it that way.
