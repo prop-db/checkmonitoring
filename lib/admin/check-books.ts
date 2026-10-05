@@ -17,15 +17,35 @@ import { paymentsInScopeFilter } from '@/lib/sync/run'
  * never (rule 4).
  */
 export const CHECK_BOOK_BACKFILL_ACTION = 'check_book_backfilled_from_acumatica'
+export const CHECK_BOOK_REALIGN_ACTION = 'check_book_realigned_to_acumatica'
 const TX_OPTIONS = { timeout: 30_000, maxWait: 15_000 } as const
 const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
 
 export type CheckBookCandidate = { checkId: string; checkNumber: string; acumaticaPaymentId: string; checkBookId: string; checkBookCode: string }
+/**
+ * A cheque whose book (a leftover of the register) differs from the one
+ * Acumatica's CashAccount names (spec §G1). `toCheckBookId` is null when
+ * `code` is not a cheque book — per Acumatica the cheque is in no book.
+ */
+export type CheckBookRealign = {
+  checkId: string
+  checkNumber: string
+  acumaticaPaymentId: string
+  fromCheckBookId: string
+  fromCode: string
+  toCheckBookId: string | null
+  code: string
+}
 export type CheckBookPlan = {
+  /** Cheques with no book (the fill). */
   scanned: number
   candidates: CheckBookCandidate[]
   notInFeed: number
   notABook: Record<string, number>
+  /** Booked cheques whose book differs from Acumatica's, and Acumatica's code is a book. */
+  realign: CheckBookRealign[]
+  /** Booked cheques whose Acumatica code is not a cheque book. */
+  clear: CheckBookRealign[]
 }
 
 export async function planCheckBookBackfill(db: PrismaClient, client: AcumaticaClient, tenant: AcumaticaTenant): Promise<CheckBookPlan> {
@@ -52,13 +72,31 @@ export async function planCheckBookBackfill(db: PrismaClient, client: AcumaticaC
     orderBy: [{ checkNumber: 'asc' }, { id: 'asc' }],
   })
 
-  const plan: CheckBookPlan = { scanned: cheques.length, candidates: [], notInFeed: 0, notABook: {} }
+  const plan: CheckBookPlan = { scanned: cheques.length, candidates: [], notInFeed: 0, notABook: {}, realign: [], clear: [] }
   for (const c of cheques) {
     const code = codeByRef.get(c.acumaticaPaymentId!)
     if (!code) { plan.notInFeed++; continue }
     const book = bookByCode.get(code)
     if (!book) { plan.notABook[code] = (plan.notABook[code] ?? 0) + 1; continue }
     plan.candidates.push({ checkId: c.id, checkNumber: c.checkNumber, acumaticaPaymentId: c.acumaticaPaymentId!, checkBookId: book.id, checkBookCode: code })
+  }
+
+  // Spec §G1: a booked Acumatica cheque follows the book Acumatica names. A
+  // payment not in the feed, or a row with no CashAccount, leaves it alone.
+  const booked = await db.check.findMany({
+    where: { acumaticaTenant: tenant, acumaticaPaymentId: { not: null }, checkBookId: { not: null } },
+    select: { id: true, checkNumber: true, acumaticaPaymentId: true, checkBookId: true, checkBook: { select: { code: true } } },
+    orderBy: [{ checkNumber: 'asc' }, { id: 'asc' }],
+  })
+  for (const c of booked) {
+    const code = codeByRef.get(c.acumaticaPaymentId!)
+    if (!code || !c.checkBook || c.checkBook.code === code) continue
+    const book = bookByCode.get(code)
+    const row: CheckBookRealign = {
+      checkId: c.id, checkNumber: c.checkNumber, acumaticaPaymentId: c.acumaticaPaymentId!,
+      fromCheckBookId: c.checkBookId!, fromCode: c.checkBook.code, toCheckBookId: book?.id ?? null, code,
+    }
+    ;(book ? plan.realign : plan.clear).push(row)
   }
   return plan
 }
@@ -80,4 +118,30 @@ export async function applyCheckBookBackfill(db: PrismaClient, candidates: reado
     if (done) set++
   }
   return set
+}
+
+/**
+ * Realign (or clear) booked cheques to Acumatica's book (spec §G1). One
+ * transaction per cheque, conditional on its book still being the planned
+ * `from`. Writes checkBookId only, never status. Returns how many changed.
+ */
+export async function applyCheckBookRealign(db: PrismaClient, rows: readonly CheckBookRealign[]): Promise<number> {
+  let changed = 0
+  for (const c of rows) {
+    const done = await db.$transaction(async (tx) => {
+      const r = await tx.check.updateMany({ where: { id: c.checkId, checkBookId: c.fromCheckBookId }, data: { checkBookId: c.toCheckBookId } })
+      if (!r.count) return false
+      const to = c.toCheckBookId ? c.code : null
+      await writeAudit(tx, {
+        checkId: c.checkId, actorType: 'SYSTEM', action: CHECK_BOOK_REALIGN_ACTION,
+        details: { from: c.fromCode, to, code: c.code, acumaticaPaymentId: c.acumaticaPaymentId },
+        remarks: to
+          ? `Cheque book moved from ${c.fromCode} to ${to}, as Acumatica's CashAccount states for payment ${c.acumaticaPaymentId}. Status unchanged.`
+          : `Cheque book ${c.fromCode} cleared: Acumatica's CashAccount for payment ${c.acumaticaPaymentId} is ${c.code}, which is not a cheque book. Status unchanged.`,
+      })
+      return true
+    }, TX_OPTIONS)
+    if (done) changed++
+  }
+  return changed
 }

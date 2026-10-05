@@ -3,7 +3,10 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { testDb, resetDb } from '../helpers/db'
 import { makeCheck } from '../helpers/factory'
 import type { AcumaticaClient, AcumaticaRow } from '@/lib/integrations/acumatica/client'
-import { planCheckBookBackfill, applyCheckBookBackfill, CHECK_BOOK_BACKFILL_ACTION } from '@/lib/admin/check-books'
+import {
+  planCheckBookBackfill, applyCheckBookBackfill, applyCheckBookRealign,
+  CHECK_BOOK_BACKFILL_ACTION, CHECK_BOOK_REALIGN_ACTION,
+} from '@/lib/admin/check-books'
 
 beforeEach(resetDb)
 
@@ -72,6 +75,9 @@ describe('planCheckBookBackfill', () => {
     const plan = await planCheckBookBackfill(testDb, fake([pay('CV-1', 'BPI-S-4636'), pay('CV-9', 'BPI-S-4636')]), 'GOLIVE')
     expect(plan.scanned).toBe(0)
     expect(plan.candidates).toEqual([])
+    // a agrees with Acumatica: in neither repair list.
+    expect(plan.realign).toEqual([])
+    expect(plan.clear).toEqual([])
   })
 })
 
@@ -99,5 +105,82 @@ describe('applyCheckBookBackfill', () => {
     await testDb.check.update({ where: { id: a.id }, data: { checkBookId: other.id } })
     expect(await applyCheckBookBackfill(testDb, plan.candidates)).toBe(0)
     expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).checkBookId).toBe(other.id)
+  })
+})
+
+/** An Acumatica cheque already filed under `code` (a leftover of the register). */
+async function bookedCheque(ref: string, checkNumber: string, code: string) {
+  const c = await acumaticaCheque(ref, checkNumber)
+  const book = await bookFor(c, code)
+  const after = await testDb.check.update({ where: { id: c.id }, data: { checkBookId: book.id } })
+  return { check: after, book }
+}
+
+describe('planCheckBookBackfill — realign to Acumatica (spec §G1)', () => {
+  it('plans a realign when the book differs and a clear when Acumatica names no book; leaves agreeing, blank and absent alone', async () => {
+    const { check: a, book: oldA } = await bookedCheque('CV-1', '6000000001', 'BPI-S-0001')
+    const target = await bookFor(a, 'BPI-S-4636')
+    const { check: b, book: oldB } = await bookedCheque('CV-2', '6000000002', 'MBT-A-0002')
+    await bookedCheque('CV-3', '6000000003', 'BDO-A-3838') // agrees
+    await bookedCheque('CV-4', '6000000004', 'BDO-A-0004') // blank CashAccount
+    await bookedCheque('CV-5', '6000000005', 'BDO-A-0005') // not in the feed
+    const plan = await planCheckBookBackfill(testDb, fake([
+      pay('CV-1', 'BPI-S-4636'),
+      pay('CV-2', 'PAYROLL'),
+      pay('CV-3', 'BDO-A-3838'),
+      pay('CV-4', ''),
+    ]), 'GOLIVE')
+    expect(plan.realign).toEqual([
+      { checkId: a.id, checkNumber: '6000000001', acumaticaPaymentId: 'CV-1', fromCheckBookId: oldA.id, fromCode: 'BPI-S-0001', toCheckBookId: target.id, code: 'BPI-S-4636' },
+    ])
+    expect(plan.clear).toEqual([
+      { checkId: b.id, checkNumber: '6000000002', acumaticaPaymentId: 'CV-2', fromCheckBookId: oldB.id, fromCode: 'MBT-A-0002', toCheckBookId: null, code: 'PAYROLL' },
+    ])
+    // The fill is unaffected: booked cheques are not scanned, not-a-book or not-in-feed.
+    expect(plan.scanned).toBe(0)
+    expect(plan.candidates).toEqual([])
+    expect(plan.notABook).toEqual({})
+    expect(plan.notInFeed).toBe(0)
+    // A dry run writes nothing.
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).checkBookId).toBe(oldA.id)
+  })
+})
+
+describe('applyCheckBookRealign', () => {
+  it('moves the book, writes one SYSTEM audit row with from/to, keeps status; a second run is a no-op', async () => {
+    const { check: a } = await bookedCheque('CV-1', '6000000001', 'BPI-S-0001')
+    const target = await bookFor(a, 'BPI-S-4636')
+    const plan = await planCheckBookBackfill(testDb, fake([pay('CV-1', 'BPI-S-4636')]), 'GOLIVE')
+    expect(await applyCheckBookRealign(testDb, plan.realign)).toBe(1)
+    const after = await testDb.check.findUniqueOrThrow({ where: { id: a.id } })
+    expect(after.checkBookId).toBe(target.id)
+    expect(after.status).toBe('SIGNED')
+    const audit = await testDb.auditLog.findFirstOrThrow({ where: { checkId: a.id, action: CHECK_BOOK_REALIGN_ACTION } })
+    expect(audit.actorType).toBe('SYSTEM')
+    expect(audit.details).toMatchObject({ from: 'BPI-S-0001', to: 'BPI-S-4636', code: 'BPI-S-4636', acumaticaPaymentId: 'CV-1' })
+    expect(await applyCheckBookRealign(testDb, plan.realign)).toBe(0)
+    expect(await testDb.auditLog.count({ where: { action: CHECK_BOOK_REALIGN_ACTION } })).toBe(1)
+  })
+
+  it('clears the book when Acumatica names a non-book account; the audit row says to: null', async () => {
+    const { check: b } = await bookedCheque('CV-2', '6000000002', 'MBT-A-0002')
+    const plan = await planCheckBookBackfill(testDb, fake([pay('CV-2', 'PAYROLL')]), 'GOLIVE')
+    expect(await applyCheckBookRealign(testDb, plan.clear)).toBe(1)
+    const after = await testDb.check.findUniqueOrThrow({ where: { id: b.id } })
+    expect(after.checkBookId).toBeNull()
+    expect(after.status).toBe('SIGNED')
+    const audit = await testDb.auditLog.findFirstOrThrow({ where: { checkId: b.id, action: CHECK_BOOK_REALIGN_ACTION } })
+    expect(audit.details).toMatchObject({ from: 'MBT-A-0002', to: null, code: 'PAYROLL', acumaticaPaymentId: 'CV-2' })
+  })
+
+  it('leaves a cheque whose book changed after planning', async () => {
+    const { check: a, book: oldA } = await bookedCheque('CV-1', '6000000001', 'BPI-S-0001')
+    await bookFor(a, 'BPI-S-4636')
+    const plan = await planCheckBookBackfill(testDb, fake([pay('CV-1', 'BPI-S-4636')]), 'GOLIVE')
+    const moved = await testDb.checkBook.create({ data: { code: 'BPI-S-9999', bankId: oldA.bankId, companyId: oldA.companyId } })
+    await testDb.check.update({ where: { id: a.id }, data: { checkBookId: moved.id } })
+    expect(await applyCheckBookRealign(testDb, plan.realign)).toBe(0)
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).checkBookId).toBe(moved.id)
+    expect(await testDb.auditLog.count({ where: { action: CHECK_BOOK_REALIGN_ACTION } })).toBe(0)
   })
 })
