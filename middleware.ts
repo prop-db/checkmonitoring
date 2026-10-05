@@ -38,5 +38,10 @@ export const config = {
   // public/ with nothing to protect, and redirected to /login they simply
   // fail to load. Remove them from here when the block in
   // app/welcome/page.tsx goes.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|Woman_dancing_on_terrace_20260927144811.mp4|chorus.mp3.mp4).*)'],
+  //
+  // The icon and the share-preview images are excluded for the same reason:
+  // a chat's link-preview crawler and the browser's tab-icon fetch carry no
+  // session, and redirected to /login they would load an HTML page as an image.
+  // They show the name only, never data.
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|icon.svg|apple-icon|opengraph-image|twitter-image|Woman_dancing_on_terrace_20260927144811.mp4|chorus.mp3.mp4).*)'],
 }
