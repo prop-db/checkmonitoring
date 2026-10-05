@@ -605,7 +605,10 @@ Plans 1 and 2 complete. Plan 3 is superseded by `docs/superpowers/plans/2026-09-
 `lib/sync/portal-outbox.ts` to the portal's `POST /api/integrations/check-monitoring/events`
 with `PORTAL_BASE_URL` / `PORTAL_TOKEN` (a bearer, no session), latest event per cheque wins,
 `/admin/portal` shows what parked. Pickup confirmations back (old Task 6) remain a follow-up.
-**1,913 tests across 130 files** (measured 2026-10-05 on `feature/po-from-acumatica` after merging
+**1,918 tests across 130 files** (measured, full run 2026-10-05, 52.0 minutes, 0 failures, on
+`feature/shared-books` after merging master 7591c6d — shared cheque books on top of the PO work; the
+meta-tags commit 3b341f7 merged after it touches no tested module and passed tsc and the pure tests)
+— 1,913 across 130 (measured 2026-10-05 on `feature/po-from-acumatica` after merging
 master b190a79: one full run, 1,903 passed and 10 failed on 5-second timeouts in 7 files while this
 machine's connection to the Neon test database was intermittently dropping — "Can't reach database
 server" — and all 7 files then passed when re-run alone, 185/185; PO from Acumatica added
