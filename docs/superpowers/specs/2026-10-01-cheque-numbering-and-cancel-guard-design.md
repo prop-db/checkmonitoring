@@ -444,3 +444,64 @@ ruling 2026-10-05: list them separately.** Nothing in the data changes.
 `0000179241` among six-digit `17…` numbers is in pattern; a staged line of the wrong shape goes out;
 `first`/`last` and counts. `export/numbering-workbook`: the rows and the column. Existing tests keep
 their meaning (they use fewer than 20 cheques).
+
+---
+
+## G. Addendum, 2026-10-05 — NUMBERING follows Acumatica's data
+
+**User, 2026-10-05:** "I told you to follow acumatica reference." Measured read-only the same day:
+10,987 Acumatica cheques already carry the book Acumatica states; **61 carry a different book left
+from the register** (32 `BPI-S-4636`→`BPI-A-5713`, 13 `MBT-A-9048`→`MBT-A-4155`, 4 →`MBT-S-9048`,
+1 →`PAYROLL`, …); 1 number differs; **1,102 cheques in a book are register-only** (no Acumatica
+payment). NUMBERING rebuilt purely from Acumatica's own payments (PaymentRef in CashAccount, no data
+from here) shows the same anomalies — `MBT-A-4155` `1719333663`..`1797334184`, `MBT-S-9048`
+`17913404695`, `MBT-A-9048` `1790405938`, `BPI-A-8879` mixing `1791…`/`6000…`: **the remaining
+errors are Acumatica's own entries**, corrected there. The user chose all three of:
+
+### G1. Realign books to Acumatica
+
+`planCheckBookBackfill` also selects Acumatica cheques (tenant + payment id) whose `checkBookId` is
+set but differs from the book their payment's `CashAccount` names:
+- the code is a cheque book → `realign` candidate (move to that book);
+- the code is not a cheque book (`PAYROLL`, `MBT-S-9048`, …) → `clear` candidate (set `checkBookId`
+  null — per Acumatica the cheque is in no cheque book).
+
+Applied in the same run as the fill, one transaction each, conditional on `checkBookId` still being
+the planned `from` value, `TX_OPTIONS`, one `check_book_realigned_to_acumatica` audit row
+(`{ from, to, code, acumaticaPaymentId }`, `to` null for a clear). Snapshot first (it already
+records every candidate; it now records `from`). The script prints the realign and clear counts by
+pair. Status never changes.
+
+### G2. NUMBERING shows only Acumatica cheques
+
+`listNumberingAccounts` adds `acumaticaPaymentId: { not: null }` to every cheque query (book
+selection by company included). `countChequesWithoutCheckBook` counts only Acumatica cheques.
+New `countRegisterOnlyCheques(db, { companyId? })` = `isCheque` and `acumaticaPaymentId` null. The
+page (summary view) and the SUMMARY sheet state: "N REGISTER-ONLY CHEQUES (NOT IN ACUMATICA) ARE NOT
+SHOWN." Staged lines are Acumatica rows already. The scope note says each series is built from
+Acumatica's own cheque numbers and cash accounts.
+
+### G3. TO FIX IN ACUMATICA (export only)
+
+The NUMBERING workbook gains a sheet `TO FIX IN ACUMATICA` (after SUMMARY, before the book sheets),
+one row per:
+- every OUT OF PATTERN cheque (reason `OUT OF PATTERN — expected N digits starting LL`);
+- each book's **stray end**: the first in-pattern number when the next one is more than 10,000
+  higher, and the last when the previous one is more than 10,000 lower (reason `STRAY FIRST
+  NUMBER — next is N higher` / `STRAY LAST NUMBER — previous is N lower`), repeated inward while it
+  holds, at most 3 from each end. `STRAY_GAP = 10000`.
+
+Columns: CHEQUE BOOK, CHECK NUMBER (text), CV (the Acumatica payment reference), CHEQUE DATE, PAYEE,
+STATUS, REASON. Staged out-of-pattern lines are included with their CV. It changes no count on the
+page or in the series — it is a to-do list. `SeriesCheque` gains `cv: string | null`
+(`acumaticaPaymentId`); the pure function `strayEnds(series): SeriesCheque[]` lives in
+`lib/numbering/series.ts`.
+
+### G4. Tests
+
+`admin/check-books`: realign (book differs → moved, audit row with from/to), clear (non-book →
+null), a cheque whose book changed after planning is untouched, fill behaviour unchanged.
+`numbering/query`: a register-only cheque is excluded and counted; company book-selection ignores
+register-only cheques. `numbering/series`: `strayEnds` (first/last beyond 10,000; inward up to 3;
+none when gaps are small; ignores out-of-pattern). `export/numbering-workbook`: the TO FIX sheet's
+rows and reasons; the register-only line on SUMMARY.
