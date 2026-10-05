@@ -277,3 +277,76 @@ SUMMARY column. `numbering-view`: none unless the scope note is pinned.
 Register-staged rows; any change to the staged queue or to import keying; promoting dotted
 payments to cheques (the `(companyId, checkNumber)` key cannot hold two payments on one number —
 a model change, if it is ever wanted).
+
+---
+
+## D. Addendum, 2026-10-02 — Acumatica's "CashAccount" is the cheque book
+
+**Found** on the live NUMBERING tab right after §C shipped: STAGED 0 on every account, 4 cash
+accounts, and "11,614 cheques with no cash account". Measured read-only the same day:
+
+- `CashAccount` holds six register labels (`BPI STK`, `BPI P&P`, `BPI A1`, `MBTC A1+`, `MBTC P&P`,
+  `BDO A1`) with 1,342 cheques between them.
+- `CheckBook` holds eight codes — `BPI-S-4636` (4,813 cheques), `MBT-A-4155` (2,176), `BPI-S-8879`
+  (753), `BPI-A-5713` (573), `MBT-A-9048` (455), `BDO-A-3838` (283), `BPI-A-8879` (14),
+  `MBT-S-1121` (5) — all from the retired register.
+- **Acumatica's `CashAccount` column states exactly those cheque-book codes** (staged Acumatica rows,
+  verbatim: `BPI-S-4636` 256, `MBT-A-4155` 158, `BDO-A-3838` 71, `BPI-A-5713` 32, …, plus
+  non-books `PCF-SITIO` 241, `PAYROLL` 3, `PCF-SILANG`, `RSB-S-0869`, `MBTC-S-988`).
+- `map.ts` claims the inquiry "publishes no checkbook" and sets `checkBookCode: null`, then looks the
+  code up in `CashAccount`, which never matches. Result: **3,844 Acumatica cheques carry no cheque
+  book; 3,501 cheques carry neither book nor cash account, 1,091 of them dated since 2026-09-10**.
+- NUMBERING (§B) keys on cash account, so it sees ~1,342 cheques; the staged dotted payments (§C)
+  carry book codes, so none joins. **The dashboard BANK filter/column and RECON also key on the
+  cash-account label** — measured separately and reported as a follow-up, not changed here.
+
+### D1. The sync records the cheque book
+
+`mapPayment` sets `checkBookCode` to the trimmed `CashAccount` value (and keeps `cashAccountCode` as
+it is). `upsertCheck` already resolves `checkBookCode` against `CheckBook.code` and writes
+`checkBookId` (in `IMPORT_WRITABLE`); a code that is no cheque book (`PAYROLL`, `PCF-SITIO`) finds
+none and stays null — nothing is invented. The misleading comment in `map.ts` is corrected. Status
+is untouched (rule 4).
+
+### D2. Backfilling existing cheques — a targeted repair, not a full re-sync
+
+A FULL re-sync would rewrite every import-writable field on ~15,000 rows and add an audit row for
+each. Instead, `lib/admin/check-books.ts` + `scripts/backfill-check-books.ts <TENANT> [--apply]`:
+- reads the payments feed (`PAYMENTS_FEED`, `paymentsInScopeFilter()`, columns `Type`,
+  `ReferenceNbr`, `CashAccount`; a voided pair's `Payment` row wins) — read-only by construction;
+- selects cheques with `acumaticaTenant = TENANT`, `acumaticaPaymentId` set, `checkBookId` null;
+- per cheque: the payment's `CashAccount` → a `CheckBook` by code. **Set only when the book's
+  company is the cheque's company**; a mismatch is reported and left (a book under a sibling
+  company is the failure `map.ts` warns about). Reported, not set: no such payment in the feed, a
+  code that is no cheque book (counted by code), a company mismatch;
+- dry run by default; `--apply` writes a JSON snapshot of every candidate first, then per cheque in
+  its own transaction (`TX_OPTIONS`, 30 s): `updateMany` conditional on `checkBookId` still null,
+  one `check_book_backfilled_from_acumatica` audit row (`{ checkBookCode, acumaticaPaymentId }`).
+  Idempotent. Prints counts and codes, never amounts or payees. Run by the user, from a terminal.
+
+### D3. NUMBERING groups by cheque book
+
+- The series key is `Check.checkBookId`; the company filter is the book's company; the `account`
+  parameter carries a cheque-book id (the parameter name is kept, so existing links still parse).
+- Staged dotted payments (§C) join on `CheckBook.code = StagedCheck.cashAccountCode`.
+- Cheques with no cheque book are stated as a count: "NOT IN ANY SERIES: N CHEQUES WITH NO CHEQUE
+  BOOK" (page and file). An unknown `account` id is still a not-found state / 404.
+- `NumberingAccount` keeps its shape (`accountId`, `account` = the book code, `bank`, `company`).
+  `lib/numbering/query.ts` gains `listCheckBookOptions(db)` — `{ id, code, bankCode }[]`, by code —
+  which the page and route use instead of `getFilterOptions().cashAccounts`.
+- Copy: "cash account" → "cheque book" on the page, the summary header (ACCOUNT → CHEQUE BOOK), the
+  file and the scope note.
+
+### D4. Tests
+
+`integrations/acumatica-map`: `checkBookCode` equals the trimmed `CashAccount`. `import/upsert`: an
+Acumatica row whose `CashAccount` is a cheque-book code gets `checkBookId`; a non-book code leaves
+it null. `admin/check-books` (database; the Acumatica client faked): selection, company mismatch
+reported, non-book and not-in-feed reported, dry run writes nothing, apply sets the book and one
+audit row, second apply is a no-op, a cheque that gained a book meanwhile is untouched, status
+unchanged. `numbering/query` and `export/numbering-route`: regrouped by cheque book.
+
+### D5. Out of scope
+
+The dashboard BANK filter/column and RECON grouping (follow-up, measured and reported). Deriving a
+cash-account label from a cheque book. Adding `PCF-SITIO` / `PAYROLL` as books.

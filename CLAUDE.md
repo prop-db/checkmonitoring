@@ -156,6 +156,7 @@ npx tsx scripts/mark-ready-from-release-list.ts "<for-release>.xlsx" --apply    
 npx tsx scripts/revert-detail1-ready.ts "<for-release>.xlsx" <ready-from-list snapshot> [--apply]  # Detail1-only READY back to prior status (run 2026-09-25)
 npx tsx scripts/void-acumatica-voided.ts [--apply]                # void what Acumatica voided (live or RELEASED here)
 npx tsx scripts/close-unmatchable-cancelled.ts [--apply]         # parked CANCELLED events whose cheque has no APV: close unsent
+npx tsx scripts/backfill-check-books.ts GOLIVE [--apply]       # Acumatica cheques with no cheque book: record it from CashAccount (MANUFACTURING likewise)
 npx tsx scripts/link-vouchers-from-acumatica.ts "<for-release>.xlsx" [--apply]  # link list vouchers via AP-PAYMENTS-WITH-BILLS, ready their cheques
 npx tsx scripts/sync.ts GOLIVE --bills --dry-run     # read AP-PAYMENTS-WITH-BILLS, write nothing (MANUFACTURING likewise)
 npx tsx scripts/sync.ts GOLIVE --bills               # snapshot, then union vouchers into apvNumbers; add --full to re-read
@@ -334,11 +335,11 @@ user with `--apply`: closed 2 of 2 (`6000354350`, `1791259553`), 0 left, snapsho
 day's deploy rather than after a cron delivery, so a no-APV CANCELLED still PENDING then could park
 once more on the next run; if `/admin/portal` shows one, run the script again.
 
-**NUMBERING (`/numbering`) checks cheque consecutives per cash account.** Every cheque of every
-status — VOIDED, CANCELLED and no-amount included — in BigInt order; each unused number between an
-account's first and last is one MISSING line, however large (user ruling 2026-10-01: "every number
-counts", not a booklet heuristic). The cash account is the series key because the sync publishes
-no cheque book. MISSING is bounded by the sync's scope (2026 onward, CHK only). A number Acumatica
+**NUMBERING (`/numbering`) checks cheque consecutives per cheque book.** Every cheque of every
+status — VOIDED, CANCELLED and no-amount included — in BigInt order; each unused number between a
+book's first and last is one MISSING line, however large (user ruling 2026-10-01: "every number
+counts", not a booklet heuristic). The cheque book is the series key — Acumatica's CashAccount value
+(spec §D, 2026-10-02); cheques with no book are a stated count. MISSING is bounded by the sync's scope (2026 onward, CHK only). A number Acumatica
 re-used with a trailing dot — a second payment document on the same cheque number, which Acumatica
 will not accept twice on one cash account — sits on `/admin/staged` as NO_CHECK_NUMBER and is shown
 as a **STAGED** line, never MISSING (`stagedSeriesNumber`, spec §C, 2026-10-02). Measured that day:
@@ -564,6 +565,19 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
   resolves every payment to no company.
 - **`PaymentMethod` decides `isCheque`**, alongside the China-branch rule. `DEBIT ADV` and `CASH` are
   not cheques and must not offer a SIGN button.
+- **Acumatica's `CashAccount` column is the CHEQUE BOOK, not this system's cash account.** It states
+  `BPI-S-4636`, `MBT-A-4155`, `BDO-A-3838` — the eight `CheckBook` codes the register used — while
+  `CashAccount` here holds six register labels (`BPI STK`, `MBTC A1+`, …). Until 2026-10-02 `map.ts`
+  dropped it (`checkBookCode: null`) and looked it up as a cash account, which never matches: 3,844
+  Acumatica cheques had no cheque book and 3,501 cheques neither, 1,091 of them dated since the register
+  stopped. The sync now records it; `scripts/backfill-check-books.ts` fills the rest (company-checked:
+  a book under another company is reported, never set). The sync applies the same company check as the
+  repair: a book under another company is refused and noted (`checkBookRefused`) in the import audit
+  row. NUMBERING groups by cheque book. **The dashboard BANK filter/column still keys on the
+  cash-account label and sees only ~1,342 cheques** — an open follow-up. RECON's bank filter and BANK
+  column, the forecast's bank split, `/vouchers`' BANK column and portal event bodies already fall back
+  to the cheque book's bank, so they fill in as books are recorded; RECON still groups per cash
+  account. `PCF-SITIO`, `PAYROLL`, `PCF-SILANG`, `RSB-S-0869`, `MBTC-S-988` are no cheque book.
 - A voided cheque is **two feed rows** under one reference; the original's positive amount survives.
 - **Which cheque pays an AP voucher is answered on `/vouchers`, and `CHECK BY VOUCHER.xlsx` is
   its extract.** The Finance Executive Report's `AP Local` sheet used to find a payable's cheque
@@ -586,7 +600,12 @@ Plans 1 and 2 complete. Plan 3 is superseded by `docs/superpowers/plans/2026-09-
 `lib/sync/portal-outbox.ts` to the portal's `POST /api/integrations/check-monitoring/events`
 with `PORTAL_BASE_URL` / `PORTAL_TOKEN` (a bearer, no session), latest event per cheque wins,
 `/admin/portal` shows what parked. Pickup confirmations back (old Task 6) remain a follow-up.
-**1,792 tests across 125 files** (measured, full run 2026-10-02, 58.3 minutes — the remote test
+**1,805 tests across 126 files** (measured, full run 2026-10-05, 45.4 minutes, on
+`feature/check-books`: the cheque book from Acumatica, `backfill-check-books`, NUMBERING by book —
+`admin/check-books` new, `import/upsert`, `integrations/acumatica-map`, `numbering/query`,
+`export/numbering-route` extended. 5 cases in `admin/actions`, `admin/backfill-apv-numbers` and
+`admin/repair-cr-receipts` hit the 5 s test timeout while the remote test database was slow and passed
+when re-run alone, 35/35) — 1,792 across 125 (measured, full run 2026-10-02, 58.3 minutes — the remote test
 database was slow that hour — 0 failures, on `feature/numbering-staged`: STAGED dotted re-uses on
 NUMBERING, +15 in `numbering/series`, `numbering/query`, `export/numbering-workbook`) — 1,777 across 125 (measured, full run 2026-10-01, 31.0 minutes, 0 failures, on
 `feature/apv-po-and-table` — parts B and C — after merging master) — +152 and 4 files over the 1,625:
@@ -708,3 +727,13 @@ Production is `check_monitoring_prod` on Neon. Both outstanding migrations were 
    bank (EXPECTED OUT, on the cheque page; the forecast places it there) and planned non-cheque
    outflows — payroll, tax, loans, transfers — as one-off lines on `/forecast/planned`, open until
    marked PAID or CANCELLED, never deleted. The daily cash position is no longer cheques only.
+11. **Cheque-book companies are unverified** (2026-10-02, spec §D). `CheckBook.companyId` comes from
+   the retired register's cheque-book table — the same reference data the 2026-09-06 ruling called
+   "wrong somewhere". The sync and `backfill-check-books.ts` refuse a book under another company than
+   the cheque's (audited as `checkBookRefused`; reported as `companyMismatch`), and a cheque refiled
+   to another company keeps its old book when Acumatica names none or a refused one — deliberately:
+   the booklet a cheque was written from is a physical fact, and nulling it would drop the cheque out
+   of its NUMBERING series and fake MISSING numbers. **Next:** count cheques whose book's company
+   differs from theirs, grouped by (book, book company, cheque company), plus the dry run's
+   `companyMismatch`; if a book is systematically under the wrong company, put it to the client and
+   correct `CheckBook.companyId` in reference data (snapshot, audited) — not per cheque.

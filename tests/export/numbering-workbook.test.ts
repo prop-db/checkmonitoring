@@ -81,7 +81,7 @@ describe('buildNumberingWorkbook', () => {
     const summary = wb.getWorksheet(NUMBERING_SUMMARY_SHEET)!
     const text = summary.getSheetValues().flat().filter((v) => typeof v === 'string').join(' ')
     expect(text).toContain('BPI STK')
-    expect(text).toContain('3 cheques with no cash account')
+    expect(text).toContain('3 cheques with no cheque book')
   })
 
   it('prints no "Not in any series" sentence when noAccountCount is null', async () => {

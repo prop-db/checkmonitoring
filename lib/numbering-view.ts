@@ -31,7 +31,7 @@ export function describeNumberingFilters(
 ): string {
   const parts: string[] = []
   if (f.company) parts.push(`COMPANY: ${f.company}`)
-  if (f.account) parts.push(`ACCOUNT: ${f.account}`)
+  if (f.account) parts.push(`CHEQUE BOOK: ${f.account}`)
   if (f.missingOnly) parts.push('MISSING ONLY')
   return parts.length ? parts.join('  ·  ') : 'No filters applied'
 }
@@ -47,8 +47,9 @@ export function numberingFilename(day: string): string {
 
 /** Printed on the page and in the file (spec §B2): what MISSING cannot tell you. */
 export const NUMBERING_SCOPE_NOTE =
-  'MISSING means no cheque in this system holds the number. The Acumatica sync reads payments dated 2026 ' +
-  'onward, so an account\'s first number may sit partway through a booklet and earlier numbers are not known ' +
-  'here. A number Acumatica re-used with a trailing dot (a second payment on the same cheque number) counts as ' +
+  'MISSING means no cheque in this system holds the number. Each series is one cheque book — the bank account ' +
+  'Acumatica names in its CashAccount column (e.g. BPI-S-4636). The Acumatica sync reads payments dated 2026 ' +
+  'onward, so a cheque book\'s first number may sit partway through a booklet; numbers before the register\'s ' +
+  'history and the sync\'s 2026 scope are not known here. A number Acumatica re-used with a trailing dot (a second payment on the same cheque number) counts as ' +
   'used and is listed as STAGED. A cheque Acumatica holds with a memo in place of its number is on /admin/staged, ' +
   'not here — its number may still be one of the MISSING.'

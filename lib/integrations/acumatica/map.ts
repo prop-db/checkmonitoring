@@ -6,11 +6,13 @@ import { companyForBranch, type AcumaticaTenant } from './companies'
 // normalised row. Pure: no database, no network, no filesystem, no
 // `process.env`, no `new Date()` of its own.
 //
-// Every rule here comes from the feed itself rather than from inference. Where
-// the inquiry does not publish a field — there is no checkbook and no payment
-// category in it — this returns null rather than deriving one from Description
-// or PaymentMethod, because a derived checkbook files a cheque under a sibling
-// company and a derived category is simply made up.
+// Every rule here comes from the feed itself rather than from inference.
+//
+// The inquiry carries no payment category, so `category` is always null. Its
+// CashAccount column is the cheque book (`BPI-S-4636`, spec §D), passed
+// through as `checkBookCode`. Neither value is ever derived from Description
+// or PaymentMethod: a derived cheque book files a cheque under a sibling
+// company, and a derived category is simply made up.
 
 const str = (v: unknown): string => (v == null ? '' : String(v)).trim()
 const orNull = (v: unknown): string | null => str(v) || null
@@ -180,8 +182,12 @@ export function mapPayment(row: unknown, tenant: AcumaticaTenant): NormalisedRow
     // null for an unrecognised branch, by `companyForBranch`'s own contract.
     companyCode: branch ? companyForBranch(tenant, branch) : null,
     cashAccountCode: orNull(r.CashAccount),
-    // The generic inquiry publishes neither. See the note at the top of the file.
-    checkBookCode: null,
+    // The inquiry's CashAccount IS the cheque book: Acumatica states the same
+    // code the register wrote as the cheque book (`BPI-S-4636`). Measured
+    // 2026-10-02, spec §D. Passed through; upsertCheck resolves it against
+    // CheckBook.code and leaves it null for a code that is no cheque book
+    // (`PAYROLL`, `PCF-SITIO`). cashAccountCode keeps the same value.
+    checkBookCode: orNull(r.CashAccount),
     category: null,
 
     // Nor these. The payments inquiry is one row per payment and carries no

@@ -7,7 +7,7 @@ import type { SeriesCheque, SeriesStaged } from '@/lib/numbering/series'
 import { visibleEntries, NUMBERING_SCOPE_NOTE } from '@/lib/numbering-view'
 
 /**
- * The numbering report as a workbook: SUMMARY, then one sheet per account with
+ * The numbering report as a workbook: SUMMARY, then one sheet per cheque book with
  * every cheque in number order, each MISSING run as one row whose FROM, TO
  * and COUNT have their own columns, and each number Acumatica re-used with a
  * trailing dot as a STAGED row (spec §C) — so a filter on STATUS = MISSING works
@@ -19,14 +19,14 @@ export const NUMBERING_SUMMARY_SHEET = 'SUMMARY'
 export const NUMBERING_ACCOUNT_HEADERS = [
   'CHECK NUMBER', 'CHEQUE DATE', 'PAYEE', 'STATUS', 'CURRENCY', 'AMOUNT', 'FROM', 'TO', 'COUNT', 'NOTE',
 ] as const
-const SUMMARY_HEADERS = ['ACCOUNT', 'BANK', 'COMPANY', 'FIRST', 'LAST', 'HELD', 'VOIDED', 'CANCELLED', 'STAGED', 'MISSING NUMBERS', 'MISSING RUNS', 'NOT NUMERIC'] as const
+const SUMMARY_HEADERS = ['CHEQUE BOOK', 'BANK', 'COMPANY', 'FIRST', 'LAST', 'HELD', 'VOIDED', 'CANCELLED', 'STAGED', 'MISSING NUMBERS', 'MISSING RUNS', 'NOT NUMERIC'] as const
 
 export type NumberingMeta = {
   generatedAt: Date; generatedBy: string; filterDescription: string
   missingOnly: boolean
   /** null when an account is open: the count is not measured there, so no line is printed. */
   noAccountCount: number | null
-  /** `caps.exportRows`: cheque and MISSING lines across all account sheets. */
+  /** `caps.exportRows`: cheque and MISSING lines across all cheque-book sheets. */
   rowLimit: number
 }
 
@@ -73,12 +73,12 @@ export async function buildNumberingWorkbook(
   ws.getCell('A2').value = meta.filterDescription
   ws.getCell('A2').font = { bold: true, size: 12, color: { argb: TITLE_INK } }
   ws.getCell('A3').value = totalLines > meta.rowLimit
-    ? `${generatedLine(meta)}  ·  account sheets hold the first ${fmt(meta.rowLimit)} of ${fmt(totalLines)} lines`
-    : `${generatedLine(meta)}  ·  ${fmt(accounts.length)} account${accounts.length === 1 ? '' : 's'}`
+    ? `${generatedLine(meta)}  ·  the cheque-book sheets hold the first ${fmt(meta.rowLimit)} of ${fmt(totalLines)} lines`
+    : `${generatedLine(meta)}  ·  ${fmt(accounts.length)} cheque book${accounts.length === 1 ? '' : 's'}`
   ws.getCell('A3').font = { size: 10, color: { argb: MUTED_INK } }
   ws.getCell('A4').value = meta.noAccountCount === null
     ? NUMBERING_SCOPE_NOTE
-    : `${NUMBERING_SCOPE_NOTE} Not in any series: ${fmt(meta.noAccountCount)} cheque${meta.noAccountCount === 1 ? '' : 's'} with no cash account.`
+    : `${NUMBERING_SCOPE_NOTE} Not in any series: ${fmt(meta.noAccountCount)} cheque${meta.noAccountCount === 1 ? '' : 's'} with no cheque book.`
   ws.getCell('A4').font = { size: 10, color: { argb: MUTED_INK } }
 
   const header = ws.getRow(6)

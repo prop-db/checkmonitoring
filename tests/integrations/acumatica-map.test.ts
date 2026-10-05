@@ -230,13 +230,21 @@ describe('mapPayment: the rest of the shared row contract', () => {
     expect(r.vendorCode).toBe('V001234')
     expect(r.cashAccountCode).toBe('BPI STK')
     expect(r.acumaticaStatus).toBe('Closed')
-    // The generic inquiry exposes no checkbook and no payment category. A
-    // guess from PaymentMethod or Description would invent both.
-    expect(r.checkBookCode).toBeNull()
+    // The inquiry's CashAccount IS the cheque book (spec §D); live it reads
+    // `BPI-S-4636`. This fixture's `BPI STK` is not a book code, which is the
+    // point: the mapper passes the value through verbatim as BOTH codes and
+    // judges nothing — upsertCheck resolves it against CheckBook.code or
+    // leaves the book null.
+    expect(r.checkBookCode).toBe('BPI STK')
     expect(r.category).toBeNull()
     // Provenance belongs to the workbook path.
     expect(r.sourceSheet).toBeNull()
     expect(r.sourceRow).toBeNull()
+  })
+
+  it('passes CashAccount through as the cheque book, trimmed, and null when absent', () => {
+    expect(mapPayment({ ...paymentRow, CashAccount: '  BPI-S-4636 ' }, 'GOLIVE')!.checkBookCode).toBe('BPI-S-4636')
+    expect(mapPayment({ ...paymentRow, CashAccount: null }, 'GOLIVE')!.checkBookCode).toBeNull()
   })
 
   it('turns a blank cell into null rather than an empty string', () => {
