@@ -354,7 +354,12 @@ gap count — once the book has 20+ numeric cheques (spec §F, 2026-10-05; measu
 cheques, e.g. `60003162116`, `17913405552`, `1791…` numbers under BPI books). **Known limit:** the
 shape includes the first two digits, so a book that rolls over a lead or a digit count (`179999` →
 `180000`, `999999` → `1000000`) would put the new booklet in OUT OF PATTERN until it outnumbers the
-old one; if a book starts showing a whole run there, that is the cause. Memo-numbered cheques (`PCF26-00001`) still hide behind MISSING;
+old one; if a book starts showing a whole run there, that is the cause. **User ruling 2026-10-05:
+"Follow acumatica."** NUMBERING shows Acumatica's numbers as they are — no further heuristics
+(range outliers, smaller pattern minimum). A typo that keeps the right shape (live examples that day:
+`6000859726` in `BPI-A-5713`, `1793161601` in `MBT-A-4155`, `1790405938` in `MBT-A-9048`) and the
+OUT OF PATTERN lists are corrected IN ACUMATICA; the next sync renumbers the cheque here by its
+payment reference (`renumbered_by_acumatica`) and the series corrects itself. Memo-numbered cheques (`PCF26-00001`) still hide behind MISSING;
 the page says so. `next build` failed with *Cannot mix BigInt
 and other types* (Next's file tracer) on `1n`-style literal arithmetic in `lib/numbering/series.ts`;
 it uses `BigInt(0)` / `BigInt(1)` constants instead — keep it that way.
