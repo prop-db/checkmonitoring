@@ -4,6 +4,7 @@ import { createClientForTenant } from '@/lib/integrations/acumatica/from-env'
 import { SYNC_TENANTS } from '@/lib/admin/sync-overview'
 import { runScheduledSync, type ScheduledSyncOutcome } from '@/lib/sync/scheduled'
 import { runScheduledBillsSync, type ScheduledBillsOutcome } from '@/lib/sync/bills'
+import { runScheduledBillRefsSync, type ScheduledBillRefsOutcome } from '@/lib/sync/bill-refs'
 import { runAutoSign } from '@/lib/sync/auto-sign'
 import { kickPortalDelivery } from '@/lib/sync/portal-kick'
 
@@ -39,6 +40,15 @@ import { kickPortalDelivery } from '@/lib/sync/portal-kick'
  * terminal. A BILLS FAILED turns the response 500; a refusal does not. It runs
  * only for a tenant whose payment read RAN this time (SKIPPED_PAYMENT_NOT_RUN
  * otherwise, not a failure).
+ *
+ * Then THE PO READ (lib/sync/bill-refs.ts), both tenants in the same order:
+ * Acumatica's AP-Bills and Adjustments, mirrored into AcumaticaBill (bill →
+ * real POs, keyed by APV). Its own watermark (BILL_REFS rows); none → a
+ * recorded refusal, because a first read is `scripts/sync.ts <TENANT>
+ * --bill-refs` from a terminal. FAILED turns the response 500; a refusal or
+ * SKIPPED_PAYMENT_NOT_RUN does not. Incremental runs are small (a day's
+ * bills), well inside the 60-second ceiling the auto-sign budget already
+ * accounts for.
  *
  * Then AUTO-SIGN (lib/sync/auto-sign.ts): on a Manila Tuesday, the Acumatica
  * cheques first read on the Monday become SIGNED; on any other day the run
@@ -114,6 +124,23 @@ export async function GET(request: Request): Promise<Response> {
     )
   }
 
+  // The POs each AP bill names (lib/sync/bill-refs.ts), into AcumaticaBill —
+  // reference data keyed by APV, resolved against cheques when the PO NUMBER
+  // column is drawn. Gated on the tenant's payment read like BILLS (a read
+  // that could not reach the tenant's payments is no moment to read its
+  // bills), but NOT on BILLS: nothing here depends on which cheques are held.
+  const billRefs: ScheduledBillRefsOutcome[] = []
+  for (const tenant of SYNC_TENANTS) {
+    const payment = outcomes.find((o) => o.tenant === tenant)
+    if (payment?.outcome !== 'RAN') {
+      billRefs.push({ tenant, outcome: 'SKIPPED_PAYMENT_NOT_RUN' })
+      continue
+    }
+    billRefs.push(
+      await runScheduledBillRefsSync(prisma, { tenant, now, client: () => createClientForTenant(tenant) }),
+    )
+  }
+
   // After both tenants, whether or not either failed: cheques already in the
   // app keep ageing, and a failed read delays new cheques, not old ones.
   // A 50s budget, inside the route's 60s ceiling: it leaves room for the
@@ -131,6 +158,7 @@ export async function GET(request: Request): Promise<Response> {
   const failed =
     outcomes.some((o) => o.outcome === 'FAILED') ||
     bills.some((b) => b.outcome === 'FAILED') ||
+    billRefs.some((b) => b.outcome === 'FAILED') ||
     autoSign.outcome === 'FAILED'
-  return json({ ranAt: now.toISOString(), outcomes, bills, autoSign, portal }, failed ? 500 : 200)
+  return json({ ranAt: now.toISOString(), outcomes, bills, billRefs, autoSign, portal }, failed ? 500 : 200)
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { testDb, resetDb } from '../helpers/db'
-import { runBillRefsSync, lastBillRefsWatermark, BILL_REFS_MODE } from '@/lib/sync/bill-refs'
+import { runBillRefsSync, lastBillRefsWatermark, runScheduledBillRefsSync, BILL_REFS_MODE, NO_BILL_REFS_WATERMARK_MESSAGE } from '@/lib/sync/bill-refs'
 import { SyncInProgressError, SYNC_OVERLAP_MINUTES } from '@/lib/sync/run'
 import {
   BILL_REFS_FEED, billRefsSinceFilter, billRefsInScopeFilter,
@@ -271,5 +271,65 @@ describe('lastBillRefsWatermark', () => {
     await at('INCREMENTAL', '2026-10-02')
     expect(await lastBillRefsWatermark(testDb, 'GOLIVE')).toEqual(new Date('2026-09-30T08:00:00Z'))
     expect(await lastBillRefsWatermark(testDb, 'MANUFACTURING')).toBeNull()
+  })
+})
+
+describe('runScheduledBillRefsSync', () => {
+  const refsWatermark = (tenant: 'GOLIVE' | 'MANUFACTURING') =>
+    testDb.syncRun.create({
+      data: {
+        mode: 'BILL_REFS', tenant, trigger: 'MANUAL',
+        startedAt: new Date('2026-09-29T10:00:00Z'), finishedAt: new Date('2026-09-29T10:00:01Z'),
+        watermark: new Date('2026-09-29T08:00:00Z'),
+      },
+    })
+
+  it('refuses without a BILL_REFS watermark and records a finished BILL_REFS row saying so', async () => {
+    // Neither a payment nor a BILLS watermark is a BILL_REFS watermark.
+    await testDb.syncRun.create({ data: { mode: 'INCREMENTAL', tenant: 'GOLIVE', startedAt: NOW, finishedAt: NOW, watermark: NOW } })
+    await testDb.syncRun.create({ data: { mode: 'BILLS', tenant: 'GOLIVE', startedAt: NOW, finishedAt: NOW, watermark: NOW } })
+    let built = 0
+    const outcome = await runScheduledBillRefsSync(testDb, {
+      tenant: 'GOLIVE', now: NOW, client: () => { built++; return fakeFeed([]).client },
+    })
+    expect(built).toBe(0)
+    const run = await testDb.syncRun.findFirstOrThrow({ where: { mode: 'BILL_REFS' } })
+    expect(outcome).toEqual({ tenant: 'GOLIVE', outcome: 'REFUSED_NO_WATERMARK', syncRunId: run.id })
+    expect(run.trigger).toBe('SCHEDULED')
+    expect(run.finishedAt).not.toBeNull()
+    expect(run.errors).toBe(1)
+    expect(run.watermark).toBeNull()
+    expect(run.message).toBe(NO_BILL_REFS_WATERMARK_MESSAGE)
+  })
+
+  it('a client factory that throws is FAILED, never a throw', async () => {
+    await refsWatermark('GOLIVE')
+    const outcome = await runScheduledBillRefsSync(testDb, {
+      tenant: 'GOLIVE', now: NOW, client: () => { throw new Error('x'.repeat(400)) },
+    })
+    expect(outcome.outcome).toBe('FAILED')
+    if (outcome.outcome !== 'FAILED') throw new Error('unreachable')
+    expect(outcome.message.length).toBe(300)
+  })
+
+  it('with a watermark, RAN with the counts, as SCHEDULED, from that watermark', async () => {
+    await refsWatermark('GOLIVE')
+    const feed = fakeFeed([docRow(), docRow({ ReferenceNbr: 'AP-2', VendorRef: 'SI#1' })])
+    const outcome = await runScheduledBillRefsSync(testDb, { tenant: 'GOLIVE', now: NOW, client: () => feed.client })
+    expect(outcome).toMatchObject({
+      tenant: 'GOLIVE', outcome: 'RAN', fetched: 2, ignored: 0, upserted: 1, deleted: 0, noPo: 1, errors: 0,
+    })
+    expect(feed.calls[0].opts?.filter).toBe(billRefsSinceFilter(new Date('2026-09-29T08:00:00Z')))
+    if (outcome.outcome !== 'RAN') throw new Error('unreachable')
+    expect((await testDb.syncRun.findUniqueOrThrow({ where: { id: outcome.syncRunId } })).trigger).toBe('SCHEDULED')
+  })
+
+  it('a BILL_REFS run already in progress is IN_PROGRESS, not FAILED', async () => {
+    await refsWatermark('GOLIVE')
+    await testDb.syncRun.create({
+      data: { mode: 'BILL_REFS', tenant: 'GOLIVE', startedAt: new Date(NOW.getTime() - 60_000), finishedAt: null },
+    })
+    const outcome = await runScheduledBillRefsSync(testDb, { tenant: 'GOLIVE', now: NOW, client: () => fakeFeed([]).client })
+    expect(outcome.outcome).toBe('IN_PROGRESS')
   })
 })

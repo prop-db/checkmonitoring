@@ -249,3 +249,72 @@ function describe(error: unknown): string {
 function summarise(problems: readonly string[]): string {
   return [...new Set(problems)].slice(0, MAX_REPORTED_PROBLEMS).join(' | ')
 }
+
+/**
+ * What a scheduled PO read says when it will not run. A first BILL_REFS read
+ * reads the whole year's bills and is a terminal job.
+ */
+export const NO_BILL_REFS_WATERMARK_MESSAGE =
+  'No BILL_REFS watermark for this tenant. The first PO read must be started by an admin — ' +
+  'scripts/sync.ts <TENANT> --bill-refs in a terminal — and is never run on a schedule.'
+
+// See lib/sync/scheduled.ts: an OData failure can be a whole HTML page.
+const MAX_OUTCOME_MESSAGE = 300
+
+export type ScheduledBillRefsOutcome =
+  | {
+      tenant: AcumaticaTenant
+      outcome: 'RAN'
+      syncRunId: string
+      fetched: number
+      ignored: number
+      upserted: number
+      deleted: number
+      noPo: number
+      errors: number
+    }
+  | { tenant: AcumaticaTenant; outcome: 'REFUSED_NO_WATERMARK'; syncRunId: string }
+  | { tenant: AcumaticaTenant; outcome: 'IN_PROGRESS'; message: string }
+  | { tenant: AcumaticaTenant; outcome: 'FAILED'; message: string }
+  /** The cron did not run the PO read because this tenant's payment read did not RUN. Not a failure. */
+  | { tenant: AcumaticaTenant; outcome: 'SKIPPED_PAYMENT_NOT_RUN' }
+
+/**
+ * One tenant's scheduled PO read, never throwing — `runScheduledBillsSync`
+ * line for line. `client` is a factory so a missing environment variable is
+ * this tenant's FAILED, not an exception before the other tenant has run.
+ */
+export async function runScheduledBillRefsSync(
+  db: Db,
+  args: { tenant: AcumaticaTenant; now: Date; client: () => AcumaticaClient },
+): Promise<ScheduledBillRefsOutcome> {
+  const { tenant, now } = args
+  try {
+    const since = await lastBillRefsWatermark(db, tenant)
+    if (since === null) {
+      const run = await db.syncRun.create({
+        data: {
+          mode: BILL_REFS_MODE, tenant, trigger: 'SCHEDULED',
+          startedAt: now, finishedAt: new Date(),
+          errors: 1, message: NO_BILL_REFS_WATERMARK_MESSAGE,
+        },
+      })
+      return { tenant, outcome: 'REFUSED_NO_WATERMARK', syncRunId: run.id }
+    }
+
+    const result = await runBillRefsSync(db, {
+      client: args.client(), tenant, since, now, trigger: 'SCHEDULED',
+    })
+    return {
+      tenant, outcome: 'RAN', syncRunId: result.syncRunId,
+      fetched: result.fetched, ignored: result.ignored, upserted: result.upserted,
+      deleted: result.deleted, noPo: result.noPo, errors: result.errors,
+    }
+  } catch (error) {
+    if (error instanceof SyncInProgressError) {
+      return { tenant, outcome: 'IN_PROGRESS', message: error.message.slice(0, MAX_OUTCOME_MESSAGE) }
+    }
+    const message = error instanceof Error ? error.message : String(error)
+    return { tenant, outcome: 'FAILED', message: message.slice(0, MAX_OUTCOME_MESSAGE) }
+  }
+}
