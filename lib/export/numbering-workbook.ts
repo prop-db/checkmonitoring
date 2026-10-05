@@ -19,7 +19,7 @@ export const NUMBERING_SUMMARY_SHEET = 'SUMMARY'
 export const NUMBERING_ACCOUNT_HEADERS = [
   'CHECK NUMBER', 'CHEQUE DATE', 'PAYEE', 'STATUS', 'CURRENCY', 'AMOUNT', 'FROM', 'TO', 'COUNT', 'NOTE',
 ] as const
-const SUMMARY_HEADERS = ['CHEQUE BOOK', 'BANK', 'COMPANY', 'FIRST', 'LAST', 'HELD', 'VOIDED', 'CANCELLED', 'STAGED', 'MISSING NUMBERS', 'MISSING RUNS', 'NOT NUMERIC'] as const
+const SUMMARY_HEADERS = ['CHEQUE BOOK', 'BANK', 'COMPANY', 'FIRST', 'LAST', 'HELD', 'VOIDED', 'CANCELLED', 'STAGED', 'MISSING NUMBERS', 'MISSING RUNS', 'NOT NUMERIC', 'OUT OF PATTERN'] as const
 
 export type NumberingMeta = {
   generatedAt: Date; generatedBy: string; filterDescription: string
@@ -65,7 +65,8 @@ export async function buildNumberingWorkbook(
   wb.created = meta.generatedAt
 
   const lines = accounts.map((a) => ({ a, entries: visibleEntries(a.series.entries, meta.missingOnly) }))
-  const totalLines = lines.reduce((n, l) => n + l.entries.length + (meta.missingOnly ? 0 : l.a.series.notNumeric.length), 0)
+  const totalLines = lines.reduce(
+    (n, l) => n + l.entries.length + (meta.missingOnly ? 0 : l.a.series.notNumeric.length + l.a.series.outOfPattern.length), 0)
 
   const ws = wb.addWorksheet(NUMBERING_SUMMARY_SHEET)
   ws.getCell('A1').value = 'CHEQUE NUMBERING — CHECK RELEASE MONITORING'
@@ -88,7 +89,7 @@ export async function buildNumberingWorkbook(
     const row = ws.getRow(7 + i)
     const values: (string | number | null)[] = [
       a.account, a.bank, a.company, s.first, s.last, s.held, s.voided, s.cancelled, s.staged,
-      countCell(s.missingNumbers), s.missingRuns, s.notNumeric,
+      countCell(s.missingNumbers), s.missingRuns, s.notNumeric, s.outOfPattern,
     ]
     values.forEach((v, col) => {
       row.getCell(col + 1).value = v
@@ -96,7 +97,7 @@ export async function buildNumberingWorkbook(
     })
     if (i % 2 === 1) row.eachCell({ includeEmpty: true }, (c) => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BAND_FILL } } })
   })
-  ;[22, 10, 10, 14, 14, 10, 10, 12, 10, 18, 14, 14].forEach((w, i) => { ws.getColumn(i + 1).width = w })
+  ;[22, 10, 10, 14, 14, 10, 10, 12, 10, 18, 14, 14, 16].forEach((w, i) => { ws.getColumn(i + 1).width = w })
 
   const used = new Set([NUMBERING_SUMMARY_SHEET.toUpperCase()])
   let budget = meta.rowLimit
@@ -119,7 +120,7 @@ export async function buildNumberingWorkbook(
       row.getCell(6).numFmt = currencyNumberFormat(c.currency)
       row.getCell(10).value = note
     }
-    const stagedRow = (s: SeriesStaged) => {
+    const stagedRow = (s: SeriesStaged, note?: string) => {
       const row = sheet.getRow(r++)
       row.getCell(1).value = s.statedCheckRef
       row.getCell(2).value = s.checkDate
@@ -129,11 +130,23 @@ export async function buildNumberingWorkbook(
       row.getCell(5).value = s.currency
       row.getCell(6).value = s.amount === null ? null : Number(s.amount)
       if (s.currency) row.getCell(6).numFmt = currencyNumberFormat(s.currency)
-      row.getCell(10).value = `Acumatica ${s.acumaticaRef}: the same cheque number used again (staged)`
+      row.getCell(10).value = note ?? `Acumatica ${s.acumaticaRef}: the same cheque number used again (staged)`
     }
-    const rows = [...entries.map((e) => ({ e })), ...(meta.missingOnly ? [] : a.series.notNumeric.map((c) => ({ c })))]
+    const pattern = a.series.pattern
+    const outNote = pattern ? `OUT OF PATTERN (expected ${pattern.digits} digits starting ${pattern.lead})` : 'OUT OF PATTERN'
+    const rows = [
+      ...entries.map((e) => ({ e })),
+      ...(meta.missingOnly ? [] : a.series.notNumeric.map((c) => ({ c }))),
+      ...(meta.missingOnly ? [] : a.series.outOfPattern.map((o) => ({ o }))),
+    ]
     for (const item of rows.slice(0, budget)) {
       if ('c' in item) { chequeRow(item.c, 'NOT NUMERIC'); continue }
+      if ('o' in item) {
+        const o = item.o
+        if (o.kind === 'CHEQUE') chequeRow(o.cheque, o.duplicate ? `${outNote}; DUPLICATE NUMBER` : outNote)
+        else if (o.kind === 'STAGED') stagedRow(o.staged, `${outNote}; Acumatica ${o.staged.acumaticaRef}: the same cheque number used again (staged)`)
+        continue
+      }
       const e = item.e
       if (e.kind === 'CHEQUE') { chequeRow(e.cheque, e.duplicate ? 'DUPLICATE NUMBER' : null); continue }
       if (e.kind === 'STAGED') { stagedRow(e.staged); continue }

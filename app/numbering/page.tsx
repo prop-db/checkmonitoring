@@ -10,7 +10,7 @@ import {
 } from '@/lib/numbering-view'
 import { AppHeader } from '@/components/AppHeader'
 import { EmptyState } from '@/components/EmptyState'
-import { NumberingSummaryTable, NumberingEntriesTable, NotNumericTable } from '@/components/NumberingTables'
+import { NumberingSummaryTable, NumberingEntriesTable, NotNumericTable, OutOfPatternTable } from '@/components/NumberingTables'
 
 /**
  * CHEQUE NUMBERING — consecutives per cheque book (spec
@@ -115,6 +115,17 @@ export default async function NumberingPage({
               <>
                 <h2 className="text-[11px] font-semibold tracking-widest text-slate-400">NOT NUMERIC — NOT IN THE SEQUENCE</h2>
                 <NotNumericTable cheques={one.series.notNumeric} />
+              </>
+            )}
+            {!missingOnly && one.series.outOfPattern.length > 0 && (
+              <>
+                <h2 className="text-[11px] font-semibold tracking-widest text-slate-400">OUT OF PATTERN — NOT IN THE SEQUENCE</h2>
+                {one.series.pattern && (
+                  <p className="text-sm text-slate-600">
+                    This cheque book&apos;s numbers are {one.series.pattern.digits} digits starting {one.series.pattern.lead}; these are not. Usually a mistyped or misfiled number in Acumatica.
+                  </p>
+                )}
+                <OutOfPatternTable entries={one.series.outOfPattern} />
               </>
             )}
           </>

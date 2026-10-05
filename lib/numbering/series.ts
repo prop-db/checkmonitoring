@@ -15,6 +15,17 @@ import { canonicalCheckNumber, isBareCheckNumber } from '@/lib/import/normalise'
  * reference on a cash account, so a second payment document on the same cheque
  * number is entered with a dot appended. Such payments sit on the staged queue
  * (NO_CHECK_NUMBER); their number is USED, so it is a STAGED line, never MISSING.
+ *
+ * OUT OF PATTERN (spec §F, 2026-10-05): a book's numbers share one shape —
+ * `numberShape`, the length without leading zeros and the first two digits. The
+ * PATTERN is the shape held by the most numeric cheques (staged lines do not
+ * vote; ties go to more digits, then the lower lead), and is decided only once a
+ * book holds at least PATTERN_MIN_CHEQUES numeric cheques. A numeric cheque or
+ * staged line of another shape — usually a mistyped or misfiled number in
+ * Acumatica — is listed in `outOfPattern` and left out of the sequence: it bounds
+ * no MISSING run and is not in `first` / `last`, `held`, `duplicates` or
+ * `staged`. An out-of-pattern cheque is still a cheque in the book, so it still
+ * counts in `voided` / `cancelled`. Nothing in the data changes.
  */
 export type SeriesCheque = {
   id: string; checkNumber: string; checkDate: Date | null; payeeName: string | null
@@ -39,8 +50,49 @@ export type SeriesSummary = {
   notNumeric: number
   /** Cheques sharing a number with another cheque in the account. */
   duplicates: number
+  /** Numeric cheques and staged lines whose shape breaks the book's pattern (spec §F). */
+  outOfPattern: number
 }
-export type AccountSeries = { entries: SeriesEntry[]; notNumeric: SeriesCheque[]; summary: SeriesSummary }
+export type NumberShape = { digits: number; lead: string }
+export type AccountSeries = {
+  entries: SeriesEntry[]; notNumeric: SeriesCheque[]
+  /** CHEQUE and STAGED entries, in number order, left out of the sequence. */
+  outOfPattern: SeriesEntry[]
+  /** The book's usual shape, or null below PATTERN_MIN_CHEQUES numeric cheques. */
+  pattern: NumberShape | null
+  summary: SeriesSummary
+}
+
+/** Below this many numeric cheques a book has no pattern and every number stays in. */
+export const PATTERN_MIN_CHEQUES = 20
+
+/** A number's shape: its length without leading zeros, and its first two digits after them. */
+export function numberShape(n: string): NumberShape {
+  const bare = n.replace(/^0+/, '')
+  return { digits: bare.length, lead: bare.slice(0, 2) }
+}
+
+const sameShape = (a: NumberShape, b: NumberShape) => a.digits === b.digits && a.lead === b.lead
+
+/** The shape held by the most numbers; ties to more digits, then the lower lead. Null below the minimum. */
+function patternOf(numbers: readonly string[]): NumberShape | null {
+  if (numbers.length < PATTERN_MIN_CHEQUES) return null
+  const tally = new Map<string, { shape: NumberShape; count: number }>()
+  for (const n of numbers) {
+    const shape = numberShape(n)
+    const key = `${shape.digits}|${shape.lead}`
+    const t = tally.get(key)
+    if (t) t.count += 1
+    else tally.set(key, { shape, count: 1 })
+  }
+  let best: { shape: NumberShape; count: number } | null = null
+  for (const t of tally.values()) {
+    if (!best || t.count > best.count
+      || (t.count === best.count && (t.shape.digits > best.shape.digits
+        || (t.shape.digits === best.shape.digits && t.shape.lead < best.shape.lead)))) best = t
+  }
+  return best ? best.shape : null
+}
 
 const NUMERIC = /^\d+$/
 // Not `0n` / `1n` literals: Next's file tracer (nft) evaluates BinaryExpressions
@@ -67,24 +119,35 @@ type Item =
   | { n: bigint; text: string; order: string; staged: SeriesStaged; cheque?: undefined }
 
 export function buildSeries(cheques: readonly SeriesCheque[], staged: readonly SeriesStaged[] = []): AccountSeries {
-  const items: Item[] = []
+  const all: Item[] = []
   const notNumeric: SeriesCheque[] = []
   for (const cheque of cheques) {
     const text = cheque.checkNumber.trim()
     // '0' sorts a cheque before any staged line on the same number.
-    if (NUMERIC.test(text)) items.push({ n: BigInt(text), text, order: `0${cheque.id}`, cheque })
+    if (NUMERIC.test(text)) all.push({ n: BigInt(text), text, order: `0${cheque.id}`, cheque })
     else notNumeric.push(cheque)
   }
   for (const s of staged) {
     const number = stagedSeriesNumber(s.statedCheckRef)
-    if (number !== null) items.push({ n: BigInt(number), text: number, order: `1${s.acumaticaTenant}|${s.acumaticaRef}`, staged: s })
+    if (number !== null) all.push({ n: BigInt(number), text: number, order: `1${s.acumaticaTenant}|${s.acumaticaRef}`, staged: s })
   }
-  items.sort((a, b) => (a.n < b.n ? -1 : a.n > b.n ? 1 : a.order < b.order ? -1 : a.order > b.order ? 1 : 0))
+  all.sort((a, b) => (a.n < b.n ? -1 : a.n > b.n ? 1 : a.order < b.order ? -1 : a.order > b.order ? 1 : 0))
   notNumeric.sort((a, b) => a.checkNumber.localeCompare(b.checkNumber) || a.id.localeCompare(b.id))
 
+  // Only cheques vote; a staged line of another shape is judged, never counted.
+  const pattern = patternOf(all.filter((x) => x.cheque).map((x) => x.text))
+  const fits = (x: Item) => pattern === null || sameShape(numberShape(x.text), pattern)
+  const items = all.filter(fits)
+  const misfits = all.filter((x) => !fits(x))
+
+  // Over every numeric cheque: two cheques on one number (7 and 007 alike) share
+  // a shape, so a duplicate always sits on one side of the pattern.
   const perNumber = new Map<bigint, number>()
-  for (const x of items) if (x.cheque) perNumber.set(x.n, (perNumber.get(x.n) ?? 0) + 1)
+  for (const x of all) if (x.cheque) perNumber.set(x.n, (perNumber.get(x.n) ?? 0) + 1)
   const isDuplicate = (n: bigint) => (perNumber.get(n) ?? 0) > 1
+  const toEntry = (x: Item): SeriesEntry => (x.cheque
+    ? { kind: 'CHEQUE', cheque: x.cheque, duplicate: isDuplicate(x.n) }
+    : { kind: 'STAGED', staged: x.staged, number: x.text })
 
   const entries: SeriesEntry[] = []
   let missing = ZERO
@@ -105,21 +168,22 @@ export function buildSeries(cheques: readonly SeriesCheque[], staged: readonly S
       missing += count
       runs += 1
     }
-    entries.push(x.cheque
-      ? { kind: 'CHEQUE', cheque: x.cheque, duplicate: isDuplicate(x.n) }
-      : { kind: 'STAGED', staged: x.staged, number: x.text })
+    entries.push(toEntry(x))
     prev = { n: x.n, text: x.text }
   }
 
   const chequeItems = items.filter((x) => x.cheque)
-  const every = [...chequeItems.map((x) => x.cheque!), ...notNumeric]
+  // Out-of-pattern cheques are still cheques in the book: they count as voided / cancelled.
+  const every = [...all.filter((x) => x.cheque).map((x) => x.cheque!), ...notNumeric]
   return {
     entries,
     notNumeric,
+    outOfPattern: misfits.map(toEntry),
+    pattern,
     summary: {
       first: items.length ? items[0].text : null,
       last: items.length ? items[items.length - 1].text : null,
-      held: perNumber.size,
+      held: new Set(chequeItems.map((x) => x.n)).size,
       voided: every.filter((x) => x.status === 'VOIDED').length,
       cancelled: every.filter((x) => x.status === 'CANCELLED').length,
       staged: items.length - chequeItems.length,
@@ -127,6 +191,7 @@ export function buildSeries(cheques: readonly SeriesCheque[], staged: readonly S
       missingRuns: runs,
       notNumeric: notNumeric.length,
       duplicates: chequeItems.filter((x) => isDuplicate(x.n)).length,
+      outOfPattern: misfits.length,
     },
   }
 }

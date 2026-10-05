@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildSeries, stagedSeriesNumber, type SeriesCheque, type SeriesEntry, type SeriesStaged } from '@/lib/numbering/series'
+import { buildSeries, stagedSeriesNumber, numberShape, PATTERN_MIN_CHEQUES, type SeriesCheque, type SeriesEntry, type SeriesStaged } from '@/lib/numbering/series'
 
 let seq = 0
 function c(checkNumber: string, status: SeriesCheque['status'] = 'RELEASED'): SeriesCheque {
@@ -81,8 +81,8 @@ describe('buildSeries', () => {
   it('a single cheque, and an empty account', () => {
     expect(buildSeries([c('42')]).summary).toMatchObject({ first: '42', last: '42', held: 1, missingRuns: 0 })
     expect(buildSeries([])).toEqual({
-      entries: [], notNumeric: [],
-      summary: { first: null, last: null, held: 0, voided: 0, cancelled: 0, staged: 0, missingNumbers: '0', missingRuns: 0, notNumeric: 0, duplicates: 0 },
+      entries: [], notNumeric: [], outOfPattern: [], pattern: null,
+      summary: { first: null, last: null, held: 0, voided: 0, cancelled: 0, staged: 0, missingNumbers: '0', missingRuns: 0, notNumeric: 0, duplicates: 0, outOfPattern: 0 },
     })
   })
 })
@@ -134,5 +134,62 @@ describe('buildSeries with staged re-uses', () => {
     const s = buildSeries([c('1'), c('3')], [st('PCF26-00001.'), st('2')])
     expect(shape(s.entries)).toEqual(['1', 'MISSING 2-2 (1)', '3'])
     expect(s.summary.staged).toBe(0)
+  })
+})
+
+describe('OUT OF PATTERN (spec §F)', () => {
+  const run = (from: number, count: number) => Array.from({ length: count }, (_, i) => c(String(from + i)))
+  const sixty = () => run(6000100000, 25)
+
+  it('numberShape strips leading zeros and keeps the first two digits', () => {
+    expect(numberShape('0000179241')).toEqual({ digits: 6, lead: '17' })
+    expect(numberShape('6000354350')).toEqual({ digits: 10, lead: '60' })
+    expect(numberShape('0000')).toEqual({ digits: 0, lead: '' })
+  })
+
+  it('below PATTERN_MIN_CHEQUES numeric cheques there is no pattern and nothing is out', () => {
+    const s = buildSeries([...run(6000100000, PATTERN_MIN_CHEQUES - 2), c('60000')])
+    expect(s.pattern).toBeNull()
+    expect(s.outOfPattern).toEqual([])
+    expect(s.summary.outOfPattern).toBe(0)
+    expect(s.summary.first).toBe('60000')
+    expect(s.summary.held).toBe(PATTERN_MIN_CHEQUES - 1)
+  })
+
+  it('takes a short number and another bank\'s number out of the sequence and the gap count', () => {
+    const s = buildSeries([...sixty(), c('60000'), c('1791361374')])
+    expect(s.pattern).toEqual({ digits: 10, lead: '60' })
+    expect(s.outOfPattern.map((e) => (e.kind === 'CHEQUE' ? e.cheque.checkNumber : e.kind))).toEqual(['60000', '1791361374'])
+    expect(s.summary).toMatchObject({
+      outOfPattern: 2, first: '6000100000', last: '6000100024', held: 25, missingNumbers: '0', missingRuns: 0,
+    })
+    expect(s.entries.some((e) => e.kind === 'MISSING')).toBe(false)
+    expect(shape(s.entries).some((x) => x.startsWith('1791') || x === '60000')).toBe(false)
+  })
+
+  it('a zero-padded number of the same shape is in pattern and placed by value', () => {
+    const s = buildSeries([...run(179200, 25), c('0000179241')])
+    expect(s.pattern).toEqual({ digits: 6, lead: '17' })
+    expect(s.outOfPattern).toEqual([])
+    const texts = shape(s.entries)
+    expect(texts.indexOf('0000179241')).toBe(texts.indexOf('179224') + 2)
+    expect(texts[texts.indexOf('179224') + 1]).toBe('MISSING 179225-179240 (16)')
+  })
+
+  it('a staged line of another shape is out of pattern and not counted as staged', () => {
+    const s = buildSeries(sixty(), [st('1791361374.'), st('6000100003.')])
+    expect(s.outOfPattern).toHaveLength(1)
+    expect(s.outOfPattern[0]).toMatchObject({ kind: 'STAGED', number: '1791361374' })
+    expect(s.summary).toMatchObject({ staged: 1, outOfPattern: 1, last: '6000100024' })
+  })
+
+  it('an out-of-pattern VOIDED cheque still counts as voided', () => {
+    const s = buildSeries([...sixty(), c('60003162116', 'VOIDED')])
+    expect(s.summary).toMatchObject({ voided: 1, outOfPattern: 1, held: 25, last: '6000100024' })
+  })
+
+  it('a tie goes to more digits, then the lower lead', () => {
+    expect(buildSeries([...run(600010, 12), ...run(6000100000, 12)]).pattern).toEqual({ digits: 10, lead: '60' })
+    expect(buildSeries([...run(6000100000, 12), ...run(1791100000, 12)]).pattern).toEqual({ digits: 10, lead: '17' })
   })
 })

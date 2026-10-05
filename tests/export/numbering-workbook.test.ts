@@ -148,6 +148,22 @@ describe('STAGED lines', () => {
     expect(ws.rowCount).toBe(4) // header, 101, STAGED 102, 103 — no MISSING line
   })
 
+  it('an out-of-pattern cheque is written after the sequence with its note, and SUMMARY counts it', async () => {
+    const inPattern = Array.from({ length: 25 }, (_, i) => ch(String(6000100000 + i)))
+    const wb = await load(await buildNumberingWorkbook({ accounts: [account('BPI STK', [...inPattern, ch('1791361374')])], meta: META }))
+    const ws = wb.getWorksheet('BPI STK')!
+    expect(ws.rowCount).toBe(27) // header, 25 in sequence, 1 out of pattern — no MISSING line
+    expect(ws.getRow(27).getCell(1).value).toBe('1791361374')
+    expect(ws.getRow(27).getCell(10).value).toBe('OUT OF PATTERN (expected 10 digits starting 60)')
+    expect(ws.getRow(26).getCell(1).value).toBe('6000100024')
+
+    const summary = wb.getWorksheet(NUMBERING_SUMMARY_SHEET)!
+    const labels = Array.from({ length: 13 }, (_, i) => summary.getRow(6).getCell(i + 1).value)
+    const col = labels.indexOf('OUT OF PATTERN') + 1
+    expect(col).toBe(labels.indexOf('NOT NUMERIC') + 2)
+    expect(summary.getRow(7).getCell(col).value).toBe(1)
+  })
+
   it('SUMMARY carries a STAGED column', async () => {
     const acc = { accountId: 'acc-X', account: 'BPI STK', bank: 'BPI', company: 'STK', series: buildSeries([ch('101')], [stg('102.', 'CV-1'), stg('102..', 'CV-2')]) }
     const wb = await load(await buildNumberingWorkbook({ accounts: [acc], meta: META }))

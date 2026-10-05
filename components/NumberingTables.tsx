@@ -22,7 +22,7 @@ export function NumberingSummaryTable({ accounts, company }: { accounts: readonl
             <th className={th}>FIRST</th><th className={th}>LAST</th>
             <th className={`${th} text-right`}>HELD</th><th className={`${th} text-right`}>VOIDED</th>
             <th className={`${th} text-right`}>CANCELLED</th><th className={`${th} text-right`}>STAGED</th><th className={`${th} text-right`}>MISSING</th>
-            <th className={`${th} text-right`}>NOT NUMERIC</th>
+            <th className={`${th} text-right`}>NOT NUMERIC</th><th className={`${th} text-right`}>OUT OF PATTERN</th>
           </tr>
         </thead>
         <tbody>
@@ -43,6 +43,7 @@ export function NumberingSummaryTable({ accounts, company }: { accounts: readonl
                   {fmtCount(s.missingNumbers)}{s.missingRuns ? ` (${s.missingRuns.toLocaleString('en-PH')})` : ''}
                 </td>
                 <td className={`${th} text-right tabular-nums`}>{s.notNumeric.toLocaleString('en-PH')}</td>
+                <td className={`${th} text-right tabular-nums`}>{s.outOfPattern.toLocaleString('en-PH')}</td>
               </tr>
             )
           })}
@@ -112,6 +113,23 @@ export function NotNumericTable({ cheques }: { cheques: readonly SeriesCheque[] 
     <section className="overflow-x-auto rounded-2xl bg-white ring-1 ring-hairline">
       <table className="w-full text-sm">
         <tbody>{cheques.map((c) => <ChequeRow key={c.id} c={c} />)}</tbody>
+      </table>
+    </section>
+  )
+}
+
+/** Cheques and staged lines whose number breaks the book's pattern (spec §F): listed, not in the sequence. */
+export function OutOfPatternTable({ entries }: { entries: readonly SeriesEntry[] }) {
+  return (
+    <section className="overflow-x-auto rounded-2xl bg-white ring-1 ring-hairline">
+      <table className="w-full text-sm">
+        <tbody>
+          {entries.map((e) => e.kind === 'CHEQUE'
+            ? <ChequeRow key={e.cheque.id} c={e.cheque} note={e.duplicate ? 'DUPLICATE NUMBER' : undefined} />
+            : e.kind === 'STAGED'
+            ? <StagedRow key={`s-${e.staged.acumaticaTenant}-${e.staged.acumaticaRef}`} s={e.staged} />
+            : null)}
+        </tbody>
       </table>
     </section>
   )

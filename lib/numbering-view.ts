@@ -52,4 +52,6 @@ export const NUMBERING_SCOPE_NOTE =
   'onward, so a cheque book\'s first number may sit partway through a booklet; numbers before the register\'s ' +
   'history and the sync\'s 2026 scope are not known here. A number Acumatica re-used with a trailing dot (a second payment on the same cheque number) counts as ' +
   'used and is listed as STAGED. A cheque Acumatica holds with a memo in place of its number is on /admin/staged, ' +
-  'not here — its number may still be one of the MISSING.'
+  'not here — its number may still be one of the MISSING. A number that does not match its book\'s usual length ' +
+  'and first digits is listed as OUT OF PATTERN — usually a mistyped or misfiled cheque number in Acumatica — and ' +
+  'left out of the gap count.'
