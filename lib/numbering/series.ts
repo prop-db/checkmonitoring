@@ -30,6 +30,8 @@ import { canonicalCheckNumber, isBareCheckNumber } from '@/lib/import/normalise'
 export type SeriesCheque = {
   id: string; checkNumber: string; checkDate: Date | null; payeeName: string | null
   amount: string | null; currency: string; status: CheckStatus
+  /** Acumatica's payment reference (`Check.acumaticaPaymentId`) — the CV Finance corrects there (spec §G3). */
+  cv: string | null
 }
 export type SeriesStaged = {
   acumaticaTenant: string; acumaticaRef: string; statedCheckRef: string; checkDate: Date | null; payeeName: string | null
@@ -194,4 +196,54 @@ export function buildSeries(cheques: readonly SeriesCheque[], staged: readonly S
       outOfPattern: misfits.length,
     },
   }
+}
+
+/** A stray end is more than this far from the next number inward (spec §G3). */
+export const STRAY_GAP = BigInt(10000)
+/** At most this many stray numbers are named from each end. */
+const STRAY_MAX_PER_END = 3
+
+type HeldEntry = Exclude<SeriesEntry, { kind: 'MISSING' }>
+export type StrayEnd = { cheque: SeriesCheque | null; staged: SeriesStaged | null; reason: string }
+
+/**
+ * A book's stray ends (spec §G3): the first in-pattern number when the next is
+ * more than STRAY_GAP higher, the last when the previous is more than STRAY_GAP
+ * lower — repeated inward while it holds, at most 3 numbers from each end, and
+ * never one number from both ends. Only the sequence's CHEQUE and STAGED
+ * entries are read, so an OUT OF PATTERN number is neither a stray end nor
+ * makes one. Every entry on a stray number is named. A to-do list for
+ * Acumatica: it changes no count. Pure.
+ */
+export function strayEnds(series: AccountSeries): StrayEnd[] {
+  // Distinct numbers in order, each with every entry that holds it.
+  const groups: { n: bigint; entries: HeldEntry[] }[] = []
+  for (const e of series.entries) {
+    if (e.kind === 'MISSING') continue
+    const n = BigInt(e.kind === 'CHEQUE' ? e.cheque.checkNumber.trim() : e.number)
+    const last = groups[groups.length - 1]
+    if (last && last.n === n) last.entries.push(e)
+    else groups.push({ n, entries: [e] })
+  }
+  const named = (g: { entries: HeldEntry[] }, reason: string): StrayEnd[] =>
+    g.entries.map((e) => (e.kind === 'CHEQUE'
+      ? { cheque: e.cheque, staged: null, reason }
+      : { cheque: null, staged: e.staged, reason }))
+
+  const out: StrayEnd[] = []
+  let front = 0
+  while (front < STRAY_MAX_PER_END && front + 1 < groups.length) {
+    const gap = groups[front + 1].n - groups[front].n
+    if (gap <= STRAY_GAP) break
+    out.push(...named(groups[front], `STRAY FIRST NUMBER — next is ${gap.toString()} higher`))
+    front += 1
+  }
+  let back = groups.length - 1
+  while (groups.length - 1 - back < STRAY_MAX_PER_END && back - 1 >= 0 && back >= front) {
+    const gap = groups[back].n - groups[back - 1].n
+    if (gap <= STRAY_GAP) break
+    out.push(...named(groups[back], `STRAY LAST NUMBER — previous is ${gap.toString()} lower`))
+    back -= 1
+  }
+  return out
 }

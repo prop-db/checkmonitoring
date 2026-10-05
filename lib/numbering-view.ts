@@ -45,10 +45,18 @@ export function numberingFilename(day: string): string {
   return `${slugify('cheque numbering')}-${day}.xlsx`
 }
 
+/** The register-only cheques NUMBERING leaves out (spec §G2), stated on the page and on SUMMARY. */
+export function registerOnlyLine(count: number): string {
+  return count === 1
+    ? '1 REGISTER-ONLY CHEQUE (NOT IN ACUMATICA) IS NOT SHOWN.'
+    : `${count.toLocaleString('en-PH')} REGISTER-ONLY CHEQUES (NOT IN ACUMATICA) ARE NOT SHOWN.`
+}
+
 /** Printed on the page and in the file (spec §B2): what MISSING cannot tell you. */
 export const NUMBERING_SCOPE_NOTE =
-  'MISSING means no cheque in this system holds the number. Each series is one cheque book — the bank account ' +
-  'Acumatica names in its CashAccount column (e.g. BPI-S-4636). The Acumatica sync reads payments dated 2026 ' +
+  'MISSING means no cheque in this system holds the number. Each series is one cheque book, built from ' +
+  'Acumatica\'s own cheque numbers and cash accounts (e.g. BPI-S-4636); cheques that exist only in the old ' +
+  'register are not shown. The Acumatica sync reads payments dated 2026 ' +
   'onward, so a cheque book\'s first number may sit partway through a booklet; numbers before the register\'s ' +
   'history and the sync\'s 2026 scope are not known here. A number Acumatica re-used with a trailing dot (a second payment on the same cheque number) counts as ' +
   'used and is listed as STAGED. A cheque Acumatica holds with a memo in place of its number is on /admin/staged, ' +

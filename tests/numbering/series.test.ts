@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { buildSeries, stagedSeriesNumber, numberShape, PATTERN_MIN_CHEQUES, type SeriesCheque, type SeriesEntry, type SeriesStaged } from '@/lib/numbering/series'
+import { buildSeries, stagedSeriesNumber, numberShape, strayEnds, PATTERN_MIN_CHEQUES, STRAY_GAP, type SeriesCheque, type SeriesEntry, type SeriesStaged } from '@/lib/numbering/series'
 
 let seq = 0
 function c(checkNumber: string, status: SeriesCheque['status'] = 'RELEASED'): SeriesCheque {
   seq += 1
-  return { id: `id${String(seq).padStart(4, '0')}`, checkNumber, checkDate: null, payeeName: null, amount: '1.00', currency: 'PHP', status }
+  return { id: `id${String(seq).padStart(4, '0')}`, checkNumber, checkDate: null, payeeName: null, amount: '1.00', currency: 'PHP', status, cv: `CV-${checkNumber}` }
 }
 const shape = (entries: SeriesEntry[]) =>
   entries.map((e) => (e.kind === 'CHEQUE' ? e.cheque.checkNumber
@@ -191,5 +191,69 @@ describe('OUT OF PATTERN (spec §F)', () => {
   it('a tie goes to more digits, then the lower lead', () => {
     expect(buildSeries([...run(600010, 12), ...run(6000100000, 12)]).pattern).toEqual({ digits: 10, lead: '60' })
     expect(buildSeries([...run(6000100000, 12), ...run(1791100000, 12)]).pattern).toEqual({ digits: 10, lead: '17' })
+  })
+})
+
+describe('strayEnds (spec §G3)', () => {
+  const run = (from: number, count: number) => Array.from({ length: count }, (_, i) => c(String(from + i)))
+  const label = (x: ReturnType<typeof strayEnds>[number]) =>
+    `${x.cheque ? x.cheque.checkNumber : `STAGED ${x.staged!.statedCheckRef}`} | ${x.reason}`
+
+  it('STRAY_GAP is 10,000', () => {
+    expect(STRAY_GAP.toString()).toBe('10000')
+  })
+
+  it('names a first number more than 10,000 below the next, and a last more than 10,000 above the previous', () => {
+    const s = buildSeries([c('1719333663'), ...run(1790100000, 5), c('1797334184')])
+    expect(strayEnds(s).map(label)).toEqual([
+      '1719333663 | STRAY FIRST NUMBER — next is 70766337 higher',
+      '1797334184 | STRAY LAST NUMBER — previous is 7234180 lower',
+    ])
+    expect(strayEnds(s)[0].cheque?.cv).toBe('CV-1719333663')
+  })
+
+  it('a gap of exactly 10,000 is not a stray end', () => {
+    expect(strayEnds(buildSeries([c('100000'), c('110000'), c('110001')]))).toEqual([])
+  })
+
+  it('works inward while it holds, at most 3 from each end', () => {
+    const s = buildSeries([c('100'), c('200000'), c('400000'), c('600000'), c('800000'), ...run(1000000, 5)])
+    expect(strayEnds(s).map((x) => x.cheque!.checkNumber)).toEqual(['100', '200000', '400000'])
+    const t = buildSeries([c('500'), ...run(1000000, 3), c('2000000'), c('3000000')])
+    expect(strayEnds(t).map(label)).toEqual([
+      '500 | STRAY FIRST NUMBER — next is 999500 higher',
+      '3000000 | STRAY LAST NUMBER — previous is 1000000 lower',
+      '2000000 | STRAY LAST NUMBER — previous is 999998 lower',
+    ])
+  })
+
+  it('none when the gaps are small', () => {
+    expect(strayEnds(buildSeries([c('1'), c('5000'), c('9000')]))).toEqual([])
+    expect(strayEnds(buildSeries([c('42')]))).toEqual([])
+    expect(strayEnds(buildSeries([]))).toEqual([])
+  })
+
+  it('ignores out-of-pattern numbers: they neither are stray ends nor make one', () => {
+    const s = buildSeries([...run(6000100000, 25), c('1791361374'), c('60000')])
+    expect(s.outOfPattern).toHaveLength(2)
+    expect(strayEnds(s)).toEqual([])
+  })
+
+  it('a staged line can be a stray end, and every entry on a stray number is named', () => {
+    const s = buildSeries([...run(1000000, 3), c('5000000'), c('5000000')], [st('5000000.', 'CV-ST9')])
+    const out = strayEnds(s)
+    expect(out.map(label)).toEqual([
+      '5000000 | STRAY LAST NUMBER — previous is 3999998 lower',
+      '5000000 | STRAY LAST NUMBER — previous is 3999998 lower',
+      'STAGED 5000000. | STRAY LAST NUMBER — previous is 3999998 lower',
+    ])
+    expect(out[2].staged?.acumaticaRef).toBe('CV-ST9')
+  })
+
+  it('a two-number series with a wide gap names both ends, each once', () => {
+    expect(strayEnds(buildSeries([c('1'), c('100000')])).map(label)).toEqual([
+      '1 | STRAY FIRST NUMBER — next is 99999 higher',
+      '100000 | STRAY LAST NUMBER — previous is 99999 lower',
+    ])
   })
 })

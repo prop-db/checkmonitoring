@@ -24,8 +24,9 @@ function companyLabel(counts: Map<string, number>): string {
 }
 
 /**
- * Every cheque that holds a number in a cheque book's series: `isCheque`, a
- * cheque book, and EVERY status — VOIDED, CANCELLED and no-amount cheques
+ * Every cheque that holds a number in a cheque book's series: `isCheque`, an
+ * Acumatica payment (`acumaticaPaymentId` — register-only cheques are not
+ * shown, spec §G2, and do not select a company's books), a cheque book, and EVERY status — VOIDED, CANCELLED and no-amount cheques
  * included, because the number was used whatever happened to it (spec
  * 2026-10-01-cheque-numbering-and-cancel-guard-design §B1). The series key is
  * the cheque book (`CheckBook`) — the bank account Acumatica states in its
@@ -52,7 +53,7 @@ export async function listNumberingAccounts(db: Db, f: NumberingFilters): Promis
     bookIds = [f.checkBookId]
   } else if (f.companyId) {
     const used = await db.check.findMany({
-      where: { isCheque: true, companyId: f.companyId, checkBookId: { not: null } },
+      where: { isCheque: true, acumaticaPaymentId: { not: null }, companyId: f.companyId, checkBookId: { not: null } },
       select: { checkBookId: true },
       distinct: ['checkBookId'],
     })
@@ -60,9 +61,9 @@ export async function listNumberingAccounts(db: Db, f: NumberingFilters): Promis
   }
 
   const rows = await db.check.findMany({
-    where: { isCheque: true, checkBookId: bookIds ? { in: bookIds } : { not: null } },
+    where: { isCheque: true, acumaticaPaymentId: { not: null }, checkBookId: bookIds ? { in: bookIds } : { not: null } },
     select: {
-      id: true, checkNumber: true, checkDate: true, payeeName: true, amount: true, currency: true, status: true,
+      id: true, checkNumber: true, checkDate: true, payeeName: true, amount: true, currency: true, status: true, acumaticaPaymentId: true,
       company: { select: { code: true } },
       checkBook: { select: { id: true, code: true, bank: { select: { code: true } } } },
     },
@@ -83,7 +84,7 @@ export async function listNumberingAccounts(db: Db, f: NumberingFilters): Promis
     g.companies.set(r.company.code, (g.companies.get(r.company.code) ?? 0) + 1)
     g.cheques.push({
       id: r.id, checkNumber: r.checkNumber, checkDate: r.checkDate, payeeName: r.payeeName,
-      amount: r.amount?.toFixed(2) ?? null, currency: r.currency, status: r.status,
+      amount: r.amount?.toFixed(2) ?? null, currency: r.currency, status: r.status, cv: r.acumaticaPaymentId,
     })
   }
 
@@ -115,9 +116,20 @@ export async function listNumberingAccounts(db: Db, f: NumberingFilters): Promis
     .sort((a, b) => a.account.localeCompare(b.account) || a.accountId.localeCompare(b.accountId))
 }
 
-/** Cheques in no series because they carry no cheque book — stated on the page, not listed. */
+/** Acumatica cheques in no series because they carry no cheque book — stated on the page, not listed. */
 export async function countChequesWithoutCheckBook(db: Db, f: { companyId?: string }): Promise<number> {
-  return db.check.count({ where: { isCheque: true, checkBookId: null, ...(f.companyId ? { companyId: f.companyId } : {}) } })
+  return db.check.count({
+    where: { isCheque: true, acumaticaPaymentId: { not: null }, checkBookId: null, ...(f.companyId ? { companyId: f.companyId } : {}) },
+  })
+}
+
+/**
+ * Cheques Acumatica does not know — no payment reference, so they exist only
+ * in the old register (spec §G2). NUMBERING follows Acumatica's data and does
+ * not show them; the page and the file state how many there are.
+ */
+export async function countRegisterOnlyCheques(db: Db, f: { companyId?: string }): Promise<number> {
+  return db.check.count({ where: { isCheque: true, acumaticaPaymentId: null, ...(f.companyId ? { companyId: f.companyId } : {}) } })
 }
 
 /** The cheque books, by code — the series the NUMBERING page and export accept as `account`. */

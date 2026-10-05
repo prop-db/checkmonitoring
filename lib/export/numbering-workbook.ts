@@ -3,11 +3,11 @@ import ExcelJS from 'exceljs'
 import { currencyNumberFormat } from './report'
 import { BAND_FILL, COUNT_FORMAT, DATE_FORMAT, styleHeaderCell } from './sheet-style'
 import type { NumberingAccount } from '@/lib/numbering/query'
-import type { SeriesCheque, SeriesStaged } from '@/lib/numbering/series'
-import { visibleEntries, NUMBERING_SCOPE_NOTE } from '@/lib/numbering-view'
+import { strayEnds, type SeriesCheque, type SeriesStaged, type StrayEnd } from '@/lib/numbering/series'
+import { visibleEntries, registerOnlyLine, NUMBERING_SCOPE_NOTE } from '@/lib/numbering-view'
 
 /**
- * The numbering report as a workbook: SUMMARY, then one sheet per cheque book with
+ * The numbering report as a workbook: SUMMARY, TO FIX IN ACUMATICA (spec §G3), then one sheet per cheque book with
  * every cheque in number order, each MISSING run as one row whose FROM, TO
  * and COUNT have their own columns, and each number Acumatica re-used with a
  * trailing dot as a STAGED row (spec §C) — so a filter on STATUS = MISSING works
@@ -19,13 +19,22 @@ export const NUMBERING_SUMMARY_SHEET = 'SUMMARY'
 export const NUMBERING_ACCOUNT_HEADERS = [
   'CHECK NUMBER', 'CHEQUE DATE', 'PAYEE', 'STATUS', 'CURRENCY', 'AMOUNT', 'FROM', 'TO', 'COUNT', 'NOTE',
 ] as const
-const SUMMARY_HEADERS = ['CHEQUE BOOK', 'BANK', 'COMPANY', 'FIRST', 'LAST', 'HELD', 'VOIDED', 'CANCELLED', 'STAGED', 'MISSING NUMBERS', 'MISSING RUNS', 'NOT NUMERIC', 'OUT OF PATTERN'] as const
+/**
+ * TO FIX IN ACUMATICA (spec §G3): every OUT OF PATTERN cheque or staged line and
+ * each book's stray ends, with the CV to correct in Acumatica. A short to-do
+ * list: never cut by the row limit, written under MISSING ONLY too.
+ */
+export const NUMBERING_TO_FIX_SHEET = 'TO FIX IN ACUMATICA'
+export const NUMBERING_TO_FIX_HEADERS = ['CHEQUE BOOK', 'CHECK NUMBER', 'CV', 'CHEQUE DATE', 'PAYEE', 'STATUS', 'REASON'] as const
+const SUMMARY_HEADERS =['CHEQUE BOOK', 'BANK', 'COMPANY', 'FIRST', 'LAST', 'HELD', 'VOIDED', 'CANCELLED', 'STAGED', 'MISSING NUMBERS', 'MISSING RUNS', 'NOT NUMERIC', 'OUT OF PATTERN'] as const
 
 export type NumberingMeta = {
   generatedAt: Date; generatedBy: string; filterDescription: string
   missingOnly: boolean
   /** null when an account is open: the count is not measured there, so no line is printed. */
   noAccountCount: number | null
+  /** Register-only cheques not shown (spec §G2); null when an account is open, so no line is printed. */
+  registerOnlyCount: number | null
   /** `caps.exportRows`: cheque and MISSING lines across all cheque-book sheets. */
   rowLimit: number
 }
@@ -77,9 +86,12 @@ export async function buildNumberingWorkbook(
     ? `${generatedLine(meta)}  ·  the cheque-book sheets hold the first ${fmt(meta.rowLimit)} of ${fmt(totalLines)} lines`
     : `${generatedLine(meta)}  ·  ${fmt(accounts.length)} cheque book${accounts.length === 1 ? '' : 's'}`
   ws.getCell('A3').font = { size: 10, color: { argb: MUTED_INK } }
-  ws.getCell('A4').value = meta.noAccountCount === null
-    ? NUMBERING_SCOPE_NOTE
-    : `${NUMBERING_SCOPE_NOTE} Not in any series: ${fmt(meta.noAccountCount)} cheque${meta.noAccountCount === 1 ? '' : 's'} with no cheque book.`
+  ws.getCell('A4').value = [
+    NUMBERING_SCOPE_NOTE,
+    meta.noAccountCount === null ? null
+      : `Not in any series: ${fmt(meta.noAccountCount)} cheque${meta.noAccountCount === 1 ? '' : 's'} with no cheque book.`,
+    meta.registerOnlyCount === null ? null : registerOnlyLine(meta.registerOnlyCount),
+  ].filter((s) => s !== null).join(' ')
   ws.getCell('A4').font = { size: 10, color: { argb: MUTED_INK } }
 
   const header = ws.getRow(6)
@@ -99,7 +111,31 @@ export async function buildNumberingWorkbook(
   })
   ;[22, 10, 10, 14, 14, 10, 10, 12, 10, 18, 14, 14, 16].forEach((w, i) => { ws.getColumn(i + 1).width = w })
 
-  const used = new Set([NUMBERING_SUMMARY_SHEET.toUpperCase()])
+  const fix = wb.addWorksheet(NUMBERING_TO_FIX_SHEET, { views: [{ state: 'frozen', ySplit: 1 }] })
+  NUMBERING_TO_FIX_HEADERS.forEach((label, i) => styleHeaderCell(fix.getRow(1).getCell(i + 1), label, 'left'))
+  let fr = 2
+  const fixRow = (book: string, number: string, cv: string | null, date: Date | null, payee: string | null, status: string, reason: string) => {
+    const row = fix.getRow(fr++)
+    ;[book, number, cv, date, payee, status, reason].forEach((v, col) => { row.getCell(col + 1).value = v })
+    if (date) row.getCell(4).numFmt = DATE_FORMAT
+  }
+  for (const a of accounts) {
+    const p = a.series.pattern
+    const outReason = p ? `OUT OF PATTERN — expected ${p.digits} digits starting ${p.lead}` : 'OUT OF PATTERN'
+    const items: StrayEnd[] = [
+      ...a.series.outOfPattern.flatMap((o): StrayEnd[] => (o.kind === 'CHEQUE' ? [{ cheque: o.cheque, staged: null, reason: outReason }]
+        : o.kind === 'STAGED' ? [{ cheque: null, staged: o.staged, reason: outReason }] : [])),
+      ...strayEnds(a.series),
+    ]
+    for (const { cheque: c, staged: s, reason } of items) {
+      if (c) fixRow(a.account, c.checkNumber, c.cv, c.checkDate, c.payeeName, c.status, reason)
+      else if (s) fixRow(a.account, s.statedCheckRef, s.acumaticaRef, s.checkDate, s.payeeName, 'STAGED', reason)
+    }
+  }
+  fix.autoFilter = { from: { row: 1, column: 1 }, to: { row: Math.max(fr - 1, 1), column: NUMBERING_TO_FIX_HEADERS.length } }
+  ;[22, 16, 16, 14, 36, 18, 48].forEach((w, i) => { fix.getColumn(i + 1).width = w })
+
+  const used = new Set([NUMBERING_SUMMARY_SHEET.toUpperCase(), NUMBERING_TO_FIX_SHEET.toUpperCase()])
   let budget = meta.rowLimit
   for (const { a, entries } of lines) {
     if (budget <= 0) break

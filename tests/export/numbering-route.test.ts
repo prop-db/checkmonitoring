@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import ExcelJS from 'exceljs'
 import { resetDb, testDb } from '../helpers/db'
 import { makeCheck } from '../helpers/factory'
-import { NUMBERING_SUMMARY_SHEET } from '@/lib/export/numbering-workbook'
+import { NUMBERING_SUMMARY_SHEET, NUMBERING_TO_FIX_SHEET } from '@/lib/export/numbering-workbook'
 
 const state = vi.hoisted(() => ({
   user: null as { id: string; email: string; name: string; role: string } | null,
@@ -23,7 +23,11 @@ async function chequeInBook(checkNumber: string) {
   const book = await testDb.checkBook.create({
     data: { code: `BPI-S-${Math.random().toString(36).slice(2, 6)}`, bankId: acc.bankId, companyId: c.companyId },
   })
-  await testDb.check.update({ where: { id: c.id }, data: { checkBookId: book.id } })
+  // An Acumatica cheque: NUMBERING shows only these (spec §G2).
+  await testDb.check.update({
+    where: { id: c.id },
+    data: { checkBookId: book.id, acumaticaPaymentId: `CV-R${checkNumber}-${Math.random().toString(36).slice(2, 6)}`, acumaticaTenant: 'GOLIVE' },
+  })
   return { cheque: c, book }
 }
 
@@ -61,9 +65,22 @@ describe('GET /api/export/numbering', () => {
     expect(res.status).toBe(200)
     const wb = new ExcelJS.Workbook()
     await wb.xlsx.load(await res.arrayBuffer())
-    expect(wb.worksheets.map((w) => w.name)).toHaveLength(2)
+    expect(wb.worksheets.map((w) => w.name)).toHaveLength(3)
     expect(wb.worksheets[0].name).toBe(NUMBERING_SUMMARY_SHEET)
-    expect(wb.worksheets[1].name).toBe(a.book.code)
+    expect(wb.worksheets[1].name).toBe(NUMBERING_TO_FIX_SHEET)
+    expect(wb.worksheets[2].name).toBe(a.book.code)
+    expect(String(wb.getWorksheet(NUMBERING_SUMMARY_SHEET)!.getCell('A4').value)).not.toContain('REGISTER-ONLY')
+  })
+
+  it('states the register-only cheques on SUMMARY and leaves them out of every sheet (spec §G2)', async () => {
+    await chequeInBook('1')
+    await makeCheck({ checkNumber: '2' }) // register-only
+    const res = await get('http://localhost/api/export/numbering')
+    expect(res.status).toBe(200)
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(await res.arrayBuffer())
+    expect(String(wb.getWorksheet(NUMBERING_SUMMARY_SHEET)!.getCell('A4').value)).toContain('1 REGISTER-ONLY CHEQUE (NOT IN ACUMATICA) IS NOT SHOWN.')
+    expect(wb.worksheets).toHaveLength(3)
   })
 
   it('with a cheque book set, a company filter does not leak into the file description', async () => {

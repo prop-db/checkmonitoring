@@ -1,9 +1,22 @@
 import { describe, it, expect } from 'vitest'
 import {
   numberingHref, isMissingOnly, visibleEntries, describeNumberingFilters, missingLabel, numberingFilename,
-  NUMBERING_EXPORT_PATH,
+  registerOnlyLine, NUMBERING_EXPORT_PATH, NUMBERING_SCOPE_NOTE,
 } from '@/lib/numbering-view'
 import type { SeriesEntry } from '@/lib/numbering/series'
+
+describe('Acumatica only (spec §G2)', () => {
+  it('the scope note says each series is built from Acumatica and register-only cheques are not shown', () => {
+    expect(NUMBERING_SCOPE_NOTE).toContain(
+      "Each series is one cheque book, built from Acumatica's own cheque numbers and cash accounts (e.g. BPI-S-4636); cheques that exist only in the old register are not shown.")
+    expect(NUMBERING_SCOPE_NOTE).not.toContain('CashAccount column')
+  })
+  it('registerOnlyLine states the count, singular and plural', () => {
+    expect(registerOnlyLine(1)).toBe('1 REGISTER-ONLY CHEQUE (NOT IN ACUMATICA) IS NOT SHOWN.')
+    expect(registerOnlyLine(1102)).toBe('1,102 REGISTER-ONLY CHEQUES (NOT IN ACUMATICA) ARE NOT SHOWN.')
+    expect(registerOnlyLine(0)).toBe('0 REGISTER-ONLY CHEQUES (NOT IN ACUMATICA) ARE NOT SHOWN.')
+  })
+})
 
 describe('numberingHref', () => {
   it('writes only what is set, in a fixed order', () => {
@@ -25,7 +38,7 @@ describe('isMissingOnly', () => {
 })
 
 describe('visibleEntries', () => {
-  const cheque: SeriesEntry = { kind: 'CHEQUE', duplicate: false, cheque: { id: 'x', checkNumber: '1', checkDate: null, payeeName: null, amount: null, currency: 'PHP', status: 'VOIDED' } }
+  const cheque: SeriesEntry = { kind: 'CHEQUE', duplicate: false, cheque: { id: 'x', checkNumber: '1', checkDate: null, payeeName: null, amount: null, currency: 'PHP', status: 'VOIDED', cv: null } }
   const gap: SeriesEntry = { kind: 'MISSING', from: '2', to: '3', count: '2' }
   it('keeps everything, or only the MISSING lines', () => {
     expect(visibleEntries([cheque, gap], false)).toEqual([cheque, gap])

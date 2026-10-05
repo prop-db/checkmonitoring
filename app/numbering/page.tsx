@@ -3,10 +3,10 @@ import Link from 'next/link'
 import { requireUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { getFilterOptions } from '@/lib/queries'
-import { listNumberingAccounts, countChequesWithoutCheckBook, listCheckBookOptions } from '@/lib/numbering/query'
+import { listNumberingAccounts, countChequesWithoutCheckBook, countRegisterOnlyCheques, listCheckBookOptions } from '@/lib/numbering/query'
 import {
   NUMBERING_PATH, NUMBERING_EXPORT_PATH, NUMBERING_SCOPE_NOTE,
-  numberingHref, isMissingOnly, visibleEntries, describeNumberingFilters,
+  numberingHref, isMissingOnly, visibleEntries, describeNumberingFilters, registerOnlyLine,
 } from '@/lib/numbering-view'
 import { AppHeader } from '@/components/AppHeader'
 import { EmptyState } from '@/components/EmptyState'
@@ -44,9 +44,10 @@ export default async function NumberingPage({
 
   // With an account open the company filter is not applied, so it must not be described or counted either.
   const scopedCompany = account ? undefined : company
-  const [accounts, noAccountCount] = await Promise.all([
+  const [accounts, noAccountCount, registerOnlyCount] = await Promise.all([
     listNumberingAccounts(prisma, { companyId: scopedCompany?.id, checkBookId: account?.id }),
     account ? Promise.resolve(0) : countChequesWithoutCheckBook(prisma, { companyId: scopedCompany?.id }),
+    account ? Promise.resolve(0) : countRegisterOnlyCheques(prisma, { companyId: scopedCompany?.id }),
   ])
   const current = { company: company?.id, account: account?.id, missing: missingOnly }
   const one = account ? accounts[0] : undefined
@@ -81,6 +82,9 @@ export default async function NumberingPage({
             <p className="text-xs font-medium tracking-wide text-slate-500">
               NOT IN ANY SERIES: {noAccountCount.toLocaleString('en-PH')} CHEQUE{noAccountCount === 1 ? '' : 'S'} WITH NO CHEQUE BOOK.
             </p>
+          )}
+          {!account && registerOnlyCount > 0 && (
+            <p className="text-xs font-medium tracking-wide text-slate-500">{registerOnlyLine(registerOnlyCount)}</p>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-3">

@@ -3,7 +3,7 @@ import { getSessionUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { getFilterOptions } from '@/lib/queries'
 import { manilaDay } from '@/lib/forecast/buckets'
-import { listNumberingAccounts, countChequesWithoutCheckBook, listCheckBookOptions } from '@/lib/numbering/query'
+import { listNumberingAccounts, countChequesWithoutCheckBook, countRegisterOnlyCheques, listCheckBookOptions } from '@/lib/numbering/query'
 import { isMissingOnly, describeNumberingFilters, numberingFilename } from '@/lib/numbering-view'
 import { buildNumberingWorkbook } from '@/lib/export/numbering-workbook'
 import { loadSettings } from '@/lib/settings/read'
@@ -36,15 +36,16 @@ export async function GET(request: Request): Promise<Response> {
 
   // With an account open the company filter is not applied, so it must not be described or counted either.
   const scopedCompany = account ? undefined : company
-  const [accounts, noAccountCount] = await Promise.all([
+  const [accounts, noAccountCount, registerOnlyCount] = await Promise.all([
     listNumberingAccounts(prisma, { companyId: scopedCompany?.id, checkBookId: account?.id }),
     account ? Promise.resolve(null) : countChequesWithoutCheckBook(prisma, { companyId: scopedCompany?.id }),
+    account ? Promise.resolve(null) : countRegisterOnlyCheques(prisma, { companyId: scopedCompany?.id }),
   ])
 
   const workbook = await buildNumberingWorkbook({
     accounts,
     meta: {
-      generatedAt: now, generatedBy: user.name, missingOnly, noAccountCount,
+      generatedAt: now, generatedBy: user.name, missingOnly, noAccountCount, registerOnlyCount,
       filterDescription: describeNumberingFilters({ company: scopedCompany?.code, account: account?.code, missingOnly }),
       rowLimit: settings.values['caps.exportRows'],
     },
