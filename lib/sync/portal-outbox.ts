@@ -15,7 +15,8 @@ type Db = PrismaClient | Prisma.TransactionClient
  * delivered and the older ones are closed as superseded. This is what makes
  * the backlog queued since 2026-09-04 safe to drain - a stale MARK_AVAILABLE
  * for a cheque since released must not email a supplier "ready for pickup"
- * seconds before "picked up".
+ * seconds before "picked up". Since spec 2026-10-02 "latest wins" runs per
+ * lane - the status lane and the RECEIPT lane - see deliverPortalEvents.
  *
  * Claims are exclusive (a conditional updateMany), backoff is a timestamp so
  * the worker stays stateless, and PARKED is the human's queue.
@@ -28,6 +29,20 @@ export const UNMATCHED_MAX_ATTEMPTS = 7
 export const STALE_CLAIM_MS = 10 * 60_000
 /** One request never waits longer than this, nor past the run's deadline. */
 export const REQUEST_TIMEOUT_MS = 10_000
+/**
+ * A RECEIPT carries the scanned receipt base64 inside the request (a ~4 MB
+ * body uploaded from Manila), so it gets longer (spec 2026-10-02). Still
+ * capped by the run's deadline.
+ */
+export const RECEIPT_REQUEST_TIMEOUT_MS = 30_000
+/**
+ * A RECEIPT is not started with less than this left in the run (review
+ * 2026-10-02): a request likely to time out would only cost an attempt.
+ * The row is left untouched for the next run. 6 s, below the 8 s after-action
+ * kick, so an ordinary kick still sends a receipt; the receipt actions kick with
+ * 25 s (review 2026-10-02, second pass).
+ */
+export const RECEIPT_MIN_REMAINING_MS = 6_000
 const MIN_REQUEST_TIMEOUT_MS = 1_000
 
 export type PortalOutboxOutcome = {
@@ -71,6 +86,10 @@ export function kindMatchesStatus(kind: PortalEventKind, status: CheckStatus): b
       return status === 'SIGNED' || status === 'SIGNATURE_PENDING' || status === 'GENERATED'
     case 'CANCELLED':
       return status === 'CANCELLED' || status === 'VOIDED'
+    // The supplier's receipt is only ever handed over for a collected cheque
+    // (user request 2026-10-01): a release reversed since closes it unsent.
+    case 'RECEIPT':
+      return status === 'RELEASED'
     default:
       return false
   }
@@ -116,6 +135,8 @@ function judge(res: PortalDeliveryResult, attempts: number): Verdict {
 }
 
 /**
+ * `flagCheck` is also false for a RECEIPT, whose outcome is not the cheque's
+ * portal state (review 2026-10-02).
  * `flagCheck` is false when the cheque must not carry portal state: an
  * INTERNAL cheque (the database's check_internal_never_routes_to_portal
  * constraint requires portalSyncStatus = NOT_APPLICABLE) or one that no
@@ -232,12 +253,17 @@ export async function deliverPortalEvents(
   // (MARK_AVAILABLE after RELEASED). The cheque is reconsidered next run,
   // once the live claim has settled or gone stale.
   const frozen = new Set(open.filter(isLive).map((ev) => ev.checkId))
+  // Two lanes per cheque (spec 2026-10-02): the status lane (MARK_AVAILABLE,
+  // REVERT, RELEASED, RELEASE_REVERSED, CANCELLED) and the receipt lane.
+  // Latest-wins runs inside a lane only: a RECEIPT must never close the
+  // RELEASED it accompanies, and a later status event must not drop a receipt.
+  const laneOf = (ev: PortalEvent) => `${ev.checkId}|${ev.kind === 'RECEIPT' ? 'receipt' : 'status'}`
   const newest = new Map<string, PortalEvent>()
-  for (const ev of open) if (!frozen.has(ev.checkId)) newest.set(ev.checkId, ev)
+  for (const ev of open) if (!frozen.has(ev.checkId)) newest.set(laneOf(ev), ev)
 
   for (const ev of open) {
     if (frozen.has(ev.checkId)) continue
-    const winner = newest.get(ev.checkId)!
+    const winner = newest.get(laneOf(ev))!
     if (winner.id === ev.id) continue
     if (pastDeadline()) { out.stoppedAtDeadline = true; return out }
     const lastError = `superseded by ${winner.id}`
@@ -262,10 +288,45 @@ export async function deliverPortalEvents(
     else frozen.add(ev.checkId)
   }
 
-  for (const ev of newest.values()) {
+  // Status lanes first, receipts after (a stable sort keeps the oldest-first
+  // order inside each group).
+  const winners = [...newest.values()].sort((a, b) =>
+    (a.kind === 'RECEIPT' ? 1 : 0) - (b.kind === 'RECEIPT' ? 1 : 0))
+  // THE RECEIPT HOLD, across runs (spec 2026-10-02; review 2026-10-02): a
+  // RECEIPT is delivered only once its cheque's NEWEST status-lane event
+  // (any kind but RECEIPT, by createdAt then id, whatever its status) is
+  // SYNCED - delivered, superseded or closed as stale. While that event is
+  // PENDING, FAILED (due or not), IN_FLIGHT or PARKED the receipt waits
+  // untouched: the portal must hear RELEASED before the receipt that goes
+  // with it, and a parked status event waits for a human, so does its receipt.
+  // A cheque with no status-lane event at all does not hold.
+  //  - statusOpen: the status winner is open in this run; it is released in
+  //    the loop below when that event settles SYNCED or closes stale.
+  //  - statusStuck: the newest status event is closed but not SYNCED
+  //    (PARKED); nothing in this run releases it.
+  const statusOpen = new Set([...newest.values()].filter((e) => e.kind !== 'RECEIPT').map((e) => e.checkId))
+  const statusStuck = new Set<string>()
+  const receiptCheques = [...newest.values()].filter((e) => e.kind === 'RECEIPT').map((e) => e.checkId)
+  if (receiptCheques.length) {
+    const statusEvents = await db.portalEvent.findMany({
+      where: { checkId: { in: receiptCheques }, kind: { not: 'RECEIPT' } },
+      select: { checkId: true, status: true },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    })
+    const newestStatus = new Map<string, PortalEvent['status']>()
+    for (const e of statusEvents) newestStatus.set(e.checkId, e.status)
+    for (const [checkId, status] of newestStatus) {
+      if (status !== 'SYNCED' && !statusOpen.has(checkId)) statusStuck.add(checkId)
+    }
+  }
+  for (const ev of winners) {
     if (frozen.has(ev.checkId)) continue
+    if (ev.kind === 'RECEIPT' && (statusOpen.has(ev.checkId) || statusStuck.has(ev.checkId))) continue
     if (pastDeadline()) { out.stoppedAtDeadline = true; break }
     if (ev.status !== 'IN_FLIGHT' && ev.nextAttemptAt.getTime() > args.now.getTime()) continue
+    // Too little time left for a ~4 MB upload (review 2026-10-02): leave the
+    // RECEIPT untouched for the next run rather than spend an attempt.
+    if (ev.kind === 'RECEIPT' && args.deadline.getTime() - clock() < RECEIPT_MIN_REMAINING_MS) continue
 
     // One bad row never aborts the run (review fix 2026-09-26): an unexpected
     // error (a DB failure, say) is recorded and the next event is tried. The
@@ -283,7 +344,12 @@ export async function deliverPortalEvents(
 
       const check = await db.check.findUnique({
         where: { id: ev.checkId },
-        include: { cashAccount: { include: { bank: true } }, checkBook: { include: { bank: true } }, bills: true, releasedBy: { select: { name: true } } },
+        include: {
+          cashAccount: { include: { bank: true } }, checkBook: { include: { bank: true } }, bills: true,
+          releasedBy: { select: { name: true } },
+          // The receipt's bytes are read only for a RECEIPT delivery (spec 2026-10-02).
+          ...(ev.kind === 'RECEIPT' ? { receiptFile: { select: { fileName: true, contentType: true, bytes: true } } } : {}),
+        },
       })
       if (!check) {
         if (await settle(db, ev, { status: 'PARKED', error: 'cheque no longer exists' }, args.now, false, claimedBy)) out.parked += 1
@@ -291,7 +357,11 @@ export async function deliverPortalEvents(
       }
 
       if (!kindMatchesStatus(ev.kind, check.status)) {
-        if (await closeStale(db, ev, check.status, claimedBy)) out.stale += 1
+        if (await closeStale(db, ev, check.status, claimedBy)) {
+          out.stale += 1
+          // A closed status event no longer stands before the receipt.
+          if (ev.kind !== 'RECEIPT') statusOpen.delete(ev.checkId)
+        }
         continue
       }
 
@@ -303,7 +373,8 @@ export async function deliverPortalEvents(
         const body = buildPortalEventBody({ id: ev.id, kind: ev.kind }, check)
         out.delivered += 1
         const remaining = args.deadline.getTime() - clock()
-        const timeoutMs = Math.max(MIN_REQUEST_TIMEOUT_MS, Math.min(remaining, REQUEST_TIMEOUT_MS))
+        const capMs = ev.kind === 'RECEIPT' ? RECEIPT_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS
+        const timeoutMs = Math.max(MIN_REQUEST_TIMEOUT_MS, Math.min(remaining, capMs))
         const res = await args.client.deliver(body, { timeoutMs })
         authRefused = res.status === 401
         verdict = judge(res, ev.attempts + 1)
@@ -317,7 +388,12 @@ export async function deliverPortalEvents(
           : { status: 'FAILED', error: message, delayMs: backoff(ev.attempts + 1), maxAttempts: MAX_ATTEMPTS }
       }
       // null: another run reclaimed the row and settled it first - count nothing.
-      const status = await settle(db, ev, verdict, args.now, check.eligibility !== 'INTERNAL', claimedBy)
+      // A RECEIPT settles its own row and audit only: the cheque-level
+      // portalSyncStatus / portalTradeId belong to the status lane (review
+      // 2026-10-02), so a receipt's success or parking never rewrites them.
+      const flagCheck = check.eligibility !== 'INTERNAL' && ev.kind !== 'RECEIPT'
+      const status = await settle(db, ev, verdict, args.now, flagCheck, claimedBy)
+      if (ev.kind !== 'RECEIPT' && status === 'SYNCED') statusOpen.delete(ev.checkId)
       if (status === 'SYNCED') out.synced += 1
       else if (status === 'FAILED') out.failed += 1
       else if (status === 'PARKED') out.parked += 1

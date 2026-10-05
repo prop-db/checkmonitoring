@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   RECEIPT_TYPES, isReceiptType, checkReceipt, normaliseReceipt, hasReceipt,
+  checkReceiptAmount, checkReceiptFile, MAX_RECEIPT_FILE_BYTES,
 } from '@/lib/domain/receipt'
 
 // Pure. No database, no clock — every way a receipt can be typed wrong is
@@ -93,5 +94,35 @@ describe('hasReceipt', () => {
   it('is true only when a reference was recorded', () => {
     expect(hasReceipt({ orNumber: 'OR-1', orDate: null, receiptType: 'OR' })).toBe(true)
     expect(hasReceipt({ orNumber: null, orDate: null, receiptType: null })).toBe(false)
+  })
+})
+
+describe('checkReceiptAmount', () => {
+  it('normalises commas and two decimals, keeps blank as null', () => {
+    expect(checkReceiptAmount('1,000.5')).toEqual({ ok: true, amount: '1000.50' })
+    expect(checkReceiptAmount('')).toEqual({ ok: true, amount: null })
+    expect(checkReceiptAmount(undefined)).toEqual({ ok: true, amount: null })
+  })
+  it('keeps sixteen integer digits exactly, which a JS number would not', () => {
+    expect(checkReceiptAmount('9999999999999999.99')).toEqual({ ok: true, amount: '9999999999999999.99' })
+    expect(checkReceiptAmount('007')).toEqual({ ok: true, amount: '7.00' })
+    expect(checkReceiptAmount('0')).toEqual({ ok: true, amount: '0.00' })
+  })
+  it('refuses negatives, three decimals and words', () => {
+    for (const bad of ['-1', '1.005', 'abc', '1e5', '12345678901234567']) expect(checkReceiptAmount(bad).ok).toBe(false)
+  })
+})
+
+describe('checkReceiptFile', () => {
+  const pdf = (n = 10) => { const b = new Uint8Array(n); b.set([0x25, 0x50, 0x44, 0x46]); return b }
+  it('accepts a PDF whose bytes say PDF', () => {
+    expect(checkReceiptFile({ fileName: 'or.pdf', contentType: 'application/pdf', bytes: pdf() })).toEqual({ ok: true })
+    expect(checkReceiptFile(null)).toEqual({ ok: true })
+  })
+  it('refuses size, type and a mismatched signature', () => {
+    expect(checkReceiptFile({ fileName: 'x', contentType: 'application/pdf', bytes: pdf(MAX_RECEIPT_FILE_BYTES + 1) })).toMatchObject({ ok: false, code: 'RECEIPT_FILE_TOO_LARGE' })
+    expect(checkReceiptFile({ fileName: 'x', contentType: 'text/html', bytes: pdf() })).toMatchObject({ ok: false, code: 'RECEIPT_FILE_TYPE' })
+    expect(checkReceiptFile({ fileName: 'x.png', contentType: 'image/png', bytes: pdf() })).toMatchObject({ ok: false, code: 'RECEIPT_FILE_TYPE' })
+    expect(checkReceiptFile({ fileName: 'x', contentType: 'application/pdf', bytes: new Uint8Array(0) })).toMatchObject({ ok: false, code: 'RECEIPT_FILE_EMPTY' })
   })
 })

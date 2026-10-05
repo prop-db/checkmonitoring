@@ -73,6 +73,7 @@ export const IMMUTABLE_ON_UPDATE = [
   // protected could drift apart from it: an import could re-answer "which kind
   // of receipt" for a number it cannot see.
   'orNumber', 'orDate', 'receiptType',
+  'receiptAmount', // Finance-owned (user request 2026-10-01)
   'clearingStatus', 'crNumber', 'clearedDate', 'cancelledById', 'cancelledAt', 'cancelReason',
   // Since 2026-09-11 Finance types the category on the cheque page, which
   // makes it something FINANCE knows rather than something the source states

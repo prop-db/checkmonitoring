@@ -118,6 +118,10 @@ enum PortalEventKind {
   // directly - no approval queue - because this system is the record for
   // cancellations (spec 2026-09-26-check-monitoring-integration-design).
   CANCELLED
+  // The sixth kind (user request 2026-10-01): the supplier's receipt with its
+  // amount and file, for the portal's Payments page. Its own outbox lane
+  // (spec 2026-10-02): it never supersedes a status event, nor they it.
+  RECEIPT
 }
 
 model Company {
@@ -282,6 +286,10 @@ model Check {
   orNumber           String?
   orDate             DateTime?
   receiptType        ReceiptType?
+  // What the supplier's receipt says was received (user request 2026-10-01).
+  // Add-only like the reference itself; null until Finance records it.
+  receiptAmount      Decimal?         @db.Decimal(18, 2)
+  receiptFile        CheckReceiptFile?
   remarks            String?
 
   pointPerson        String?
@@ -378,6 +386,23 @@ model Check {
   // a cheque number. A B-tree cannot answer containment on an array, so without
   // this every such bill is a sequential scan of 21,817 rows.
   @@index([apvNumbers], type: Gin)
+}
+
+/// The scanned receipt (user request 2026-10-01). Its own table so the bytes
+/// are read only when a RECEIPT event is delivered, never by an ordinary
+/// cheque query. One per cheque; add-only. Max 3 MB (spec 2026-10-02).
+model CheckReceiptFile {
+  checkId      String   @id
+  fileName     String
+  contentType  String
+  sizeBytes    Int
+  sha256       String
+  bytes        Bytes
+  uploadedById String
+  uploadedAt   DateTime @default(now())
+
+  check      Check @relation(fields: [checkId], references: [id], onDelete: Restrict)
+  uploadedBy User  @relation("receiptFileUploadedBy", fields: [uploadedById], references: [id])
 }
 
 // Which ingestion path a row came in on. The same enum `NormalisedRow.source`
@@ -778,6 +803,7 @@ model User {
   plannedOutflowsCreated   PlannedOutflow[] @relation("PlannedOutflowCreatedBy")
   plannedOutflowsPaid      PlannedOutflow[] @relation("PlannedOutflowPaidBy")
   plannedOutflowsCancelled PlannedOutflow[] @relation("PlannedOutflowCancelledBy")
+  receiptFilesUploaded     CheckReceiptFile[] @relation("receiptFileUploadedBy")
 }
 
 /// An outflow that is not a cheque — payroll, a tax remittance, loan

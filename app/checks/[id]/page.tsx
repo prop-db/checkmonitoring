@@ -68,6 +68,10 @@ function Notice({
   )
 }
 
+// The receipt actions on this page kick portal delivery with a 25 s budget
+// after the response (review 2026-10-02); give the function room for it.
+export const maxDuration = 60
+
 export default async function CheckDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser()
   const { id } = await params

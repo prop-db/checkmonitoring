@@ -32,9 +32,10 @@ export type ReceiptValue = {
   orDate: string
   /** '' is "nobody chose", and is a state the server has to be able to see. */
   receiptType: '' | ReceiptType
+  receiptAmount: string
 }
 
-export const EMPTY_RECEIPT: ReceiptValue = { orNumber: '', orDate: '', receiptType: '' }
+export const EMPTY_RECEIPT: ReceiptValue = { orNumber: '', orDate: '', receiptType: '', receiptAmount: '' }
 
 /** The one combination the server refuses, answered before the user submits. */
 export function receiptTypeMissing(value: ReceiptValue): boolean {
@@ -108,6 +109,13 @@ export function ReceiptFields({
             className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
           />
         </div>
+
+        <label className="block text-xs font-medium tracking-wide text-slate-600" htmlFor={`${idPrefix}-amount`}>
+          AMOUNT
+          <input id={`${idPrefix}-amount`} name="receiptAmount" inputMode="decimal" value={value.receiptAmount}
+            disabled={disabled} placeholder="Optional" onChange={(e) => onChange({ ...value, receiptAmount: e.target.value })}
+            className="mt-1 w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+        </label>
       </div>
 
       {missing && (
