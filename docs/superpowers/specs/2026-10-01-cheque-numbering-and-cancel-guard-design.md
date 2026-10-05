@@ -350,3 +350,47 @@ unchanged. `numbering/query` and `export/numbering-route`: regrouped by cheque b
 
 The dashboard BANK filter/column and RECON grouping (follow-up, measured and reported). Deriving a
 cash-account label from a cheque book. Adding `PCF-SITIO` / `PAYROLL` as books.
+
+---
+
+## E. Addendum, 2026-10-05 — cheque books are shared across companies; the company check goes
+
+**Measured** after the user's first `backfill-check-books.ts GOLIVE --apply` (537 set, 1,070 more
+settable, **1,331 refused as company mismatches**), read-only, grouped by (book, book company,
+cheque company): `BPI-S-8879` (on record STPP) — 776 STK, 38 A1+, 32 HAMFI, 13 IND refused;
+`MBT-A-9048` (A1PP) — 356 A1+; `BPI-A-5713` (A1+) — 70 STK; `BPI-S-4636` (STK) — 21 A1+, 5 HAMFI,
+2 IND; and smaller. **The register itself already filed cheques of several companies under one
+book**: `BPI-S-4636` holds 4,823 STK + 42 A1+ + 33 HAMFI + 14 IND; `BPI-S-8879` 695 STK + 22 HAMFI +
+17 IND + 16 STPP; `BPI-A-5713` 548 STK + 29 A1+; `MBT-A-9048` 396 A1+ + 58 A1PP. **A cheque book is a
+bank account, and one account pays several companies' bills.** §D's company check rested on the
+opposite assumption. **User ruling 2026-10-05: drop it** — Acumatica's `CashAccount` is the fact.
+
+### E1. Sync and repair
+
+- `upsertCheck` accepts the book `checkBookCode` names, whatever its company. `checkBookRefused`
+  goes; `checkBookChanged` stays (a book change on update is still recorded).
+- `planCheckBookBackfill` drops `companyMismatch`; every cheque whose payment names a cheque book is
+  a candidate. The script stops printing the mismatch section.
+- `CheckBook.companyId` stays in the schema and in reference data; nothing reads it for a decision.
+  CLAUDE.md "What is missing" item 11 is closed by this ruling.
+
+### E2. NUMBERING
+
+- A series is still one cheque book and still holds **every** cheque in it, of every company — a
+  company's view of a shared book must not turn another company's cheques into MISSING numbers.
+- The **company filter selects the books that company's cheques use** (a book qualifies when at
+  least one of its cheques has that `companyId`), then shows those books whole. The cheque-book
+  option list and the `account` parameter are unchanged.
+- `NumberingAccount.company` becomes the companies among the series' cheques, most cheques first,
+  joined `", "` (e.g. `STK, A1+, HAMFI`); `""` for a staged-only book. The COMPANY column (page and
+  SUMMARY sheet) shows that.
+- `countChequesWithoutCheckBook` keeps narrowing by the cheque's own company.
+
+### E3. Tests
+
+`import/upsert`: the cross-company cases now expect the book set (create) and moved (update), with
+`checkBookChanged`, and no `checkBookRefused` key. `admin/check-books`: the former mismatch cheque is
+a candidate and gets its book on apply. `numbering/query`: a book holding two companies' cheques is
+one series with `company` listing both; filtering by either company returns that whole book (no
+MISSING where the other company's cheques sit); a book with none of the company's cheques is left
+out.
