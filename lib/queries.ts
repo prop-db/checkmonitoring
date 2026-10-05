@@ -440,7 +440,7 @@ export async function listPendingSignatureIds(
 
 // Shared by listChecks and countChecks so the table and its "showing N of M"
 // count can never drift apart.
-function buildWhere(filters: CheckFilters): Prisma.CheckWhereInput {
+function buildWhere(filters: CheckFilters, extraSearch: readonly Prisma.CheckWhereInput[] = []): Prisma.CheckWhereInput {
   if (filters.refused) return { id: { in: [] } }
   const where: Prisma.CheckWhereInput = {}
 
@@ -505,6 +505,8 @@ function buildWhere(filters: CheckFilters): Prisma.CheckWhereInput {
       // loud, but is far better than the column not being searchable at all.
       // Upper-cased because the parser stores vouchers upper-cased.
       { apvNumbers: { has: q.toUpperCase() } },
+      // Acumatica's POs (AcumaticaBill): ids computed by whereFor, which needs the database.
+      ...extraSearch,
     ]
   }
 
@@ -517,6 +519,47 @@ export function likePattern(text: string): string {
 }
 
 /**
+ * APV → the POs Acumatica's AP-Bills and Adjustments names for it
+ * (`AcumaticaBill`, lib/sync/bill-refs.ts). There is no relation from `Check`
+ * — the table is keyed by APV — so it is loaded per request, for exactly the
+ * APVs on screen (or, for the PO sort, every matching cheque's).
+ */
+export type AcumaticaPoIndex = ReadonlyMap<string, readonly string[]>
+export const NO_ACUMATICA_POS: AcumaticaPoIndex = new Map()
+
+/** One query however many APVs: the list travels as a single array parameter. */
+export async function loadAcumaticaPoIndex(db: Db, apvs: Iterable<string>): Promise<AcumaticaPoIndex> {
+  const list = [...new Set(apvs)]
+  if (list.length === 0) return NO_ACUMATICA_POS
+  const rows = await db.$queryRaw<{ apvNumber: string; poNumbers: string[] }[]>`
+    SELECT "apvNumber", "poNumbers" FROM "AcumaticaBill" WHERE "apvNumber" = ANY(${list}::text[])`
+  return new Map(rows.map((r) => [r.apvNumber, r.poNumbers]))
+}
+
+/**
+ * The SQL twin of `displayPoNumbers`' Acumatica half, for a cheque aliased
+ * `c`: one of the APVs it SHOWS (its own `apvNumbers`, or a bill's
+ * `apvNumber` — `displayApvNumbers`) has an AcumaticaBill with a PO matching
+ * `pattern` (ILIKE … ESCAPE '\', from `likePattern`). Used by the PO filter
+ * box and the global search, so both match exactly what the column shows.
+ */
+function acumaticaPoMatch(pattern: string): Prisma.Sql {
+  return Prisma.sql`EXISTS (
+    SELECT 1 FROM "AcumaticaBill" ab
+     WHERE (ab."apvNumber" = ANY(c."apvNumbers")
+            OR ab."apvNumber" IN (SELECT b2."apvNumber" FROM "CheckBill" b2 WHERE b2."checkId" = c."id"))
+       AND EXISTS (SELECT 1 FROM unnest(ab."poNumbers") AS po(x) WHERE po.x ILIKE ${pattern} ESCAPE '\\')
+  )`
+}
+
+/** The global search's Acumatica-PO arm: substring, any case — as the bills' PO arm is. */
+async function idsWithAcumaticaPo(db: Db, text: string): Promise<string[]> {
+  const rows = await db.$queryRaw<{ id: string }[]>`
+    SELECT c."id" FROM "Check" c WHERE ${acumaticaPoMatch(likePattern(text))}`
+  return rows.map((r) => r.id)
+}
+
+/**
  * APV and PO "contains" (part C2). Both columns show a union — the cheque's
  * own `apvNumbers` array and its bills — and Postgres offers no substring
  * match on an array element that Prisma can express (the global search's
@@ -524,8 +567,8 @@ export function likePattern(text: string): string {
  * for the ids, case-insensitively, and `whereFor` ANDs `id IN (…)` onto the
  * Prisma `where`. Runs only when one of the two boxes is filled.
  *
- * PO reads the bills only: `Check` has no PO column, and `CheckBill.poNumber`
- * is the PO NUMBER column's one source (part B).
+ * PO reads both sources the PO NUMBER column shows: the bills' `poNumber` and
+ * Acumatica's (`acumaticaPoMatch`). `Check` has no PO column.
  */
 async function arrayContainsIds(db: Db, f: ColumnFilters): Promise<string[] | null> {
   const conditions: Prisma.Sql[] = []
@@ -540,6 +583,7 @@ async function arrayContainsIds(db: Db, f: ColumnFilters): Promise<string[] | nu
     const p = likePattern(f.poContains)
     conditions.push(Prisma.sql`(
       EXISTS (SELECT 1 FROM "CheckBill" b WHERE b."checkId" = c."id" AND b."poNumber" ILIKE ${p} ESCAPE '\\')
+      OR ${acumaticaPoMatch(p)}
     )`)
   }
   if (conditions.length === 0) return null
@@ -548,10 +592,12 @@ async function arrayContainsIds(db: Db, f: ColumnFilters): Promise<string[] | nu
   return rows.map((r) => r.id)
 }
 
-/** `buildWhere`, plus the APV/PO id step. Every query that can carry column filters goes through this. */
+/** `buildWhere`, plus the database-backed steps: the search's Acumatica-PO arm and the APV/PO column filters. Every query that can carry a search or column filters goes through this. */
 async function whereFor(db: Db, filters: CheckFilters): Promise<Prisma.CheckWhereInput> {
-  const where = buildWhere(filters)
-  if (filters.refused) return where
+  if (filters.refused) return buildWhere(filters)
+  const q = filters.q?.trim()
+  const extraSearch: Prisma.CheckWhereInput[] = q ? [{ id: { in: await idsWithAcumaticaPo(db, q) } }] : []
+  const where = buildWhere(filters, extraSearch)
   const ids = await arrayContainsIds(db, filters)
   return ids === null ? where : { AND: [where, { id: { in: ids } }] }
 }
@@ -577,10 +623,10 @@ type SortProbe = {
   bills: { apvNumber: string; poNumber: string | null }[]
 }
 
-export function appSortValue(key: AppSortKey, r: SortProbe): SortValue {
+export function appSortValue(key: AppSortKey, r: SortProbe, acumatica: AcumaticaPoIndex): SortValue {
   switch (key) {
     case 'apvNumbers': return displayApvNumbers(r)[0] ?? null
-    case 'poNumbers': return displayPoNumbers(r)[0] ?? null
+    case 'poNumbers': return displayPoNumbers(r, acumatica)[0] ?? null
     case 'bank': return r.cashAccount?.code ?? null
     case 'releasedAt': return (r.releasedAt ?? r.statedReleaseDate)?.getTime() ?? null
     default: {
@@ -610,12 +656,30 @@ async function appSortedIds(
       bills: { select: { apvNumber: true, poNumber: true } },
     },
   })
+  // PO NUMBER sorts by the first PO SHOWN, Acumatica's included, so the index
+  // is loaded over every matching cheque's displayed APVs — one query.
+  const acumatica = key === 'poNumbers'
+    ? await loadAcumaticaPoIndex(db, probes.flatMap((p) => displayApvNumbers(p)))
+    : NO_ACUMATICA_POS
   return probes
-    .map((p) => ({ id: p.id, checkNumber: p.checkNumber, value: appSortValue(key, p) }))
+    .map((p) => ({ id: p.id, checkNumber: p.checkNumber, value: appSortValue(key, p, acumatica) }))
     .sort((a, b) =>
       compareSortValues(a.value, b.value, dir) || byCodeUnit(a.checkNumber, b.checkNumber) || byCodeUnit(a.id, b.id))
     .slice(0, limit)
     .map((p) => p.id)
+}
+
+/** What `displayPoNumbers` reads from a row. */
+type PoSource = { apvNumbers: string[]; bills: { apvNumber: string; poNumber: string | null }[] }
+
+/**
+ * Each row with its PO NUMBER cell computed: ONE query for the AcumaticaBill
+ * rows of every APV on the page. `toTableRow` copies it, so the list, Excel
+ * and print show the same value from the same function.
+ */
+async function withPoNumbers<R extends PoSource>(db: Db, rows: R[]): Promise<(R & { poNumbers: string[] })[]> {
+  const acumatica = await loadAcumaticaPoIndex(db, rows.flatMap((r) => displayApvNumbers(r)))
+  return rows.map((r) => ({ ...r, poNumbers: displayPoNumbers(r, acumatica) }))
 }
 
 /**
@@ -633,12 +697,15 @@ export async function listChecks(db: Db, filters: CheckFilters, limit = 200, sor
   const where = await whereFor(db, filters)
   const { key, dir } = sort
   if (!isAppSorted(key)) {
-    return db.check.findMany({ where, include: CHECK_ROW_INCLUDE, orderBy: dbOrderBy(key, dir), take: limit })
+    return withPoNumbers(
+      db,
+      await db.check.findMany({ where, include: CHECK_ROW_INCLUDE, orderBy: dbOrderBy(key, dir), take: limit }),
+    )
   }
   const ids = await appSortedIds(db, where, key, dir, limit)
   const rows = await db.check.findMany({ where: { id: { in: ids } }, include: CHECK_ROW_INCLUDE })
   const position = new Map(ids.map((id, i) => [id, i]))
-  return rows.sort((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0))
+  return withPoNumbers(db, rows.sort((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0)))
 }
 
 // Companion to `listChecks`: the number of rows the same filters match, ignoring
@@ -799,15 +866,18 @@ export function displayApvNumbers(r: { apvNumbers: string[]; bills: { apvNumber:
 }
 
 /**
- * What the PO NUMBER cell shows — the bills' Vendor Ref, deduplicated and ordered.
- *
- * The approval workbook's Vendor Ref is the only PO a cheque carries:
- * `Check` has no PO column (the register's POs reached `StagedCheck` only)
- * and Acumatica publishes none (checked 2026-10-01). Search needs no change:
- * `bills.some.poNumber contains` already matches PO.
+ * What the PO NUMBER cell shows: the approval workbook's Vendor Ref on each
+ * bill (`CheckBill.poNumber`) and every real PO Acumatica's AP-Bills and
+ * Adjustments names for an APV the cheque SHOWS (`displayApvNumbers`;
+ * `AcumaticaBill`, spec 2026-10-05), de-duplicated and sorted. The ONE
+ * definition: the list, Excel and print read it through `listChecks`, the
+ * PO sort reads its first value, and the PO filter box and the search match
+ * the same two sources (`acumaticaPoMatch`). `Check` has no PO column.
  */
-export function displayPoNumbers(r: { bills: { poNumber: string | null }[] }): string[] {
-  return [...new Set(r.bills.map((b) => b.poNumber).filter((p): p is string => p !== null))].sort()
+export function displayPoNumbers(r: PoSource, acumatica: AcumaticaPoIndex): string[] {
+  const fromBills = r.bills.map((b) => b.poNumber).filter((p): p is string => p !== null)
+  const fromAcumatica = displayApvNumbers(r).flatMap((apv) => acumatica.get(apv) ?? [])
+  return [...new Set([...fromBills, ...fromAcumatica])].sort()
 }
 
 export function toTableRow(r: CheckRow): CheckTableRow {
@@ -815,7 +885,8 @@ export function toTableRow(r: CheckRow): CheckTableRow {
     id: r.id,
     checkNumber: r.checkNumber,
     apvNumbers: displayApvNumbers(r),
-    poNumbers: displayPoNumbers(r),
+    // Computed by listChecks through displayPoNumbers (one AcumaticaBill query per page).
+    poNumbers: r.poNumbers,
     payeeName: r.payeeName,
     companyCode: r.company.code,
     // `?? null`, so a cheque with no cash account says so rather than crossing

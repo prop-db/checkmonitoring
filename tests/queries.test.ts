@@ -1224,3 +1224,75 @@ describe('SIGN ALL set with column filters', () => {
     expect((await getPendingSignature(testDb, {}, { refused: true } as never)).count).toBe(0)
   })
 })
+
+// Spec 2026-10-05: the PO NUMBER column also shows the POs Acumatica's
+// AP-Bills and Adjustments names for any APV the cheque shows.
+describe('PO NUMBER from Acumatica (AcumaticaBill)', () => {
+  const acuBill = (apvNumber: string, poNumbers: string[]) =>
+    testDb.acumaticaBill.create({ data: { apvNumber, tenant: 'GOLIVE', vendorRef: poNumbers.join(' / '), poNumbers } })
+  const nums = (rows: { checkNumber: string }[]) => rows.map((r) => r.checkNumber).sort()
+
+  it('shows the POs of every displayed APV — its own vouchers and its bills’ — with the bills’ POs, once each, sorted', async () => {
+    const c = await makeCheck({ checkNumber: '6000000001', apvNumbers: ['AP-ST000001'] })
+    await testDb.checkBill.create({ data: { checkId: c.id, apvNumber: 'AP-ST000002', poNumber: 'PO-ST-000009', amount: '1.00' } })
+    await acuBill('AP-ST000001', ['PO-ST-031110', 'PO-ST-031109'])
+    await acuBill('AP-ST000002', ['PO-ST-000009'])  // the bill's own PO: shown once
+    await acuBill('AP-ST999999', ['PO-ST-777777'])  // an APV this cheque does not show
+    const [row] = await listChecks(testDb, {})
+    expect(toTableRow(row).poNumbers).toEqual(['PO-ST-000009', 'PO-ST-031109', 'PO-ST-031110'])
+  })
+
+  it('a cheque none of whose APVs has an AcumaticaBill shows its bills’ POs only, or none', async () => {
+    await makeCheck({ checkNumber: '6000000001', apvNumbers: ['AP-ST000001'] })
+    await acuBill('AP-ST000002', ['PO-ST-031109'])
+    const [row] = await listChecks(testDb, {})
+    expect(toTableRow(row).poNumbers).toEqual([])
+  })
+
+  it('the global search finds a cheque by part of an Acumatica PO, any case, and the count agrees', async () => {
+    await makeCheck({ checkNumber: '6000000001', apvNumbers: ['AP-ST000001'] })
+    const viaBill = await makeCheck({ checkNumber: '6000000002' })
+    await testDb.checkBill.create({ data: { checkId: viaBill.id, apvNumber: 'AP-ST000002', amount: '1.00' } })
+    await makeCheck({ checkNumber: '6000000003', apvNumbers: ['AP-ST000003'] })
+    await acuBill('AP-ST000001', ['PO-ST-031109'])
+    await acuBill('AP-ST000002', ['PO-ST-031150'])
+    await acuBill('AP-ST000003', ['PO-A1-012345'])
+    expect(nums(await listChecks(testDb, { q: 'po-st-0311' }))).toEqual(['6000000001', '6000000002'])
+    expect(await countChecks(testDb, { q: 'po-st-0311' })).toBe(2)
+    // Still narrows within the other filters.
+    expect(nums(await listChecks(testDb, { q: 'po-st-0311', checkNumberContains: '0002' }))).toEqual(['6000000002'])
+  })
+
+  it('the PO filter box matches an Acumatica PO as well as a bill’s, and reads % as text', async () => {
+    await makeCheck({ checkNumber: '6000000001', apvNumbers: ['AP-ST000001'] })
+    const viaBill = await makeCheck({ checkNumber: '6000000002' })
+    await testDb.checkBill.create({ data: { checkId: viaBill.id, apvNumber: 'AP-ST000002', amount: '1.00' } })
+    const billPo = await makeCheck({ checkNumber: '6000000004' })
+    await testDb.checkBill.create({ data: { checkId: billPo.id, apvNumber: 'AP-ST000004', poNumber: 'PO-ST-031199', amount: '1.00' } })
+    await makeCheck({ checkNumber: '6000000003', apvNumbers: ['AP-ST000003'] })
+    await acuBill('AP-ST000001', ['PO-ST-031109'])
+    await acuBill('AP-ST000002', ['PO-ST-031150'])
+    await acuBill('AP-ST000003', ['PO-A1-012345'])
+    expect(nums(await listChecks(testDb, { poContains: 'st-0311' }))).toEqual(['6000000001', '6000000002', '6000000004'])
+    expect(await countChecks(testDb, { poContains: 'a1-0123' })).toBe(1)
+    expect(await countChecks(testDb, { poContains: '%' })).toBe(0)
+  })
+
+  it('sorts PO NUMBER by the first value shown, Acumatica’s included, over every matching cheque before the limit', async () => {
+    await makeCheck({ checkNumber: '6000000001', apvNumbers: ['AP-1'] })
+    await makeCheck({ checkNumber: '6000000002', apvNumbers: ['AP-2'] })
+    const c = await makeCheck({ checkNumber: '6000000003' })
+    await makeCheck({ checkNumber: '6000000004' }) // no PO anywhere: last both ways
+    await acuBill('AP-1', ['PO-ST-000005'])
+    await acuBill('AP-2', ['PO-ST-000009'])
+    await testDb.checkBill.create({ data: { checkId: c.id, apvNumber: 'AP-3', poNumber: 'PO-ST-000001', amount: '1.00' } })
+    const sorted = async (dir: 'asc' | 'desc', limit = 200) =>
+      (await listChecks(testDb, {}, limit, { key: 'poNumbers', dir })).map((r) => r.checkNumber)
+    expect(await sorted('asc')).toEqual(['6000000003', '6000000001', '6000000002', '6000000004'])
+    expect(await sorted('desc')).toEqual(['6000000002', '6000000001', '6000000003', '6000000004'])
+    expect(await sorted('asc', 2)).toEqual(['6000000003', '6000000001'])
+    // The page's rows carry Acumatica's POs too, not only the order.
+    expect((await listChecks(testDb, {}, 1, { key: 'poNumbers', dir: 'desc' })).map((r) => toTableRow(r).poNumbers))
+      .toEqual([['PO-ST-000009']])
+  })
+})
