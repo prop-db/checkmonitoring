@@ -49,9 +49,11 @@ export function billRefsInScopeFilter(): string {
 /**
  * `PO-ST-031109`, `PO-A1-012345`, `PO-IND123456`, `PO-ST123456` (first form) and
  * `A1PP-PO-000123`, `STPP-PO-0001234` (second), never inside a longer
- * alphanumeric run. A trailing dot is outside the match by construction.
+ * alphanumeric run. A trailing dot is outside the match by construction. The
+ * first form's code starts with a letter, so `PO-0001234` / `PO-123456789`
+ * (digits only) are not POs.
  */
-const PO_PATTERN = /(?<![A-Z0-9])(?:PO-[A-Z0-9]{2,4}-?\d{5,7}|[A-Z0-9]{2,5}-PO-\d{5,7})(?![A-Z0-9])/gi
+const PO_PATTERN = /(?<![A-Z0-9])(?:PO-[A-Z][A-Z0-9]{1,3}-?\d{5,7}|[A-Z0-9]{2,5}-PO-\d{5,7})(?![A-Z0-9])/gi
 
 export function extractPoNumbers(vendorRef: string | null | undefined): string[] {
   if (!vendorRef) return []

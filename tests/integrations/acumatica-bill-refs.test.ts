@@ -42,6 +42,8 @@ describe('extractPoNumbers — anything else is no PO', () => {
     'XPO-ST-031109',    // inside a longer alphanumeric run
     'PO-ST-031109A',
     'PO-0001',
+    'PO-0001234',       // a digit-only code: the first form needs a leading letter
+    'PO-123456789',
     '',
   ]
   it.each(NEGATIVE)('%s', (ref) => {
