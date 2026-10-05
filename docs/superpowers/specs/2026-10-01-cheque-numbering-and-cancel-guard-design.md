@@ -494,7 +494,7 @@ one row per:
 Columns: CHEQUE BOOK, CHECK NUMBER (text), CV (the Acumatica payment reference), CHEQUE DATE, PAYEE,
 STATUS, REASON. Staged out-of-pattern lines are included with their CV. It changes no count on the
 page or in the series — it is a to-do list. `SeriesCheque` gains `cv: string | null`
-(`acumaticaPaymentId`); the pure function `strayEnds(series): SeriesCheque[]` lives in
+(`acumaticaPaymentId`); the pure function `strayEnds(series): { cheque; staged; reason }[]` lives in
 `lib/numbering/series.ts`.
 
 ### G4. Tests

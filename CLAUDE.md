@@ -156,7 +156,7 @@ npx tsx scripts/mark-ready-from-release-list.ts "<for-release>.xlsx" --apply    
 npx tsx scripts/revert-detail1-ready.ts "<for-release>.xlsx" <ready-from-list snapshot> [--apply]  # Detail1-only READY back to prior status (run 2026-09-25)
 npx tsx scripts/void-acumatica-voided.ts [--apply]                # void what Acumatica voided (live or RELEASED here)
 npx tsx scripts/close-unmatchable-cancelled.ts [--apply]         # parked CANCELLED events whose cheque has no APV: close unsent
-npx tsx scripts/backfill-check-books.ts GOLIVE [--apply]       # Acumatica cheques with no cheque book: record it from CashAccount (MANUFACTURING likewise)
+npx tsx scripts/backfill-check-books.ts GOLIVE [--apply]       # record a missing cheque book from CashAccount; also moves or clears a book that differs from Acumatica's (§G1) (MANUFACTURING likewise)
 npx tsx scripts/link-vouchers-from-acumatica.ts "<for-release>.xlsx" [--apply]  # link list vouchers via AP-PAYMENTS-WITH-BILLS, ready their cheques
 npx tsx scripts/sync.ts GOLIVE --bills --dry-run     # read AP-PAYMENTS-WITH-BILLS, write nothing (MANUFACTURING likewise)
 npx tsx scripts/sync.ts GOLIVE --bills               # snapshot, then union vouchers into apvNumbers; add --full to re-read
@@ -360,7 +360,7 @@ old one; if a book starts showing a whole run there, that is the cause. **User r
 `6000859726` in `BPI-A-5713`, `1793161601` in `MBT-A-4155`, `1790405938` in `MBT-A-9048`) and the
 OUT OF PATTERN lists are corrected IN ACUMATICA; the next sync renumbers the cheque here by its
 payment reference (`renumbered_by_acumatica`) and the series corrects itself. Memo-numbered cheques (`PCF26-00001`) still hide behind MISSING;
-the page says so. Since 2026-10-05 (spec §G) only Acumatica cheques are shown (register-only cheques are a stated count), every Acumatica cheque's book is Acumatica's (`backfill-check-books.ts` realigns), and the Excel has a TO FIX IN ACUMATICA sheet — the OUT OF PATTERN cheques and each book's stray ends (> 10,000 from the next number) with their CV. `next build` failed with *Cannot mix BigInt
+the page says so. Since 2026-10-05 (spec §G) only Acumatica cheques are shown (register-only cheques are a stated count), `backfill-check-books.ts --apply` moves a cheque whose book differs from Acumatica's onto Acumatica's (and clears it when Acumatica names a non-book account) — **written 2026-10-05, not yet run: until it is, the ~61 measured mis-booked cheques stay in the register's book** — and the Excel has a TO FIX IN ACUMATICA sheet — the OUT OF PATTERN cheques and each book's stray ends (> 10,000 from the next number) with their CV. `next build` failed with *Cannot mix BigInt
 and other types* (Next's file tracer) on `1n`-style literal arithmetic in `lib/numbering/series.ts`;
 it uses `BigInt(0)` / `BigInt(1)` constants instead — keep it that way.
 
