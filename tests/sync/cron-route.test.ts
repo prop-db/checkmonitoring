@@ -16,6 +16,8 @@ const state = vi.hoisted(() => ({
   failAutoSign: false,
   failBillsFor: null as string | null,
   failBillRefsFor: null as string | null,
+  /** When set, the voucher feed moves the (faked) clock on by this much, as a slow read would. */
+  advanceClockMs: 0,
 }))
 
 vi.mock('@/lib/db', async () => {
@@ -38,6 +40,9 @@ vi.mock('@/lib/integrations/acumatica/from-env', () => ({
       fetchAll: async (feed: string) => {
         if (feed === 'AP-PAYMENTS-WITH-BILLS' && state.failBillsFor === tenant) {
           throw new Error(`${tenant} bills feed down`)
+        }
+        if (feed === 'AP-PAYMENTS-WITH-BILLS' && state.advanceClockMs > 0) {
+          vi.setSystemTime(Date.now() + state.advanceClockMs)
         }
         if (feed === 'AP-Bills and Adjustments' && state.failBillRefsFor === tenant) {
           throw new Error(`${tenant} bill refs feed down`)
@@ -109,6 +114,7 @@ beforeEach(async () => {
   state.failAutoSign = false
   state.failBillsFor = null
   state.failBillRefsFor = null
+  state.advanceClockMs = 0
 })
 
 describe('GET /api/cron/sync — the guard', () => {
@@ -327,5 +333,24 @@ describe('GET /api/cron/sync — the PO read (BILL_REFS)', () => {
     expect(body.billRefs.map((b: { outcome: string }) => b.outcome))
       .toEqual(['REFUSED_NO_WATERMARK', 'REFUSED_NO_WATERMARK'])
     expect(await testDb.syncRun.count({ where: { mode: 'BILL_REFS', trigger: 'SCHEDULED', errors: 1 } })).toBe(2)
+  })
+
+  describe('against the time budget', () => {
+    // Only Date is faked so DB timers stay real; the voucher feed moves it on.
+    beforeEach(() => { vi.useFakeTimers({ now: new Date('2026-09-29T04:00:00Z'), toFake: ['Date'] }) })
+    afterEach(() => { vi.useRealTimers() })
+
+    it('skips BILL_REFS once more than 20 s have passed, leaves its watermark, and still answers 200', async () => {
+      await watermarked('GOLIVE')
+      await watermarked('MANUFACTURING')
+      state.advanceClockMs = 25_000
+      const res = await get(`Bearer ${SECRET}`)
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.billRefs.map((b: { tenant: string; outcome: string }) => [b.tenant, b.outcome]))
+        .toEqual([['GOLIVE', 'SKIPPED_TIME_BUDGET'], ['MANUFACTURING', 'SKIPPED_TIME_BUDGET']])
+      // No new BILL_REFS row: only the seeded MANUAL watermark rows remain.
+      expect(await testDb.syncRun.count({ where: { mode: 'BILL_REFS', trigger: 'SCHEDULED' } })).toBe(0)
+    })
   })
 })

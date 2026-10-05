@@ -66,6 +66,15 @@ export const dynamic = 'force-dynamic'
  */
 export const maxDuration = 60
 
+/**
+ * The PO read (BILL_REFS) is not begun for a tenant once this much of the
+ * route's time has passed since `now`. Auto-sign's deadline is `now` + 50 s
+ * inside the 60 s `maxDuration`; an unbounded third Acumatica read per tenant
+ * could otherwise leave auto-sign no time. 20 s leaves 30 s for it.
+ */
+// Not exported: a Next route module may export only its handlers and config.
+const BILL_REFS_SKIP_AFTER_MS = 20_000
+
 function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -134,6 +143,13 @@ export async function GET(request: Request): Promise<Response> {
     const payment = outcomes.find((o) => o.tenant === tenant)
     if (payment?.outcome !== 'RAN') {
       billRefs.push({ tenant, outcome: 'SKIPPED_PAYMENT_NOT_RUN' })
+      continue
+    }
+    // Yield to the budget: auto-sign's 50 s deadline runs from `now`, so a PO
+    // read begun late would eat the time auto-sign needs. Not a failure; the
+    // BILL_REFS watermark stays, so the next run catches up.
+    if (Date.now() - now.getTime() > BILL_REFS_SKIP_AFTER_MS) {
+      billRefs.push({ tenant, outcome: 'SKIPPED_TIME_BUDGET' })
       continue
     }
     billRefs.push(

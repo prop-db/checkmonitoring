@@ -278,6 +278,8 @@ export type ScheduledBillRefsOutcome =
   | { tenant: AcumaticaTenant; outcome: 'FAILED'; message: string }
   /** The cron did not run the PO read because this tenant's payment read did not RUN. Not a failure. */
   | { tenant: AcumaticaTenant; outcome: 'SKIPPED_PAYMENT_NOT_RUN' }
+  /** The cron left the PO read for the next run: too much of its time budget was spent. Not a failure; the watermark stays. */
+  | { tenant: AcumaticaTenant; outcome: 'SKIPPED_TIME_BUDGET' }
 
 /**
  * One tenant's scheduled PO read, never throwing — `runScheduledBillsSync`

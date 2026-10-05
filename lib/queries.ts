@@ -531,9 +531,9 @@ export const NO_ACUMATICA_POS: AcumaticaPoIndex = new Map()
 export async function loadAcumaticaPoIndex(db: Db, apvs: Iterable<string>): Promise<AcumaticaPoIndex> {
   const list = [...new Set(apvs)]
   if (list.length === 0) return NO_ACUMATICA_POS
-  const rows = await db.$queryRaw<{ apvNumber: string; poNumbers: string[] }[]>`
+  const rows = await db.$queryRaw<{ apvNumber: string; poNumbers: string[] | null }[]>`
     SELECT "apvNumber", "poNumbers" FROM "AcumaticaBill" WHERE "apvNumber" = ANY(${list}::text[])`
-  return new Map(rows.map((r) => [r.apvNumber, r.poNumbers]))
+  return new Map(rows.map((r) => [r.apvNumber, r.poNumbers ?? []]))
 }
 
 /**

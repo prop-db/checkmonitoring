@@ -1245,8 +1245,13 @@ describe('PO NUMBER from Acumatica (AcumaticaBill)', () => {
   it('a cheque none of whose APVs has an AcumaticaBill shows its bills’ POs only, or none', async () => {
     await makeCheck({ checkNumber: '6000000001', apvNumbers: ['AP-ST000001'] })
     await acuBill('AP-ST000002', ['PO-ST-031109'])
-    const [row] = await listChecks(testDb, {})
-    expect(toTableRow(row).poNumbers).toEqual([])
+    // Its APV has no AcumaticaBill, but a CheckBill carries a PO: exactly that PO shows.
+    const withBill = await makeCheck({ checkNumber: '6000000002', apvNumbers: ['AP-ST000003'] })
+    await testDb.checkBill.create({ data: { checkId: withBill.id, apvNumber: 'AP-ST000003', poNumber: 'PO-ST-000042', amount: '1.00' } })
+    const rows = await listChecks(testDb, {})
+    const poOf = (n: string) => toTableRow(rows.find((r) => r.checkNumber === n)!).poNumbers
+    expect(poOf('6000000001')).toEqual([])
+    expect(poOf('6000000002')).toEqual(['PO-ST-000042'])
   })
 
   it('the global search finds a cheque by part of an Acumatica PO, any case, and the count agrees', async () => {
