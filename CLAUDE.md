@@ -584,7 +584,12 @@ Plans 1 and 2 complete. Plan 3 is superseded by `docs/superpowers/plans/2026-09-
 `lib/sync/portal-outbox.ts` to the portal's `POST /api/integrations/check-monitoring/events`
 with `PORTAL_BASE_URL` / `PORTAL_TOKEN` (a bearer, no session), latest event per cheque wins,
 `/admin/portal` shows what parked. Pickup confirmations back (old Task 6) remain a follow-up.
-**1,792 tests across 125 files** (measured, full run 2026-10-02, 58.3 minutes — the remote test
+**1,805 tests across 126 files** (measured, full run 2026-10-05, 45.4 minutes, on
+`feature/check-books`: the cheque book from Acumatica, `backfill-check-books`, NUMBERING by book —
+`admin/check-books` new, `import/upsert`, `integrations/acumatica-map`, `numbering/query`,
+`export/numbering-route` extended. 5 cases in `admin/actions`, `admin/backfill-apv-numbers` and
+`admin/repair-cr-receipts` hit the 5 s test timeout while the remote test database was slow and passed
+when re-run alone, 35/35) — 1,792 across 125 (measured, full run 2026-10-02, 58.3 minutes — the remote test
 database was slow that hour — 0 failures, on `feature/numbering-staged`: STAGED dotted re-uses on
 NUMBERING, +15 in `numbering/series`, `numbering/query`, `export/numbering-workbook`) — 1,777 across 125 (measured, full run 2026-10-01, 31.0 minutes, 0 failures, on
 `feature/apv-po-and-table` — parts B and C — after merging master) — +152 and 4 files over the 1,625:
