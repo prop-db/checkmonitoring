@@ -12,6 +12,7 @@ import type { AcumaticaTenant } from '@/lib/integrations/acumatica/companies'
 import { collapseVoidPairs, mapPayment } from '@/lib/integrations/acumatica/map'
 import type { NormalisedRow } from '@/lib/normalised-row'
 import { DEFAULT_SYNC_IN_PROGRESS_MINUTES } from '@/lib/settings/defaults'
+import { NON_PAYMENT_MODES } from '@/lib/sync/modes'
 
 type Db = PrismaClient | Prisma.TransactionClient
 
@@ -85,8 +86,8 @@ async function assertNoRunInProgress(
   const open = await db.syncRun.findFirst({
     where: {
       tenant,
-      // BILLS rows are the voucher read's, lib/sync/bills.ts; their watermark is on a different feed.
-      mode: { not: 'BILLS' },
+      // BILLS and BILL_REFS rows are other feeds' reads (lib/sync/modes.ts), with their own watermarks.
+      mode: { notIn: [...NON_PAYMENT_MODES] },
       finishedAt: null,
       startedAt: { gt: new Date(now.getTime() - inProgressMinutes * 60_000) },
     },
@@ -232,8 +233,8 @@ export function paymentsInScopeFilter(): string {
  */
 export async function lastSyncWatermark(db: Db, tenant: AcumaticaTenant): Promise<Date | null> {
   const run = await db.syncRun.findFirst({
-    // BILLS rows are the voucher read's, lib/sync/bills.ts; their watermark is on a different feed.
-    where: { tenant, mode: { not: 'BILLS' }, watermark: { not: null } },
+    // Rows of NON_PAYMENT_MODES (lib/sync/modes.ts: BILLS, BILL_REFS) are other feeds' reads; their watermarks are on different feeds.
+    where: { tenant, mode: { notIn: [...NON_PAYMENT_MODES] }, watermark: { not: null } },
     orderBy: { startedAt: 'desc' },
     select: { watermark: true },
   })

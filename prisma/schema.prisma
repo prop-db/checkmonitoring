@@ -621,6 +621,30 @@ model StagedBill {
   @@index([reason])
 }
 
+// One Acumatica AP bill whose Vendor Ref names at least one real purchase
+// order, read from `AP-Bills and Adjustments` by lib/sync/bill-refs.ts.
+//
+// REFERENCE DATA, NOT A RECORD. The table mirrors Acumatica: a bill whose
+// Vendor Ref stops yielding a PO has its row DELETED, and no audit row is
+// written per bill — the run's own SyncRun row (mode BILL_REFS) is the trace.
+//
+// Keyed by the APV, not by a cheque, and with no relation to `Check`: a bill
+// read before its cheque carries the APV is not lost, because the link is
+// resolved when the PO NUMBER column is displayed (`displayPoNumbers` in
+// lib/queries.ts, over the cheque's displayed APVs). `Check` gains no column.
+model AcumaticaBill {
+  // `ReferenceNbr`, trimmed and upper-cased — the APV.
+  apvNumber      String    @id
+  // GOLIVE or MANUFACTURING: the tenant whose read last wrote the row.
+  tenant         String
+  // `VendorRef`, trimmed, otherwise verbatim — for diagnosis.
+  vendorRef      String
+  // extractPoNumbers(vendorRef): never empty (a bill with none has no row).
+  poNumbers      String[]
+  lastModifiedOn DateTime?
+  updatedAt      DateTime  @updatedAt
+}
+
 model AuditLog {
   id        String    @id @default(cuid())
   checkId   String?

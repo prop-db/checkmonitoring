@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import ExcelJS from 'exceljs'
-import { resetDb } from '../helpers/db'
+import { resetDb, testDb } from '../helpers/db'
 import { makeCheck } from '../helpers/factory'
 import { REGISTER_SHEET, SUMMARY_SHEET, FIRST_DATA_ROW, HEADER_ROW } from '@/lib/export/workbook'
 
@@ -305,5 +305,15 @@ describe('GET /api/export — sort, filters, columns', () => {
     const body = await res.text()
     expect(body).toContain('NOT AN AMOUNT')
     expect(body.startsWith('PK')).toBe(false)
+  })
+
+  it('writes Acumatica’s PO into the PO NUMBER column', async () => {
+    await makeCheck({ checkNumber: '6000000001', apvNumbers: ['AP-ST044591'] })
+    await testDb.acumaticaBill.create({
+      data: { apvNumber: 'AP-ST044591', tenant: 'GOLIVE', vendorRef: 'PO-ST-031109.', poNumbers: ['PO-ST-031109'] },
+    })
+    const ws = (await sheetsFrom(await get('http://localhost/api/export?scope=all'))).getWorksheet(REGISTER_SHEET)!
+    expect(ws.getRow(HEADER_ROW).getCell(3).value).toBe('PO NUMBER')
+    expect(ws.getRow(FIRST_DATA_ROW).getCell(3).value).toBe('PO-ST-031109')
   })
 })

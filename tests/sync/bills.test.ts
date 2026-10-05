@@ -305,6 +305,12 @@ describe('runBillsSync — one run at a time', () => {
     const result = await bills([]).result
     expect(result.errors).toBe(0)
   })
+
+  it('is not blocked by an unfinished BILL_REFS run', async () => {
+    await unfinished('BILL_REFS', 5)
+    const result = await bills([]).result
+    expect(result.errors).toBe(0)
+  })
 })
 
 describe('lastBillsWatermark', () => {
@@ -320,6 +326,18 @@ describe('lastBillsWatermark', () => {
     })
     expect(await lastBillsWatermark(testDb, 'GOLIVE')).toEqual(new Date('2026-09-30T08:00:00Z'))
     expect(await lastBillsWatermark(testDb, 'MANUFACTURING')).toBeNull()
+  })
+})
+
+describe('lastBillsWatermark — other feeds', () => {
+  it('ignores a newer BILL_REFS watermark', async () => {
+    await testDb.syncRun.create({
+      data: { mode: 'BILLS', tenant: 'GOLIVE', startedAt: new Date('2026-09-29T10:00:00Z'), finishedAt: new Date('2026-09-29T10:00:01Z'), watermark: new Date('2026-09-29T08:00:00Z') },
+    })
+    await testDb.syncRun.create({
+      data: { mode: 'BILL_REFS', tenant: 'GOLIVE', startedAt: new Date('2026-09-30T10:00:00Z'), finishedAt: new Date('2026-09-30T10:00:01Z'), watermark: new Date('2026-09-30T08:00:00Z') },
+    })
+    expect(await lastBillsWatermark(testDb, 'GOLIVE')).toEqual(new Date('2026-09-29T08:00:00Z'))
   })
 })
 

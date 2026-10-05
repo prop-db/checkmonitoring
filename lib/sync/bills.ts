@@ -12,6 +12,7 @@ import {
 } from '@/lib/integrations/acumatica/bills'
 import { naiveDate } from '@/lib/integrations/acumatica/map'
 import { loadSettings } from '@/lib/settings/read'
+import { BILLS_MODE } from '@/lib/sync/modes'
 import { SYNC_OVERLAP_MINUTES, SyncInProgressError, type SyncTrigger } from '@/lib/sync/run'
 
 /**
@@ -37,7 +38,7 @@ import { SYNC_OVERLAP_MINUTES, SyncInProgressError, type SyncTrigger } from '@/l
 
 type Db = PrismaClient | Prisma.TransactionClient
 
-export const BILLS_MODE = 'BILLS'
+export { BILLS_MODE }
 export const VOUCHER_LINKED_ACTION = 'voucher_linked_from_acumatica'
 
 /** The same widened interactive-transaction limits as `lib/import/upsert.ts`. */

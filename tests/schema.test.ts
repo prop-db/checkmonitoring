@@ -181,3 +181,23 @@ describe('PortalEventKind CANCELLED', () => {
     expect(ev.kind).toBe('CANCELLED')
   })
 })
+
+describe('AcumaticaBill', () => {
+  const APV = `TEST-SCHEMA-AP-${Date.now()}`
+  afterAll(async () => {
+    await prisma.acumaticaBill.deleteMany({ where: { apvNumber: APV } })
+  })
+
+  it('is keyed by the APV alone: a second row for the same voucher is refused', async () => {
+    await prisma.acumaticaBill.create({
+      data: { apvNumber: APV, tenant: 'GOLIVE', vendorRef: 'PO-ST-031109.', poNumbers: ['PO-ST-031109'] },
+    })
+    await expect(prisma.acumaticaBill.create({
+      data: { apvNumber: APV, tenant: 'MANUFACTURING', vendorRef: 'A1PP-PO-000123', poNumbers: ['A1PP-PO-000123'] },
+    })).rejects.toThrow()
+    const row = await prisma.acumaticaBill.findUniqueOrThrow({ where: { apvNumber: APV } })
+    expect(row.poNumbers).toEqual(['PO-ST-031109'])
+    expect(row.lastModifiedOn).toBeNull()
+    expect(row.updatedAt).toBeInstanceOf(Date)
+  })
+})

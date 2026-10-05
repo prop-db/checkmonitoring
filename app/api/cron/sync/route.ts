@@ -4,6 +4,11 @@ import { createClientForTenant } from '@/lib/integrations/acumatica/from-env'
 import { SYNC_TENANTS } from '@/lib/admin/sync-overview'
 import { runScheduledSync, type ScheduledSyncOutcome } from '@/lib/sync/scheduled'
 import { runScheduledBillsSync, type ScheduledBillsOutcome } from '@/lib/sync/bills'
+import {
+  recordBillRefsTimeBudgetSkip,
+  runScheduledBillRefsSync,
+  type ScheduledBillRefsOutcome,
+} from '@/lib/sync/bill-refs'
 import { runAutoSign } from '@/lib/sync/auto-sign'
 import { kickPortalDelivery } from '@/lib/sync/portal-kick'
 
@@ -40,6 +45,20 @@ import { kickPortalDelivery } from '@/lib/sync/portal-kick'
  * only for a tenant whose payment read RAN this time (SKIPPED_PAYMENT_NOT_RUN
  * otherwise, not a failure).
  *
+ * Then THE PO READ (lib/sync/bill-refs.ts), both tenants in the same order:
+ * Acumatica's AP-Bills and Adjustments, mirrored into AcumaticaBill (bill →
+ * real POs, keyed by APV). Its own watermark (BILL_REFS rows); none → a
+ * recorded refusal, because a first read is `scripts/sync.ts <TENANT>
+ * --bill-refs` from a terminal. FAILED turns the response 500; a refusal or
+ * SKIPPED_PAYMENT_NOT_RUN does not. Neither the BILLS nor the BILL_REFS read
+ * is individually time-bounded. A tenant's BILL_REFS read is not begun once
+ * 20 s of the run have passed (SKIPPED_TIME_BUDGET, recorded as a finished
+ * BILL_REFS row with no watermark; the next run catches up), but one begun
+ * before that — or an unusually large incremental BILLS read — can still run
+ * long enough to push auto-sign past its 50 s deadline: auto-sign then
+ * records FAILED, the response is 500, and the 18:00 run retries what 12:00
+ * left. That is the same exposure BILLS already had.
+ *
  * Then AUTO-SIGN (lib/sync/auto-sign.ts): on a Manila Tuesday, the Acumatica
  * cheques first read on the Monday become SIGNED; on any other day the run
  * records IDLE. It runs even when a tenant failed, and its own failure also
@@ -55,6 +74,15 @@ export const dynamic = 'force-dynamic'
  * seconds; the FULL path that would need more is refused by design.
  */
 export const maxDuration = 60
+
+/**
+ * The PO read (BILL_REFS) is not begun for a tenant once this much of the
+ * route's time has passed since `now`. Auto-sign's deadline is `now` + 50 s
+ * inside the 60 s `maxDuration`; an unbounded third Acumatica read per tenant
+ * could otherwise leave auto-sign no time. 20 s leaves 30 s for it.
+ */
+// Not exported: a Next route module may export only its handlers and config.
+const BILL_REFS_SKIP_AFTER_MS = 20_000
 
 function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
@@ -114,6 +142,32 @@ export async function GET(request: Request): Promise<Response> {
     )
   }
 
+  // The POs each AP bill names (lib/sync/bill-refs.ts), into AcumaticaBill —
+  // reference data keyed by APV, resolved against cheques when the PO NUMBER
+  // column is drawn. Gated on the tenant's payment read like BILLS (a read
+  // that could not reach the tenant's payments is no moment to read its
+  // bills), but NOT on BILLS: nothing here depends on which cheques are held.
+  const billRefs: ScheduledBillRefsOutcome[] = []
+  for (const tenant of SYNC_TENANTS) {
+    const payment = outcomes.find((o) => o.tenant === tenant)
+    if (payment?.outcome !== 'RAN') {
+      billRefs.push({ tenant, outcome: 'SKIPPED_PAYMENT_NOT_RUN' })
+      continue
+    }
+    // Yield to the budget: auto-sign's 50 s deadline runs from `now`, so a PO
+    // read begun late would eat the time auto-sign needs. Not a failure; the
+    // BILL_REFS watermark stays, so the next run catches up. The skip is
+    // recorded as a finished BILL_REFS row so /admin/sync shows it.
+    const elapsedMs = Date.now() - now.getTime()
+    if (elapsedMs > BILL_REFS_SKIP_AFTER_MS) {
+      billRefs.push(await recordBillRefsTimeBudgetSkip(prisma, { tenant, now, elapsedMs }))
+      continue
+    }
+    billRefs.push(
+      await runScheduledBillRefsSync(prisma, { tenant, now, client: () => createClientForTenant(tenant) }),
+    )
+  }
+
   // After both tenants, whether or not either failed: cheques already in the
   // app keep ageing, and a failed read delays new cheques, not old ones.
   // A 50s budget, inside the route's 60s ceiling: it leaves room for the
@@ -131,6 +185,7 @@ export async function GET(request: Request): Promise<Response> {
   const failed =
     outcomes.some((o) => o.outcome === 'FAILED') ||
     bills.some((b) => b.outcome === 'FAILED') ||
+    billRefs.some((b) => b.outcome === 'FAILED') ||
     autoSign.outcome === 'FAILED'
-  return json({ ranAt: now.toISOString(), outcomes, bills, autoSign, portal }, failed ? 500 : 200)
+  return json({ ranAt: now.toISOString(), outcomes, bills, billRefs, autoSign, portal }, failed ? 500 : 200)
 }
