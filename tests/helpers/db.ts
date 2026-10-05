@@ -52,6 +52,10 @@ export async function resetDb() {
     // attaches to no cheque. Truncated here so one file's refused rows are not
     // another file's staged count.
     await tx.stagedBill.deleteMany()
+    // Not a child of anything: Acumatica's bill → PO reference table
+    // (lib/sync/bill-refs.ts). Truncated so one file's bills cannot put a PO
+    // on another file's cheques.
+    await tx.acumaticaBill.deleteMany()
     await tx.cashAccount.deleteMany()
     await tx.checkBook.deleteMany()
     await tx.vendor.deleteMany()

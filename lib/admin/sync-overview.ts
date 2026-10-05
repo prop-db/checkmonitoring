@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient, SyncRun } from '@prisma/client'
 import type { AcumaticaTenant } from '@/lib/integrations/acumatica/companies'
 import { DEFAULT_ABANDONED_AFTER_MINUTES } from '@/lib/settings/defaults'
+import { NON_PAYMENT_MODES } from '@/lib/sync/modes'
 
 type Db = PrismaClient | Prisma.TransactionClient
 
@@ -82,9 +83,9 @@ export async function getSyncOverview(
     Promise.all(
       SYNC_TENANTS.map(async (tenant): Promise<TenantSync> => {
         const [lastAttempt, lastSuccess] = await Promise.all([
-          // The dashboard's ACUMATICA LAST READ is the payment feed; BILLS rows are the voucher read's.
-          db.syncRun.findFirst({ where: { tenant, mode: { not: 'BILLS' } }, orderBy: { startedAt: 'desc' } }),
-          db.syncRun.findFirst({ where: { tenant, mode: { not: 'BILLS' }, ...SUCCESS }, orderBy: { startedAt: 'desc' } }),
+          // The dashboard's ACUMATICA LAST READ is the payment feed; BILLS and BILL_REFS rows are other reads (lib/sync/modes.ts).
+          db.syncRun.findFirst({ where: { tenant, mode: { notIn: [...NON_PAYMENT_MODES] } }, orderBy: { startedAt: 'desc' } }),
+          db.syncRun.findFirst({ where: { tenant, mode: { notIn: [...NON_PAYMENT_MODES] }, ...SUCCESS }, orderBy: { startedAt: 'desc' } }),
         ])
         const inFlight = lastAttempt !== null && lastAttempt.finishedAt === null
         return {
