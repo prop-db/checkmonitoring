@@ -1283,6 +1283,23 @@ describe('PO NUMBER from Acumatica (AcumaticaBill)', () => {
     expect(await countChecks(testDb, { poContains: '%' })).toBe(0)
   })
 
+  it('a broad pattern matches exactly the cheques whose displayed APVs carry an Acumatica PO — never through another cheque’s APV', async () => {
+    await makeCheck({ checkNumber: '6000000001', apvNumbers: ['AP-ST000001'] })
+    const viaBill = await makeCheck({ checkNumber: '6000000002' })
+    await testDb.checkBill.create({ data: { checkId: viaBill.id, apvNumber: 'AP-ST000002', amount: '1.00' } })
+    // Shows AP-ST000003 only; that APV's AcumaticaBill has no PO. The matching
+    // bill AP-ST000001 belongs to cheque 1's APV, not to this cheque.
+    const other = await makeCheck({ checkNumber: '6000000003', apvNumbers: ['AP-ST000003'] })
+    await testDb.checkBill.create({ data: { checkId: other.id, apvNumber: 'AP-ST000004', amount: '1.00' } })
+    await makeCheck({ checkNumber: '6000000005' }) // no APV at all
+    await acuBill('AP-ST000001', ['PO-ST-031109'])
+    await acuBill('AP-ST000002', ['PO-A1-012345'])
+    await acuBill('AP-ST000003', [])
+    expect(nums(await listChecks(testDb, { poContains: 'PO' }))).toEqual(['6000000001', '6000000002'])
+    expect(await countChecks(testDb, { poContains: 'PO' })).toBe(2)
+    expect(nums(await listChecks(testDb, { q: 'PO' }))).toEqual(['6000000001', '6000000002'])
+  })
+
   it('sorts PO NUMBER by the first value shown, Acumatica’s included, over every matching cheque before the limit', async () => {
     await makeCheck({ checkNumber: '6000000001', apvNumbers: ['AP-1'] })
     await makeCheck({ checkNumber: '6000000002', apvNumbers: ['AP-2'] })

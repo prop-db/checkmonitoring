@@ -542,13 +542,18 @@ export async function loadAcumaticaPoIndex(db: Db, apvs: Iterable<string>): Prom
  * `apvNumber` — `displayApvNumbers`) has an AcumaticaBill with a PO matching
  * `pattern` (ILIKE … ESCAPE '\', from `likePattern`). Used by the PO filter
  * box and the global search, so both match exactly what the column shows.
+ *
+ * Driven from the cheque's OWN displayed APVs, each looked up on the
+ * AcumaticaBill primary key, so the cost per cheque is its handful of APVs
+ * whatever the pattern — an `ab.apvNumber = ANY(…) OR IN (…)` predicate
+ * cannot be hashed under the OR and costs cheques × matching bills.
  */
 function acumaticaPoMatch(pattern: string): Prisma.Sql {
   return Prisma.sql`EXISTS (
-    SELECT 1 FROM "AcumaticaBill" ab
-     WHERE (ab."apvNumber" = ANY(c."apvNumbers")
-            OR ab."apvNumber" IN (SELECT b2."apvNumber" FROM "CheckBill" b2 WHERE b2."checkId" = c."id"))
-       AND EXISTS (SELECT 1 FROM unnest(ab."poNumbers") AS po(x) WHERE po.x ILIKE ${pattern} ESCAPE '\\')
+    SELECT 1
+      FROM unnest(c."apvNumbers" || ARRAY(SELECT b2."apvNumber" FROM "CheckBill" b2 WHERE b2."checkId" = c."id")) AS v(apv)
+      JOIN "AcumaticaBill" ab ON ab."apvNumber" = v.apv
+     WHERE EXISTS (SELECT 1 FROM unnest(ab."poNumbers") AS po(x) WHERE po.x ILIKE ${pattern} ESCAPE '\\')
   )`
 }
 
