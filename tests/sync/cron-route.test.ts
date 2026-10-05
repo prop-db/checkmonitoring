@@ -349,8 +349,18 @@ describe('GET /api/cron/sync — the PO read (BILL_REFS)', () => {
       const body = await res.json()
       expect(body.billRefs.map((b: { tenant: string; outcome: string }) => [b.tenant, b.outcome]))
         .toEqual([['GOLIVE', 'SKIPPED_TIME_BUDGET'], ['MANUFACTURING', 'SKIPPED_TIME_BUDGET']])
-      // No new BILL_REFS row: only the seeded MANUAL watermark rows remain.
-      expect(await testDb.syncRun.count({ where: { mode: 'BILL_REFS', trigger: 'SCHEDULED' } })).toBe(0)
+      // A trace on /admin/sync per tenant: a finished SCHEDULED BILL_REFS row,
+      // no errors, no watermark (so the seeded MANUAL watermark still rules).
+      const skips = await testDb.syncRun.findMany({
+        where: { mode: 'BILL_REFS', trigger: 'SCHEDULED' }, orderBy: { tenant: 'asc' },
+      })
+      expect(skips.map((r) => r.tenant)).toEqual(['GOLIVE', 'MANUFACTURING'])
+      for (const r of skips) {
+        expect(r.finishedAt).not.toBeNull()
+        expect(r.errors).toBe(0)
+        expect(r.watermark).toBeNull()
+        expect(r.message).toMatch(/^skipped: the run had used \d+ s of its budget before the PO read; the next run catches up$/)
+      }
     })
   })
 })

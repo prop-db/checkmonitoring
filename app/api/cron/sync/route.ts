@@ -4,7 +4,11 @@ import { createClientForTenant } from '@/lib/integrations/acumatica/from-env'
 import { SYNC_TENANTS } from '@/lib/admin/sync-overview'
 import { runScheduledSync, type ScheduledSyncOutcome } from '@/lib/sync/scheduled'
 import { runScheduledBillsSync, type ScheduledBillsOutcome } from '@/lib/sync/bills'
-import { runScheduledBillRefsSync, type ScheduledBillRefsOutcome } from '@/lib/sync/bill-refs'
+import {
+  recordBillRefsTimeBudgetSkip,
+  runScheduledBillRefsSync,
+  type ScheduledBillRefsOutcome,
+} from '@/lib/sync/bill-refs'
 import { runAutoSign } from '@/lib/sync/auto-sign'
 import { kickPortalDelivery } from '@/lib/sync/portal-kick'
 
@@ -46,9 +50,14 @@ import { kickPortalDelivery } from '@/lib/sync/portal-kick'
  * real POs, keyed by APV). Its own watermark (BILL_REFS rows); none → a
  * recorded refusal, because a first read is `scripts/sync.ts <TENANT>
  * --bill-refs` from a terminal. FAILED turns the response 500; a refusal or
- * SKIPPED_PAYMENT_NOT_RUN does not. Incremental runs are small (a day's
- * bills), well inside the 60-second ceiling the auto-sign budget already
- * accounts for.
+ * SKIPPED_PAYMENT_NOT_RUN does not. Neither the BILLS nor the BILL_REFS read
+ * is individually time-bounded. A tenant's BILL_REFS read is not begun once
+ * 20 s of the run have passed (SKIPPED_TIME_BUDGET, recorded as a finished
+ * BILL_REFS row with no watermark; the next run catches up), but one begun
+ * before that — or an unusually large incremental BILLS read — can still run
+ * long enough to push auto-sign past its 50 s deadline: auto-sign then
+ * records FAILED, the response is 500, and the 18:00 run retries what 12:00
+ * left. That is the same exposure BILLS already had.
  *
  * Then AUTO-SIGN (lib/sync/auto-sign.ts): on a Manila Tuesday, the Acumatica
  * cheques first read on the Monday become SIGNED; on any other day the run
@@ -147,9 +156,11 @@ export async function GET(request: Request): Promise<Response> {
     }
     // Yield to the budget: auto-sign's 50 s deadline runs from `now`, so a PO
     // read begun late would eat the time auto-sign needs. Not a failure; the
-    // BILL_REFS watermark stays, so the next run catches up.
-    if (Date.now() - now.getTime() > BILL_REFS_SKIP_AFTER_MS) {
-      billRefs.push({ tenant, outcome: 'SKIPPED_TIME_BUDGET' })
+    // BILL_REFS watermark stays, so the next run catches up. The skip is
+    // recorded as a finished BILL_REFS row so /admin/sync shows it.
+    const elapsedMs = Date.now() - now.getTime()
+    if (elapsedMs > BILL_REFS_SKIP_AFTER_MS) {
+      billRefs.push(await recordBillRefsTimeBudgetSkip(prisma, { tenant, now, elapsedMs }))
       continue
     }
     billRefs.push(

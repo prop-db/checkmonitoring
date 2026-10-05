@@ -278,8 +278,43 @@ export type ScheduledBillRefsOutcome =
   | { tenant: AcumaticaTenant; outcome: 'FAILED'; message: string }
   /** The cron did not run the PO read because this tenant's payment read did not RUN. Not a failure. */
   | { tenant: AcumaticaTenant; outcome: 'SKIPPED_PAYMENT_NOT_RUN' }
-  /** The cron left the PO read for the next run: too much of its time budget was spent. Not a failure; the watermark stays. */
-  | { tenant: AcumaticaTenant; outcome: 'SKIPPED_TIME_BUDGET' }
+  /**
+   * The cron left the PO read for the next run: too much of its time budget
+   * was spent. Not a failure; the watermark stays. `syncRunId` is the row that
+   * records the skip on /admin/sync (`recordBillRefsTimeBudgetSkip`), null only
+   * when writing it failed.
+   */
+  | { tenant: AcumaticaTenant; outcome: 'SKIPPED_TIME_BUDGET'; syncRunId: string | null }
+
+/**
+ * The cron skipped this tenant's PO read for time: leave a trace on
+ * /admin/sync the way a refusal does — a finished SCHEDULED BILL_REFS row —
+ * but with no errors (a skip is not a failure) and no watermark, so
+ * `lastBillRefsWatermark` still returns the previous one and the next run
+ * catches up. Never throws: the skip is the outcome whether or not the row
+ * could be written.
+ */
+export async function recordBillRefsTimeBudgetSkip(
+  db: Db,
+  args: { tenant: AcumaticaTenant; now: Date; elapsedMs: number },
+): Promise<ScheduledBillRefsOutcome> {
+  const { tenant, now, elapsedMs } = args
+  try {
+    const run = await db.syncRun.create({
+      data: {
+        mode: BILL_REFS_MODE, tenant, trigger: 'SCHEDULED',
+        startedAt: now, finishedAt: new Date(),
+        errors: 0, watermark: null,
+        message:
+          `skipped: the run had used ${Math.floor(elapsedMs / 1000)} s of its budget before the PO read; ` +
+          'the next run catches up',
+      },
+    })
+    return { tenant, outcome: 'SKIPPED_TIME_BUDGET', syncRunId: run.id }
+  } catch {
+    return { tenant, outcome: 'SKIPPED_TIME_BUDGET', syncRunId: null }
+  }
+}
 
 /**
  * One tenant's scheduled PO read, never throwing — `runScheduledBillsSync`

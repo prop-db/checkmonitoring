@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { testDb, resetDb } from '../helpers/db'
-import { runBillRefsSync, lastBillRefsWatermark, runScheduledBillRefsSync, BILL_REFS_MODE, NO_BILL_REFS_WATERMARK_MESSAGE } from '@/lib/sync/bill-refs'
+import { runBillRefsSync, lastBillRefsWatermark, runScheduledBillRefsSync, recordBillRefsTimeBudgetSkip, BILL_REFS_MODE, NO_BILL_REFS_WATERMARK_MESSAGE } from '@/lib/sync/bill-refs'
 import { SyncInProgressError, SYNC_OVERLAP_MINUTES } from '@/lib/sync/run'
 import {
   BILL_REFS_FEED, billRefsSinceFilter, billRefsInScopeFilter,
@@ -331,5 +331,28 @@ describe('runScheduledBillRefsSync', () => {
     })
     const outcome = await runScheduledBillRefsSync(testDb, { tenant: 'GOLIVE', now: NOW, client: () => fakeFeed([]).client })
     expect(outcome.outcome).toBe('IN_PROGRESS')
+  })
+})
+
+describe('recordBillRefsTimeBudgetSkip', () => {
+  it('records a finished SCHEDULED BILL_REFS row with no errors and no watermark, saying how long the run had taken', async () => {
+    await testDb.syncRun.create({
+      data: {
+        mode: 'BILL_REFS', tenant: 'GOLIVE', trigger: 'MANUAL',
+        startedAt: new Date('2026-09-29T10:00:00Z'), finishedAt: new Date('2026-09-29T10:00:01Z'),
+        watermark: new Date('2026-09-29T08:00:00Z'),
+      },
+    })
+    const outcome = await recordBillRefsTimeBudgetSkip(testDb, { tenant: 'GOLIVE', now: NOW, elapsedMs: 21_400 })
+    expect(outcome.outcome).toBe('SKIPPED_TIME_BUDGET')
+    if (outcome.outcome !== 'SKIPPED_TIME_BUDGET' || outcome.syncRunId === null) throw new Error('unreachable')
+    const run = await testDb.syncRun.findUniqueOrThrow({ where: { id: outcome.syncRunId } })
+    expect(run).toMatchObject({
+      mode: 'BILL_REFS', tenant: 'GOLIVE', trigger: 'SCHEDULED', startedAt: NOW, errors: 0, watermark: null,
+      message: 'skipped: the run had used 21 s of its budget before the PO read; the next run catches up',
+    })
+    expect(run.finishedAt).not.toBeNull()
+    // The skip moves nothing: the next run reads from the previous watermark.
+    expect(await lastBillRefsWatermark(testDb, 'GOLIVE')).toEqual(new Date('2026-09-29T08:00:00Z'))
   })
 })
