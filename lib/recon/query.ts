@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 import type { OutstandingRow } from './summary'
+import { accountWhere } from '@/lib/queries'
 
 type Db = PrismaClient | Prisma.TransactionClient
 
@@ -13,19 +14,23 @@ export type ReconFilters = { bankCode?: string; companyId?: string; cashAccountI
  * `lib/recon/outstanding.ts` decides per day, and it runs in the pure layer
  * so the page and the extract are struck over the same rows.
  *
- * The bank filter reads the cash account's bank, and for a cheque with no
- * cash account the checkbook's; the account filter is the cash account.
+ * The ACCOUNT — the filter, the grouping and the bank — is the cheque book
+ * (Acumatica's CashAccount), else the register's cash-account label: the
+ * dashboard's rule, `accountWhere` (full check 2026-10-06: grouping on the
+ * label alone left 10,026 of 10,758 released cheques in no account).
  */
 function populationWhere(filters: ReconFilters): Prisma.CheckWhereInput {
   const where: Prisma.CheckWhereInput = { status: 'RELEASED', isCheque: true }
   if (filters.companyId) where.companyId = filters.companyId
-  if (filters.cashAccountId) where.cashAccountId = filters.cashAccountId
+  const and: Prisma.CheckWhereInput[] = []
+  if (filters.cashAccountId) and.push(accountWhere(filters.cashAccountId))
   if (filters.bankCode) {
-    where.OR = [
-      { cashAccount: { bank: { code: filters.bankCode } } },
-      { cashAccountId: null, checkBook: { bank: { code: filters.bankCode } } },
-    ]
+    and.push({ OR: [
+      { checkBook: { bank: { code: filters.bankCode } } },
+      { checkBookId: null, cashAccount: { bank: { code: filters.bankCode } } },
+    ] })
   }
+  if (and.length > 0) where.AND = and
   return where
 }
 
@@ -38,7 +43,7 @@ export async function listOutstandingCandidates(db: Db, filters: ReconFilters = 
       releasedAt: true, clearingStatus: true, clearedDate: true, status: true,
       company: { select: { code: true } },
       cashAccount: { select: { id: true, code: true, bank: { select: { code: true } } } },
-      checkBook: { select: { bank: { select: { code: true } } } },
+      checkBook: { select: { id: true, code: true, bank: { select: { code: true } } } },
       vendor: { select: { canonicalName: true } },
     },
   })
@@ -48,9 +53,9 @@ export async function listOutstandingCandidates(db: Db, filters: ReconFilters = 
       id: c.id,
       checkNumber: c.checkNumber,
       payee: c.payeeName ?? c.vendor?.canonicalName ?? null,
-      accountId: c.cashAccount?.id ?? null,
-      account: c.cashAccount?.code ?? null,
-      bank: c.cashAccount?.bank.code ?? c.checkBook?.bank.code ?? null,
+      accountId: c.checkBook?.id ?? c.cashAccount?.id ?? null,
+      account: c.checkBook?.code ?? c.cashAccount?.code ?? null,
+      bank: c.checkBook?.bank.code ?? c.cashAccount?.bank.code ?? null,
       company: c.company.code,
       currency: c.currency,
       amount: c.amount.toFixed(2),

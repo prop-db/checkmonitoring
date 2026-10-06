@@ -50,6 +50,12 @@ export type CheckFilters = ColumnFilters & {
    */
   statusIn?: readonly CheckStatus[]
   companyId?: string
+  /**
+   * The BANK filter. Named for the URL parameter it has always come from, but
+   * since 2026-10-06 it is an ACCOUNT id: a cheque book's (Acumatica's
+   * CashAccount, which every synced cheque carries) or, for a cheque with no
+   * book, a register cash-account label's. `accountWhere` is the one rule.
+   */
   cashAccountId?: string
   eligibility?: Eligibility
   /**
@@ -160,10 +166,21 @@ const COMPLETE_ONLY = { isIncomplete: false } as const
  */
 export type SummaryNarrowing = Pick<CheckFilters, 'companyId' | 'cashAccountId' | 'eligibility'>
 
+/**
+ * A cheque's ACCOUNT: its cheque book when it has one (Acumatica's
+ * CashAccount — user ruling 2026-10-05 "follow acumatica"), otherwise the
+ * register's cash-account label. Only ~1,342 of ~13,000 cheques carry a label
+ * and ~12,100 carry a book, so a filter on the label alone hid nine in ten
+ * cheques (full check, 2026-10-06). Ids are cuids, unique across both tables.
+ */
+export function accountWhere(accountId: string): Prisma.CheckWhereInput {
+  return { OR: [{ checkBookId: accountId }, { checkBookId: null, cashAccountId: accountId }] }
+}
+
 function narrowingWhere(narrow: SummaryNarrowing): Prisma.CheckWhereInput {
   const where: Prisma.CheckWhereInput = {}
   if (narrow.companyId) where.companyId = narrow.companyId
-  if (narrow.cashAccountId) where.cashAccountId = narrow.cashAccountId
+  if (narrow.cashAccountId) where.AND = [accountWhere(narrow.cashAccountId)]
   if (narrow.eligibility) where.eligibility = narrow.eligibility
   return where
 }
@@ -450,7 +467,9 @@ function buildWhere(filters: CheckFilters, extraSearch: readonly Prisma.CheckWhe
   if (filters.status) where.status = filters.status
   else if (filters.statusIn && filters.statusIn.length > 0) where.status = { in: [...filters.statusIn] }
   if (filters.companyId) where.companyId = filters.companyId
-  if (filters.cashAccountId) where.cashAccountId = filters.cashAccountId
+  // Collected under AND, never on `where.OR`, which the search owns below.
+  const and: Prisma.CheckWhereInput[] = []
+  if (filters.cashAccountId) and.push(accountWhere(filters.cashAccountId))
   if (filters.eligibility) where.eligibility = filters.eligibility
   // The tri-state, spelled out. `true` narrows to the records with no recorded
   // amount, `false` EXCLUDES them (the dashboard's default since 2026-09-06 —
@@ -485,8 +504,9 @@ function buildWhere(filters: CheckFilters, extraSearch: readonly Prisma.CheckWhe
     // replace the first. A null date satisfies neither bound, so a cheque with
     // neither date is left out without an extra clause.
     const bounds = { gte: filters.releasedFrom, lte: filters.releasedTo }
-    where.AND = [{ OR: [{ releasedAt: bounds }, { statedReleaseDate: bounds }] }]
+    and.push({ OR: [{ releasedAt: bounds }, { statedReleaseDate: bounds }] })
   }
+  if (and.length > 0) where.AND = and
 
   const q = filters.q?.trim()
   if (q) {
@@ -620,6 +640,7 @@ async function whereFor(db: Db, filters: CheckFilters): Promise<Prisma.CheckWher
 const CHECK_ROW_INCLUDE = {
   company: true,
   cashAccount: { include: { bank: true } },
+  checkBook: { include: { bank: true } },
   bills: { orderBy: { apvNumber: 'asc' } },
 } satisfies Prisma.CheckInclude
 
@@ -629,6 +650,7 @@ type SortProbe = {
   releasedAt: Date | null
   statedReleaseDate: Date | null
   cashAccount: { code: string } | null
+  checkBook: { code: string } | null
   bills: { apvNumber: string; poNumber: string | null }[]
 }
 
@@ -636,7 +658,7 @@ export function appSortValue(key: AppSortKey, r: SortProbe, acumatica: Acumatica
   switch (key) {
     case 'apvNumbers': return displayApvNumbers(r)[0] ?? null
     case 'poNumbers': return displayPoNumbers(r, acumatica)[0] ?? null
-    case 'bank': return r.cashAccount?.code ?? null
+    case 'bank': return r.checkBook?.code ?? r.cashAccount?.code ?? null
     case 'releasedAt': return (r.releasedAt ?? r.statedReleaseDate)?.getTime() ?? null
     default: {
       const unreachable: never = key
@@ -662,6 +684,7 @@ async function appSortedIds(
     select: {
       id: true, checkNumber: true, apvNumbers: true, releasedAt: true, statedReleaseDate: true,
       cashAccount: { select: { code: true } },
+      checkBook: { select: { code: true } },
       bills: { select: { apvNumber: true, poNumber: true } },
     },
   })
@@ -741,16 +764,22 @@ export type CashAccountOption = { id: string; code: string; bankCode: string }
 export type FilterOptions = { companies: CompanyOption[]; cashAccounts: CashAccountOption[] }
 
 export async function getFilterOptions(db: Db): Promise<FilterOptions> {
-  const [companies, cashAccounts] = await Promise.all([
+  const [companies, books, cashAccounts] = await Promise.all([
     db.company.findMany({ orderBy: { code: 'asc' }, select: { id: true, code: true, name: true } }),
+    db.checkBook.findMany({
+      orderBy: { code: 'asc' },
+      select: { id: true, code: true, bank: { select: { code: true } } },
+    }),
     db.cashAccount.findMany({
       orderBy: { code: 'asc' },
       select: { id: true, code: true, bank: { select: { code: true } } },
     }),
   ])
+  // The cheque books first (Acumatica's accounts), then the register's labels,
+  // which match only cheques with no book (`accountWhere`).
   return {
     companies,
-    cashAccounts: cashAccounts.map((a) => ({ id: a.id, code: a.code, bankCode: a.bank.code })),
+    cashAccounts: [...books, ...cashAccounts].map((a) => ({ id: a.id, code: a.code, bankCode: a.bank.code })),
   }
 }
 
@@ -840,6 +869,8 @@ export type CheckTableRow = {
   status: CheckStatus
   eligibility: Eligibility
   isCheque: boolean
+  /** Finance marked it STALED (2026-10-06); shown as a tag beside the status. */
+  isStale: boolean
   availablePickupDate: Date | null
   scheduledPickupDate: Date | null
   /** When the release was recorded here; null for every release that was not. */
@@ -901,8 +932,9 @@ export function toTableRow(r: CheckRow): CheckTableRow {
     // `?? null`, so a cheque with no cash account says so rather than crossing
     // the boundary as `undefined` and rendering as a gap indistinguishable from
     // a rendering fault.
-    cashAccountCode: r.cashAccount?.code ?? null,
-    bankCode: r.cashAccount?.bank.code ?? null,
+    // The account: the cheque book, else the register label (`accountWhere`).
+    cashAccountCode: r.checkBook?.code ?? r.cashAccount?.code ?? null,
+    bankCode: r.checkBook?.bank.code ?? r.cashAccount?.bank.code ?? null,
     checkDate: r.checkDate,
     // `?.toString() ?? null`, never `Number(...)`: null is "no amount was
     // recorded" — 129 cheques in production — and it is not zero.
@@ -911,6 +943,7 @@ export function toTableRow(r: CheckRow): CheckTableRow {
     status: r.status,
     eligibility: r.eligibility,
     isCheque: r.isCheque,
+    isStale: r.isStale,
     availablePickupDate: r.availablePickupDate,
     scheduledPickupDate: r.scheduledPickupDate,
     releasedAt: r.releasedAt,

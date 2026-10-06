@@ -112,7 +112,7 @@ describe('getStagedSummary', () => {
     expect(s.total).toBe(4)
     expect(s.live).toBe(2)
     expect(s.closed).toBe(2)
-    expect(s.byReason).toEqual({ NO_COMPANY: 2, AMBIGUOUS_COMPANY: 1, NO_CHECK_NUMBER: 1 })
+    expect(s.byReason).toEqual({ NO_COMPANY: 2, AMBIGUOUS_COMPANY: 1, NO_CHECK_NUMBER: 1, SHARED_NUMBER: 0 })
     expect(s.byImpliedStatus).toContainEqual({ status: 'SIGNED', count: 1 })
   })
 

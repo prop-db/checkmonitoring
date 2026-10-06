@@ -123,7 +123,7 @@ export type ImportPreview = {
 }
 
 const EMPTY_BY_REASON: Record<StagedReason, number> = {
-  NO_COMPANY: 0, NO_CHECK_NUMBER: 0, AMBIGUOUS_COMPANY: 0,
+  NO_COMPANY: 0, NO_CHECK_NUMBER: 0, AMBIGUOUS_COMPANY: 0, SHARED_NUMBER: 0,
 }
 
 const EMPTY_BY_KIND: Record<ConflictKind, number> = {

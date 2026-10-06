@@ -666,7 +666,9 @@ describe('runSync — a voided cheque must never store its own reversal', () => 
   })
   const reversalRow = (o: Record<string, unknown> = {}) => feedRow({
     Type: 'Voided Payment', Status: 'Closed', PaymentAmount: '-88426.95',
-    PaymentRef: '6000319079', ReferenceNbr: 'CV-REV', LastModifiedOn: VOIDED_AT, ...o,
+    // The SAME reference as the original: in the live feed a void's two halves
+    // share their ReferenceNbr (CV-A1013045, CV-ST010945; measured 2026-10-06).
+    PaymentRef: '6000319079', ReferenceNbr: 'CV-ORIG', LastModifiedOn: VOIDED_AT, ...o,
   })
 
   it('stores the ORIGINAL positive amount, whichever order the pair arrives in', async () => {

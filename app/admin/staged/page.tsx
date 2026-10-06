@@ -33,7 +33,7 @@ const fmtDate = (d: Date | null) =>
   d ? d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'
 
 const SCOPES: readonly StagedScope[] = ['LIVE', 'CLOSED', 'ALL']
-const REASONS: readonly StagedReason[] = ['NO_COMPANY', 'AMBIGUOUS_COMPANY', 'NO_CHECK_NUMBER']
+const REASONS: readonly StagedReason[] = ['NO_COMPANY', 'AMBIGUOUS_COMPANY', 'NO_CHECK_NUMBER', 'SHARED_NUMBER']
 const STATUSES: readonly CheckStatus[] = [
   'GENERATED', 'SIGNATURE_PENDING', 'SIGNED', 'READY_FOR_RELEASE',
   'SCHEDULED', 'RELEASED', 'CANCELLED', 'VOIDED',
@@ -90,14 +90,15 @@ export default async function StagedPage({
 
   return (
     <div className="space-y-6">
-      {/* Seven, not six, since 2026-09-07: the approval workbook's refused rows
+      {/* Eight since 2026-10-06 (SHARED NUMBER). Seven, not six, since 2026-09-07: the approval workbook's refused rows
           are a count of their own and belong on the same line as the rest. */}
-      <section className="grid grid-cols-2 gap-4 lg:grid-cols-4 xl:grid-cols-7">
+      <section className="grid grid-cols-2 gap-4 lg:grid-cols-4 xl:grid-cols-8">
         <Card label="STILL IN THE RELEASE WORKFLOW" value={n(summary.live)} accent />
         <Card label="ALREADY RELEASED OR CANCELLED" value={n(summary.closed)} />
         <Card label="NO COMPANY" value={n(summary.byReason.NO_COMPANY)} />
         <Card label="AMBIGUOUS COMPANY" value={n(summary.byReason.AMBIGUOUS_COMPANY)} />
         <Card label="NO CHECK NUMBER" value={n(summary.byReason.NO_CHECK_NUMBER)} />
+        <Card label="SHARED NUMBER" value={n(summary.byReason.SHARED_NUMBER)} />
         <Card label="SINCE PLACED BY A SYNC" value={n(summary.promoted)} />
         {/* Toned only when it is not zero. This card exists because voucher
             AP-ST042652 never reached the supplier portal over one mis-keyed

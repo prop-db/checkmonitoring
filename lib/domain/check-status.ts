@@ -108,7 +108,7 @@ const REQUIRED_FIELDS: readonly (readonly [keyof ReadyGuardInput, string])[] = [
   ['payeeName', 'PAYEE'],
   ['amount', 'AMOUNT'],
   ['checkDate', 'CHECK DATE'],
-  ['cashAccountCode', 'CASH ACCOUNT'],
+  ['cashAccountCode', 'CASH ACCOUNT / CHEQUE BOOK'],
   ['availablePickupDate', 'AVAILABLE PICKUP DATE'],
 ]
 

@@ -147,7 +147,7 @@ export async function getStagedSummary(db: Db): Promise<StagedSummary> {
     db.stagedCheck.count({ where: { promotedCheckId: { not: null } } }),
   ])
 
-  const counts: Record<StagedReason, number> = { NO_COMPANY: 0, NO_CHECK_NUMBER: 0, AMBIGUOUS_COMPANY: 0 }
+  const counts: Record<StagedReason, number> = { NO_COMPANY: 0, NO_CHECK_NUMBER: 0, AMBIGUOUS_COMPANY: 0, SHARED_NUMBER: 0 }
   for (const g of byReason) counts[g.reason] = g._count._all
 
   return {

@@ -276,6 +276,17 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
       where: { companyId_checkNumber: { companyId: company.id, checkNumber } },
     })
 
+    // ANOTHER PAYMENT ON A NUMBER WE HOLD (full check, 2026-10-06). Acumatica
+    // re-uses a cheque number under a new payment reference — a void and its
+    // re-issue (`1791361374`: CV-A1009705 voided, CV-A1009798 live), or two
+    // live payments (`6000338856`). Both rows key to one `(company, number)`
+    // cheque here, so each sync wrote one payment's facts over the other's,
+    // and the voided original's row VOIDED the live re-issue. The number is
+    // held by the payment already here; the other is staged for a human.
+    if (exact?.acumaticaPaymentId && row.acumaticaPaymentId && exact.acumaticaPaymentId !== row.acumaticaPaymentId) {
+      return stageRow(tx, row, implied.status, 'SHARED_NUMBER', [companyCode])
+    }
+
     // THE FALLBACK, and the whole of defect 1,865-duplicates.
     //
     // `@@unique([companyId, checkNumber])` is the primary identity and stays
@@ -842,7 +853,7 @@ export async function importRows(
     created: 0,
     updated: 0,
     staged: 0,
-    stagedByReason: { NO_COMPANY: 0, NO_CHECK_NUMBER: 0, AMBIGUOUS_COMPANY: 0 },
+    stagedByReason: { NO_COMPANY: 0, NO_CHECK_NUMBER: 0, AMBIGUOUS_COMPANY: 0, SHARED_NUMBER: 0 },
   }
 
   for (const row of args.rows) {

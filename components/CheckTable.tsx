@@ -116,7 +116,14 @@ function DataCell({ column, r }: { column: DataColumn; r: CheckTableRow }) {
       // column and an eight-figure amount is visibly an eight-figure amount.
       return <td className="px-4 py-3 text-right font-medium tabular-nums">{formatMoney(r.amount, r.currency)}</td>
     case 'status':
-      return <td className="px-4 py-3"><StatusPill status={r.status} /></td>
+      // STALED: Finance's word for a cheque past its presentment life (ruling
+      // 2026-10-06). It stays CANCELLED; the tag says why.
+      return (
+        <td className="px-4 py-3">
+          <StatusPill status={r.status} />
+          {r.isStale && <span className="ml-1 text-[10px] font-semibold tracking-widest text-amber-700">STALED</span>}
+        </td>
+      )
     case 'availablePickupDate':
       return <td className="px-4 py-3 text-slate-600">{fmtDate(r.availablePickupDate)}</td>
     case 'scheduledPickupDate':

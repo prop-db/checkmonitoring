@@ -60,7 +60,7 @@ describe('previewRegisterImport — the full accounting', () => {
       [rev('CANCELLED', 6), rev('CHECK FINDING', 7)],
     )
     expect(r.stagedByReason).toEqual({
-      NO_COMPANY: 1, AMBIGUOUS_COMPANY: 2, NO_CHECK_NUMBER: 2,
+      NO_COMPANY: 1, AMBIGUOUS_COMPANY: 2, NO_CHECK_NUMBER: 2, SHARED_NUMBER: 0,
     })
   })
 

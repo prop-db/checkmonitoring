@@ -166,7 +166,7 @@ function portalAuditDetails(routed: boolean, pushes: boolean): { portalNotified?
 async function load(tx: Prisma.TransactionClient, checkId: string) {
   const check = await tx.check.findUnique({
     where: { id: checkId },
-    include: { cashAccount: true },
+    include: { cashAccount: true, checkBook: true },
   })
   if (!check) throw new DomainError('NOT_FOUND', 'Check not found.')
   return check
@@ -280,7 +280,9 @@ export async function markReadyForRelease(
       payeeName: check.payeeName,
       amount: check.amount?.toString() ?? null,
       checkDate: check.checkDate,
-      cashAccountCode: check.cashAccount?.code ?? null,
+      // The account: the cheque book, else the register label (full check
+      // 2026-10-06: the label alone blocked 930 of 1,370 live cheques).
+      cashAccountCode: check.checkBook?.code ?? check.cashAccount?.code ?? null,
       availablePickupDate: args.availablePickupDate,
       isCheque: check.isCheque,
     })

@@ -147,6 +147,7 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
             </p>
             <div className="mt-2 flex justify-end">
               <StatusPill status={check.status} />
+              {check.isStale && <span className="ml-2 self-center text-xs font-semibold tracking-widest text-amber-700">STALED</span>}
             </div>
           </div>
         </div>

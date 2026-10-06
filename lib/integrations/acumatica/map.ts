@@ -266,8 +266,16 @@ export function collapseVoidPairs(rows: readonly NormalisedRow[]): NormalisedRow
   // pair of values can spell another pair's key. A space would do today —
   // `A1+`, `HAMFI(HO)`, `STINDUSTRY` — but a company code is reference data
   // somebody edits, and a key that is only safe by luck is not a key.
+  //
+  // AND the payment reference (full check 2026-10-06). The two halves of a void
+  // share it; a RE-ISSUE on the same number does not — Acumatica voided
+  // CV-A1009705 and re-issued 1791361374 as CV-A1009798, and pairing on the
+  // number alone flagged the live re-issue voided, so the sync voided a cheque
+  // Acumatica holds Closed. Five such numbers in Go-Live that day.
   const key = (row: NormalisedRow): string | null =>
-    row.checkNumber === null ? null : `${row.companyCode ?? ''}\u0000${row.checkNumber}`
+    row.checkNumber === null
+      ? null
+      : `${row.companyCode ?? ''}\u0000${row.acumaticaPaymentId ?? ''}\u0000${row.checkNumber}`
 
   const reversed = new Set<string>()
   const originals = new Set<string>()

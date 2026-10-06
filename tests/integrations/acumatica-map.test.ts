@@ -464,6 +464,23 @@ describe('collapseVoidPairs', () => {
     expect(out).toHaveLength(2)
   })
 
+  it('does not pair a void with a RE-ISSUE on the same number under another payment reference', () => {
+    // Full check 2026-10-06: CV-A1009705 (voided, with its reversal) and its
+    // re-issue CV-A1009798 share cheque number 1791361374. Keyed on the number
+    // alone, the live re-issue was flagged voided and the sync voided it here.
+    const voidedOriginal = original({ ReferenceNbr: 'CV-A1009705', PaymentRef: '1791361374' })
+    const voidReversal = reversal({ ReferenceNbr: 'CV-A1009705', PaymentRef: '1791361374' })
+    const reissue = mapPayment({ ...paymentRow, ReferenceNbr: 'CV-A1009798', PaymentRef: '1791361374', Status: 'Closed' }, 'GOLIVE')!
+
+    const out = collapseVoidPairs([voidedOriginal, voidReversal, reissue])
+
+    expect(out).toHaveLength(2)
+    const byRef = new Map(out.map((r) => [r.acumaticaPaymentId, r]))
+    expect(byRef.get('CV-A1009705')?.voided).toBe(true)
+    expect(byRef.get('CV-A1009798')?.voided).toBe(false)
+    expect(byRef.get('CV-A1009798')?.acumaticaStatus).toBe('Closed')
+  })
+
   it('leaves rows it has nothing to pair alone, in the order the feed gave them', () => {
     const rows: NormalisedRow[] = [
       mapPayment({ ...paymentRow, PaymentRef: '6000240287' }, 'GOLIVE')!,

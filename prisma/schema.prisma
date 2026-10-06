@@ -431,6 +431,11 @@ enum StagedReason {
   // companies and double-count PHP 6,779,371.05. The other 2 carry genuinely
   // different payees and amounts under one number.
   AMBIGUOUS_COMPANY
+  // An Acumatica payment whose (company, cheque number) is already held here
+  // by a DIFFERENT payment reference: a void and its re-issue on one number,
+  // or two live payments on one number (full check 2026-10-06: 5 numbers in
+  // Go-Live). The cheque here keeps its own payment; this one waits for a human.
+  SHARED_NUMBER
 }
 
 // A register row kept whole because it cannot become a `Check` without a guess.

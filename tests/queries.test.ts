@@ -702,6 +702,35 @@ describe('filters compose', () => {
     expect(rows.map((r) => r.checkNumber)).toEqual(['6000000920'])
   })
 
+  it('BANK filters on the ACCOUNT: the cheque book, else the register label (2026-10-06)', async () => {
+    const booked = await makeCheck({ checkNumber: '6000000930' })
+    const labelOnly = await makeCheck({ checkNumber: '6000000931' })
+    const bank = await testDb.bank.create({ data: { code: 'BPI-Q', name: 'BPI' } })
+    const book = await testDb.checkBook.create({ data: { code: 'BPI-S-9930', bankId: bank.id, companyId: booked.companyId } })
+    await testDb.check.update({ where: { id: booked.id }, data: { checkBookId: book.id } })
+
+    expect((await listChecks(testDb, { cashAccountId: book.id })).map((r) => r.checkNumber)).toEqual(['6000000930'])
+    // The booked cheque's own label no longer selects it: its account is the book.
+    expect(await listChecks(testDb, { cashAccountId: booked.cashAccountId! })).toHaveLength(0)
+    expect((await listChecks(testDb, { cashAccountId: labelOnly.cashAccountId! })).map((r) => r.checkNumber)).toEqual(['6000000931'])
+    expect((await getSummary(testDb, { cashAccountId: book.id })).total).toBe(1)
+
+    const table = toTableRow((await listChecks(testDb, { cashAccountId: book.id }))[0])
+    expect(table).toMatchObject({ cashAccountCode: 'BPI-S-9930', bankCode: 'BPI-Q' })
+    const options = await getFilterOptions(testDb)
+    expect(options.cashAccounts[0]).toEqual({ id: book.id, code: 'BPI-S-9930', bankCode: 'BPI-Q' })
+  })
+
+  it('BANK filter and a released-date range apply together', async () => {
+    const one = await makeCheck({ status: 'RELEASED', checkNumber: '6000000940', releasedAt: new Date('2026-10-01T03:00:00Z') })
+    await makeCheck({ status: 'RELEASED', checkNumber: '6000000941', releasedAt: new Date('2026-10-01T03:00:00Z') })
+    await makeCheck({ status: 'RELEASED', checkNumber: '6000000942', releasedAt: new Date('2026-08-01T03:00:00Z') })
+    const rows = await listChecks(testDb, {
+      cashAccountId: one.cashAccountId!, releasedFrom: new Date('2026-09-30T16:00:00Z'), releasedTo: new Date('2026-10-01T15:59:59Z'),
+    })
+    expect(rows.map((r) => r.checkNumber)).toEqual(['6000000940'])
+  })
+
   it('filters by company on its own', async () => {
     const one = await makeCheck({ checkNumber: '6000000930' })
     await makeCheck({ checkNumber: '6000000931' })

@@ -183,7 +183,7 @@ describe('importWorkbookAction', () => {
     expect(result.preview.willImport).toBe(1)
     expect(result.preview.willStage).toBe(2)
     expect(result.preview.stagedByReason).toEqual({
-      NO_COMPANY: 1, NO_CHECK_NUMBER: 1, AMBIGUOUS_COMPANY: 0,
+      NO_COMPANY: 1, NO_CHECK_NUMBER: 1, AMBIGUOUS_COMPANY: 0, SHARED_NUMBER: 0,
     })
     // Openable: each staged row is carried, not just counted.
     expect(result.preview.stagedRows.map((r) => r.reason).sort()).toEqual(['NO_CHECK_NUMBER', 'NO_COMPANY'])

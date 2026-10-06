@@ -698,6 +698,41 @@ describe('upsertCheck — staging', () => {
   })
 })
 
+describe('upsertCheck — another payment on a number already held (full check 2026-10-06)', () => {
+  it('stages a voided original instead of voiding the live re-issue that holds its number', async () => {
+    await seedCompany()
+    // The re-issue is here first (CV-A1009798 in production), live.
+    await upsert(acumaticaRow({ ReferenceNbr: 'CV-RE-2', PaymentRef: 'BPI 6000400009', Status: 'Closed' }))
+    // The voided original on the same number, under its own payment reference.
+    const out = await upsert(acumaticaRow({ ReferenceNbr: 'CV-RE-1', PaymentRef: 'BPI 6000400009', Status: 'Voided' }))
+
+    expect(out.outcome).toBe('STAGED')
+    if (out.outcome === 'STAGED') expect(out.reason).toBe('SHARED_NUMBER')
+    const check = await testDb.check.findFirstOrThrow({ where: { checkNumber: '6000400009' } })
+    expect(check.status).not.toBe('VOIDED')
+    expect(check.acumaticaPaymentId).toBe('CV-RE-2')
+    expect(check.acumaticaStatus).toBe('Closed')
+    const staged = await testDb.stagedCheck.findFirstOrThrow({ where: { acumaticaRef: 'CV-RE-1' } })
+    expect(staged.reason).toBe('SHARED_NUMBER')
+  })
+
+  it('stages a second LIVE payment on a held number rather than writing its facts over the first', async () => {
+    await seedCompany()
+    await upsert(acumaticaRow({ ReferenceNbr: 'CV-TWO-1', PaymentRef: 'BPI 6000400010', PaymentAmount: '100.00' }))
+    const out = await upsert(acumaticaRow({ ReferenceNbr: 'CV-TWO-2', PaymentRef: 'BPI 6000400010', PaymentAmount: '999.00' }))
+    expect(out.outcome).toBe('STAGED')
+    const check = await testDb.check.findFirstOrThrow({ where: { checkNumber: '6000400010' } })
+    expect(check.amount?.toFixed(2)).toBe('100.00')
+  })
+
+  it('still updates the payment it holds, re-read under its own reference', async () => {
+    await seedCompany()
+    await upsert(acumaticaRow({ ReferenceNbr: 'CV-SAME', PaymentRef: 'BPI 6000400011', PaymentAmount: '100.00' }))
+    const out = await upsert(acumaticaRow({ ReferenceNbr: 'CV-SAME', PaymentRef: 'BPI 6000400011', PaymentAmount: '150.00' }))
+    expect(out.outcome).toBe('UPDATED')
+  })
+})
+
 describe('upsertCheck — voiding', () => {
   it('voids a cheque Acumatica reports voided, through the domain action', async () => {
     await seedCompany()
@@ -1077,7 +1112,7 @@ describe('importRows — running the whole import', () => {
       created: 2,
       updated: 0,
       staged: 4,
-      stagedByReason: { NO_COMPANY: 1, NO_CHECK_NUMBER: 1, AMBIGUOUS_COMPANY: 2 },
+      stagedByReason: { NO_COMPANY: 1, NO_CHECK_NUMBER: 1, AMBIGUOUS_COMPANY: 2, SHARED_NUMBER: 0 },
     })
     expect(summary.created + summary.updated + summary.staged).toBe(summary.rows)
     expect(await testDb.check.count()).toBe(2)
@@ -1095,7 +1130,7 @@ describe('importRows — running the whole import', () => {
       created: 0,
       updated: 2,
       staged: 4,
-      stagedByReason: { NO_COMPANY: 1, NO_CHECK_NUMBER: 1, AMBIGUOUS_COMPANY: 2 },
+      stagedByReason: { NO_COMPANY: 1, NO_CHECK_NUMBER: 1, AMBIGUOUS_COMPANY: 2, SHARED_NUMBER: 0 },
     })
     expect(await testDb.check.count()).toBe(2)
     expect(await testDb.stagedCheck.count()).toBe(4)

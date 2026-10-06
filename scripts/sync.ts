@@ -53,6 +53,7 @@ import { join } from 'node:path'
 import { PrismaClient } from '@prisma/client'
 import { createAcumaticaClient, PAYMENTS_FEED, PAYMENT_FIELDS } from '../lib/integrations/acumatica/client'
 import { runSync, lastSyncWatermark } from '../lib/sync/run'
+import { refreshOutOfScope } from '../lib/sync/out-of-scope'
 import { runBillsSync, lastBillsWatermark } from '../lib/sync/bills'
 import {
   BILLS_FEED, BILL_FEED_COLUMNS, billFeedSelect, billsInScopeFilter, billsSinceFilter,
@@ -121,7 +122,32 @@ async function main() {
       ...(watermark ? { filter: `LastModifiedOn ge datetime'${watermark.toISOString().slice(0, 19)}'` } : {}),
     })
     console.log(`\nDRY RUN — the feed returns ${rows.length.toLocaleString()} rows. Nothing was written.\n`)
+    if (!watermark) {
+      const oos = await refreshOutOfScope(db, { client, tenant, now: new Date(), apply: false })
+      console.log(`  LIVE cheques held here whose payment left the 2026 CHK feed: ${oos.candidates.length}`)
+      for (const c of oos.candidates) console.log(`    ${c.checkNumber} (${c.ref}, ${c.status})`)
+      console.log(`  A FULL run re-reads each by its reference and follows Acumatica (status untouched).\n`)
+    }
     return
+  }
+
+  // CLAUDE.md: snapshot before any bulk write to production. A FULL run
+  // rewrites every in-scope cheque's source fields (full check 2026-10-06:
+  // 102 amounts the register had overwritten).
+  if (!watermark) {
+    const snapAt = new Date()
+    const rowsBefore = await db.check.findMany({
+      where: { acumaticaTenant: tenant },
+      select: {
+        id: true, checkNumber: true, acumaticaPaymentId: true, cvNumber: true, amount: true, isIncomplete: true,
+        status: true, isCheque: true, companyId: true, checkBookId: true, cashAccountId: true, payeeName: true,
+        checkDate: true, acumaticaStatus: true, acumaticaDocType: true, lastModifiedOn: true, voidedAt: true,
+      },
+    })
+    await mkdir(join(process.cwd(), 'snapshots'), { recursive: true })
+    const snap = join(process.cwd(), 'snapshots', `payments-full-${tenant}-${snapAt.toISOString().replace(/[:.]/g, '-')}.json`)
+    await writeFile(snap, JSON.stringify({ takenAt: snapAt.toISOString(), tenant, rows: rowsBefore }, null, 2))
+    console.log(`SNAPSHOT    ${snap} (${rowsBefore.length.toLocaleString()} cheques)`)
   }
 
   const started = Date.now()
@@ -154,6 +180,17 @@ async function main() {
     (accounted === res.fetched ? '  ✓' : '  <-- MISMATCH, investigate'))
   console.log(`\n  cheques ${before.toLocaleString()} -> ${after.toLocaleString()}`)
   console.log(`  next watermark                ${res.watermark ? res.watermark.toISOString() : '(unchanged)'}\n`)
+
+  // A FULL run also re-reads, by reference, every LIVE cheque whose payment has
+  // left the scoped feed (lib/sync/out-of-scope.ts) — the feed cannot return it.
+  if (!watermark) {
+    const oos = await refreshOutOfScope(db, { client: clientFor(tenant), tenant, now: new Date(), apply: true })
+    console.log(`OUT OF SCOPE  ${oos.candidates.length} live cheque(s) whose payment left the 2026 CHK feed`)
+    for (const c of oos.candidates) console.log(`    ${c.checkNumber} (${c.ref}, ${c.status})`)
+    console.log(`  re-read and updated ${oos.updated.length}; not in Acumatica ${oos.gone.length}${oos.gone.length ? ': ' + oos.gone.join(', ') : ''}`)
+    for (const e of oos.errors) console.log(`  ERROR ${e.ref}: ${e.message}`)
+    console.log('')
+  }
 }
 
 function clientFor(t: AcumaticaTenant) {

@@ -162,6 +162,8 @@ npx tsx scripts/sync.ts GOLIVE --bills --dry-run     # read AP-PAYMENTS-WITH-BIL
 npx tsx scripts/sync.ts GOLIVE --bills               # snapshot, then union vouchers into apvNumbers; add --full to re-read
 npx tsx scripts/sync.ts GOLIVE --bill-refs --dry-run  # read AP-Bills and Adjustments, write nothing (MANUFACTURING likewise)
 npx tsx scripts/sync.ts GOLIVE --bill-refs            # snapshot AcumaticaBill, then mirror bill -> PO; add --full to re-read
+npx tsx scripts/sync.ts GOLIVE --full               # snapshot, re-read every 2026 CHK payment, then the live cheques that left that feed (--dry-run lists them)
+npx tsx scripts/reconcile-with-acumatica.ts "<file>.xlsx" [--apply --user <email>]   # AFTER --full: Closed-in-Acumatica cheques to RELEASED, Finance verdicts (2026-10-06)
 ```
 
 **On Windows, use `npx.cmd` / `npm.cmd`.** PowerShell's execution policy is `Undefined` (i.e.
@@ -595,12 +597,48 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
   separate account from `MBT-A-9048` with no CheckBook row, `RSB-S-0869` 1) and 40 register-only.**
   A cheque book is a bank account shared across companies — the register itself filed
   STK, A1+, HAMFI and IND cheques under one book — so neither the sync nor the repair checks the book's
-  company (user ruling 2026-10-05, spec §E). NUMBERING groups by cheque book. **The dashboard BANK filter/column still keys on the
-  cash-account label and sees only ~1,342 cheques** — an open follow-up. RECON's bank filter and BANK
-  column, the forecast's bank split, `/vouchers`' BANK column and portal event bodies already fall back
-  to the cheque book's bank, so they fill in as books are recorded; RECON still groups per cash
-  account. `PCF-SITIO`, `PAYROLL`, `PCF-SILANG`, `RSB-S-0869`, `MBTC-S-988` are no cheque book.
+  company (user ruling 2026-10-05, spec §E). NUMBERING groups by cheque book. **Since 2026-10-06 a
+  cheque's ACCOUNT is its cheque book, else the register label** (`accountWhere` in `lib/queries.ts`,
+  the one rule): the dashboard BANK filter (the `cashAccount` URL parameter now carries a cheque-book
+  id or, for a cheque with no book, a label id — ids are cuids, unique across both tables), the BANK
+  column and its sort, the options list (books first), RECON's account filter, grouping and bank, and
+  the READY FOR RELEASE guard (`CASH ACCOUNT / CHEQUE BOOK`). Measured that day: the label alone
+  covered 1,342 of 13,080 cheques, left 10,026 of 10,758 released cheques in no RECON account, and
+  **blocked READY FOR RELEASE on 930 of the 1,370 SIGNED/pending cheques**. Where a cheque has both,
+  the book wins (follow Acumatica). The forecast's bank split, `/vouchers`' BANK column and portal
+  event bodies still read the label first and fall back to the book.
+  `PCF-SITIO`, `PAYROLL`, `PCF-SILANG`, `RSB-S-0869`, `MBTC-S-988` are no cheque book.
 - A voided cheque is **two feed rows** under one reference; the original's positive amount survives.
+  **`collapseVoidPairs` pairs on company + payment reference + cheque number** (2026-10-06). Keyed on
+  the number alone it treated a RE-ISSUE on the same number as the void's other half and flagged the
+  live cheque voided — `1791361374` (CV-A1009798, Closed) was VOIDED here that way. And
+  **`upsertCheck` stages a payment whose `(company, number)` is held by a DIFFERENT payment reference**
+  (`StagedReason.SHARED_NUMBER`, migration `20261006000100`, shown on `/admin/staged`): before, the two
+  payments took turns writing over one cheque and the voided one voided the live one. Measured that day:
+  5 Go-Live numbers — void + re-issue `1791361374`, `1791361447`, `1791361448`; two live payments
+  `6000338856`, `6000349314`. Fix the number in Acumatica, or settle it by hand.
+- **A payment that leaves the sync's scope is never read again** (2026 + `CHK`): `PCF26-0244` became
+  CASH in Acumatica and stayed a SIGNATURE_PENDING cheque here. `scripts/sync.ts <TENANT> --full`
+  now (a) snapshots the tenant's cheques to `snapshots/payments-full-<tenant>-<ts>.json` first and
+  (b) re-reads, one request per reference, every LIVE cheque whose payment is no longer in the scoped
+  feed (`lib/sync/out-of-scope.ts`), through `upsertCheck` — status untouched. `--full --dry-run` lists them.
+- **Full check 2026-10-06** (read-only, both tenants, against the live feed): 0 company or cheque-book
+  mismatches, 0 sync errors, 0 parked portal events. Found and settled on the user's rulings:
+  **102 amounts differ from Acumatica** (40 RELEASED with the register's amount, the rest voided or
+  cancelled cheques holding none or a reversal's negative) because the incremental sync re-reads only
+  changed payments — **fixed by `scripts/sync.ts <TENANT> --full`**, which also renumbers and voids
+  `17913405552` → `1791405552` (Voided in Acumatica). The user ruled the full re-read may write
+  Acumatica's amount onto `6000353252` and `1791361447`, which hold none. **63 cheques CANCELLED only by
+  the register** (its CANCELLED / CHECK FINDING sheets) are live in Acumatica: the **43 Closed → RELEASED**
+  ("follow acumatica"), and Finance ruled the **20 Balanced** in `CANCELLED VS ACUMATICA 2026-10-06..xlsx`
+  (NEW STATUS column): **4 AVAILABLE → READY FOR RELEASE, portal told**; **8 STALED → stay CANCELLED,
+  `isStale` set, shown as a STALED tag** on the list and the cheque page (the column's first writer);
+  **8 CANCELLED → unchanged, to be voided in Acumatica**. `scripts/reconcile-with-acumatica.ts
+  "<file>" [--apply --user <email>]` (`lib/admin/acumatica-reconcile.ts`) does both, snapshot first, and
+  must run AFTER the full re-read: it reads the stored `acumaticaStatus`, and before the re-read
+  `6000319193`'s held the reversal row's `Closed`. Its Closed set also takes `1791361374` and two 2025
+  register-cancelled cheques (`6000272567`, `6000290809`). BPI-A-8879's two `1791…` cheques were on the
+  wrong cash account; Finance fixed them in Acumatica the same day.
 - **Which cheque pays an AP voucher is answered on `/vouchers`, and `CHECK BY VOUCHER.xlsx` is
   its extract.** The Finance Executive Report's `AP Local` sheet used to find a payable's cheque
   with three `VLOOKUP`s into the released sheets of `CHECK MONITORING <date>.xlsx`; the register

@@ -55,16 +55,23 @@ describe('listOutstandingCandidates — the population', () => {
     await testDb.check.update({ where: { id: c.id }, data: { cashAccountId: null, checkBookId: book.id } })
     await makeCheck({ status: 'RELEASED', checkNumber: '1' })
     const rows = await listOutstandingCandidates(testDb)
-    expect(rows.find((r) => r.checkNumber === '9')).toMatchObject({ accountId: null, bank: 'MBTC-X' })
+    expect(rows.find((r) => r.checkNumber === '9')).toMatchObject({ accountId: book.id, account: 'MBTC-S-0001', bank: 'MBTC-X' })
     expect((await listOutstandingCandidates(testDb, { bankCode: 'MBTC-X' })).map((r) => r.checkNumber)).toEqual(['9'])
   })
 
-  it('never counts a cheque under its checkbook bank when it has a cash account at another', async () => {
+  it('the cheque book wins over a register cash-account label: account, bank and both filters (2026-10-06)', async () => {
+    // Follow Acumatica: its CashAccount is the cheque book. The register label
+    // decides only for a cheque with no book.
     const c = await makeCheck({ status: 'RELEASED', checkNumber: '9' })
+    const label = c.cashAccountId!
     const bank = await testDb.bank.create({ data: { code: 'MBTC-X', name: 'Metrobank' } })
     const book = await testDb.checkBook.create({ data: { code: 'MBTC-S-0002', bankId: bank.id, companyId: c.companyId } })
     await testDb.check.update({ where: { id: c.id }, data: { checkBookId: book.id } })
-    expect(await listOutstandingCandidates(testDb, { bankCode: 'MBTC-X' })).toHaveLength(0)
+    const [row] = await listOutstandingCandidates(testDb)
+    expect(row).toMatchObject({ accountId: book.id, account: 'MBTC-S-0002', bank: 'MBTC-X' })
+    expect(await listOutstandingCandidates(testDb, { bankCode: 'MBTC-X' })).toHaveLength(1)
+    expect(await listOutstandingCandidates(testDb, { cashAccountId: book.id })).toHaveLength(1)
+    expect(await listOutstandingCandidates(testDb, { cashAccountId: label })).toHaveLength(0)
   })
 })
 

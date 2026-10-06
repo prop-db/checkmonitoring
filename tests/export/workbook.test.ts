@@ -27,6 +27,7 @@ function row(overrides: Partial<CheckTableRow> = {}): CheckTableRow {
     status: 'READY_FOR_RELEASE',
     eligibility: 'SUPPLIER',
     isCheque: true,
+    isStale: false,
     availablePickupDate: new Date(Date.UTC(2026, 8, 3)),
     scheduledPickupDate: null,
     releasedAt: null,

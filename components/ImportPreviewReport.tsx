@@ -24,6 +24,7 @@ const REASON_LABEL: Readonly<Record<StagedReason, string>> = {
   NO_COMPANY: 'NO COMPANY — neither a checkbook nor a cash account says whose cheque this is',
   AMBIGUOUS_COMPANY: 'AMBIGUOUS COMPANY — this cheque number is claimed by more than one company',
   NO_CHECK_NUMBER: 'NO CHECK NUMBER — the row carries nothing that can key a cheque',
+  SHARED_NUMBER: 'SHARED NUMBER — another Acumatica payment already holds this cheque number',
 }
 
 const fmtDate = (d: Date | null) =>
