@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { MODULES, activeModule, modulesFor } from '@/lib/module-nav'
 
 describe('MODULES', () => {
-  it('lists the seven in bar order, ADMINISTRATION last and admin-only', () => {
-    expect(MODULES.map((m) => m.id)).toEqual(['CHECK_RELEASE', 'VOUCHERS', 'FORECAST', 'CLEARING', 'RECON', 'NUMBERING', 'ADMINISTRATION'])
-    expect(MODULES.map((m) => m.adminOnly)).toEqual([false, false, false, false, false, false, true])
+  it('lists the eight in bar order, ADMINISTRATION last and admin-only', () => {
+    expect(MODULES.map((m) => m.id)).toEqual(['CHECK_RELEASE', 'VOUCHERS', 'FORECAST', 'CLEARING', 'RECON', 'NUMBERING', 'TRANSMITTAL', 'ADMINISTRATION'])
+    expect(MODULES.map((m) => m.adminOnly)).toEqual([false, false, false, false, false, false, false, true])
     expect(MODULES.find((m) => m.id === 'ADMINISTRATION')!.href).toBe('/admin/sync')
     expect(MODULES.find((m) => m.id === 'CHECK_RELEASE')!.label).toBe('CHECK RELEASE')
     expect(MODULES.find((m) => m.id === 'NUMBERING')!.href).toBe('/numbering')
@@ -22,6 +22,7 @@ describe('activeModule', () => {
     expect(activeModule('/clearing')).toBe('CLEARING')
     expect(activeModule('/recon')).toBe('RECON')
     expect(activeModule('/numbering')).toBe('NUMBERING')
+    expect(activeModule('/transmittal')).toBe('TRANSMITTAL')
     expect(activeModule('/admin/sync')).toBe('ADMINISTRATION')
     expect(activeModule('/admin/settings')).toBe('ADMINISTRATION')
   })
@@ -41,6 +42,6 @@ describe('modulesFor', () => {
   it('hides ADMINISTRATION from a Finance user and shows it to an admin', () => {
     expect(modulesFor('FINANCE_USER').map((m) => m.id)).not.toContain('ADMINISTRATION')
     expect(modulesFor('FINANCE_ADMIN').map((m) => m.id)).toContain('ADMINISTRATION')
-    expect(modulesFor('FINANCE_USER')).toHaveLength(6)
+    expect(modulesFor('FINANCE_USER')).toHaveLength(7)
   })
 })
