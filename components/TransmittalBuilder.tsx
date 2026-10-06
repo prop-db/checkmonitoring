@@ -21,6 +21,10 @@ type StatusFilter = 'ALL' | 'SIGNATURE_PENDING' | 'SIGNED'
 /** Remembered between visits, per browser: who a transmittal usually goes to and who checks and approves it. */
 const STORAGE_KEY = 'check-monitoring.transmittal.v1'
 
+/** Who usually checks and approves a transmittal (client, 2026-10-06); typed names still win and are remembered. */
+const DEFAULT_CHECKED_BY = 'Maui'
+const DEFAULT_APPROVED_BY = 'GPG / GTC'
+
 const todayManila = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' })
 const formatDay = (iso: string) => {
   const [y, m, d] = iso.split('-').map(Number)
@@ -44,17 +48,17 @@ export function TransmittalBuilder({
   const [to, setTo] = useState('')
   const [date, setDate] = useState(todayManila)
   const [preparedBy, setPreparedBy] = useState(defaultPreparedBy)
-  const [checkedBy, setCheckedBy] = useState('')
-  const [approvedBy, setApprovedBy] = useState('')
+  const [checkedBy, setCheckedBy] = useState(DEFAULT_CHECKED_BY)
+  const [approvedBy, setApprovedBy] = useState(DEFAULT_APPROVED_BY)
 
   // Browser storage is a convenience only: every access is guarded and the
   // page works without it.
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
-      if (typeof saved.to === 'string') setTo(saved.to)
-      if (typeof saved.checkedBy === 'string') setCheckedBy(saved.checkedBy)
-      if (typeof saved.approvedBy === 'string') setApprovedBy(saved.approvedBy)
+      if (typeof saved.to === 'string' && saved.to) setTo(saved.to)
+      if (typeof saved.checkedBy === 'string' && saved.checkedBy) setCheckedBy(saved.checkedBy)
+      if (typeof saved.approvedBy === 'string' && saved.approvedBy) setApprovedBy(saved.approvedBy)
     } catch { /* private window or blocked storage */ }
   }, [])
   useEffect(() => {
