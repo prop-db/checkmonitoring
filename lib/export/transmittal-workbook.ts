@@ -1,9 +1,8 @@
 import ExcelJS from 'exceljs'
-import { totalsByCurrency } from '@/lib/transmittal'
 
 /**
  * The CHECKS TRANSMITTAL as a workbook, laid out like the sheet Finance used
- * to type: title, TO and date, the seven columns, a total, and the three
+ * to type: title, TO and date, the seven columns, and the three
  * signature blocks. Amounts are Excel numbers in the cells (the one sanctioned
  * use of a JS number for money); the adding is done in centavos in
  * `lib/transmittal.ts`.
@@ -25,6 +24,8 @@ export type TransmittalLine = {
 
 export type TransmittalMeta = { to: string; date: string; preparedBy: string; checkedBy: string; approvedBy: string }
 
+/** Excel paper code 1 = Letter (short bond, 8.5 x 11 in); ExcelJS's enum omits it. */
+const LETTER = 1 as unknown as ExcelJS.PaperSize
 const BORDER = { style: 'thin', color: { argb: 'FF000000' } } as const
 const BOX = { top: BORDER, bottom: BORDER, left: BORDER, right: BORDER }
 
@@ -40,9 +41,9 @@ export async function buildTransmittalWorkbook(
   const wb = new ExcelJS.Workbook()
   wb.creator = 'Check Release Monitoring'
   const ws = wb.addWorksheet(TRANSMITTAL_SHEET, {
-    pageSetup: { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+    pageSetup: { orientation: 'portrait', paperSize: LETTER, fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 } },
   })
-  ;[7, 18, 16, 22, 20, 46, 18].forEach((w, i) => { ws.getColumn(i + 1).width = w })
+  ;[5, 14, 13, 17, 16, 30, 16].forEach((w, i) => { ws.getColumn(i + 1).width = w })
 
   // Title block: CHECKS TRANSMITTAL centred, rows 1-4.
   ws.mergeCells('A2:G3')
@@ -79,40 +80,31 @@ export async function buildTransmittalWorkbook(
       const cell = row.getCell(col + 1)
       cell.value = v
       cell.border = BOX
-      cell.alignment = { horizontal: col === 5 ? 'left' : col === 6 ? 'right' : 'center', vertical: 'middle' }
+      cell.alignment = { horizontal: col === 5 ? 'left' : col === 6 ? 'right' : 'center', vertical: 'middle', wrapText: true }
     })
     // A cheque number is an identifier, never a number: keep it text.
     row.getCell(2).numFmt = '@'
     row.getCell(7).numFmt = '#,##0.00'
   })
 
-  for (const t of totalsByCurrency(lines)) {
-    const row = ws.getRow(r++)
-    ws.mergeCells(row.number, 1, row.number, 6)
-    row.getCell(1).value = `TOTAL (${t.count} CHEQUE${t.count === 1 ? '' : 'S'})${t.currency !== 'PHP' ? `  ${t.currency}` : ''}`
-    row.getCell(1).alignment = { horizontal: 'right' }
-    row.getCell(7).value = Number(t.total.replace(/,/g, ''))
-    row.getCell(7).numFmt = '#,##0.00'
-    row.font = { bold: true }
-    for (let c = 1; c <= 7; c++) row.getCell(c).border = BOX
-  }
-
   // Signature blocks.
   r += 1
+  // Separate blocks with an empty column between them, so the three signature
+  // lines are three lines and not one rule across the page.
   const blocks: [string, string, number, number][] = [
-    ['PREPARED BY:', meta.preparedBy, 1, 3],
+    ['PREPARED BY:', meta.preparedBy, 1, 2],
     ['CHECKED BY:', meta.checkedBy, 4, 5],
-    ['APPROVED BY:', meta.approvedBy, 6, 7],
+    ['APPROVED BY:', meta.approvedBy, 7, 7],
   ]
   for (const [label, name, from, to] of blocks) {
-    ws.mergeCells(r, from, r, to)
+    if (to > from) ws.mergeCells(r, from, r, to)
     ws.getCell(r, from).value = label
     ws.getCell(r, from).font = { bold: true }
-    ws.mergeCells(r + 3, from, r + 3, to)
+    if (to > from) ws.mergeCells(r + 3, from, r + 3, to)
     const n = ws.getCell(r + 3, from)
     n.value = name.toUpperCase()
     n.font = { bold: true }
-    n.alignment = { horizontal: 'center' }
+    n.alignment = { horizontal: 'center', wrapText: true }
     n.border = { top: BORDER }
   }
   ws.getRow(r + 3).height = 20

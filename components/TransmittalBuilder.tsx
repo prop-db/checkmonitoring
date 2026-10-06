@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { formatAmount, totalsByCurrency, compareCheckNumbers } from '@/lib/transmittal'
+import { formatAmount, compareCheckNumbers } from '@/lib/transmittal'
 
 export type TransmittalCandidate = {
   id: string
@@ -76,7 +76,6 @@ export function TransmittalBuilder({
     () => candidates.filter((c) => selected.has(c.id)).sort((a, b) => compareCheckNumbers(a.checkNumber, b.checkNumber)),
     [candidates, selected],
   )
-  const totals = useMemo(() => totalsByCurrency(picked), [picked])
 
   const toggle = (id: string) => setSelected((s) => {
     const next = new Set(s)
@@ -89,7 +88,7 @@ export function TransmittalBuilder({
 
   return (
     <div className="space-y-4">
-      <style>{'@media print { @page { size: A4 landscape; margin: 12mm; } }'}</style>
+      <style>{'@media print { @page { size: letter portrait; margin: 10mm; } }'}</style>
 
       {/* ── PICKER (screen only) ─────────────────────────────────────── */}
       <section className="print-hide space-y-3 rounded-2xl bg-white p-4 ring-1 ring-hairline">
@@ -205,7 +204,7 @@ export function TransmittalBuilder({
           <h1 className="text-xl font-bold tracking-[0.2em]">CHECKS TRANSMITTAL</h1>
         </header>
 
-        <table className="w-full border-collapse border border-black text-sm [&_td]:border [&_td]:border-black [&_th]:border [&_th]:border-black">
+        <table className="w-full border-collapse border border-black text-sm print:text-[10px] [&_td]:border [&_td]:border-black [&_th]:border [&_th]:border-black">
           <thead>
             <tr>
               <td colSpan={6} className="px-2 py-1.5">
@@ -245,19 +244,9 @@ export function TransmittalBuilder({
                 <td className="px-2 py-1 text-center">{c.cashAccount}</td>
                 <td className="px-2 py-1 text-center">{c.poNumber}</td>
                 <td className="px-2 py-1 text-center">{c.voucher}</td>
-                <td className="px-2 py-1">{c.payee}</td>
+                <td className="break-words px-2 py-1">{c.payee}</td>
                 <td className="px-2 py-1 text-right tabular-nums">
                   {formatAmount(c.amount)}{c.currency !== 'PHP' ? ` ${c.currency}` : ''}
-                </td>
-              </tr>
-            ))}
-            {picked.length > 0 && totals.map((t) => (
-              <tr key={t.currency} className="break-inside-avoid font-semibold">
-                <td colSpan={6} className="px-2 py-1 text-right">
-                  TOTAL ({t.count.toLocaleString('en-PH')} CHEQUE{t.count === 1 ? '' : 'S'})
-                </td>
-                <td className="px-2 py-1 text-right tabular-nums">
-                  {t.total}{t.currency !== 'PHP' ? ` ${t.currency}` : ''}
                 </td>
               </tr>
             ))}
