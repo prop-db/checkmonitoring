@@ -34,9 +34,9 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         <Link href="/welcome" className="flex items-center gap-3">
           <span
             aria-hidden="true"
-            className="flex h-10 w-10 items-center justify-center rounded-xl bg-navy text-xs font-semibold tracking-widest text-white shadow-sm"
+            className="flex h-10 min-w-[2.5rem] items-center justify-center rounded-xl bg-navy px-2 text-xs font-semibold tracking-widest text-white shadow-sm"
           >
-            CR
+            CRM
           </span>
           <span className="leading-tight">
             <span className="block text-sm font-semibold tracking-wide text-navy">CHECK RELEASE MONITORING</span>
@@ -65,9 +65,9 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
                 square, the product's initials, nothing claimed. */}
             <span
               aria-hidden="true"
-              className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-navy text-sm font-semibold tracking-widest text-white shadow-sm"
+              className="mx-auto flex h-12 min-w-[3rem] items-center justify-center rounded-2xl bg-navy px-2 text-sm font-semibold tracking-widest text-white shadow-sm"
             >
-              CR
+              CRM
             </span>
             <h1 className="mt-4 text-lg font-semibold tracking-wide text-navy">
               CHECK RELEASE MONITORING

@@ -77,6 +77,20 @@ function IconArchive() {
 }
 
 /**
+ * One pastel pair per card (client, 2026-10-06: "the dashboard looks boring").
+ * The palette is the client's own — ground, ink, and a stronger bar for the
+ * card's top edge — so each queue has a colour of its own and the row reads
+ * at a glance. Until then colour was spent on READY FOR RELEASE alone.
+ */
+type Tone = 'success' | 'sky' | 'warning' | 'lavender'
+const TONES: Record<Tone, { skin: string; ink: string; disc: string; bar: string }> = {
+  success: { skin: 'bg-success-bg ring-success-ink/20', ink: 'text-success-ink', disc: 'bg-white/70', bar: 'bg-success-ink/70' },
+  sky: { skin: 'bg-sky-bg ring-sky-ink/20', ink: 'text-sky-ink', disc: 'bg-white/70', bar: 'bg-sky-ink/60' },
+  warning: { skin: 'bg-warning-bg ring-warning-ink/20', ink: 'text-warning-ink', disc: 'bg-white/70', bar: 'bg-warning-ink/60' },
+  lavender: { skin: 'bg-lavender-bg ring-lavender-ink/20', ink: 'text-lavender-ink', disc: 'bg-white/70', bar: 'bg-lavender-ink/60' },
+}
+
+/**
  * A PRIMARY card: the figures the client asked the first screen to answer in
  * under five seconds — what is ready, what is waiting, what it is all worth.
  *
@@ -88,24 +102,19 @@ function IconArchive() {
  * option nothing passes.
  */
 function PrimaryCard({
-  label, icon, value, support, tone = 'plain', href, selected = false, hint,
+  label, icon, value, support, tone = 'lavender', href, selected = false, hint,
 }: {
   label: string
   icon: React.ReactNode
   value: React.ReactNode
   /** The supporting line beneath the figure. Always present — see below. */
   support: React.ReactNode
-  tone?: 'plain' | 'success'
+  tone?: Tone
   href?: string
   selected?: boolean
   hint?: string
 }) {
-  const skin = {
-    success: 'bg-success-bg ring-success-ink/20',
-    plain: 'bg-white ring-hairline',
-  }[tone]
-
-  const ink = { success: 'text-success-ink', plain: 'text-navy' }[tone]
+  const { skin, ink, disc, bar } = TONES[tone]
 
   /**
    * The selected card keeps its own colour and gains a heavy dark outline.
@@ -122,18 +131,18 @@ function PrimaryCard({
   // pastel the card's ink belongs to, so a white card carries one touch of
   // navy and the green card one touch of white. Decorative, and the label
   // beside it still says everything.
-  const disc = { success: 'bg-white/70', plain: 'bg-navy-bg' }[tone]
 
   const body = (
     <>
+      <span aria-hidden="true" className={`absolute inset-x-0 top-0 h-1 ${bar}`} />
       <p className={`flex items-center gap-2.5 text-xs font-semibold tracking-wide ${ink}`}>
-        <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${disc}`}>{icon}</span>
+        <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${disc}`}>{icon}</span>
         {label}
       </p>
       {/* A plain number renders as text; a currency breakdown renders block-level
           markup (dl/div), which HTML forbids inside <p>. The wrapper has to be a
           <div> to legally hold either. */}
-      <div className="mt-3 text-3xl font-semibold tracking-tight text-navy">{value}</div>
+      <div className={`mt-4 text-4xl font-semibold tracking-tight ${ink}`}>{value}</div>
       {/* The supporting line is never conditional. A card that grows a second
           line only sometimes makes a row of four cards change height as the
           data changes, and the reader reads the movement as meaning. */}
@@ -154,12 +163,12 @@ function PrimaryCard({
       <Link
         href={href}
         aria-current={selected ? 'true' : undefined}
-        className={`block rounded-2xl p-5 transition ${bg} ${ring} hover:ring-navy`}
+        className={`relative block overflow-hidden rounded-2xl p-5 transition hover:-translate-y-0.5 hover:shadow-md ${bg} ${ring} hover:ring-navy`}
       >
         {body}
       </Link>
     )
-    : <div className={`rounded-2xl p-5 ${bg} ${ring}`}>{body}</div>
+    : <div className={`relative overflow-hidden rounded-2xl p-5 ${bg} ${ring}`}>{body}</div>
 }
 
 /**
@@ -309,6 +318,7 @@ export function SummaryCards({
           icon={<IconSigned />}
           value={summary.signed.toLocaleString('en-PH')}
           support="IN HAND · WAITING TO BE TICKED READY"
+          tone="sky"
           {...card('SIGNED')}
         />
 
@@ -320,6 +330,7 @@ export function SummaryCards({
           // timeline below splits them.
           value={summary.pendingSignature.toLocaleString('en-PH')}
           support="WAITING ON A SIGNATORY"
+          tone="warning"
           {...card('SIGNATURE_PENDING')}
         />
 
@@ -335,6 +346,7 @@ export function SummaryCards({
           icon={<IconInventory />}
           value={summary.total.toLocaleString('en-PH')}
           support="EVERY STATUS · INCLUDING RELEASED, CANCELLED AND VOIDED"
+          tone="lavender"
           {...card('TOTAL_CHECKS')}
         />
       </div>

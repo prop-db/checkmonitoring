@@ -27,9 +27,9 @@ export default async function WelcomePage() {
         <div className="flex items-center gap-3">
           <span
             aria-hidden="true"
-            className="flex h-10 w-10 items-center justify-center rounded-xl bg-navy text-xs font-semibold tracking-widest text-white shadow-sm"
+            className="flex h-10 min-w-[2.5rem] items-center justify-center rounded-xl bg-navy px-2 text-xs font-semibold tracking-widest text-white shadow-sm"
           >
-            CR
+            CRM
           </span>
           <div className="leading-tight">
             <h1 className="text-sm font-semibold tracking-wide text-navy">CHECK RELEASE MONITORING</h1>

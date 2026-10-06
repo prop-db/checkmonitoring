@@ -21,6 +21,7 @@ import { StatusSelect } from '@/components/StatusSelect'
 import { buildStatusOptions } from '@/lib/status-options'
 import { ReleaseTimeline } from '@/components/ReleaseTimeline'
 import { TodaysReleasePanel } from '@/components/TodaysReleasePanel'
+import { DashboardHero } from '@/components/DashboardHero'
 import { ConfirmAllForm } from '@/components/ConfirmAllForm'
 import { signAllPendingAction } from '@/app/checks/bulk-actions'
 import { QuickActions } from '@/components/QuickActions'
@@ -165,6 +166,13 @@ export default async function DashboardPage({
             on them is only as current as this line says. */}
         <SyncStatusLine staleness={staleness} isAdmin={user.role === 'FINANCE_ADMIN'} />
 
+        <DashboardHero
+          name={user.name}
+          todays={todaysRelease}
+          pendingSignature={summary.pendingSignature}
+          signed={summary.signed}
+        />
+
         <TotalsFilterBar
           options={options}
           companyId={companyId ?? ''}
@@ -234,7 +242,7 @@ export default async function DashboardPage({
           <input
             id="totals-search" name="q" type="search"
             placeholder="Search cheque no., payee, CV or AP voucher"
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="w-full rounded-xl border border-hairline bg-white px-4 py-2.5 text-sm shadow-sm focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
           />
           <button type="submit" className="rounded-lg bg-navy px-4 py-2 text-sm font-semibold tracking-wide text-white">
             SEARCH

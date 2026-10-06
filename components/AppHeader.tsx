@@ -35,9 +35,9 @@ export function AppHeader({
         <div className="flex items-center gap-3">
           <span
             aria-hidden="true"
-            className="flex h-9 w-9 items-center justify-center rounded-xl bg-navy text-[11px] font-semibold tracking-widest text-white shadow-sm"
+            className="flex h-9 min-w-[2.25rem] items-center justify-center rounded-xl bg-navy px-2 text-[11px] font-semibold tracking-widest text-white shadow-sm"
           >
-            CR
+            CRM
           </span>
           <p className="text-[11px] font-semibold tracking-widest text-slate-500">CHECK RELEASE MONITORING</p>
         </div>

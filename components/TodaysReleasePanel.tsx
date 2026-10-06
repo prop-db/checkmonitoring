@@ -45,7 +45,7 @@ export function TodaysReleasePanel({
     <section
       id={TODAYS_RELEASE_ANCHOR}
       className={`rounded-2xl p-6 ring-1 ${
-        nothingToDo ? 'bg-white ring-hairline' : 'bg-success-bg ring-success-ink/25'
+        nothingToDo ? 'bg-white shadow-sm ring-hairline' : 'bg-gradient-to-br from-success-bg via-success-bg to-white shadow-sm ring-success-ink/25'
       }`}
     >
       <p className="text-xs font-semibold tracking-widest text-slate-600">TODAY’S RELEASE</p>
