@@ -35,7 +35,7 @@
  *   npx.cmd tsx scripts/sync.ts GOLIVE --bills --full      # ignore the BILLS watermark
  *
  * THE PO READ (`--bill-refs`). Acumatica's AP-Bills and Adjustments, mirrored
- * into AcumaticaBill (lib/sync/bill-refs.ts): each 2026 Bill whose VendorRef
+ * into AcumaticaBill (lib/sync/bill-refs.ts): each Bill dated 2024 or later whose VendorRef
  * names a real PO, keyed by APV; a bill whose ref no longer does is deleted.
  * Reference data — no Check column, no audit row per bill. The cron runs it
  * incrementally once a tenant has a BILL_REFS watermark; the FIRST read, and
@@ -263,7 +263,7 @@ async function billRefs(t: AcumaticaTenant) {
 
   console.log(`\nTENANT      ${t}`)
   console.log(`FEED        ${BILL_REFS_FEED}`)
-  console.log(`MODE        ${watermark ? `BILL_REFS since ${watermark.toISOString()}` : 'BILL_REFS, every 2026 bill (no watermark)'}`)
+  console.log(`MODE        ${watermark ? `BILL_REFS since ${watermark.toISOString()}` : 'BILL_REFS, every bill dated 2024 or later (no watermark)'}`)
 
   if (DRY) {
     // The same filter runBillRefsSync uses, so the count is the job's size.
@@ -277,7 +277,7 @@ async function billRefs(t: AcumaticaTenant) {
     const withPo = inScope.filter((b) => b.poNumbers.length > 0).length
     console.log(
       `\nDRY RUN — the feed returns ${rows.length.toLocaleString()} rows: ${inScope.length.toLocaleString()} ` +
-      `2026 bills, ${withPo.toLocaleString()} naming a PO. Nothing was written.\n`,
+      `bills dated 2024 or later, ${withPo.toLocaleString()} naming a PO. Nothing was written.\n`,
     )
     return
   }
@@ -298,7 +298,7 @@ async function billRefs(t: AcumaticaTenant) {
 
   console.log(`\nRESULT  (${((Date.now() - started) / 60000).toFixed(1)} min)`)
   console.log(`  fetched                       ${res.fetched.toLocaleString()}`)
-  console.log(`  ignored (not a 2026 Bill)     ${res.ignored.toLocaleString()}`)
+  console.log(`  ignored (not a 2024+ Bill)    ${res.ignored.toLocaleString()}`)
   console.log(`  bills naming a PO             ${res.withPo.toLocaleString()}`)
   console.log(`  rows written                  ${res.upserted.toLocaleString()}`)
   console.log(`  rows deleted (PO gone)        ${res.deleted.toLocaleString()}`)
