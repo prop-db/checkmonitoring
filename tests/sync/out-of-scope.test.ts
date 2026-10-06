@@ -69,3 +69,16 @@ describe('refreshOutOfScope', () => {
     expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).isCheque).toBe(true)
   })
 })
+
+describe('refreshOutOfScope outcomes', () => {
+  it('reports a payment upsert stages (SHARED_NUMBER) as staged, not updated', async () => {
+    await heldCheque('CV-HOLDER', '6000400200', 'CANCELLED')
+    const c = await heldCheque('CV-LIVE', '6000400201')
+    // Acumatica now states CV-LIVE under the number CV-HOLDER holds here.
+    const client = fakeClient([], [payment({ ReferenceNbr: 'CV-LIVE', PaymentRef: '6000400200' })])
+    const res = await refreshOutOfScope(testDb, { client, tenant: 'GOLIVE', now: NOW, apply: true })
+    expect(res.updated).toEqual([])
+    expect(res.staged).toEqual(['CV-LIVE (SHARED_NUMBER)'])
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).checkNumber).toBe('6000400201')
+  })
+})

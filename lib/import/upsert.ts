@@ -372,6 +372,12 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
       }
 
       const only = sameNumber[0]
+      // The same SHARED_NUMBER rule on the number-only path: cheque books are
+      // shared across companies, so a re-issue can arrive under another company
+      // and would otherwise refile — and later void — the payment held here.
+      if (only?.acumaticaPaymentId && row.acumaticaPaymentId && only.acumaticaPaymentId !== row.acumaticaPaymentId) {
+        return stageRow(tx, row, implied.status, 'SHARED_NUMBER', [only.company.code, companyCode])
+      }
       if (only) {
         existing = only
         misfiled = { companyId: only.companyId, companyCode: only.company.code }

@@ -165,7 +165,7 @@ export async function applyAvailable(
             from: 'CANCELLED', to: 'SIGNED', verdict: 'AVAILABLE', sheetRow: line.row,
             cancelledAt: before.cancelledAt?.toISOString() ?? null, cancelReason: before.cancelReason,
           },
-          remarks: 'Finance: AVAILABLE (CANCELLED VS ACUMATICA 2026-10-06). Cancelled only by the retired register; live in Acumatica.',
+          remarks: 'Finance: AVAILABLE (CANCELLED VS ACUMATICA 2026-10-06), recorded by scripts/reconcile-with-acumatica.ts under this user. Cancelled only by the retired register; live in Acumatica.',
         })
         await markReadyForRelease(tx, { checkId, userId: args.userId, availablePickupDate: pickup, now: args.now })
       }, TX_OPTIONS)
@@ -189,7 +189,7 @@ export async function applyStaled(
       await writeAudit(tx, {
         checkId, actorType: 'USER', userId: args.userId, action: STALED_ACTION,
         details: { verdict: 'STALED', sheetRow: line.row },
-        remarks: 'Finance: STALED (CANCELLED VS ACUMATICA 2026-10-06). Stays CANCELLED; shown with a STALED tag.',
+        remarks: 'Finance: STALED (CANCELLED VS ACUMATICA 2026-10-06), recorded by scripts/reconcile-with-acumatica.ts under this user. Stays CANCELLED; shown with a STALED tag.',
       })
       return true
     }, TX_OPTIONS)

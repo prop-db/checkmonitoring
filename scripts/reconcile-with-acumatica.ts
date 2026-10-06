@@ -38,26 +38,29 @@ async function readFinanceFile(path: string): Promise<FinanceLine[]> {
   await wb.xlsx.readFile(path)
   const lines: FinanceLine[] = []
   for (const ws of wb.worksheets) {
+    const before = lines.length
     // The header is on row 1 or 2 (a title line may sit above it).
     let header = 0
     const col: Record<string, number> = {}
     for (const r of [1, 2, 3]) {
-      ws.getRow(r).eachCell((c, i) => { col[String(c.value ?? '').trim().toUpperCase()] = i })
+      ws.getRow(r).eachCell((c, i) => { col[c.text.trim().toUpperCase()] = i })
       if (col['NEW STATUS'] && col['CV'] && col['CHECK NUMBER']) { header = r; break }
       for (const k of Object.keys(col)) delete col[k]
     }
     if (!header) { console.log(`  sheet "${ws.name}": no CHECK NUMBER / CV / NEW STATUS header — skipped`); continue }
     for (let r = header + 1; r <= ws.rowCount; r++) {
       const row = ws.getRow(r)
-      const checkNumber = String(row.getCell(col['CHECK NUMBER']).value ?? '').trim()
-      const cv = String(row.getCell(col['CV']).value ?? '').trim()
-      const raw = String(row.getCell(col['NEW STATUS']).value ?? '').trim()
+      // `.text`, the cell as displayed: a rich-text, hyperlink or formula cell's
+      // `.value` is an object and would read as "[object Object]".
+      const checkNumber = row.getCell(col['CHECK NUMBER']).text.trim()
+      const cv = row.getCell(col['CV']).text.trim()
+      const raw = row.getCell(col['NEW STATUS']).text.trim()
       if (!checkNumber && !cv && !raw) continue
       const verdict = parseVerdict(raw)
       if (!verdict) throw new Error(`sheet "${ws.name}" row ${r}: NEW STATUS "${raw}" is not AVAILABLE, STALED or CANCELLED`)
       lines.push({ checkNumber, cv, verdict, row: r })
     }
-    console.log(`  sheet "${ws.name}": ${lines.length} line(s)`)
+    console.log(`  sheet "${ws.name}": ${lines.length - before} line(s)`)
   }
   return lines
 }

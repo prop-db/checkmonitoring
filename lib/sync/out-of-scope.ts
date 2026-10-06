@@ -17,12 +17,17 @@ type Db = PrismaClient | Prisma.TransactionClient
  * Each such payment is read by its own reference (one request each: an `or`
  * of several `eq` filters is a 500 in Go-Live) and written through
  * `upsertCheck`, the single write path — so `isCheque`, the amount and the
- * book follow Acumatica, and the status is never touched (rule 4). A payment
- * Acumatica no longer returns at all is reported, not changed.
+ * book follow Acumatica. The status is untouched (rule 4) except by upsert's
+ * own void path, for a payment Acumatica has since voided — reported as
+ * `voided`. A payment Acumatica no longer returns at all is reported, not changed.
  */
 export type OutOfScopeResult = {
   candidates: { checkNumber: string; ref: string; status: string }[]
   updated: string[]
+  /** Staged by upsert instead (e.g. SHARED_NUMBER), with the reason. */
+  staged: string[]
+  /** Voided in Acumatica since, so voided here through upsert. */
+  voided: string[]
   gone: string[]
   errors: { ref: string; message: string }[]
 }
@@ -44,7 +49,7 @@ export async function refreshOutOfScope(
     .filter((c) => !inScope.has(c.acumaticaPaymentId!))
     .map((c) => ({ checkNumber: c.checkNumber, ref: c.acumaticaPaymentId!, status: c.status }))
 
-  const result: OutOfScopeResult = { candidates, updated: [], gone: [], errors: [] }
+  const result: OutOfScopeResult = { candidates, updated: [], staged: [], voided: [], gone: [], errors: [] }
   if (!apply) return result
 
   const ownCompanyNames = (await db.company.findMany({ select: { legalNames: true } })).flatMap((c) => c.legalNames)
@@ -56,8 +61,12 @@ export async function refreshOutOfScope(
       const rows = collapseVoidPairs(raw.map((r) => mapPayment(r, tenant)).filter((r): r is NonNullable<typeof r> => r !== null))
       const row = rows.find((r) => r.acumaticaPaymentId === c.ref)
       if (!row) { result.gone.push(c.ref); continue }
-      await upsertCheck(db, { row, ownCompanyNames, now })
-      result.updated.push(c.ref)
+      const out = await upsertCheck(db, { row, ownCompanyNames, now })
+      if (out.outcome === 'STAGED') result.staged.push(`${c.ref} (${out.reason})`)
+      else result.updated.push(c.ref)
+      // A payment Acumatica has voided since goes through upsert's void path,
+      // exactly as in the sync: named separately so the run says so.
+      if (row.voided) result.voided.push(c.ref)
     } catch (e) {
       result.errors.push({ ref: c.ref, message: e instanceof Error ? e.message : String(e) })
     }

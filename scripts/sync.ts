@@ -187,7 +187,7 @@ async function main() {
     const oos = await refreshOutOfScope(db, { client: clientFor(tenant), tenant, now: new Date(), apply: true })
     console.log(`OUT OF SCOPE  ${oos.candidates.length} live cheque(s) whose payment left the 2026 CHK feed`)
     for (const c of oos.candidates) console.log(`    ${c.checkNumber} (${c.ref}, ${c.status})`)
-    console.log(`  re-read and updated ${oos.updated.length}; not in Acumatica ${oos.gone.length}${oos.gone.length ? ': ' + oos.gone.join(', ') : ''}`)
+    console.log(`  re-read and updated ${oos.updated.length}; staged ${oos.staged.length}${oos.staged.length ? ' (' + oos.staged.join(', ') + ')' : ''}; voided ${oos.voided.length}; not in Acumatica ${oos.gone.length}${oos.gone.length ? ': ' + oos.gone.join(', ') : ''}`)
     for (const e of oos.errors) console.log(`  ERROR ${e.ref}: ${e.message}`)
     console.log('')
   }

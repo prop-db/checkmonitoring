@@ -725,6 +725,20 @@ describe('upsertCheck — another payment on a number already held (full check 2
     expect(check.amount?.toFixed(2)).toBe('100.00')
   })
 
+  it('stages a payment under ANOTHER company whose number a different payment holds (shared books)', async () => {
+    await seedCompany()
+    await seedCompany('A1+', 'A1 Plus Inc.')
+    await upsert(acumaticaRow({ ReferenceNbr: 'CV-ST-HELD', PaymentRef: 'BPI 6000400012', Branch: 'ST' }))
+    const out = await upsert(acumaticaRow({ ReferenceNbr: 'CV-A1-NEW', PaymentRef: 'BPI 6000400012', Branch: 'A1+', Status: 'Voided' }))
+
+    expect(out.outcome).toBe('STAGED')
+    if (out.outcome === 'STAGED') expect(out.reason).toBe('SHARED_NUMBER')
+    const check = await testDb.check.findFirstOrThrow({ where: { checkNumber: '6000400012' }, include: { company: true } })
+    expect(check.acumaticaPaymentId).toBe('CV-ST-HELD')
+    expect(check.company.code).toBe('STK')
+    expect(check.status).not.toBe('VOIDED')
+  })
+
   it('still updates the payment it holds, re-read under its own reference', async () => {
     await seedCompany()
     await upsert(acumaticaRow({ ReferenceNbr: 'CV-SAME', PaymentRef: 'BPI 6000400011', PaymentAmount: '100.00' }))
