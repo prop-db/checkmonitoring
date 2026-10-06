@@ -1,5 +1,3 @@
-import { readFile } from 'node:fs/promises'
-import path from 'node:path'
 import { getSessionUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { listChecksByIds, toTableRow } from '@/lib/queries'
@@ -36,9 +34,6 @@ export async function POST(request: Request): Promise<Response> {
     .map(toTableRow)
     .sort((a, b) => compareCheckNumbers(a.checkNumber, b.checkNumber))
 
-  // The logo is a nicety: a file that cannot be read leaves the title without it.
-  const logo = await readFile(path.join(process.cwd(), 'public', 'rcl-logo.png')).catch(() => null)
-
   const date = /^\d{4}-\d{2}-\d{2}$/.test(text(form.get('date'))) ? text(form.get('date')) : new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' })
   const workbook = await buildTransmittalWorkbook({
     lines: rows.map((r) => ({
@@ -54,7 +49,6 @@ export async function POST(request: Request): Promise<Response> {
       to: text(form.get('to')), date,
       preparedBy: text(form.get('preparedBy')), checkedBy: text(form.get('checkedBy')), approvedBy: text(form.get('approvedBy')),
     },
-    logo,
   })
 
   return new Response(new Uint8Array(workbook), {

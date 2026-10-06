@@ -201,11 +201,8 @@ export function TransmittalBuilder({
 
       {/* ── THE SHEET ────────────────────────────────────────────────── */}
       <section className="print-sheet mx-auto max-w-[1100px] bg-white p-6 text-slate-900 ring-1 ring-hairline print:max-w-none print:p-0 print:ring-0">
-        <header className="mb-3 grid grid-cols-[1fr_auto_1fr] items-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/rcl-logo.png" alt="RCL" className="h-20 w-auto justify-self-start" />
+        <header className="mb-3 text-center">
           <h1 className="text-xl font-bold tracking-[0.2em]">CHECKS TRANSMITTAL</h1>
-          <span />
         </header>
 
         <table className="w-full border-collapse border border-black text-sm [&_td]:border [&_td]:border-black [&_th]:border [&_th]:border-black">

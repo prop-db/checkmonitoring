@@ -35,7 +35,7 @@ function formatDay(iso: string): string {
 }
 
 export async function buildTransmittalWorkbook(
-  { lines, meta, logo }: { lines: readonly TransmittalLine[]; meta: TransmittalMeta; logo?: Buffer | null },
+  { lines, meta }: { lines: readonly TransmittalLine[]; meta: TransmittalMeta },
 ): Promise<ArrayBuffer> {
   const wb = new ExcelJS.Workbook()
   wb.creator = 'Check Release Monitoring'
@@ -44,16 +44,12 @@ export async function buildTransmittalWorkbook(
   })
   ;[7, 18, 16, 22, 20, 46, 18].forEach((w, i) => { ws.getColumn(i + 1).width = w })
 
-  // Title block: logo left, CHECKS TRANSMITTAL centred, rows 1-4.
+  // Title block: CHECKS TRANSMITTAL centred, rows 1-4.
   ws.mergeCells('A2:G3')
   const title = ws.getCell('A2')
   title.value = 'CHECKS TRANSMITTAL'
   title.font = { bold: true, size: 20 }
   title.alignment = { horizontal: 'center', vertical: 'middle' }
-  if (logo) {
-    const id = wb.addImage({ buffer: logo as unknown as ExcelJS.Buffer, extension: 'png' })
-    ws.addImage(id, { tl: { col: 0.1, row: 0.1 }, ext: { width: 80, height: 88 } })
-  }
   for (let r = 1; r <= 4; r++) ws.getRow(r).height = 22
 
   // TO / date.
