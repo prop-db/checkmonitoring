@@ -119,6 +119,11 @@ export async function buildNumberingWorkbook(
     ;[book, number, cv, date, payee, status, reason].forEach((v, col) => { row.getCell(col + 1).value = v })
     if (date) row.getCell(4).numFmt = DATE_FORMAT
   }
+  // Newest cheque date first (user request 2026-10-06): the entry most likely to still be
+  // corrected before it is signed or released heads the list. Undated last; ties by
+  // cheque book, then cheque number, so the order is stable.
+  type FixLine = { book: string; number: string; cv: string | null; date: Date | null; payee: string | null; status: string; reason: string }
+  const fixLines: FixLine[] = []
   for (const a of accounts) {
     const p = a.series.pattern
     const outReason = p ? `OUT OF PATTERN — expected ${p.digits} digits starting ${p.lead}` : 'OUT OF PATTERN'
@@ -128,10 +133,17 @@ export async function buildNumberingWorkbook(
       ...strayEnds(a.series),
     ]
     for (const { cheque: c, staged: s, reason } of items) {
-      if (c) fixRow(a.account, c.checkNumber, c.cv, c.checkDate, c.payeeName, c.status, reason)
-      else if (s) fixRow(a.account, s.statedCheckRef, s.acumaticaRef, s.checkDate, s.payeeName, 'STAGED', reason)
+      if (c) fixLines.push({ book: a.account, number: c.checkNumber, cv: c.cv, date: c.checkDate, payee: c.payeeName, status: c.status, reason })
+      else if (s) fixLines.push({ book: a.account, number: s.statedCheckRef, cv: s.acumaticaRef, date: s.checkDate, payee: s.payeeName, status: 'STAGED', reason })
     }
   }
+  fixLines.sort((x, y) => {
+    if (x.date && y.date && x.date.getTime() !== y.date.getTime()) return y.date.getTime() - x.date.getTime()
+    if (x.date && !y.date) return -1
+    if (!x.date && y.date) return 1
+    return x.book.localeCompare(y.book) || x.number.localeCompare(y.number)
+  })
+  for (const l of fixLines) fixRow(l.book, l.number, l.cv, l.date, l.payee, l.status, l.reason)
   fix.autoFilter = { from: { row: 1, column: 1 }, to: { row: Math.max(fr - 1, 1), column: NUMBERING_TO_FIX_HEADERS.length } }
   ;[22, 16, 16, 14, 36, 18, 48].forEach((w, i) => { fix.getColumn(i + 1).width = w })
 

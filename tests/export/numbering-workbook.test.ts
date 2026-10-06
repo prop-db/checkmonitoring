@@ -200,7 +200,7 @@ describe('TO FIX IN ACUMATICA (spec §G3)', () => {
   const rowsOf = (ws: ExcelJS.Worksheet) =>
     Array.from({ length: ws.rowCount - 1 }, (_, i) => Array.from({ length: 7 }, (_, c) => ws.getRow(i + 2).getCell(c + 1).value))
 
-  it('sits right after SUMMARY with its header, and lists OUT OF PATTERN then the stray ends, each with its CV', async () => {
+  it('sits right after SUMMARY with its header, and lists every entry newest cheque date first, each with its CV', async () => {
     const wb = await load(await buildNumberingWorkbook({ accounts: [toFixBook(), account('MBTC A1', [ch('7')])], meta: META }))
     expect(wb.worksheets.map((w) => w.name)).toEqual([NUMBERING_SUMMARY_SHEET, NUMBERING_TO_FIX_SHEET, 'BPI STK', 'MBTC A1'])
     const ws = wb.getWorksheet(NUMBERING_TO_FIX_SHEET)!
@@ -208,12 +208,30 @@ describe('TO FIX IN ACUMATICA (spec §G3)', () => {
     expect(NUMBERING_TO_FIX_HEADERS).toEqual(['CHEQUE BOOK', 'CHECK NUMBER', 'CV', 'CHEQUE DATE', 'PAYEE', 'STATUS', 'REASON'])
     const sept1 = new Date('2026-09-01T00:00:00Z')
     const sept2 = new Date('2026-09-02T00:00:00Z')
+    // Newest cheque date first; on the same date, by cheque book, then cheque number.
     expect(rowsOf(ws)).toEqual([
-      ['BPI STK', '1791361374', 'CV-1791361374', sept1, 'HENKEL', 'VOIDED', 'OUT OF PATTERN — expected 10 digits starting 60'],
       ['BPI STK', '1791361375.', 'CV-ST000777', sept2, 'HENKEL', 'STAGED', 'OUT OF PATTERN — expected 10 digits starting 60'],
+      ['BPI STK', '1791361374', 'CV-1791361374', sept1, 'HENKEL', 'VOIDED', 'OUT OF PATTERN — expected 10 digits starting 60'],
       ['BPI STK', '6000000001', 'CV-6000000001', sept1, 'HENKEL', 'RELEASED', 'STRAY FIRST NUMBER — next is 99999 higher'],
     ])
     expect(ws.autoFilter).toBe('A1:G4')
+  })
+
+  it('sorts across cheque books newest first, with an undated cheque last (user request 2026-10-06)', async () => {
+    const dated = (n: string, day: string | null, status: SeriesCheque['status'] = 'RELEASED'): SeriesCheque =>
+      ({ ...ch(n, status), checkDate: day ? new Date(`${day}T00:00:00Z`) : null })
+    const inPattern = (base: number) => Array.from({ length: 25 }, (_, i) => ch(String(base + i)))
+    const older: NumberingAccount = {
+      accountId: 'acc-A', account: 'AAA BOOK', bank: 'BPI', company: 'STK',
+      series: buildSeries([...inPattern(6000100000), dated('1791000001', '2026-02-10'), dated('1791000002', null)]),
+    }
+    const newer: NumberingAccount = {
+      accountId: 'acc-Z', account: 'ZZZ BOOK', bank: 'BPI', company: 'STK',
+      series: buildSeries([...inPattern(6000200000), dated('1791000003', '2026-10-05', 'SIGNATURE_PENDING')]),
+    }
+    const wb = await load(await buildNumberingWorkbook({ accounts: [older, newer], meta: META }))
+    const numbers = rowsOf(wb.getWorksheet(NUMBERING_TO_FIX_SHEET)!).map((r) => r[1])
+    expect(numbers).toEqual(['1791000003', '1791000001', '1791000002'])
   })
 
   it('is written in full under MISSING ONLY and past the row limit', async () => {
