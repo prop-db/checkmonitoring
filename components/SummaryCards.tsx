@@ -277,7 +277,7 @@ export function SummaryCards({
       {/* Five across since 2026-09-29: ALL CHECKS moved up from the secondary
           row, because it is the cheque inventory (client request) and an
           inventory is not a historical view. */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <PrimaryCard
           label="READY FOR RELEASE"
           icon={<IconReady />}
@@ -342,7 +342,7 @@ export function SummaryCards({
       {/* The historical view, at a fraction of the weight. Still a link, still
           the view selector — demoted, not removed. ALL CHECKS left this row on
           2026-09-29. */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:max-w-2xl">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {/* An explicit status wins over the NEEDS ACTION default, which excludes
             RELEASED — so this opens a full table without widening the view to
             everything. */}
