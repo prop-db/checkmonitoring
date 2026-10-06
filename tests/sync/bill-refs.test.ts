@@ -142,7 +142,7 @@ describe('runBillRefsSync — the table', () => {
   it('ignores other types, pre-2026 bills and rows with no reference — but their date still advances the watermark', async () => {
     const result = await read([
       docRow({ Type: 'Debit Adj.', LastModifiedOn: '2026-09-30T12:00:00' }),
-      docRow({ ReferenceNbr: 'AP-OLD', Date: '2025-12-31T00:00:00' }),
+      docRow({ ReferenceNbr: 'AP-OLD', Date: '2023-12-31T00:00:00' }),
       docRow({ ReferenceNbr: '  ' }),
     ]).result
     expect(await stored()).toEqual([])

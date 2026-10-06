@@ -68,7 +68,7 @@ describe('the feed', () => {
   it('filters on one column with the datetime literal, no zone', () => {
     expect(billRefsSinceFilter(new Date('2026-09-29T06:15:00.000Z')))
       .toBe("LastModifiedOn ge datetime'2026-09-29T06:15:00'")
-    expect(billRefsInScopeFilter()).toBe("Date ge datetime'2026-01-01T00:00:00'")
+    expect(billRefsInScopeFilter()).toBe("Date ge datetime'2024-01-01T00:00:00'")
   })
 })
 
@@ -97,10 +97,10 @@ describe('mapBillRef', () => {
     expect(mapBillRef(doc({ Type: 'Prepayment' }))).toMatchObject({ apvNumber: 'AP-ST044591' })
   })
 
-  it('refuses a bill dated before 2026 or with no date — the sync’s scope', () => {
-    expect(mapBillRef(doc({ Date: '2025-12-31T00:00:00' }))).toBeNull()
+  it('refuses a bill dated before 2024 or with no date — the mirror’s scope', () => {
+    expect(mapBillRef(doc({ Date: '2023-12-31T00:00:00' }))).toBeNull()
     expect(mapBillRef(doc({ Date: null }))).toBeNull()
-    expect(mapBillRef(doc({ Date: '2026-01-01T00:00:00' }))).not.toBeNull()
+    expect(mapBillRef(doc({ Date: '2024-01-01T00:00:00' }))).not.toBeNull()
   })
 
   it('refuses a row with no reference, and anything that is not a row', () => {

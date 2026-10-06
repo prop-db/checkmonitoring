@@ -60,7 +60,7 @@ export type BillRefsRunResult = {
   tenant: AcumaticaTenant
   /** Rows the feed returned. */
   fetched: number
-  /** Rows that are not a 2026 Bill with a reference. Not errors. */
+  /** Rows that are not a Bill dated 2024 or later with a reference. Not errors. */
   ignored: number
   /** Distinct bills read whose VendorRef names at least one PO. */
   withPo: number

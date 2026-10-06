@@ -13,7 +13,7 @@ import { naiveDate } from './map'
  * this inquiry's columns exactly as Go-Live does (unlike AP-PAYMENTS-WITH-BILLS,
  * lib/integrations/acumatica/bills.ts).
  *
- * Only `Bill` documents dated 2026 onward (the sync's scope). The incremental
+ * Only documents dated 2024 onward (`IN_SCOPE_FROM`, wider than the payment sync's scope). The incremental
  * filter is on `LastModifiedOn` alone, so the scope is enforced here, not in
  * OData. Pure.
  */
@@ -31,8 +31,15 @@ export const BILL_REF_COLUMNS = {
   lastModified: 'LastModifiedOn',
 } as const
 
-/** The same scope boundary as the payment sync (`SYNC_FROM_DATE` in lib/sync/run.ts). */
-const IN_SCOPE_FROM = '2026-01-01T00:00:00'
+/**
+ * How far back a bill's Vendor Ref is mirrored: 2024, NOT the payment sync's
+ * 2026 boundary. A 2026 cheque routinely pays an older bill (measured
+ * 2026-10-06: AP-A1030212, dated 2025-10-29, had no stored Vendor Ref while
+ * the cheque paying it sat on a transmittal; 40 of 1,332 open cheques). A bill
+ * older than this that a live cheque still pays shows no PO until this moves
+ * back and `scripts/sync.ts <TENANT> --bill-refs --full` is re-run.
+ */
+const IN_SCOPE_FROM = '2024-01-01T00:00:00'
 const SCOPE_START = new Date(`${IN_SCOPE_FROM}Z`)
 
 const literal = (d: Date) => `datetime'${d.toISOString().slice(0, 19)}'`
