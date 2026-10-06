@@ -52,7 +52,7 @@ export default async function ReconPage({
   const field = 'h-10 rounded-lg border border-hairline bg-white px-3 text-sm text-slate-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy'
 
   return (
-    <main className="mx-auto max-w-[1600px] space-y-6 p-8">
+    <main className="space-y-4 px-4 py-5">
       <AppHeader user={user} title="OUTSTANDING CHEQUES" back={{ href: '/', label: '← DASHBOARD' }} />
 
       <p className="rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">

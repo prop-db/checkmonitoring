@@ -17,6 +17,8 @@ import {
 import { AppHeader } from '@/components/AppHeader'
 import { SummaryCards } from '@/components/SummaryCards'
 import { TotalsFilterBar } from '@/components/TotalsFilterBar'
+import { StatusSelect } from '@/components/StatusSelect'
+import { buildStatusOptions } from '@/lib/status-options'
 import { ReleaseTimeline } from '@/components/ReleaseTimeline'
 import { TodaysReleasePanel } from '@/components/TodaysReleasePanel'
 import { ConfirmAllForm } from '@/components/ConfirmAllForm'
@@ -156,7 +158,7 @@ export default async function DashboardPage({
     )
 
     return (
-      <main className="mx-auto max-w-[1600px] space-y-6 p-8">
+      <main className="space-y-4 px-4 py-5">
         <AppHeader user={user} title="CHECK RELEASE" />
 
         {/* When Acumatica was last read. Above the cards, because every number
@@ -169,6 +171,7 @@ export default async function DashboardPage({
           cashAccountId={cashAccountId ?? ''}
           eligibility={eligibility ?? ''}
           description={narrowingDescription}
+          statusOptions={buildStatusOptions(selection, { ...summary, total: summary.total })}
         />
 
         {/* The cards ARE the view selector — which set of cheques the table shows
@@ -278,7 +281,7 @@ export default async function DashboardPage({
   ])
 
   return (
-    <main className="mx-auto max-w-[1600px] space-y-6 p-8">
+    <main className="space-y-4 px-4 py-5">
       <AppHeader user={user} title="CHECK RELEASE" />
 
       {/* The list gets the page (client, 2026-09-25): one slim bar says where
@@ -289,6 +292,7 @@ export default async function DashboardPage({
           <Link href={totalsHref(selection)} className="text-sm font-semibold tracking-wide text-navy underline-offset-2 hover:underline">
             ← BACK TO TOTALS
           </Link>
+          <StatusSelect options={buildStatusOptions(selection)} />
           <span className="text-xs font-medium tracking-wide text-slate-600">
             {describeView(selection)} · {matching.toLocaleString('en-PH')} CHEQUE{matching === 1 ? '' : 'S'}
           </span>

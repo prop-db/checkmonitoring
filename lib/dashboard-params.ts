@@ -4,7 +4,7 @@ import { parseStatusParam, parseEligibilityParam, parseOptionId } from './querie
 import { viewStatusFilter, type DashboardSelection } from './dashboard-view'
 import { bankLabel, describeFilters, exportViewLabel } from './export/report'
 import { isIsoDay } from './domain/details'
-import { manilaDayStart, manilaDayEnd } from './audit-view'
+import { manilaDayEnd, manilaDayStart, manilaToday } from './manila-day'
 import { parseColumnFilters, describeColumnFilters, FILTER_MESSAGES, type FParam } from './column-filters'
 import { parseSort, parseSortCookie, DEFAULT_SORT, sameSort, describeSort, type SortSpec } from './list-sort'
 
@@ -200,7 +200,11 @@ export function resolveDashboardQuery(
     companyId,
     cashAccountId,
     eligibility,
-    incomplete,
+    // CANCELLED and VOIDED cheques are meant to have no amount; the default
+    // exclusion of those would empty exactly the views that show them.
+    incomplete: (status === 'CANCELLED' || status === 'VOIDED') && !incomplete ? undefined : incomplete,
+    // GENERATED is "generated today" (Manila day) — see CheckFilters.generatedSince.
+    ...(status === 'GENERATED' ? { generatedSince: manilaDayStart(manilaToday(new Date())) } : {}),
     // Manila calendar days become inclusive instants: the day's first and last
     // millisecond in UTC+8. FROM after TO is passed through as given.
     releasedFrom: releasedFrom.day ? manilaDayStart(releasedFrom.day) : undefined,

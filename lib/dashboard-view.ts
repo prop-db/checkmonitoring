@@ -65,6 +65,8 @@ export const VIEW_CARDS = [
    * rather than concatenating a URL of its own.
    */
   'GENERATED',
+  // The two dead rungs, reached from the STATUS dropdown (client, 2026-10-06).
+  'CANCELLED', 'VOIDED',
 ] as const satisfies readonly string[]
 
 export type ViewCardId = (typeof VIEW_CARDS)[number]

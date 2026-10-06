@@ -19,7 +19,7 @@ import { clearingTargets, type ClearingStatus } from '@/lib/domain/check-status'
 import { RECEIPT_TYPE_LABELS } from '@/lib/domain/receipt'
 import { isoDay } from '@/lib/domain/details'
 import { loadSettings } from '@/lib/settings/read'
-import { signAction, releaseAction, revertAction, reverseReleaseAction, revertSignatureAction } from '../actions'
+import { signAction, releaseAction, revertAction, reverseReleaseAction, revertSignatureAction, restoreCancelledAction } from '../actions'
 
 /**
  * ONE CHEQUE.
@@ -423,10 +423,19 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
           </div>
         )}
 
+        {/* A cancellation undone (client, 2026-10-06): back to SIGNED. The reason
+            is required; the domain refuses once the portal has been told. */}
         {check.status === 'CANCELLED' && (
-          <p className="text-sm text-slate-500">
-            A cancelled cheque offers no actions. The reason is stated at the top of this page.
-          </p>
+          <ActionForm
+            action={restoreCancelledAction}
+            checkId={check.id}
+            label="RESTORE TO SIGNED"
+            className="block rounded-lg border border-hairline bg-white px-4 py-2 text-sm font-medium tracking-wide text-navy transition hover:bg-ground disabled:opacity-50"
+          >
+            <label className="block text-[11px] font-semibold tracking-widest text-slate-400">REASON</label>
+            <input name="reason" required placeholder="Cancelled in error"
+              className="h-10 w-full max-w-md rounded-lg border border-hairline bg-white px-3 text-sm text-slate-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy" />
+          </ActionForm>
         )}
 
         {check.status === 'VOIDED' && (

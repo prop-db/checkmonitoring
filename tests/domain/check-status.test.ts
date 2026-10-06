@@ -35,10 +35,10 @@ describe('release ladder transitions', () => {
     }
   })
 
-  it('treats RELEASED and CANCELLED as terminal', () => {
+  it('treats RELEASED as closed; CANCELLED only restores to SIGNED', () => {
     expect(canTransition('RELEASED', 'SIGNED')).toBe(false)
     expect(canTransition('RELEASED', 'CANCELLED')).toBe(false)
-    expect(canTransition('CANCELLED', 'SIGNED')).toBe(false)
+    expect(canTransition('CANCELLED', 'SIGNED')).toBe(true) // restoreCancelled, 2026-10-06
   })
 
   /**

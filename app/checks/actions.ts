@@ -10,7 +10,7 @@ import { afterResponse, kickPortalDelivery } from '@/lib/sync/portal-kick'
 import {
   markSigned, markReadyForRelease, revertAvailability,
   markReleased, recordClearing, cancelCheck, deleteIncompleteCheck, recordReceipt,
-  reverseRelease, updateDetails, revertSignature, attachReceiptFile,
+  reverseRelease, updateDetails, revertSignature, restoreCancelled, attachReceiptFile,
 } from '@/lib/domain/actions'
 import { readReceiptFields } from '@/lib/receipt-form'
 
@@ -91,6 +91,15 @@ export async function revertSignatureAction(formData: FormData): Promise<ActionR
   const user = await requireUser()
   const checkId = str(formData, 'checkId')
   return run(checkId, () => revertSignature(prisma, {
+    checkId, userId: user.id, reason: str(formData, 'reason'), now: new Date(),
+  }))
+}
+
+export async function restoreCancelledAction(formData: FormData): Promise<ActionResult> {
+  // Every Finance user (client, 2026-10-06); the reason is required by the domain.
+  const user = await requireUser()
+  const checkId = str(formData, 'checkId')
+  return run(checkId, () => restoreCancelled(prisma, {
     checkId, userId: user.id, reason: str(formData, 'reason'), now: new Date(),
   }))
 }

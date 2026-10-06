@@ -5,8 +5,9 @@ import {
   getSummary, getTodaysRelease, listTodaysReleaseIds, getPendingSignature, listPendingSignatureIds, listChecks, countChecks, toTableRow, getFilterOptions,
   parseStatusParam, parseEligibilityParam, parseOptionId, columnFilterFields, likePattern,
 } from '@/lib/queries'
-import { manilaDayStart, manilaDayEnd } from '@/lib/audit-view'
+import { manilaDayStart, manilaDayEnd, manilaToday } from '@/lib/manila-day'
 import { formatMoney } from '@/lib/money'
+import { generatedWhere } from '@/lib/queries'
 import { LIVE_STATUSES, isLiveStatus } from '@/lib/domain/check-status'
 import type { SortKey } from '@/lib/list-sort'
 
@@ -46,10 +47,35 @@ describe('getSummary', () => {
     await makeCheck({ status: 'SIGNATURE_PENDING' })
     await makeCheck({ status: 'SIGNATURE_PENDING' })
 
-    const s = await getSummary(testDb)
+    // Two days on, so the cheques made just now are not "generated today":
+    // only the one literally at GENERATED counts.
+    const s = await getSummary(testDb, {}, new Date(Date.now() + 2 * 86_400_000))
     expect(s.generated).toBe(1)
     expect(s.signaturePending).toBe(2)
-    expect(s.pendingSignature).toBe(s.generated + s.signaturePending)
+    expect(s.pendingSignature).toBe(3)
+  })
+
+  it('counts a SIGNATURE_PENDING cheque created today as generated today (Manila day), and opens the same set', async () => {
+    await makeCheck({ status: 'GENERATED' })
+    const fresh = await makeCheck({ status: 'SIGNATURE_PENDING' })
+    const old = await makeCheck({ status: 'SIGNATURE_PENDING' })
+    await testDb.check.update({ where: { id: old.id }, data: { createdAt: new Date(Date.now() - 3 * 86_400_000) } })
+
+    const now = new Date()
+    const s = await getSummary(testDb, {}, now)
+    expect(s.generated).toBe(2)
+    const rows = await testDb.check.findMany({ where: { AND: [generatedWhere(manilaDayStart(manilaToday(now)))] } })
+    expect(rows.map((r) => r.id)).toContain(fresh.id)
+    expect(rows.map((r) => r.id)).not.toContain(old.id)
+    expect(rows).toHaveLength(2)
+  })
+
+  it('counts CANCELLED and VOIDED even when they have no amount', async () => {
+    await makeCheck({ status: 'CANCELLED', amount: null })
+    await makeCheck({ status: 'VOIDED', amount: null })
+    const s = await getSummary(testDb)
+    expect(s.cancelled).toBe(1)
+    expect(s.voided).toBe(1)
   })
 
   // The whole point of this step: a dataset spanning multiple currencies must

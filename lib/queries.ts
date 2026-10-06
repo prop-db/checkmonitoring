@@ -6,6 +6,7 @@ import { ELIGIBILITIES } from './domain/eligibility'
 // statuses that view covers. `dashboard-view` does not import this module, so
 // there is no cycle.
 import { viewStatusFilter } from './dashboard-view'
+import { manilaDayStart, manilaToday } from './manila-day'
 import {
   DEFAULT_SORT, isAppSorted, dbOrderBy, compareSortValues,
   type SortSpec, type SortDir, type AppSortKey, type SortValue,
@@ -73,6 +74,15 @@ export type CheckFilters = ColumnFilters & {
    */
   releasedFrom?: Date
   releasedTo?: Date
+  /**
+   * The GENERATED view (client, 2026-10-06): cheques generated since this
+   * instant — a cheque at GENERATED, or one still at SIGNATURE_PENDING whose
+   * row was created on or after it. A synced Acumatica cheque is created at
+   * SIGNATURE_PENDING, so nothing ever sat at GENERATED and the count read 0.
+   * The resolver sets it to the start of the Manila day; it replaces any
+   * status filter, and `getSummary`'s `generated` counts the same set.
+   */
+  generatedSince?: Date
   /**
    * Only the cheques with NO release date of either kind — `releasedAt` null
    * and `statedReleaseDate` null. The disclosure's count, taken through the
@@ -177,6 +187,11 @@ export function accountWhere(accountId: string): Prisma.CheckWhereInput {
   return { OR: [{ checkBookId: accountId }, { checkBookId: null, cashAccountId: accountId }] }
 }
 
+/** GENERATED today: the rung itself, or a SIGNATURE_PENDING cheque created since `since`. */
+export function generatedWhere(since: Date): Prisma.CheckWhereInput {
+  return { OR: [{ status: 'GENERATED' }, { status: 'SIGNATURE_PENDING', createdAt: { gte: since } }] }
+}
+
 function narrowingWhere(narrow: SummaryNarrowing): Prisma.CheckWhereInput {
   const where: Prisma.CheckWhereInput = {}
   if (narrow.companyId) where.companyId = narrow.companyId
@@ -185,12 +200,12 @@ function narrowingWhere(narrow: SummaryNarrowing): Prisma.CheckWhereInput {
   return where
 }
 
-export async function getSummary(db: Db, narrow: SummaryNarrowing = {}) {
+export async function getSummary(db: Db, narrow: SummaryNarrowing = {}, now: Date = new Date()) {
   // Applied to ALL FOUR figures, the disclosure included: a narrowed screen
   // whose "excluding N with no amount" line still counted the whole database
   // would be a number nobody could reconcile with the cards above it.
   const scope = narrowingWhere(narrow)
-  const [grouped, currencyAgg, total, incomplete] = await Promise.all([
+  const [grouped, currencyAgg, total, incomplete, generatedToday, cancelled, voided] = await Promise.all([
     // Every count on the dashboard is struck over the same population the table
     // shows — see COMPLETE_ONLY.
     db.check.groupBy({ by: ['status'], _count: { _all: true }, where: { ...scope, ...COMPLETE_ONLY } }),
@@ -219,6 +234,13 @@ export async function getSummary(db: Db, narrow: SummaryNarrowing = {}) {
     // never subtracted from anything, and never zero just because the rest of
     // this function stopped looking at them.
     db.check.count({ where: { ...scope, isIncomplete: true } }),
+    // GENERATED TODAY: the same set the GENERATED view opens (`generatedWhere`).
+    db.check.count({ where: { ...scope, ...COMPLETE_ONLY, AND: [generatedWhere(manilaDayStart(manilaToday(now)))] } }),
+    // CANCELLED and VOIDED are NOT narrowed by COMPLETE_ONLY: a cancelled cheque
+    // is meant to have no amount, so excluding the incomplete would hide
+    // exactly the cheques these views exist to show (client, 2026-10-06).
+    db.check.count({ where: { ...scope, status: 'CANCELLED' } }),
+    db.check.count({ where: { ...scope, status: 'VOIDED' } }),
   ])
   const count = (s: CheckStatus) => grouped.find((g) => g.status === s)?._count._all ?? 0
   // `amount` is nullable and 397 register rows have no amount. Verified against
@@ -269,7 +291,9 @@ export async function getSummary(db: Db, narrow: SummaryNarrowing = {}) {
      * `?status=SIGNATURE_PENDING` opens only the SIGNATURE_PENDING rows —
      * see lib/release-timeline.ts.
      */
-    generated: count('GENERATED'),
+    generated: generatedToday,
+    cancelled,
+    voided,
     signaturePending: count('SIGNATURE_PENDING'),
     signed: count('SIGNED'),
     readyForRelease: count('READY_FOR_RELEASE'),
@@ -466,10 +490,14 @@ function buildWhere(filters: CheckFilters, extraSearch: readonly Prisma.CheckWhe
   // nothing", so a miscomputed scope can never hide every cheque.
   if (filters.status) where.status = filters.status
   else if (filters.statusIn && filters.statusIn.length > 0) where.status = { in: [...filters.statusIn] }
+  if (filters.generatedSince) {
+    delete where.status
+  }
   if (filters.companyId) where.companyId = filters.companyId
   // Collected under AND, never on `where.OR`, which the search owns below.
   const and: Prisma.CheckWhereInput[] = []
   if (filters.cashAccountId) and.push(accountWhere(filters.cashAccountId))
+  if (filters.generatedSince) and.push(generatedWhere(filters.generatedSince))
   if (filters.eligibility) where.eligibility = filters.eligibility
   // The tri-state, spelled out. `true` narrows to the records with no recorded
   // amount, `false` EXCLUDES them (the dashboard's default since 2026-09-06 —

@@ -2,7 +2,9 @@ import Link from 'next/link'
 import { ELIGIBILITIES } from '@/lib/queries'
 import type { FilterOptions } from '@/lib/queries'
 import { bankLabel } from '@/lib/export/report'
+import type { StatusOption } from '@/lib/status-options'
 import { FilterAutoSubmit } from './FilterAutoSubmit'
+import { StatusSelect } from './StatusSelect'
 
 const APPLY_ID = 'totals-filter-apply'
 
@@ -24,8 +26,10 @@ const APPLY_ID = 'totals-filter-apply'
  * use, so the three cannot spell an account differently.
  */
 export function TotalsFilterBar({
-  options, companyId, cashAccountId, eligibility, description,
+  options, companyId, cashAccountId, eligibility, description, statusOptions,
 }: {
+  /** The STATUS dropdown's options, with counts. */
+  statusOptions: StatusOption[]
   options: FilterOptions
   companyId: string
   cashAccountId: string
@@ -47,6 +51,8 @@ export function TotalsFilterBar({
         className="flex flex-wrap items-center gap-2 rounded-2xl bg-white p-3 ring-1 ring-hairline"
         method="get"
       >
+        <StatusSelect options={statusOptions} />
+
         <label className="sr-only" htmlFor="totals-company">COMPANY</label>
         <select id="totals-company" name="company" defaultValue={companyId} className={field}>
           <option value="">ALL COMPANIES</option>

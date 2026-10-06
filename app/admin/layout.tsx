@@ -24,7 +24,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   ] as const
 
   return (
-    <main className="mx-auto max-w-[1600px] space-y-6 p-8">
+    <main className="space-y-4 px-4 py-5">
       <AppHeader
         user={user}
         title="ADMINISTRATION"

@@ -29,18 +29,8 @@ export type AuditParams = {
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/
 
-/**
- * A Manila calendar day's first and last instants, as UTC. The Philippines is
- * UTC+8 with no daylight saving, so the offset is a constant rather than a
- * timezone lookup — the same reasoning as `MANILA_OFFSET_MS` in the voucher
- * workbook.
- */
-export function manilaDayStart(day: string): Date {
-  return new Date(`${day}T00:00:00.000+08:00`)
-}
-export function manilaDayEnd(day: string): Date {
-  return new Date(`${day}T23:59:59.999+08:00`)
-}
+export { manilaDayStart, manilaDayEnd } from './manila-day'
+import { manilaDayStart, manilaDayEnd } from './manila-day'
 
 function readDay(value: string | undefined): string | undefined {
   const v = value?.trim()

@@ -15,7 +15,7 @@ export type ClearingStatus = 'NONE' | 'DEPOSITED' | 'ENCASHED' | 'CLEARED'
 // RELEASED for a cheque the ERP says no longer exists — the monitoring
 // system disagreeing with the source of truth is worse than recording an
 // uncomfortable fact. CANCELLED is excluded only because it is already a
-// terminal Finance decision with a recorded reason.
+// Finance decision with a recorded reason, so it has no void edge.
 const TRANSITIONS: Record<CheckStatus, readonly CheckStatus[]> = {
   GENERATED:         ['SIGNATURE_PENDING', 'CANCELLED', 'VOIDED'],
   SIGNATURE_PENDING: ['SIGNED', 'CANCELLED', 'VOIDED'],
@@ -32,7 +32,10 @@ const TRANSITIONS: Record<CheckStatus, readonly CheckStatus[]> = {
   // the bank has cleared the cheque. RELEASED stays CLOSED for every scope;
   // this edge is a correction, not a stage.
   RELEASED:          ['READY_FOR_RELEASE', 'VOIDED'],
-  CANCELLED:         [],
+  // A cancellation can be undone (client, 2026-10-06): back to SIGNED, by
+  // `restoreCancelled` in actions.ts, with a reason, and refused once the
+  // portal has been told the cheque is cancelled.
+  CANCELLED:         ['SIGNED'],
   VOIDED:            [],
 }
 

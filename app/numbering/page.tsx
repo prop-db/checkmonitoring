@@ -35,7 +35,7 @@ export default async function NumberingPage({
 
   if (accountParam && !account) {
     return (
-      <main className="mx-auto max-w-[1600px] space-y-6 p-8">
+      <main className="space-y-4 px-4 py-5">
         <AppHeader user={user} title="CHEQUE NUMBERING" back={{ href: NUMBERING_PATH, label: '← ALL CHEQUE BOOKS' }} />
         <EmptyState title="NO SUCH CHEQUE BOOK">That cheque book is not on record. Choose one from the list.</EmptyState>
       </main>
@@ -53,7 +53,7 @@ export default async function NumberingPage({
   const one = account ? accounts[0] : undefined
 
   return (
-    <main className="mx-auto max-w-[1600px] space-y-6 p-8">
+    <main className="space-y-4 px-4 py-5">
       <AppHeader user={user} title="CHEQUE NUMBERING" back={{ href: '/', label: '← DASHBOARD' }} />
 
       <p className="rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">

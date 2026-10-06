@@ -1213,3 +1213,57 @@ export async function cancelCheck(
     return updated
   })
 }
+
+/**
+ * A cancellation, undone (client, 2026-10-06): CANCELLED back to SIGNED. A reason
+ * is required. Refused once the portal has been told — a CANCELLED event that is
+ * SYNCED or IN_FLIGHT — because nothing reads the portal back (rule 12) and a
+ * supplier-facing record would then say cancelled for a live cheque. An event
+ * still waiting is closed unsent by the outbox, since it no longer matches the
+ * cheque's status. The cancel fields are cleared; the audit row keeps them.
+ */
+export async function restoreCancelled(
+  db: Db, args: { checkId: string; userId: string; reason: string; now: Date },
+): Promise<Check> {
+  if (!args.reason || args.reason.trim() === '') {
+    throw new DomainError('REASON_REQUIRED', 'A reason is required to restore a cancelled check.')
+  }
+  return inTx(db, async (tx) => {
+    const check = await load(tx, args.checkId)
+    assertTransition(check.status as CheckStatus, 'SIGNED')
+    const told = await tx.portalEvent.count({
+      where: { checkId: check.id, kind: 'CANCELLED', status: { in: ['SYNCED', 'IN_FLIGHT'] } },
+    })
+    if (told > 0) {
+      throw new DomainError(
+        'PORTAL_ALREADY_NOTIFIED',
+        'The portal has already been told this cheque is cancelled, so it cannot be restored here.',
+      )
+    }
+    const { count } = await tx.check.updateMany({
+      where: { id: check.id, status: 'CANCELLED' },
+      data: {
+        status: 'SIGNED', cancelledById: null, cancelledAt: null, cancelReason: null,
+        signedById: null, signedAt: null, portalSyncStatus: 'NOT_APPLICABLE',
+      },
+    })
+    if (count === 0) {
+      const current = await tx.check.findUnique({ where: { id: check.id }, select: { status: true } })
+      throw new DomainError(
+        'ILLEGAL_TRANSITION',
+        `Cannot move a check from ${current?.status ?? 'a changed status'} to SIGNED.`,
+      )
+    }
+    await writeAudit(tx, {
+      checkId: check.id, actorType: 'USER', userId: args.userId, action: 'cancellation_restored',
+      details: {
+        from: 'CANCELLED', to: 'SIGNED',
+        previousCancelledById: check.cancelledById,
+        previousCancelledAt: check.cancelledAt?.toISOString() ?? null,
+        previousCancelReason: check.cancelReason,
+      },
+      remarks: args.reason,
+    })
+    return tx.check.findUniqueOrThrow({ where: { id: check.id } })
+  })
+}
