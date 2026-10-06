@@ -5,8 +5,14 @@ import ExcelJS from 'exceljs'
 import { PrismaClient } from '@prisma/client'
 import {
   findClosedButDeadHere, releaseClosed, planFinanceVerdicts, applyAvailable, applyStaled, parseVerdict,
+  voidedReferences, findSwappedSharedNumbers, repointToLivePayments,
   type FinanceLine,
 } from '../lib/admin/acumatica-reconcile'
+import { createClientForTenant } from '../lib/integrations/acumatica/from-env'
+import { PAYMENTS_FEED, PAYMENT_FIELDS } from '../lib/integrations/acumatica/client'
+import { mapPayment, collapseVoidPairs } from '../lib/integrations/acumatica/map'
+import { paymentsInScopeFilter } from '../lib/sync/run'
+import { upsertCheck } from '../lib/import/upsert'
 
 /**
  * The full check of 2026-10-06, settled. Two parts, both one-off:
@@ -69,12 +75,28 @@ async function main(): Promise<void> {
   if (!file) throw new Error('Usage: reconcile-with-acumatica.ts "<finance>.xlsx" [--apply --user <email>]')
   const db = new PrismaClient()
   try {
-    const closed = await findClosedButDeadHere(db)
-    console.log(`\n1. CANCELLED/VOIDED here, Closed in Acumatica, no person behind it: ${closed.length}`)
+    // The LIVE feed, both tenants: which payments carry any void (a pending
+    // void leaves the original `Closed`; 2026-10-07, `6000319193`/`94`).
+    const clients = { GOLIVE: createClientForTenant('GOLIVE'), MANUFACTURING: createClientForTenant('MANUFACTURING') } as const
+    const voidedRefs = new Set<string>()
+    for (const t of ['GOLIVE', 'MANUFACTURING'] as const) {
+      const raw = await clients[t].fetchAll(PAYMENTS_FEED, { select: ['Type', 'ReferenceNbr', 'Status'], filter: paymentsInScopeFilter(), orderby: 'ReferenceNbr asc', pageSize: 5000 })
+      for (const ref of voidedReferences(raw)) voidedRefs.add(ref)
+    }
+    console.log(`\nAcumatica (live): ${voidedRefs.size} payment references carry a void`)
+
+    const swapped = await findSwappedSharedNumbers(db, voidedRefs)
+    console.log(`\n0. Check holding a VOIDED payment while the live one on its number is staged: ${swapped.length}`)
+    for (const s of swapped) console.log(`   ${s.checkNumber.padEnd(12)} ${s.heldRef} (voided) -> ${s.liveRef} (live)`)
+
+    const closed = await findClosedButDeadHere(db, voidedRefs)
+    console.log(`\n1. CANCELLED/VOIDED here, Closed in Acumatica, no void there, no person behind it: ${closed.length}`)
     for (const c of closed) console.log(`   ${c.checkNumber.padEnd(12)} ${c.acumaticaPaymentId.padEnd(16)} ${c.status.padEnd(9)} ${c.sourceSheet ?? ''}`)
 
     console.log(`\n2. Finance file: ${file}`)
-    const plan = await planFinanceVerdicts(db, await readFinanceFile(file))
+    const lines = await readFinanceFile(file)
+    let plan = await planFinanceVerdicts(db, lines)
+    if (swapped.length) console.log('   (a line refused for "no cheque here holds payment" is re-planned after step 0 re-points it)')
     const show = (label: string, xs: { checkNumber: string }[]) =>
       console.log(`   ${label}: ${xs.length}${xs.length ? '  ' + xs.map((x) => x.checkNumber).join(', ') : ''}`)
     show('AVAILABLE -> READY FOR RELEASE', plan.available.map((a) => a.line))
@@ -91,7 +113,7 @@ async function main(): Promise<void> {
     const now = new Date()
     await mkdir(join(process.cwd(), 'snapshots'), { recursive: true })
     const snap = join(process.cwd(), 'snapshots', `reconcile-with-acumatica-${now.toISOString().replace(/[:.]/g, '-')}.json`)
-    const ids = [...closed.map((c) => c.id), ...plan.available.map((a) => a.checkId), ...plan.staled.map((s) => s.checkId)]
+    const ids = [...swapped.map((s) => s.checkId), ...closed.map((c) => c.id), ...plan.available.map((a) => a.checkId), ...plan.staled.map((s) => s.checkId)]
     const before = await db.check.findMany({
       where: { id: { in: ids } },
       select: {
@@ -103,12 +125,25 @@ async function main(): Promise<void> {
     await writeFile(snap, JSON.stringify({ takenAt: now.toISOString(), file, rows: before }, null, 2))
     console.log(`\nSnapshot written: ${snap}`)
 
+    // Step 0: re-point, then re-read each live payment through the one write path.
+    const repointed = await repointToLivePayments(db, swapped)
+    const ownCompanyNames = (await db.company.findMany({ select: { legalNames: true } })).flatMap((c) => c.legalNames)
+    for (const s of swapped) {
+      const tenant = (await db.check.findUniqueOrThrow({ where: { id: s.checkId }, select: { acumaticaTenant: true } })).acumaticaTenant ?? 'GOLIVE'
+      const raw = await clients[tenant].fetchAll(PAYMENTS_FEED, { select: [...PAYMENT_FIELDS], filter: `ReferenceNbr eq '${s.liveRef}'`, pageSize: 10 })
+      const row = collapseVoidPairs(raw.map((r) => mapPayment(r, tenant)).filter((r): r is NonNullable<typeof r> => r !== null))
+        .find((r) => r.acumaticaPaymentId === s.liveRef)
+      if (row) await upsertCheck(db, { row, ownCompanyNames, now })
+    }
+    console.log(`\nre-pointed ${repointed} of ${swapped.length}`)
+    if (swapped.length) plan = await planFinanceVerdicts(db, lines)
+
     const released = await releaseClosed(db, closed)
     const avail = await applyAvailable(db, plan.available, { userId: user.id, now })
     const staled = await applyStaled(db, plan.staled, { userId: user.id })
     console.log(`\nDONE  released ${released} of ${closed.length}; staled ${staled} of ${plan.staled.length}`)
     for (const a of avail) console.log(a.ok ? `  READY FOR RELEASE ${a.checkNumber}` : `  NOT READIED ${a.checkNumber}: ${a.reason}`)
-    console.log(`  still CANCELLED/VOIDED here and Closed in Acumatica: ${(await findClosedButDeadHere(db)).length}\n`)
+    console.log(`  still CANCELLED/VOIDED here and Closed in Acumatica: ${(await findClosedButDeadHere(db, voidedRefs)).length}\n`)
   } finally {
     await db.$disconnect()
   }

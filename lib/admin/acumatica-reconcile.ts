@@ -31,7 +31,14 @@ export type ClosedCandidate = {
   sourceSheet: string | null; cancelledAt: Date | null; cancelReason: string | null; voidedAt: Date | null
 }
 
-export async function findClosedButDeadHere(db: Db): Promise<ClosedCandidate[]> {
+/**
+ * `voidedRefs`: payment references the LIVE feed shows with any void — a
+ * `Voided Payment` row or a `Voided` status. Measured 2026-10-07: `6000319193`
+ * and `6000319194` carry `Payment / Closed` beside a `Voided Payment / Balanced`
+ * (a void entered, not yet released), so the stored status alone reads Closed
+ * for a cheque Acumatica is voiding. Such a cheque is never released here.
+ */
+export async function findClosedButDeadHere(db: Db, voidedRefs: ReadonlySet<string> = new Set()): Promise<ClosedCandidate[]> {
   const rows = await db.check.findMany({
     where: {
       status: { in: ['CANCELLED', 'VOIDED'] },
@@ -50,7 +57,74 @@ export async function findClosedButDeadHere(db: Db): Promise<ClosedCandidate[]> 
     },
     orderBy: { checkNumber: 'asc' },
   })
-  return rows.map((r) => ({ ...r, status: r.status as 'CANCELLED' | 'VOIDED', acumaticaPaymentId: r.acumaticaPaymentId! }))
+  return rows
+    .filter((r) => !voidedRefs.has(r.acumaticaPaymentId!))
+    .map((r) => ({ ...r, status: r.status as 'CANCELLED' | 'VOIDED', acumaticaPaymentId: r.acumaticaPaymentId! }))
+}
+
+/** The references with any void signal, from raw `AP-Checks and Payments` rows. */
+export function voidedReferences(rows: readonly Record<string, unknown>[]): Set<string> {
+  const out = new Set<string>()
+  for (const r of rows) {
+    const ref = String(r.ReferenceNbr ?? '').trim()
+    if (ref && (String(r.Type ?? '').trim() === 'Voided Payment' || String(r.Status ?? '').trim() === 'Voided')) out.add(ref)
+  }
+  return out
+}
+
+/**
+ * A SHARED_NUMBER check holding the VOIDED payment while the live one waits on
+ * `/admin/staged`. Before the 2026-10-06 fix the two payments on one number took
+ * turns owning the check; the last old-code run left `1791361448` holding
+ * CV-A1009778 (Voided) and the new code then staged its live re-issue
+ * CV-A1009800 (Balanced) — the cheque Finance ruled AVAILABLE.
+ */
+export type SwappedNumber = { checkId: string; checkNumber: string; heldRef: string; liveRef: string; stagedId: string }
+
+export async function findSwappedSharedNumbers(db: Db, voidedRefs: ReadonlySet<string>): Promise<SwappedNumber[]> {
+  const staged = await db.stagedCheck.findMany({
+    where: { reason: 'SHARED_NUMBER', promotedCheckId: null, acumaticaRef: { not: null } },
+    select: { id: true, acumaticaRef: true, acumaticaTenant: true, checkNumber: true },
+  })
+  const out: SwappedNumber[] = []
+  for (const s of staged) {
+    if (!s.checkNumber || voidedRefs.has(s.acumaticaRef!)) continue
+    const held = await db.check.findFirst({
+      where: { checkNumber: s.checkNumber, acumaticaTenant: s.acumaticaTenant, acumaticaPaymentId: { not: null } },
+      select: { id: true, acumaticaPaymentId: true },
+    })
+    if (held && held.acumaticaPaymentId !== s.acumaticaRef && voidedRefs.has(held.acumaticaPaymentId!)) {
+      out.push({ checkId: held.id, checkNumber: s.checkNumber, heldRef: held.acumaticaPaymentId!, liveRef: s.acumaticaRef!, stagedId: s.id })
+    }
+  }
+  return out
+}
+
+export const REPOINTED_ACTION = 'repointed_to_live_payment'
+
+/**
+ * The check takes the live payment's reference and the staged row is closed
+ * (promoted to it). Status untouched. The caller then re-reads the live payment
+ * through `upsertCheck`, which now finds it by its own reference; the voided
+ * one is staged SHARED_NUMBER by the next sync.
+ */
+export async function repointToLivePayments(db: PrismaClient, items: readonly SwappedNumber[]): Promise<number> {
+  let done = 0
+  for (const s of items) {
+    const ok = await db.$transaction(async (tx) => {
+      const moved = await tx.check.updateMany({ where: { id: s.checkId, acumaticaPaymentId: s.heldRef }, data: { acumaticaPaymentId: s.liveRef } })
+      if (!moved.count) return false
+      await tx.stagedCheck.update({ where: { id: s.stagedId }, data: { promotedCheckId: s.checkId } })
+      await writeAudit(tx, {
+        checkId: s.checkId, actorType: 'SYSTEM', action: REPOINTED_ACTION,
+        details: { from: s.heldRef, to: s.liveRef, reason: 'held payment is voided in Acumatica; the live payment on this number was staged SHARED_NUMBER' },
+        remarks: `Now ${s.liveRef} (live in Acumatica) instead of ${s.heldRef} (voided). Status unchanged.`,
+      })
+      return true
+    }, TX_OPTIONS)
+    if (ok) done += 1
+  }
+  return done
 }
 
 /**

@@ -4,6 +4,7 @@ import { makeCheck, makeUser } from '../helpers/factory'
 import {
   findClosedButDeadHere, releaseClosed, planFinanceVerdicts, applyAvailable, applyStaled, parseVerdict,
   RELEASED_FROM_CLOSED_ACTION, REINSTATED_ACTION, STALED_ACTION,
+  voidedReferences, findSwappedSharedNumbers, repointToLivePayments, REPOINTED_ACTION,
 } from '@/lib/admin/acumatica-reconcile'
 import { markReadyForRelease } from '@/lib/domain/actions'
 
@@ -151,5 +152,56 @@ describe('markReadyForRelease: the account', () => {
     await testDb.check.update({ where: { id: c.id }, data: { cashAccountId: null } })
     await expect(markReadyForRelease(testDb, { checkId: c.id, userId: user.id, availablePickupDate: new Date('2026-10-07'), now: NOW }))
       .rejects.toThrow(/CASH ACCOUNT \/ CHEQUE BOOK/)
+  })
+})
+
+describe('live voids and swapped shared numbers (2026-10-07)', () => {
+  it('voidedReferences reads a Voided Payment row or a Voided status, whatever the original says', async () => {
+    const refs = voidedReferences([
+      { ReferenceNbr: 'CV-PEND', Type: 'Voided Payment', Status: 'Balanced' },
+      { ReferenceNbr: 'CV-PEND', Type: 'Payment', Status: 'Closed' },
+      { ReferenceNbr: 'CV-DONE', Type: 'Payment', Status: 'Voided' },
+      { ReferenceNbr: 'CV-LIVE', Type: 'Payment', Status: 'Closed' },
+    ])
+    expect([...refs].sort()).toEqual(['CV-DONE', 'CV-PEND'])
+  })
+
+  it('never releases a cheque whose payment carries a void in the live feed', async () => {
+    const pending = await acumaticaCheck('VOIDED', 'Closed')
+    const plain = await acumaticaCheck('CANCELLED', 'Closed')
+    const rows = await findClosedButDeadHere(testDb, new Set([pending.acumaticaPaymentId!]))
+    expect(rows.map((r) => r.id)).toEqual([plain.id])
+  })
+
+  it('re-points a cheque holding the voided payment to the live one staged on its number, status untouched', async () => {
+    const held = await acumaticaCheck('CANCELLED', 'Voided', { checkNumber: '1791361448' })
+    const staged = await testDb.stagedCheck.create({
+      data: {
+        source: 'ACUMATICA', reason: 'SHARED_NUMBER', acumaticaRef: 'CV-LIVE-1', acumaticaTenant: 'GOLIVE',
+        checkNumber: '1791361448', impliedStatus: 'SIGNATURE_PENDING', apvNumbers: [], poNumbers: [], conflictingCompanies: [],
+      },
+    })
+    const voided = new Set([held.acumaticaPaymentId!])
+    const found = await findSwappedSharedNumbers(testDb, voided)
+    expect(found).toEqual([{ checkId: held.id, checkNumber: '1791361448', heldRef: held.acumaticaPaymentId, liveRef: 'CV-LIVE-1', stagedId: staged.id }])
+
+    expect(await repointToLivePayments(testDb, found)).toBe(1)
+    const after = await testDb.check.findUniqueOrThrow({ where: { id: held.id } })
+    expect(after).toMatchObject({ acumaticaPaymentId: 'CV-LIVE-1', status: 'CANCELLED' })
+    expect((await testDb.stagedCheck.findUniqueOrThrow({ where: { id: staged.id } })).promotedCheckId).toBe(held.id)
+    expect(await testDb.auditLog.count({ where: { checkId: held.id, action: REPOINTED_ACTION } })).toBe(1)
+    expect(await findSwappedSharedNumbers(testDb, voided)).toEqual([])
+    expect(await repointToLivePayments(testDb, found)).toBe(0)
+  })
+
+  it('leaves a shared number alone when the held payment is the live one', async () => {
+    const held = await acumaticaCheck('RELEASED' as 'SIGNED', 'Closed', { checkNumber: '6000338856' })
+    await testDb.stagedCheck.create({
+      data: {
+        source: 'ACUMATICA', reason: 'SHARED_NUMBER', acumaticaRef: 'CV-OTHER', acumaticaTenant: 'GOLIVE',
+        checkNumber: held.checkNumber, impliedStatus: 'SIGNATURE_PENDING', apvNumbers: [], poNumbers: [], conflictingCompanies: [],
+      },
+    })
+    expect(await findSwappedSharedNumbers(testDb, new Set())).toEqual([])
   })
 })

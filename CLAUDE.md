@@ -636,7 +636,7 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
   `isStale` set, shown as a STALED tag** on the list and the check page (the column's first writer);
   **8 CANCELLED → unchanged, to be voided in Acumatica**. `scripts/reconcile-with-acumatica.ts
   "<file>" [--apply --user <email>]` (`lib/admin/acumatica-reconcile.ts`) does both, snapshot first, and
-  must run AFTER the full re-read: it reads the stored `acumaticaStatus`, and before the re-read
+  must run AFTER the full re-read. **Since 2026-10-07 it also reads the live feed for voids** (`6000319193`/`94`: `Payment / Closed` beside a pending `Voided Payment / Balanced` — never released) and **re-points a check holding a voided payment to the live one staged SHARED_NUMBER on its number** (`1791361448`: the old-code full runs of 2026-10-06 16:07/16:20 Manila left it on CV-A1009778; `repointed_to_live_payment`). Earlier note: it reads the stored `acumaticaStatus`, and before the re-read
   `6000319193`'s held the reversal row's `Closed`. Its Closed set also takes `1791361374` and two 2025
   register-cancelled checks (`6000272567`, `6000290809`). BPI-A-8879's two `1791…` checks were on the
   wrong cash account; Finance fixed them in Acumatica the same day.
