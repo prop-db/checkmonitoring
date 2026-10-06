@@ -174,6 +174,22 @@ export function TransmittalBuilder({
         </div>
         <div className="flex items-center justify-end gap-3">
           <span className="text-xs text-slate-500">OR USE YOUR BROWSER’S PRINT COMMAND</span>
+          {/* A POST, so a thousand ticked cheques are not squeezed into a URL. The
+              server re-reads and re-checks every id; this carries only the picks and the typed names. */}
+          <form method="post" action="/api/export/transmittal">
+            <input type="hidden" name="ids" value={picked.map((c) => c.id).join(',')} />
+            <input type="hidden" name="to" value={to} />
+            <input type="hidden" name="date" value={date} />
+            <input type="hidden" name="preparedBy" value={preparedBy} />
+            <input type="hidden" name="checkedBy" value={checkedBy} />
+            <input type="hidden" name="approvedBy" value={approvedBy} />
+            <button
+              type="submit" disabled={picked.length === 0}
+              className="rounded-lg bg-white px-4 py-2 text-sm font-medium tracking-wide text-navy ring-1 ring-navy disabled:opacity-40"
+            >
+              DOWNLOAD EXCEL
+            </button>
+          </form>
           <button
             type="button" onClick={() => window.print()} disabled={picked.length === 0}
             className="rounded-lg bg-navy px-4 py-2 text-sm font-medium tracking-wide text-white disabled:opacity-40"

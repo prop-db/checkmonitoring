@@ -981,3 +981,13 @@ export function toTableRow(r: CheckRow): CheckTableRow {
     hasReceipt: r.orNumber !== null,
   }
 }
+
+/**
+ * The cheques with these ids, in the list's row shape (PO numbers resolved the
+ * same way), in no particular order. For a caller that holds a hand-picked set —
+ * the transmittal — rather than a filter.
+ */
+export async function listChecksByIds(db: Db, ids: readonly string[]) {
+  if (ids.length === 0) return []
+  return withPoNumbers(db, await db.check.findMany({ where: { id: { in: [...ids] } }, include: CHECK_ROW_INCLUDE }))
+}
