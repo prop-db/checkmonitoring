@@ -25,6 +25,33 @@ describe('kickPortalDelivery', () => {
   })
 })
 
+// User demand 2026-10-06 ("this should be always the trigger", "make sure it
+// will always work"): every delivery first queues RELEASED for any cheque the
+// portal was told was available and was released by a path that queued
+// nothing (register catch-up, Acumatica reconcile, the older backfills).
+describe('kickPortalDelivery: released cheques the portal was never told', () => {
+  it('queues and delivers RELEASED in the same kick', async () => {
+    const check = await makeCheck({ status: 'RELEASED', apvNumbers: ['AP-A1034346'], statedReleaseDate: new Date('2026-09-30T00:00:00Z') })
+    await testDb.portalEvent.create({ data: { checkId: check.id, direction: 'OUT', kind: 'MARK_AVAILABLE', status: 'SYNCED', idempotencyKey: 'avail', payload: {} } })
+    const sent: { kind: string; releaseDate?: string }[] = []
+    const out = await kickPortalDelivery(testDb, {
+      budgetMs: 5000,
+      client: { deliver: async (body: { kind: string; releaseDate?: string }) => { sent.push(body); return { status: 200, body: { eventId: 'e', replay: false, results: [{ ref: 'AP-A1034346', domain: 'local', releaseId: 1, outcome: 'applied' }], unmatched: [] } } } } as never,
+    })
+    expect(out).toMatchObject({ delivered: 1 })
+    expect(sent).toEqual([expect.objectContaining({ kind: 'RELEASED', releaseDate: '2026-09-30' })])
+    const ev = await testDb.portalEvent.findFirstOrThrow({ where: { checkId: check.id, kind: 'RELEASED' } })
+    expect(ev.status).toBe('SYNCED')
+  })
+
+  it('queues even when the portal is not configured, so the next configured run sends it', async () => {
+    const check = await makeCheck({ status: 'RELEASED', apvNumbers: ['AP-1'], statedReleaseDate: new Date('2026-09-30T00:00:00Z') })
+    await testDb.portalEvent.create({ data: { checkId: check.id, direction: 'OUT', kind: 'MARK_AVAILABLE', status: 'SYNCED', idempotencyKey: 'avail', payload: {} } })
+    expect(await kickPortalDelivery(testDb, { budgetMs: 1000 })).toEqual({ skipped: 'PORTAL_BASE_URL is not set' })
+    expect(await testDb.portalEvent.count({ where: { checkId: check.id, kind: 'RELEASED', status: 'PENDING' } })).toBe(1)
+  })
+})
+
 describe('afterResponse', () => {
   it('forwards fn to afterImpl - inside a "request" the scheduled fn runs and delivers', async () => {
     let captured: (() => Promise<unknown>) | undefined

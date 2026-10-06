@@ -145,6 +145,9 @@ export async function queueReleasedForStale(db: Db, args: { now: Date; apply: bo
           checkId: c.id, direction: 'OUT', kind: 'RELEASED', status: 'PENDING',
           idempotencyKey: `${c.id}:RELEASED:backfill-${runIso}`,
           payload: { action: 'RELEASED', checkNumber: c.checkNumber },
+          // Due at the run's own clock, so the delivery that queued it (the
+          // kick, lib/sync/portal-kick.ts) sends it in the same pass.
+          nextAttemptAt: args.now,
         },
       })
       await tx.check.update({

@@ -3,6 +3,7 @@ import { after as nextAfter } from 'next/server'
 import { createPortalClientFromEnv } from '@/lib/integrations/portal/from-env'
 import type { PortalClient } from '@/lib/integrations/portal/client'
 import { deliverPortalEvents, emptyOutcome, type PortalOutboxOutcome } from './portal-outbox'
+import { queueReleasedForStale } from '@/lib/admin/portal-backlog'
 
 type Db = PrismaClient | Prisma.TransactionClient
 
@@ -17,6 +18,17 @@ export async function kickPortalDelivery(
   db: Db, args: { budgetMs: number; client?: PortalClient; now?: Date },
 ): Promise<PortalOutboxOutcome | { skipped: string }> {
   const now = args.now ?? new Date()
+  // User demand 2026-10-06 ("this should be always the trigger", "make sure
+  // it will always work"): a cheque released by any path that queues nothing
+  // (the register catch-up, the Acumatica reconcile, the older backfills) is
+  // queued here, before every delivery — the cron, Deliver now, and every
+  // action's after-response kick — so the portal always hears of it. Runs
+  // even when the portal is not configured, so the event waits in the outbox.
+  try {
+    await queueReleasedForStale(db, { now, apply: true })
+  } catch (e) {
+    console.error('queueing released cheques for the portal failed:', e instanceof Error ? e.message : e)
+  }
   let client = args.client
   if (!client) {
     try { client = createPortalClientFromEnv() }

@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import { queueReleasedForStale } from '../lib/admin/portal-backlog'
+import { kickPortalDelivery } from '../lib/sync/portal-kick'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { PrismaClient } from '@prisma/client'
@@ -96,6 +97,12 @@ async function main(): Promise<void> {
       console.log('  portal: not queued, no release day to send (for a human)')
       for (const c of portal.noDate) console.log(`     ${c.checkNumber}`)
     }
+    // Send now rather than at the next cron (user demand 2026-10-06: "this
+    // should be always the trigger"). Without PORTAL_BASE_URL/PORTAL_TOKEN in
+    // .env the events wait, and the next delivery anywhere sends them.
+    const sent = await kickPortalDelivery(db, { budgetMs: 120_000 })
+    if ('skipped' in sent) console.log(`  portal: NOT sent now (${sent.skipped}); the next delivery (any action in the app, Deliver now, or the cron) sends them`)
+    else line('portal: delivered now', sent.synced)
     console.log('')
   } finally {
     await db.$disconnect()
