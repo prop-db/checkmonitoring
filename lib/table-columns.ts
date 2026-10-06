@@ -59,14 +59,22 @@ export const COLUMN_LABELS: Record<ColumnKey, string> = {
 export const ALWAYS_ON = ['checkNumber', 'status', 'action'] as const satisfies readonly ColumnKey[]
 
 /**
- * What the table renders before any preference has loaded — every column.
+ * Hidden until ticked in COLUMNS (client, 2026-10-06: "the columns still scroll
+ * sideways, hide some by default"). Still in the picker, the export and the
+ * filter row's forced-visible rule; only the default is narrower.
+ */
+const HIDDEN_BY_DEFAULT: readonly ColumnKey[] = ['availablePickupDate', 'scheduledPickupDate']
+
+/**
+ * What the table renders before any preference has loaded — every column but
+ * those hidden by default.
  *
  * This matters more than it looks. The preference can only be read in an
  * effect, after the first paint, so the first render must already be a working
  * table. Defaulting to "nothing until we know" would give a fresh browser, a
  * slow one, and one with storage disabled a flash of an empty table instead.
  */
-export const DEFAULT_COLUMNS: readonly ColumnKey[] = COLUMN_KEYS
+export const DEFAULT_COLUMNS: readonly ColumnKey[] = COLUMN_KEYS.filter((k) => !HIDDEN_BY_DEFAULT.includes(k))
 
 // Bumped if the key set ever changes shape. An older version's value simply
 // is not read and the reader falls back to the full table, which is the
@@ -75,9 +83,11 @@ export const DEFAULT_COLUMNS: readonly ColumnKey[] = COLUMN_KEYS
 // existed then, and read under v2 it would hide the new one for everybody who
 // had ever ticked a box.
 // Since part C (2026-10-01) the array is the visible columns IN DISPLAY ORDER.
+// v3 (2026-10-06): the default hides AVAILABLE DATE and PICKUP SCHEDULE. A v2
+// choice made under the old default listed them as shown, so it is not read.
 // A v2 value written before that is in canonical order and reads as the default
 // order with the same visibility, so the key is not bumped again.
-export const COLUMN_STORAGE_KEY = 'check-monitoring.columns.v2'
+export const COLUMN_STORAGE_KEY = 'check-monitoring.columns.v3'
 
 export function isColumnKey(value: unknown): value is ColumnKey {
   return typeof value === 'string' && (COLUMN_KEYS as readonly string[]).includes(value)

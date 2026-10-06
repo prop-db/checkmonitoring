@@ -25,7 +25,7 @@ describe('the column set', () => {
   })
 
   it('defaults to every column, which is what the table renders before a preference loads', () => {
-    expect(DEFAULT_COLUMNS).toEqual([...COLUMN_KEYS])
+    expect(DEFAULT_COLUMNS).toEqual(COLUMN_KEYS.filter((k) => k !== 'availablePickupDate' && k !== 'scheduledPickupDate'))
   })
 
   it('recognises its own keys and nothing else', () => {
@@ -46,7 +46,7 @@ describe('PO NUMBER', () => {
   })
 
   it('reads no v1 value: a new column must appear for viewers who chose columns before it existed', () => {
-    expect(COLUMN_STORAGE_KEY).toBe('check-monitoring.columns.v2')
+    expect(COLUMN_STORAGE_KEY).toBe('check-monitoring.columns.v3')
   })
 })
 
@@ -143,7 +143,7 @@ describe('reordering', () => {
   })
 
   it('keeps part B’s storage key', () => {
-    expect(COLUMN_STORAGE_KEY).toBe('check-monitoring.columns.v2')
+    expect(COLUMN_STORAGE_KEY).toBe('check-monitoring.columns.v3')
   })
 })
 
