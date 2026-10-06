@@ -34,7 +34,7 @@ export type FilterRowState = {
   filteredColumns: readonly ColumnKey[]
 }
 
-const box = 'h-8 w-full min-w-[6.5rem] rounded border bg-white px-2 text-xs font-normal normal-case tracking-normal text-slate-900 focus:border-navy focus:outline-none'
+const box = 'h-7 w-full min-w-[4.5rem] rounded border bg-white px-1.5 text-xs font-normal normal-case tracking-normal text-slate-900 focus:border-navy focus:outline-none'
 const STATUSES = [...LIVE_STATUSES, ...CLOSED_STATUSES]
 
 function Refusal({ name, errors }: { name: string; errors: FilterRowState['errors'] }) {

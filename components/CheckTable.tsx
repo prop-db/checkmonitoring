@@ -42,7 +42,7 @@ type DataColumn = Exclude<ColumnKey, 'action'>
 
 const isAlwaysOn = (k: ColumnKey) => (ALWAYS_ON as readonly ColumnKey[]).includes(k)
 
-const headerClass = (key: DataColumn) => (key === 'amount' ? 'px-4 py-3 text-right' : 'px-4 py-3')
+const headerClass = (key: DataColumn) => (key === 'amount' ? 'px-2 py-2 text-right' : 'px-2 py-2')
 
 /**
  * A sortable header: asc → desc → default (spec C1). The link is built on the
@@ -81,14 +81,14 @@ function SortHeader({ column, sort, link }: { column: DataColumn; sort: SortSpec
 function DataCell({ column, r }: { column: DataColumn; r: CheckTableRow }) {
   switch (column) {
     case 'checkNumber':
-      return <td className="px-4 py-3 font-medium">{r.checkNumber}</td>
+      return <td className="px-2 py-2 font-medium">{r.checkNumber}</td>
     case 'apvNumbers':
-      return <td className="px-4 py-3 text-slate-600">{r.apvNumbers.length ? r.apvNumbers.join(', ') : '—'}</td>
+      return <td className="px-2 py-2 text-slate-600">{r.apvNumbers.length ? r.apvNumbers.join(', ') : '—'}</td>
     case 'poNumbers':
-      return <td className="px-4 py-3 text-slate-600">{r.poNumbers.length ? r.poNumbers.join(', ') : '—'}</td>
+      return <td className="px-2 py-2 text-slate-600">{r.poNumbers.length ? r.poNumbers.join(', ') : '—'}</td>
     case 'payeeName':
       return (
-        <td className="px-4 py-3">
+        <td className="px-2 py-2">
           {/* An em dash, not the bare null React would render as nothing:
               153 register rows have no payee, and an empty cell reads as a
               rendering bug rather than as a fact about the cheque. Matches
@@ -102,38 +102,38 @@ function DataCell({ column, r }: { column: DataColumn; r: CheckTableRow }) {
         </td>
       )
     case 'companyCode':
-      return <td className="px-4 py-3 text-slate-600">{r.companyCode}</td>
+      return <td className="px-2 py-2 text-slate-600">{r.companyCode}</td>
     case 'bank':
       // The cash account code, because "BPI STK" is the label Finance uses;
       // the bank code is the title, for the reader who knows the institution
       // but not the account. An em dash where no cash account is recorded —
       // the column is nullable.
-      return <td className="px-4 py-3 text-slate-600" title={r.bankCode ?? undefined}>{r.cashAccountCode ?? '—'}</td>
+      return <td className="px-2 py-2 text-slate-600" title={r.bankCode ?? undefined}>{r.cashAccountCode ?? '—'}</td>
     case 'checkDate':
-      return <td className="px-4 py-3 text-slate-600">{fmtDate(r.checkDate)}</td>
+      return <td className="px-2 py-2 text-slate-600">{fmtDate(r.checkDate)}</td>
     case 'amount':
       // Right-aligned and tabular, so the decimal points line up down the
       // column and an eight-figure amount is visibly an eight-figure amount.
-      return <td className="px-4 py-3 text-right font-medium tabular-nums">{formatMoney(r.amount, r.currency)}</td>
+      return <td className="px-2 py-2 text-right font-medium tabular-nums">{formatMoney(r.amount, r.currency)}</td>
     case 'status':
       // STALED: Finance's word for a cheque past its presentment life (ruling
       // 2026-10-06). It stays CANCELLED; the tag says why.
       return (
-        <td className="px-4 py-3">
+        <td className="px-2 py-2">
           <StatusPill status={r.status} />
           {r.isStale && <span className="ml-1 text-[10px] font-semibold tracking-widest text-amber-700">STALED</span>}
         </td>
       )
     case 'availablePickupDate':
-      return <td className="px-4 py-3 text-slate-600">{fmtDate(r.availablePickupDate)}</td>
+      return <td className="px-2 py-2 text-slate-600">{fmtDate(r.availablePickupDate)}</td>
     case 'scheduledPickupDate':
-      return <td className="px-4 py-3 text-slate-600">{fmtDate(r.scheduledPickupDate)}</td>
+      return <td className="px-2 py-2 text-slate-600">{fmtDate(r.scheduledPickupDate)}</td>
     case 'releasedAt':
       // The app's own timestamp when it has one; otherwise the day the retired
       // register stated, tagged so nobody reads a spreadsheet date as a release
       // this system recorded.
       return (
-        <td className="px-4 py-3 text-slate-600">
+        <td className="px-2 py-2 text-slate-600">
           {r.releasedAt
             ? fmtDate(r.releasedAt)
             : r.statedReleaseDate
@@ -310,15 +310,15 @@ export function CheckTable({
           its content — gives it nothing to stick to. The capped height gives it
           one. Two hundred rows of cheque numbers under a header that has
           scrolled off the top is a table nobody can read. */}
-      <div className="max-h-[70vh] overflow-auto rounded-2xl bg-white ring-1 ring-hairline">
-        <table className="w-full text-sm">
+      <div className="max-h-[80vh] overflow-auto rounded-2xl bg-white ring-1 ring-hairline">
+        <table className="w-full text-[13px]">
           {/* Opaque, not tinted: a translucent header would let the banded rows
               show through it as they scroll underneath. The bottom rule is an
               inset shadow rather than a border, because a border on a sticky
               header scrolls away with the cell box in some browsers. */}
           <thead className="sticky top-0 z-10 bg-white text-left text-xs tracking-wide text-slate-500 shadow-[inset_0_-1px_0_#E5E7EB]">
             <tr>
-              <th className="px-4 py-3">
+              <th className="px-2 py-2">
                 <input
                   type="checkbox" checked={allSelected} onChange={toggleAll}
                   disabled={selectableRows.length === 0}
@@ -326,21 +326,21 @@ export function CheckTable({
                 />
               </th>
               {shown.map((key) => <SortHeader key={key} column={key} sort={sort} link={sortLinks[key]} />)}
-              <th className="px-4 py-3">OR / CR</th>
-              <th className="px-4 py-3">{COLUMN_LABELS.action}</th>
+              <th className="px-2 py-2">OR / CR</th>
+              <th className="px-2 py-2">{COLUMN_LABELS.action}</th>
             </tr>
             {/* THE FILTER ROW (part C2). Keyed on the dropdown values for the
                 reason FilterBar's form is: a soft navigation that changes them
                 from elsewhere leaves a mounted <select> showing the old one. */}
             <tr key={`${filters.values.company ?? ''}|${filters.values.cashAccount ?? ''}|${filters.values['f.status'] ?? ''}`} className="align-top">
-              <th className="px-4 pb-3" />
+              <th className="px-2 pb-2" />
               {shown.map((key) => (
-                <th key={key} className="px-4 pb-3 font-normal">
+                <th key={key} className="px-2 pb-2 font-normal">
                   <ColumnFilterCell column={key} state={filters} />
                 </th>
               ))}
-              <th className="px-4 pb-3" />
-              <th className="px-4 pb-3" />
+              <th className="px-2 pb-2" />
+              <th className="px-2 pb-2" />
             </tr>
           </thead>
           <tbody>
@@ -374,7 +374,7 @@ export function CheckTable({
                     cell, not just the input, keeps the generous click target
                     the padding gives it. */}
                 <td
-                  className="px-4 py-3"
+                  className="px-2 py-2"
                   onClick={(e) => e.stopPropagation()}
                   onKeyDown={(e) => e.stopPropagation()}
                 >
@@ -398,7 +398,7 @@ export function CheckTable({
                     every reference has exactly one cheque. Keys and clicks stop
                     here so typing never opens the cheque (the row navigates on
                     click and on Enter). */}
-                <td className="px-4 py-3" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+                <td className="px-2 py-2" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
                   {/* A live (READY/SCHEDULED) row's box is useful only to
                       someone who can press MARK RELEASED — that is the only
                       action that reads it. A RELEASED row keeps its box for
@@ -430,7 +430,7 @@ export function CheckTable({
                     <span className="text-slate-400">—</span>
                   )}
                 </td>
-                <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
                   <Link prefetch={false} href={`/checks/${r.id}`} className="text-sm font-medium text-slate-900 underline underline-offset-2">
                     OPEN
                   </Link>
