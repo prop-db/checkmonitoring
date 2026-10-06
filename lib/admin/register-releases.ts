@@ -41,7 +41,11 @@ import type { RawRow } from '@/lib/import/workbook'
  *     before the app recorded releases: `lib/recon/outstanding.ts` reads
  *     `releasedAt` as "the app recorded the release", and none did. The
  *     register's date is kept, verbatim, in the audit row.
- *   - No portal event. The portal learns current state when Plan 3 connects.
+ *   - No portal event in this transaction. The portal has been connected since
+ *     2026-09-26, so the scripts that call this then run queueReleasedForStale
+ *     (lib/admin/portal-backlog.ts), which queues RELEASED for every cheque
+ *     the portal was told was available, once a release day is known (user
+ *     report 2026-10-06: 4 cheques stayed Available in the portal).
  *
  * THE LADDER IS BYPASSED, as in `scripts/backfill-closed-released.ts` and for
  * the same reason: walking a cheque up through SIGNED and READY_FOR_RELEASE

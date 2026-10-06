@@ -19,6 +19,8 @@ export type PortalFetch = (
 export type CheckForPortal = Pick<
   Check, 'id' | 'checkNumber' | 'apvNumbers' | 'eligibility' | 'availablePickupDate' | 'releasedAt' | 'orNumber' | 'orDate'
 > & {
+  // A register catch-up release has no releasedAt; its stated day is sent.
+  statedReleaseDate?: Check['statedReleaseDate']
   cashAccount: { bank: { code: string } } | null
   checkBook: { bank: { code: string } } | null
   bills: { apvNumber: string; poNumber: string | null }[]
@@ -129,10 +131,15 @@ export function buildPortalEventBody(event: { id: string; kind: PortalEventKind 
     body.availablePickupDate = manilaDay(check.availablePickupDate)
   }
   if (event.kind === 'RELEASED') {
-    if (!check.releasedAt) {
-      throw new PortalPayloadError('MISSING_DATE', `RELEASED cheque ${check.id} has no releasedAt; the portal requires releaseDate`)
+    // User report 2026-10-06: a cheque released by the register catch-up
+    // (lib/admin/register-releases.ts) keeps releasedAt null by design and
+    // carries the register's day in statedReleaseDate; that day is the
+    // release date the portal is told.
+    const released = check.releasedAt ?? check.statedReleaseDate ?? null
+    if (!released) {
+      throw new PortalPayloadError('MISSING_DATE', `RELEASED cheque ${check.id} has neither releasedAt nor statedReleaseDate; the portal requires releaseDate`)
     }
-    body.releaseDate = manilaDay(check.releasedAt)
+    body.releaseDate = manilaDay(released)
     if (check.orNumber) body.orNumber = check.orNumber
     if (check.orDate) body.orDate = manilaDay(check.orDate)
     if (check.releasedBy?.name) body.releasedBy = check.releasedBy.name

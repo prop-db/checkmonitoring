@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { testDb, resetDb } from '../helpers/db'
 import { makeCheck } from '../helpers/factory'
-import { summariseBacklog, queueCancelledForStale } from '@/lib/admin/portal-backlog'
+import { summariseBacklog, queueCancelledForStale, queueReleasedForStale } from '@/lib/admin/portal-backlog'
 
 beforeEach(resetDb)
 
@@ -99,5 +99,62 @@ describe('queueCancelledForStale', () => {
     expect(again).toMatchObject({ found: 0, queued: 0 })
     expect(await testDb.portalEvent.count({ where: { kind: 'CANCELLED' } })).toBe(3)
     expect(await testDb.auditLog.count({ where: { action: 'portal_event_backfilled' } })).toBe(2)
+  })
+})
+
+// User report 2026-10-06: the register catch-up (lib/admin/register-releases.ts)
+// moved cheques the portal had been told were available to RELEASED and queued
+// nothing, so the portal kept them on its Checks Available list.
+describe('queueReleasedForStale', () => {
+  const NOW = new Date('2026-10-06T10:00:00+08:00')
+
+  async function scenario() {
+    const register = await makeCheck({ status: 'RELEASED', payeeName: 'FILMEX', apvNumbers: ['AP-A1034346'], statedReleaseDate: new Date('2026-09-30T00:00:00Z') })
+    await mkEvent(register.id, 'MARK_AVAILABLE', new Date('2026-09-26'), 'SYNCED')
+    // Not candidates: already told RELEASED; never told available; no APV;
+    // INTERNAL; still ready; released with no day to send.
+    const told = await makeCheck({ status: 'RELEASED', releasedAt: new Date('2026-10-01T02:00:00Z') })
+    await mkEvent(told.id, 'MARK_AVAILABLE', new Date('2026-09-26'), 'SYNCED')
+    await mkEvent(told.id, 'RELEASED', new Date('2026-10-01'), 'SYNCED')
+    await makeCheck({ status: 'RELEASED', statedReleaseDate: new Date('2026-09-30T00:00:00Z') })
+    const noApv = await makeCheck({ status: 'RELEASED', apvNumbers: [], statedReleaseDate: new Date('2026-09-30T00:00:00Z') })
+    await mkEvent(noApv.id, 'MARK_AVAILABLE', new Date('2026-09-26'), 'SYNCED')
+    const internal = await makeCheck({ status: 'RELEASED', eligibility: 'INTERNAL', statedReleaseDate: new Date('2026-09-30T00:00:00Z') })
+    await mkEvent(internal.id, 'MARK_AVAILABLE', new Date('2026-09-26'), 'SYNCED')
+    const ready = await makeCheck({ status: 'READY_FOR_RELEASE' })
+    await mkEvent(ready.id, 'MARK_AVAILABLE', new Date('2026-09-26'), 'SYNCED')
+    const noDay = await makeCheck({ status: 'RELEASED', apvNumbers: ['AP-ST000201'] })
+    await mkEvent(noDay.id, 'MARK_AVAILABLE', new Date('2026-09-26'), 'SYNCED')
+    return { register, noDay }
+  }
+
+  it('dry run lists the cheque, sets aside one with no day, and writes nothing', async () => {
+    const { register, noDay } = await scenario()
+    const before = await testDb.portalEvent.count()
+    const r = await queueReleasedForStale(testDb, { now: NOW, apply: false })
+    expect(r).toMatchObject({ found: 1, queued: 0 })
+    expect(r.cheques.map((c) => c.id)).toEqual([register.id])
+    expect(r.noDate.map((c) => c.id)).toEqual([noDay.id])
+    expect(await testDb.portalEvent.count()).toBe(before)
+  })
+
+  it('apply queues one RELEASED event with an audit row; a second apply queues nothing', async () => {
+    const { register } = await scenario()
+    const r = await queueReleasedForStale(testDb, { now: NOW, apply: true })
+    expect(r).toMatchObject({ found: 1, queued: 1 })
+    const evs = await testDb.portalEvent.findMany({ where: { checkId: register.id, kind: 'RELEASED' } })
+    expect(evs).toHaveLength(1)
+    expect(evs[0]).toMatchObject({
+      status: 'PENDING', direction: 'OUT',
+      idempotencyKey: `${register.id}:RELEASED:backfill-${NOW.toISOString()}`,
+      payload: { action: 'RELEASED', checkNumber: register.checkNumber },
+    })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: register.id } })).portalSyncStatus).toBe('PENDING')
+    const audits = await testDb.auditLog.findMany({ where: { checkId: register.id, action: 'portal_event_backfilled' } })
+    expect(audits).toHaveLength(1)
+    expect(audits[0].details).toMatchObject({ kind: 'RELEASED', eventId: evs[0].id })
+
+    const again = await queueReleasedForStale(testDb, { now: new Date(NOW.getTime() + 60_000), apply: true })
+    expect(again).toMatchObject({ found: 0, queued: 0 })
   })
 })

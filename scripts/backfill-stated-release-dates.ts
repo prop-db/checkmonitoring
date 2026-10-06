@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import { queueReleasedForStale } from '../lib/admin/portal-backlog'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { PrismaClient } from '@prisma/client'
@@ -77,6 +78,15 @@ async function main(): Promise<void> {
     console.log('\nDONE')
     line('stated days written', out.written)
     line('skipped: changed since the plan', out.raced)
+    // User report 2026-10-06: the portal must hear about releases made here.
+    // Queue RELEASED for cheques the portal was told were available and was
+    // never told released; the worker delivers them (lib/admin/portal-backlog.ts).
+    const portal = await queueReleasedForStale(db, { now: new Date(), apply: true })
+    line('portal: RELEASED events queued', portal.queued)
+    if (portal.noDate.length) {
+      console.log('  portal: not queued, no release day to send (for a human)')
+      for (const c of portal.noDate) console.log(`     ${c.checkNumber}`)
+    }
     console.log('')
   } finally {
     await db.$disconnect()

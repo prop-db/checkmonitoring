@@ -75,9 +75,19 @@ describe('buildPortalEventBody', () => {
     }
   })
 
-  it('RELEASED with no releasedAt throws PortalPayloadError MISSING_DATE', () => {
+  // User report 2026-10-06: a cheque the register catch-up released has no
+  // releasedAt by design (lib/admin/register-releases.ts); the register's
+  // stated day is the release day the portal is told.
+  it('RELEASED with no releasedAt sends the register stated release date', () => {
+    const body = buildPortalEventBody({ id: 'e', kind: 'RELEASED' }, check({
+      releasedAt: null, statedReleaseDate: new Date('2026-09-23T00:00:00Z'),
+    }))
+    expect(body.releaseDate).toBe('2026-09-23')
+  })
+
+  it('RELEASED with neither releasedAt nor statedReleaseDate throws PortalPayloadError MISSING_DATE', () => {
     try {
-      buildPortalEventBody({ id: 'e', kind: 'RELEASED' }, check({ releasedAt: null }))
+      buildPortalEventBody({ id: 'e', kind: 'RELEASED' }, check({ releasedAt: null, statedReleaseDate: null }))
       expect.fail('expected buildPortalEventBody to throw')
     } catch (err) {
       expect(err).toBeInstanceOf(PortalPayloadError)

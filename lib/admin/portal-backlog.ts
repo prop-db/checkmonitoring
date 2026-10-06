@@ -103,6 +103,65 @@ export async function queueCancelledForStale(db: Db, args: { now: Date; apply: b
   return { found: cheques.length, queued, cheques }
 }
 
+/**
+ * The released twin of queueCancelledForStale (user report 2026-10-06). The
+ * register catch-up (lib/admin/register-releases.ts) moves a cheque to
+ * RELEASED with no portal event, so a cheque the portal had been told was
+ * available stayed on its Checks Available list. This finds routed RELEASED
+ * cheques that were announced available (any MARK_AVAILABLE) and were never
+ * told released (no RELEASED event), and with `apply` queues the RELEASED
+ * event markReleased would have queued, with a SYSTEM audit row. A cheque
+ * with neither releasedAt nor statedReleaseDate has no day to send and is
+ * listed in `noDate` instead. Idempotent: a cheque with any RELEASED event is
+ * skipped. Run after every register catch-up (both scripts call it).
+ */
+export async function queueReleasedForStale(db: Db, args: { now: Date; apply: boolean }) {
+  const candidates = await db.check.findMany({
+    where: {
+      eligibility: { not: 'INTERNAL' },
+      status: 'RELEASED',
+      portalEvents: { some: { kind: 'MARK_AVAILABLE' }, none: { kind: 'RELEASED' } },
+    },
+    orderBy: [{ checkNumber: 'asc' }, { id: 'asc' }],
+    select: {
+      id: true, checkNumber: true, payeeName: true, status: true, eligibility: true,
+      releasedAt: true, statedReleaseDate: true,
+      apvNumbers: true, bills: { select: { apvNumber: true } },
+    },
+  })
+  const routed = candidates.filter((c) => portalRoute(c.eligibility as Eligibility) !== null && portalApvs(c).length > 0)
+  const cheques = routed.filter((c) => c.releasedAt || c.statedReleaseDate)
+  const noDate = routed.filter((c) => !c.releasedAt && !c.statedReleaseDate)
+  if (!args.apply) return { found: cheques.length, queued: 0, cheques, noDate }
+
+  const runIso = args.now.toISOString()
+  let queued = 0
+  for (const c of cheques) {
+    const created = await atomically(db, async (tx) => {
+      const existing = await tx.portalEvent.count({ where: { checkId: c.id, kind: 'RELEASED' } })
+      if (existing) return false
+      const ev = await tx.portalEvent.create({
+        data: {
+          checkId: c.id, direction: 'OUT', kind: 'RELEASED', status: 'PENDING',
+          idempotencyKey: `${c.id}:RELEASED:backfill-${runIso}`,
+          payload: { action: 'RELEASED', checkNumber: c.checkNumber },
+        },
+      })
+      await tx.check.update({
+        where: { id: c.id },
+        data: { portalSyncStatus: 'PENDING', portalDomain: portalRoute(c.eligibility as Eligibility) },
+      })
+      await writeAudit(tx, {
+        checkId: c.id, actorType: 'SYSTEM', action: 'portal_event_backfilled',
+        details: { eventId: ev.id, kind: 'RELEASED', checkStatus: c.status, reason: 'released by the register catch-up, which queues no portal event' },
+      })
+      return true
+    })
+    if (created) queued += 1
+  }
+  return { found: cheques.length, queued, cheques, noDate }
+}
+
 async function atomically<T>(db: Db, fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
   return '$transaction' in db ? db.$transaction((tx) => fn(tx)) : fn(db)
 }

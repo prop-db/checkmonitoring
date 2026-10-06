@@ -10,6 +10,8 @@
  *   npx.cmd tsx scripts/portal-backlog.ts
  *   npx.cmd tsx scripts/portal-backlog.ts --queue-cancelled           # count only
  *   npx.cmd tsx scripts/portal-backlog.ts --queue-cancelled --apply   # writes
+ *   npx.cmd tsx scripts/portal-backlog.ts --queue-released            # count only
+ *   npx.cmd tsx scripts/portal-backlog.ts --queue-released --apply    # writes
  *
  * --queue-cancelled: portal-routed cheques CANCELLED or VOIDED with an open
  * MARK_AVAILABLE and no CANCELLED event (cancelled before cancellations were
@@ -22,12 +24,21 @@
 
 import 'dotenv/config'
 import { PrismaClient } from '@prisma/client'
-import { summariseBacklog, queueCancelledForStale } from '../lib/admin/portal-backlog'
+import { summariseBacklog, queueCancelledForStale, queueReleasedForStale } from '../lib/admin/portal-backlog'
 
 const db = new PrismaClient()
 const argv = process.argv.slice(2)
 
 async function main() {
+  if (argv.includes('--queue-released')) {
+    const apply = argv.includes('--apply')
+    const r = await queueReleasedForStale(db, { now: new Date(), apply })
+    console.log(`released cheques announced available to the portal and never told released: ${r.found}`)
+    console.table(r.cheques.map((c) => ({ cheque: c.checkNumber, payee: c.payeeName ?? '', eligibility: c.eligibility })))
+    if (r.noDate.length) console.log('no release day to send (left for a human):', r.noDate.map((c) => c.checkNumber).join(', '))
+    console.log(apply ? `queued ${r.queued} RELEASED event(s)` : 'dry run: nothing written (add --apply to queue)')
+    return
+  }
   if (argv.includes('--queue-cancelled')) {
     const apply = argv.includes('--apply')
     const r = await queueCancelledForStale(db, { now: new Date(), apply })
@@ -36,7 +47,7 @@ async function main() {
     console.log(apply ? `queued ${r.queued} CANCELLED event(s)` : 'dry run: nothing written (add --apply to queue)')
     return
   }
-  if (argv.includes('--apply')) throw new Error('--apply only goes with --queue-cancelled; the default mode is read-only.')
+  if (argv.includes('--apply')) throw new Error('--apply only goes with --queue-cancelled or --queue-released; the default mode is read-only.')
 
   const s = await summariseBacklog(db)
   console.log(`open events: ${s.total}  would send: ${s.winners.length - s.stale}  would close as stale: ${s.stale}  would supersede: ${s.superseded}`)
