@@ -20,6 +20,9 @@ import { naiveDate } from './map'
 
 export const BILL_REFS_FEED = 'AP-Bills and Adjustments'
 
+/** A Bill, or a Prepayment (the PPM a cheque can pay, lib/integrations/acumatica/bills.ts). */
+export const BILL_REF_TYPES: readonly string[] = ['Bill', 'Prepayment']
+
 export const BILL_REF_COLUMNS = {
   type: 'Type',
   ref: 'ReferenceNbr',
@@ -80,7 +83,7 @@ const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
 export function mapBillRef(raw: unknown): BillRef | null {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null
   const r = raw as Record<string, unknown>
-  if (text(r[BILL_REF_COLUMNS.type]) !== 'Bill') return null
+  if (!BILL_REF_TYPES.includes(text(r[BILL_REF_COLUMNS.type]))) return null
   const apvNumber = text(r[BILL_REF_COLUMNS.ref]).toUpperCase()
   if (!apvNumber) return null
   const date = naiveDate(r[BILL_REF_COLUMNS.date], { dayOnly: true })

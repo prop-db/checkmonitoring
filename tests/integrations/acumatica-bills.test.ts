@@ -40,7 +40,8 @@ describe('mapBillApplication', () => {
 
   it('keeps only CHK paying a Bill', () => {
     for (const t of ['VCK', 'PPM', 'ADR', 'REF']) expect(mapBillApplication(golive({ AdjgDocType: t }), 'GOLIVE'), t).toBeNull()
-    for (const t of ['Debit Adj.', 'PPM']) expect(mapBillApplication(golive({ AdjdDocType: t }), 'GOLIVE'), t).toBeNull()
+    expect(mapBillApplication(golive({ AdjdDocType: 'Debit Adj.' }), 'GOLIVE')).toBeNull()
+    expect(mapBillApplication(golive({ AdjdDocType: 'PPM', AdjdRefNbr: 'ap-st044462' }), 'GOLIVE')).toMatchObject({ voucher: 'AP-ST044462' })
   })
 
   it('refuses a row with no payment or no voucher', () => {

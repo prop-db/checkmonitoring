@@ -23,6 +23,14 @@ import { naiveDate } from './map'
 
 export const BILLS_FEED = 'AP-PAYMENTS-WITH-BILLS'
 
+/**
+ * The documents a cheque can pay: a Bill, or a PPM (prepayment request — what a
+ * cargo, customs or brokerage cheque is drawn against). User ruling 2026-10-06:
+ * link the PPM too (the 15 STK cheques `6000354281`… showed no APV and no PO).
+ * `Debit Adj.` and the other payment types stay out.
+ */
+export const BILL_SIDE_TYPES: readonly string[] = ['Bill', 'PPM']
+
 export const BILL_FEED_COLUMNS = {
   GOLIVE: { date: 'LastModifiedOn', paymentRef: 'AdjgRefNbr', paymentType: 'AdjgDocType', billRef: 'AdjdRefNbr', billType: 'AdjdDocType' },
   MANUFACTURING: { date: 'APAdjust_lastModifiedDateTime', paymentRef: 'ReferenceNbr', paymentType: 'AdjgDocType', billRef: 'ReferenceNbr_2', billType: 'DocumentType' },
@@ -53,7 +61,7 @@ export function mapBillApplication(raw: unknown, tenant: AcumaticaTenant): BillA
   if (raw === null || typeof raw !== 'object') return null
   const r = raw as Record<string, unknown>
   const c = BILL_FEED_COLUMNS[tenant]
-  if (text(r[c.paymentType]) !== 'CHK' || text(r[c.billType]) !== 'Bill') return null
+  if (text(r[c.paymentType]) !== 'CHK' || !BILL_SIDE_TYPES.includes(text(r[c.billType]))) return null
   const paymentRef = text(r[c.paymentRef])
   const voucher = text(r[c.billRef]).toUpperCase()
   if (!paymentRef || !voucher) return null

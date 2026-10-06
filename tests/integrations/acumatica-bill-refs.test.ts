@@ -92,8 +92,9 @@ describe('mapBillRef', () => {
     expect(mapBillRef(doc({ VendorRef: null }))).toMatchObject({ vendorRef: '', poNumbers: [] })
   })
 
-  it('keeps only Bills', () => {
-    for (const t of ['Debit Adj.', 'Prepayment', 'Credit Adj.']) expect(mapBillRef(doc({ Type: t })), t).toBeNull()
+  it('keeps only Bills and Prepayments', () => {
+    for (const t of ['Debit Adj.', 'Credit Adj.']) expect(mapBillRef(doc({ Type: t })), t).toBeNull()
+    expect(mapBillRef(doc({ Type: 'Prepayment' }))).toMatchObject({ apvNumber: 'AP-ST044591' })
   })
 
   it('refuses a bill dated before 2026 or with no date — the sync’s scope', () => {
