@@ -18,6 +18,8 @@ import { importRows, type ImportSummary } from '@/lib/import/upsert'
 import { readWorkbook } from '@/lib/import/workbook'
 import { createClientForTenant } from '@/lib/integrations/acumatica/from-env'
 import { lastSyncWatermark, runSync } from '@/lib/sync/run'
+import { runScheduledBillsSync } from '@/lib/sync/bills'
+import { runScheduledBillRefsSync } from '@/lib/sync/bill-refs'
 import { loadSettings } from '@/lib/settings/read'
 
 /**
@@ -108,6 +110,15 @@ export async function syncNowAction(formData: FormData): Promise<SyncNowResult> 
       trigger: 'MANUAL',
       inProgressMinutes: settings.values['sync.inProgressMinutes'],
     })
+    // The payment read brings in the cheque; the vouchers it pays and the PO each
+    // bill names arrive by their own reads, which only the cron used to run. A
+    // cheque first read by SYNC NOW therefore sat with no APV and no PO NUMBER
+    // until the next cron (CV-HF000157..160, 2026-10-06). Run both now, as the
+    // cron does after a payment read that RAN. Neither throws; neither touches
+    // status. They are recorded as SCHEDULED runs (the only trigger they write).
+    const readOnly = { tenant: tenant.data, now: new Date(), client: () => createClientForTenant(tenant.data) }
+    await runScheduledBillsSync(prisma, readOnly)
+    await runScheduledBillRefsSync(prisma, readOnly)
     revalidatePath('/admin/sync')
     revalidatePath('/')
     return {
