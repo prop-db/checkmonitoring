@@ -45,8 +45,8 @@ describe('PO NUMBER', () => {
     expect(COLUMN_LABELS.poNumbers).toBe('PO NUMBER')
   })
 
-  it('reads no v1 value: a new column must appear for viewers who chose columns before it existed', () => {
-    expect(COLUMN_STORAGE_KEY).toBe('check-monitoring.columns.v2')
+  it('reads no older value: a new column must appear for viewers who chose columns before it existed', () => {
+    expect(COLUMN_STORAGE_KEY).toBe('check-monitoring.columns.v3')
   })
 })
 
@@ -142,8 +142,8 @@ describe('reordering', () => {
     })
   })
 
-  it('keeps part B’s storage key', () => {
-    expect(COLUMN_STORAGE_KEY).toBe('check-monitoring.columns.v2')
+  it('keeps the current storage key', () => {
+    expect(COLUMN_STORAGE_KEY).toBe('check-monitoring.columns.v3')
   })
 })
 

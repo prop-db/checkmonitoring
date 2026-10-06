@@ -21,8 +21,10 @@ import { SYNC_OVERLAP_MINUTES, SyncInProgressError, type SyncTrigger } from '@/l
  * Reads Acumatica's `AP-Bills and Adjustments` incrementally per tenant, with
  * its own watermark on `SyncRun` rows of `mode = 'BILL_REFS'` (every other read
  * ignores them, lib/sync/modes.ts), and MIRRORS it into `AcumaticaBill`: a Bill
- * whose VendorRef yields at least one real PO (`extractPoNumbers`) is upserted
- * by APV; one that yields none has its row deleted (this tenant's only).
+ * with a VendorRef is upserted by APV — its real POs (`extractPoNumbers`, maybe
+ * none) and the VendorRef itself, shown as the REFERENCE column (user ruling
+ * 2026-10-06). A bill whose VendorRef is now blank has its row deleted (this
+ * tenant's only).
  *
  * Reference data, not a record: no AuditLog row per bill (rule 7 untouched);
  * the run's own SyncRun row is the trace. Never touches `Check` (rule 4) and
@@ -64,9 +66,9 @@ export type BillRefsRunResult = {
   withPo: number
   /** Bill rows actually written (inserted, or changed). */
   upserted: number
-  /** Rows deleted because the bill's VendorRef no longer names a PO. */
+  /** Rows deleted because the bill's VendorRef is now blank. */
   deleted: number
-  /** Distinct bills with a non-empty VendorRef that names no PO. */
+  /** Distinct bills with a non-empty VendorRef that names no PO (kept; shown as a reference). */
   noPo: number
   errors: number
   watermark: Date | null
@@ -163,14 +165,17 @@ export async function runBillRefsSync(db: Db, args: BillRefsSyncArgs): Promise<B
   const keep: BillRef[] = []
   const drop: string[] = []
   for (const ref of byApv.values()) {
-    if (ref.poNumbers.length > 0) {
+    // Every bill with a Vendor Ref is kept (user ruling 2026-10-06: Vendor Ref
+    // is the only source, so a ref that is not a PO is shown as a REFERENCE).
+    // Only a bill whose Vendor Ref is now blank has its row removed.
+    if (ref.vendorRef !== '') {
       keep.push(ref)
+      if (ref.poNumbers.length > 0) withPo++
+      else noPo++
     } else {
       drop.push(ref.apvNumber)
-      if (ref.vendorRef !== '') noPo++
     }
   }
-  withPo = keep.length
 
   for (let i = 0; i < keep.length; i += WRITE_BATCH) {
     const batch = keep.slice(i, i + WRITE_BATCH)

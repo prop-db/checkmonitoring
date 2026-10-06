@@ -14,7 +14,7 @@ describe('the sort keys', () => {
   })
 
   it('order APV, PO, BANK and DATE RELEASED in the application, the rest in the database', () => {
-    expect([...APP_SORTED_KEYS]).toEqual(['apvNumbers', 'poNumbers', 'bank', 'releasedAt'])
+    expect([...APP_SORTED_KEYS]).toEqual(['apvNumbers', 'poNumbers', 'refNumbers', 'bank', 'releasedAt'])
     expect(isAppSorted('bank')).toBe(true)
     expect(isAppSorted('amount')).toBe(false)
   })

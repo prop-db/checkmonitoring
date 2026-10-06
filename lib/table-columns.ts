@@ -16,6 +16,7 @@ export const COLUMN_KEYS = [
   'checkNumber',
   'apvNumbers',
   'poNumbers',
+  'refNumbers',
   'payeeName',
   'companyCode',
   'bank',
@@ -35,6 +36,8 @@ export const COLUMN_LABELS: Record<ColumnKey, string> = {
   checkNumber: 'CHECK NUMBER',
   apvNumbers: 'APV NUMBER',
   poNumbers: 'PO NUMBER',
+  // Acumatica's Vendor Ref on the cheque's bills, shown whole (2026-10-06).
+  refNumbers: 'REFERENCE',
   payeeName: 'SUPPLIER NAME',
   companyCode: 'COMPANY',
   bank: 'BANK',
@@ -77,7 +80,8 @@ export const DEFAULT_COLUMNS: readonly ColumnKey[] = COLUMN_KEYS
 // Since part C (2026-10-01) the array is the visible columns IN DISPLAY ORDER.
 // A v2 value written before that is in canonical order and reads as the default
 // order with the same visibility, so the key is not bumped again.
-export const COLUMN_STORAGE_KEY = 'check-monitoring.columns.v2'
+// v3 (2026-10-06): REFERENCE added, for the same reason as v2.
+export const COLUMN_STORAGE_KEY = 'check-monitoring.columns.v3'
 
 export function isColumnKey(value: unknown): value is ColumnKey {
   return typeof value === 'string' && (COLUMN_KEYS as readonly string[]).includes(value)

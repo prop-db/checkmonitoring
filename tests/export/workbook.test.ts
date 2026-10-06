@@ -17,6 +17,7 @@ function row(overrides: Partial<CheckTableRow> = {}): CheckTableRow {
     checkNumber: '6000240287',
     apvNumbers: ['APV-0001'],
     poNumbers: ['PO-0001'],
+    refNumbers: ['26P09-0420'],
     payeeName: 'HENKEL PHILIPPINES INC.',
     companyCode: 'STK',
     cashAccountCode: 'BPI STK',
@@ -132,12 +133,12 @@ describe('CHECK REGISTER — the title block', () => {
 })
 
 describe('CHECK REGISTER — the header row', () => {
-  it('carries the eleven agreed columns, in order', async () => {
+  it('carries the twelve agreed columns, in order', async () => {
     const ws = (await readBack(input())).getWorksheet(REGISTER_SHEET)!
     const header = ws.getRow(HEADER_ROW)
     expect(REGISTER_HEADERS).toEqual([
       'CHECK NUMBER', 'APV NUMBER', 'PO NUMBER', 'SUPPLIER NAME', 'COMPANY', 'BANK',
-      'CHECK DATE', 'AMOUNT', 'STATUS', 'AVAILABLE DATE', 'PICKUP SCHEDULE',
+      'CHECK DATE', 'AMOUNT', 'STATUS', 'AVAILABLE DATE', 'PICKUP SCHEDULE', 'REFERENCE',
     ])
     expect(REGISTER_HEADERS.map((_, i) => header.getCell(i + 1).value)).toEqual([...REGISTER_HEADERS])
   })
@@ -162,7 +163,7 @@ describe('CHECK REGISTER — the header row', () => {
 
   it('carries an autofilter over the header and the data, but not the totals', async () => {
     const ws = (await readBack(input({ rows: [row(), row({ id: 'c2' })] }))).getWorksheet(REGISTER_SHEET)!
-    expect(autoFilterRef(ws)).toBe(`A${HEADER_ROW}:K${HEADER_ROW + 2}`)
+    expect(autoFilterRef(ws)).toBe(`A${HEADER_ROW}:L${HEADER_ROW + 2}`)
   })
 })
 

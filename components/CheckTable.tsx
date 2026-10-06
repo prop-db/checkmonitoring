@@ -86,6 +86,8 @@ function DataCell({ column, r }: { column: DataColumn; r: CheckTableRow }) {
       return <td className="px-4 py-3 text-slate-600">{r.apvNumbers.length ? r.apvNumbers.join(', ') : '—'}</td>
     case 'poNumbers':
       return <td className="px-4 py-3 text-slate-600">{r.poNumbers.length ? r.poNumbers.join(', ') : '—'}</td>
+    case 'refNumbers':
+      return <td className="px-4 py-3 text-slate-600">{r.refNumbers.length ? r.refNumbers.join(', ') : '—'}</td>
     case 'payeeName':
       return (
         <td className="px-4 py-3">

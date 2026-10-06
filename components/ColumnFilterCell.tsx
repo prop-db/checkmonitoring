@@ -80,6 +80,7 @@ export function ColumnFilterCell({ column, state }: { column: Exclude<ColumnKey,
     case 'checkNumber': return text('f.checkNumber', 'CHECK NUMBER')
     case 'apvNumbers': return text('f.apv', 'APV NUMBER')
     case 'poNumbers': return text('f.po', 'PO NUMBER')
+    case 'refNumbers': return text('f.ref', 'REFERENCE')
     case 'payeeName': return text('f.payee', 'SUPPLIER NAME')
     case 'companyCode':
       return (

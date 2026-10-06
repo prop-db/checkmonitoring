@@ -90,17 +90,20 @@ describe('runBillRefsSync — the table', () => {
     expect(await stored()).toMatchObject([{ apvNumber: 'A1PP-AP-000014', tenant: 'MANUFACTURING', poNumbers: ['A1PP-PO-000123'] }])
   })
 
-  it('writes nothing for a VendorRef that is not a PO and counts it; an empty VendorRef is not counted', async () => {
+  it('keeps a VendorRef that is not a PO as a reference with no PO; an empty VendorRef writes nothing', async () => {
     const result = await read([
       docRow({ ReferenceNbr: 'AP-1', VendorRef: 'SI#1659' }),
-      docRow({ ReferenceNbr: 'AP-2', VendorRef: '26X06-0267A' }),
+      docRow({ ReferenceNbr: 'AP-2', VendorRef: '26P09-0420' }),
       docRow({ ReferenceNbr: 'AP-3', VendorRef: null }),
     ]).result
-    expect(await stored()).toEqual([])
-    expect(result).toMatchObject({ withPo: 0, upserted: 0, noPo: 2, deleted: 0 })
+    expect(await stored()).toMatchObject([
+      { apvNumber: 'AP-1', vendorRef: 'SI#1659', poNumbers: [] },
+      { apvNumber: 'AP-2', vendorRef: '26P09-0420', poNumbers: [] },
+    ])
+    expect(result).toMatchObject({ withPo: 0, upserted: 2, noPo: 2, deleted: 0 })
   })
 
-  it('deletes a row whose VendorRef no longer names a PO — this tenant’s rows only', async () => {
+  it('deletes a row whose VendorRef is now blank — this tenant’s rows only', async () => {
     await testDb.acumaticaBill.createMany({
       data: [
         { apvNumber: 'AP-ST044591', tenant: 'GOLIVE', vendorRef: 'PO-ST-031109', poNumbers: ['PO-ST-031109'] },
@@ -108,8 +111,8 @@ describe('runBillRefsSync — the table', () => {
       ],
     })
     const result = await read([
-      docRow({ ReferenceNbr: 'AP-ST044591', VendorRef: 'SI#1659' }),
-      docRow({ ReferenceNbr: 'AP-ST044592', VendorRef: 'SI#1660' }),
+      docRow({ ReferenceNbr: 'AP-ST044591', VendorRef: null }),
+      docRow({ ReferenceNbr: 'AP-ST044592', VendorRef: null }),
     ]).result
     expect((await stored()).map((b) => b.apvNumber)).toEqual(['AP-ST044592'])
     expect(result.deleted).toBe(1)
@@ -157,7 +160,7 @@ describe('runBillRefsSync — the run record', () => {
     })
     const result = await read([
       docRow({ ReferenceNbr: 'AP-1', LastModifiedOn: '2026-09-29T08:15:00' }),
-      docRow({ ReferenceNbr: 'AP-GONE', VendorRef: 'SI#1', LastModifiedOn: '2026-09-29T09:00:00' }),
+      docRow({ ReferenceNbr: 'AP-GONE', VendorRef: null, LastModifiedOn: '2026-09-29T09:00:00' }),
       docRow({ ReferenceNbr: 'AP-3', VendorRef: 'free text', LastModifiedOn: '2026-09-29T07:00:00' }),
     ]).result
     const run = await testDb.syncRun.findUniqueOrThrow({ where: { id: result.syncRunId } })
@@ -167,9 +170,9 @@ describe('runBillRefsSync — the run record', () => {
     expect(run.trigger).toBe('MANUAL')
     expect(run.startedAt).toEqual(NOW)
     expect(run.finishedAt).not.toBeNull()
-    expect(run.imported).toBe(1)
+    expect(run.imported).toBe(2)
     expect(run.updated).toBe(1)
-    expect(run.staged).toBe(2)
+    expect(run.staged).toBe(1)
     expect(run.errors).toBe(0)
     expect(run.message).toBeNull()
     expect(run.watermark).toEqual(new Date('2026-09-29T07:00:00Z'))
@@ -221,7 +224,7 @@ describe('runBillRefsSync — the run record', () => {
     })
     const result = await read([
       docRow({ ReferenceNbr: 'AP-ST044591' }),
-      docRow({ ReferenceNbr: 'AP-STALE', VendorRef: 'SI#1' }),
+      docRow({ ReferenceNbr: 'AP-STALE', VendorRef: null }),
     ], { db: flaky }).result
     expect(result.errors).toBe(1)
     expect(result.upserted).toBe(0)
@@ -317,7 +320,7 @@ describe('runScheduledBillRefsSync', () => {
     const feed = fakeFeed([docRow(), docRow({ ReferenceNbr: 'AP-2', VendorRef: 'SI#1' })])
     const outcome = await runScheduledBillRefsSync(testDb, { tenant: 'GOLIVE', now: NOW, client: () => feed.client })
     expect(outcome).toMatchObject({
-      tenant: 'GOLIVE', outcome: 'RAN', fetched: 2, ignored: 0, upserted: 1, deleted: 0, noPo: 1, errors: 0,
+      tenant: 'GOLIVE', outcome: 'RAN', fetched: 2, ignored: 0, upserted: 2, deleted: 0, noPo: 1, errors: 0,
     })
     expect(feed.calls[0].opts?.filter).toBe(billRefsSinceFilter(new Date('2026-09-29T08:00:00Z')))
     if (outcome.outcome !== 'RAN') throw new Error('unreachable')

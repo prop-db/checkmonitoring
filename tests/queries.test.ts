@@ -1318,3 +1318,47 @@ describe('PO NUMBER from Acumatica (AcumaticaBill)', () => {
       .toEqual([['PO-ST-000009']])
   })
 })
+
+// 2026-10-06: Vendor Ref is the only source Acumatica gives, so the REFERENCE
+// column shows it whole — a PO or not — for every APV the cheque shows.
+describe('REFERENCE from Acumatica (AcumaticaBill.vendorRef)', () => {
+  const acuRef = (apvNumber: string, vendorRef: string, poNumbers: string[] = []) =>
+    testDb.acumaticaBill.create({ data: { apvNumber, tenant: 'GOLIVE', vendorRef, poNumbers } })
+  const nums = (rows: { checkNumber: string }[]) => rows.map((r) => r.checkNumber).sort()
+
+  it('shows a Vendor Ref that is not a PO, while PO NUMBER stays empty', async () => {
+    await makeCheck({ checkNumber: '1791405928', apvNumbers: ['AP-A1035046'] })
+    await acuRef('AP-A1035046', '26P09-0420')
+    const [row] = await listChecks(testDb, {})
+    expect(toTableRow(row).refNumbers).toEqual(['26P09-0420'])
+    expect(toTableRow(row).poNumbers).toEqual([])
+  })
+
+  it('shows the refs of every displayed APV, once each, sorted; a cheque with none shows none', async () => {
+    const c = await makeCheck({ checkNumber: '6000000001', apvNumbers: ['AP-ST000001'] })
+    await testDb.checkBill.create({ data: { checkId: c.id, apvNumber: 'AP-ST000002', amount: '1.00' } })
+    await acuRef('AP-ST000001', 'SI#2')
+    await acuRef('AP-ST000002', 'PO-ST-031109', ['PO-ST-031109'])
+    await acuRef('AP-ST999999', 'NOT-SHOWN')
+    await makeCheck({ checkNumber: '6000000002', apvNumbers: ['AP-ST000003'] })
+    const rows = await listChecks(testDb, {})
+    const refOf = (n: string) => toTableRow(rows.find((r) => r.checkNumber === n)!).refNumbers
+    expect(refOf('6000000001')).toEqual(['PO-ST-031109', 'SI#2'])
+    expect(refOf('6000000002')).toEqual([])
+  })
+
+  it('the REFERENCE filter, the global search and the sort read the same source', async () => {
+    await makeCheck({ checkNumber: '6000000001', apvNumbers: ['AP-ST000001'] })
+    await makeCheck({ checkNumber: '6000000002', apvNumbers: ['AP-ST000002'] })
+    await makeCheck({ checkNumber: '6000000003', apvNumbers: ['AP-ST000003'] })
+    await acuRef('AP-ST000001', '26P09-0420')
+    await acuRef('AP-ST000002', '26P09-0421')
+    expect(nums(await listChecks(testDb, { refContains: 'p09-0420' }))).toEqual(['6000000001'])
+    expect(await countChecks(testDb, { refContains: 'p09-04' })).toBe(2)
+    expect(nums(await listChecks(testDb, { q: '26p09-0421' }))).toEqual(['6000000002'])
+    const order = async (dir: 'asc' | 'desc') =>
+      (await listChecks(testDb, {}, 200, { key: 'refNumbers', dir })).map((r) => r.checkNumber)
+    expect(await order('asc')).toEqual(['6000000001', '6000000002', '6000000003'])
+    expect(await order('desc')).toEqual(['6000000002', '6000000001', '6000000003'])
+  })
+})
