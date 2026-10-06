@@ -22,7 +22,7 @@ import { SYNC_OVERLAP_MINUTES, SyncInProgressError, type SyncTrigger } from '@/l
  * its own watermark on `SyncRun` rows of `mode = 'BILL_REFS'` (every other read
  * ignores them, lib/sync/modes.ts), and MIRRORS it into `AcumaticaBill`: a Bill
  * with a VendorRef is upserted by APV — its real POs (`extractPoNumbers`, maybe
- * none) and the VendorRef itself, shown as the REFERENCE column (user ruling
+ * none) and the VendorRef itself, shown whole as PO NUMBER (user ruling
  * 2026-10-06). A bill whose VendorRef is now blank has its row deleted (this
  * tenant's only).
  *
@@ -166,7 +166,7 @@ export async function runBillRefsSync(db: Db, args: BillRefsSyncArgs): Promise<B
   const drop: string[] = []
   for (const ref of byApv.values()) {
     // Every bill with a Vendor Ref is kept (user ruling 2026-10-06: Vendor Ref
-    // is the only source, so a ref that is not a PO is shown as a REFERENCE).
+    // stands as the PO NUMBER, so every non-blank ref is kept).
     // Only a bill whose Vendor Ref is now blank has its row removed.
     if (ref.vendorRef !== '') {
       keep.push(ref)

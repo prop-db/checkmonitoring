@@ -307,13 +307,13 @@ describe('GET /api/export — sort, filters, columns', () => {
     expect(body.startsWith('PK')).toBe(false)
   })
 
-  it('writes Acumatica’s PO into the PO NUMBER column', async () => {
+  it('writes Acumatica’s Vendor Ref, whatever its shape, into the PO NUMBER column', async () => {
     await makeCheck({ checkNumber: '6000000001', apvNumbers: ['AP-ST044591'] })
     await testDb.acumaticaBill.create({
-      data: { apvNumber: 'AP-ST044591', tenant: 'GOLIVE', vendorRef: 'PO-ST-031109.', poNumbers: ['PO-ST-031109'] },
+      data: { apvNumber: 'AP-ST044591', tenant: 'GOLIVE', vendorRef: '26P09-0420', poNumbers: [] },
     })
     const ws = (await sheetsFrom(await get('http://localhost/api/export?scope=all'))).getWorksheet(REGISTER_SHEET)!
     expect(ws.getRow(HEADER_ROW).getCell(3).value).toBe('PO NUMBER')
-    expect(ws.getRow(FIRST_DATA_ROW).getCell(3).value).toBe('PO-ST-031109')
+    expect(ws.getRow(FIRST_DATA_ROW).getCell(3).value).toBe('26P09-0420')
   })
 })

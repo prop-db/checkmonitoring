@@ -24,7 +24,6 @@ export type ColumnFilters = {
   checkNumberContains?: string
   apvContains?: string
   poContains?: string
-  refContains?: string
   payeeContains?: string
   from?: Date
   to?: Date
@@ -127,7 +126,7 @@ export type CheckFilters = ColumnFilters & {
 export function columnFilterFields(c: ColumnFilters): ColumnFilters {
   const out: ColumnFilters = {
     checkNumberContains: c.checkNumberContains, apvContains: c.apvContains, poContains: c.poContains,
-    refContains: c.refContains, payeeContains: c.payeeContains, from: c.from, to: c.to,
+    payeeContains: c.payeeContains, from: c.from, to: c.to,
     availableFrom: c.availableFrom, availableTo: c.availableTo, pickupFrom: c.pickupFrom, pickupTo: c.pickupTo,
     amountMin: c.amountMin, amountMax: c.amountMax,
   }
@@ -532,37 +531,13 @@ export const NO_ACUMATICA_POS: AcumaticaPoIndex = new Map()
 export async function loadAcumaticaPoIndex(db: Db, apvs: Iterable<string>): Promise<AcumaticaPoIndex> {
   const list = [...new Set(apvs)]
   if (list.length === 0) return NO_ACUMATICA_POS
-  const rows = await db.$queryRaw<{ apvNumber: string; poNumbers: string[] | null }[]>`
-    SELECT "apvNumber", "poNumbers" FROM "AcumaticaBill" WHERE "apvNumber" = ANY(${list}::text[])`
-  return new Map(rows.map((r) => [r.apvNumber, r.poNumbers ?? []]))
-}
-
-/**
- * APV → the Vendor Ref Acumatica's AP-Bills and Adjustments carries for it
- * (`AcumaticaBill.vendorRef`) — the REFERENCE column, whatever it holds: a PO,
- * the supplier's billing number, free text (user ruling 2026-10-06, Vendor Ref
- * is the only source). One query per call, like `loadAcumaticaPoIndex`.
- */
-export type AcumaticaRefIndex = ReadonlyMap<string, string>
-export const NO_ACUMATICA_REFS: AcumaticaRefIndex = new Map()
-
-export async function loadAcumaticaRefIndex(db: Db, apvs: Iterable<string>): Promise<AcumaticaRefIndex> {
-  const list = [...new Set(apvs)]
-  if (list.length === 0) return NO_ACUMATICA_REFS
+  // The PO NUMBER IS Acumatica's Vendor Ref, whole (user ruling 2026-10-06:
+  // "vendor reference in Acumatica stands as PO number") — not only the refs
+  // that look like a PO, which is what the 2026-10-05 "only real POs" read.
   const rows = await db.$queryRaw<{ apvNumber: string; vendorRef: string | null }[]>`
     SELECT "apvNumber", "vendorRef" FROM "AcumaticaBill"
      WHERE "apvNumber" = ANY(${list}::text[]) AND "vendorRef" <> ''`
-  return new Map(rows.map((r) => [r.apvNumber, r.vendorRef ?? '']))
-}
-
-/** The SQL twin of `displayRefNumbers`, for a cheque aliased `c`; see `acumaticaPoMatch`. */
-function acumaticaRefMatch(pattern: string): Prisma.Sql {
-  return Prisma.sql`EXISTS (
-    SELECT 1
-      FROM unnest(c."apvNumbers" || ARRAY(SELECT b2."apvNumber" FROM "CheckBill" b2 WHERE b2."checkId" = c."id")) AS v(apv)
-      JOIN "AcumaticaBill" ab ON ab."apvNumber" = v.apv
-     WHERE ab."vendorRef" ILIKE ${pattern} ESCAPE '\\'
-  )`
+  return new Map(rows.map((r) => [r.apvNumber, r.vendorRef ? [r.vendorRef] : []]))
 }
 
 /**
@@ -582,15 +557,14 @@ function acumaticaPoMatch(pattern: string): Prisma.Sql {
     SELECT 1
       FROM unnest(c."apvNumbers" || ARRAY(SELECT b2."apvNumber" FROM "CheckBill" b2 WHERE b2."checkId" = c."id")) AS v(apv)
       JOIN "AcumaticaBill" ab ON ab."apvNumber" = v.apv
-     WHERE EXISTS (SELECT 1 FROM unnest(ab."poNumbers") AS po(x) WHERE po.x ILIKE ${pattern} ESCAPE '\\')
+     WHERE ab."vendorRef" ILIKE ${pattern} ESCAPE '\\'
   )`
 }
 
 /** The global search's Acumatica-PO arm: substring, any case — as the bills' PO arm is. */
 async function idsWithAcumaticaPo(db: Db, text: string): Promise<string[]> {
   const rows = await db.$queryRaw<{ id: string }[]>`
-    SELECT c."id" FROM "Check" c
-     WHERE ${acumaticaPoMatch(likePattern(text))} OR ${acumaticaRefMatch(likePattern(text))}`
+    SELECT c."id" FROM "Check" c WHERE ${acumaticaPoMatch(likePattern(text))}`
   return rows.map((r) => r.id)
 }
 
@@ -621,7 +595,6 @@ async function arrayContainsIds(db: Db, f: ColumnFilters): Promise<string[] | nu
       OR ${acumaticaPoMatch(p)}
     )`)
   }
-  if (f.refContains) conditions.push(acumaticaRefMatch(likePattern(f.refContains)))
   if (conditions.length === 0) return null
   const rows = await db.$queryRaw<{ id: string }[]>`
     SELECT c."id" FROM "Check" c WHERE ${Prisma.join(conditions, ' AND ')}`
@@ -659,13 +632,10 @@ type SortProbe = {
   bills: { apvNumber: string; poNumber: string | null }[]
 }
 
-export function appSortValue(
-  key: AppSortKey, r: SortProbe, acumatica: AcumaticaPoIndex, refs: AcumaticaRefIndex = NO_ACUMATICA_REFS,
-): SortValue {
+export function appSortValue(key: AppSortKey, r: SortProbe, acumatica: AcumaticaPoIndex): SortValue {
   switch (key) {
     case 'apvNumbers': return displayApvNumbers(r)[0] ?? null
     case 'poNumbers': return displayPoNumbers(r, acumatica)[0] ?? null
-    case 'refNumbers': return displayRefNumbers(r, refs)[0] ?? null
     case 'bank': return r.cashAccount?.code ?? null
     case 'releasedAt': return (r.releasedAt ?? r.statedReleaseDate)?.getTime() ?? null
     default: {
@@ -700,11 +670,8 @@ async function appSortedIds(
   const acumatica = key === 'poNumbers'
     ? await loadAcumaticaPoIndex(db, probes.flatMap((p) => displayApvNumbers(p)))
     : NO_ACUMATICA_POS
-  const refs = key === 'refNumbers'
-    ? await loadAcumaticaRefIndex(db, probes.flatMap((p) => displayApvNumbers(p)))
-    : NO_ACUMATICA_REFS
   return probes
-    .map((p) => ({ id: p.id, checkNumber: p.checkNumber, value: appSortValue(key, p, acumatica, refs) }))
+    .map((p) => ({ id: p.id, checkNumber: p.checkNumber, value: appSortValue(key, p, acumatica) }))
     .sort((a, b) =>
       compareSortValues(a.value, b.value, dir) || byCodeUnit(a.checkNumber, b.checkNumber) || byCodeUnit(a.id, b.id))
     .slice(0, limit)
@@ -719,12 +686,9 @@ type PoSource = { apvNumbers: string[]; bills: { apvNumber: string; poNumber: st
  * rows of every APV on the page. `toTableRow` copies it, so the list, Excel
  * and print show the same value from the same function.
  */
-async function withPoNumbers<R extends PoSource>(
-  db: Db, rows: R[],
-): Promise<(R & { poNumbers: string[]; refNumbers: string[] })[]> {
-  const apvs = rows.flatMap((r) => displayApvNumbers(r))
-  const [acumatica, refs] = await Promise.all([loadAcumaticaPoIndex(db, apvs), loadAcumaticaRefIndex(db, apvs)])
-  return rows.map((r) => ({ ...r, poNumbers: displayPoNumbers(r, acumatica), refNumbers: displayRefNumbers(r, refs) }))
+async function withPoNumbers<R extends PoSource>(db: Db, rows: R[]): Promise<(R & { poNumbers: string[] })[]> {
+  const acumatica = await loadAcumaticaPoIndex(db, rows.flatMap((r) => displayApvNumbers(r)))
+  return rows.map((r) => ({ ...r, poNumbers: displayPoNumbers(r, acumatica) }))
 }
 
 /**
@@ -858,7 +822,6 @@ export type CheckTableRow = {
   checkNumber: string
   apvNumbers: string[]
   poNumbers: string[]
-  refNumbers: string[]
   payeeName: string | null
   companyCode: string
   /**
@@ -926,17 +889,6 @@ export function displayPoNumbers(r: PoSource, acumatica: AcumaticaPoIndex): stri
   return [...new Set([...fromBills, ...fromAcumatica])].sort()
 }
 
-/**
- * What the REFERENCE cell shows: the Vendor Ref Acumatica carries on each APV
- * the cheque SHOWS (`AcumaticaBill.vendorRef`), de-duplicated and sorted. It
- * is the same field the PO column filters for real POs, shown whole — a PO, a
- * supplier's billing number or free text (user ruling 2026-10-06). The filter
- * box and the search match the same source (`acumaticaRefMatch`).
- */
-export function displayRefNumbers(r: { apvNumbers: string[]; bills: { apvNumber: string }[] }, refs: AcumaticaRefIndex): string[] {
-  return [...new Set(displayApvNumbers(r).map((apv) => refs.get(apv)).filter((v): v is string => !!v))].sort()
-}
-
 export function toTableRow(r: CheckRow): CheckTableRow {
   return {
     id: r.id,
@@ -944,7 +896,6 @@ export function toTableRow(r: CheckRow): CheckTableRow {
     apvNumbers: displayApvNumbers(r),
     // Computed by listChecks through displayPoNumbers (one AcumaticaBill query per page).
     poNumbers: r.poNumbers,
-    refNumbers: r.refNumbers,
     payeeName: r.payeeName,
     companyCode: r.company.code,
     // `?? null`, so a cheque with no cash account says so rather than crossing

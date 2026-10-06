@@ -36,10 +36,7 @@ export const SUMMARY_SHEET = 'SUMMARY'
  */
 export const EXPORT_COLUMN_KEYS = [
   'checkNumber', 'apvNumbers', 'poNumbers', 'payeeName', 'companyCode', 'bank',
-  // REFERENCE (2026-10-06) is last in the DEFAULT order so every existing
-  // column keeps its position for anyone reading the file by column; `cols=`
-  // still puts it where the viewer has it on screen.
-  'checkDate', 'amount', 'status', 'availablePickupDate', 'scheduledPickupDate', 'refNumbers',
+  'checkDate', 'amount', 'status', 'availablePickupDate', 'scheduledPickupDate',
 ] as const satisfies readonly ColumnKey[]
 export type ExportColumnKey = (typeof EXPORT_COLUMN_KEYS)[number]
 
@@ -137,7 +134,6 @@ const EXPORT_CELLS: Record<ExportColumnKey, ExportCell> = {
   checkNumber: { kind: 'text', value: (r) => r.checkNumber, sample: (r) => r.checkNumber },
   apvNumbers: { kind: 'text', value: (r) => listOrNull(r.apvNumbers), sample: (r) => listOrNull(r.apvNumbers) ?? '' },
   poNumbers: { kind: 'text', value: (r) => listOrNull(r.poNumbers), sample: (r) => listOrNull(r.poNumbers) ?? '' },
-  refNumbers: { kind: 'text', value: (r) => listOrNull(r.refNumbers), sample: (r) => listOrNull(r.refNumbers) ?? '' },
   payeeName: { kind: 'text', value: (r) => r.payeeName, sample: (r) => r.payeeName ?? '' },
   companyCode: { kind: 'text', value: (r) => r.companyCode, sample: (r) => r.companyCode },
   bank: {

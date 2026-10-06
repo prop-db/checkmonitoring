@@ -23,7 +23,7 @@ import { LIVE_STATUSES, CLOSED_STATUSES } from './domain/check-status'
 export const LIST_FILTER_FORM = 'list-filters'
 
 export const F_PARAMS = [
-  'f.checkNumber', 'f.apv', 'f.po', 'f.ref', 'f.payee', 'f.status',
+  'f.checkNumber', 'f.apv', 'f.po', 'f.payee', 'f.status',
   'f.checkDateFrom', 'f.checkDateTo',
   'f.availablePickupDateFrom', 'f.availablePickupDateTo',
   'f.scheduledPickupDateFrom', 'f.scheduledPickupDateTo',
@@ -40,7 +40,6 @@ export const COLUMN_FILTER_PARAMS = {
   checkNumber: ['f.checkNumber'],
   apvNumbers: ['f.apv'],
   poNumbers: ['f.po'],
-  refNumbers: ['f.ref'],
   payeeName: ['f.payee'],
   companyCode: ['company'],
   bank: ['cashAccount'],
@@ -66,7 +65,7 @@ export const FILTER_MESSAGES = {
 
 /** The labels a refusal names its box by. */
 const PARAM_LABELS: Record<string, string> = {
-  'f.checkNumber': 'CHECK NUMBER', 'f.apv': 'APV NUMBER', 'f.po': 'PO NUMBER', 'f.ref': 'REFERENCE', 'f.payee': 'SUPPLIER NAME',
+  'f.checkNumber': 'CHECK NUMBER', 'f.apv': 'APV NUMBER', 'f.po': 'PO NUMBER', 'f.payee': 'SUPPLIER NAME',
   'f.status': 'STATUS', 'f.checkDateFrom': 'CHECK DATE (FROM)', 'f.checkDateTo': 'CHECK DATE (TO)',
   'f.availablePickupDateFrom': 'AVAILABLE DATE (FROM)', 'f.availablePickupDateTo': 'AVAILABLE DATE (TO)',
   'f.scheduledPickupDateFrom': 'PICKUP SCHEDULE (FROM)', 'f.scheduledPickupDateTo': 'PICKUP SCHEDULE (TO)',
@@ -135,7 +134,6 @@ export function parseColumnFilters(
     checkNumberContains: text('f.checkNumber'),
     apvContains: text('f.apv'),
     poContains: text('f.po'),
-    refContains: text('f.ref'),
     payeeContains: text('f.payee'),
     from: day('f.checkDateFrom', 'start'),
     to: day('f.checkDateTo', 'end'),
@@ -175,7 +173,6 @@ export function describeColumnFilters(values: Readonly<Record<string, string>>):
   contains('f.checkNumber', 'CHECK NO.')
   contains('f.apv', 'APV')
   contains('f.po', 'PO')
-  contains('f.ref', 'REFERENCE')
   contains('f.payee', 'SUPPLIER')
   range('f.checkDateFrom', 'f.checkDateTo', 'CHECK DATE')
   range('f.amountMin', 'f.amountMax', 'AMOUNT')

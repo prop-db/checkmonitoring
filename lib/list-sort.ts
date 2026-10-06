@@ -32,7 +32,7 @@ export const DEFAULT_SORT: SortSpec = { key: 'checkDate', dir: 'desc' }
  * shows `releasedAt`, else the register's `statedReleaseDate`, and sorts by
  * the date it shows.
  */
-export const APP_SORTED_KEYS = ['apvNumbers', 'poNumbers', 'refNumbers', 'bank', 'releasedAt'] as const satisfies readonly SortKey[]
+export const APP_SORTED_KEYS = ['apvNumbers', 'poNumbers', 'bank', 'releasedAt'] as const satisfies readonly SortKey[]
 export type AppSortKey = (typeof APP_SORTED_KEYS)[number]
 export type DbSortKey = Exclude<SortKey, AppSortKey>
 
