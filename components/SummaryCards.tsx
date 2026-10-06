@@ -47,15 +47,6 @@ function IconWaiting() {
 // is not kept "in case": an icon with no card is a component nobody renders and
 // the next reader has to check.
 
-function IconValue() {
-  return (
-    <svg className={ICON} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-      <rect x="1.8" y="4.4" width="16.4" height="11.2" rx="2" />
-      <circle cx="10" cy="10" r="2.6" />
-    </svg>
-  )
-}
-
 function IconInventory() {
   return (
     <svg className={ICON} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
@@ -209,26 +200,6 @@ function SecondaryCard({
   )
 }
 
-// One line per currency, never one summed figure: a PHP total and a CNY total
-// are not the same unit and must never be added together.
-function CurrencyBreakdown({ totalsByCurrency }: { totalsByCurrency: CurrencyTotal[] }) {
-  if (totalsByCurrency.length === 0) {
-    return <div>{formatMoney('0', 'PHP')}</div>
-  }
-  return (
-    <dl>
-      {totalsByCurrency.map((t) => (
-        <div key={t.currency}>
-          <dt className="text-3xl font-semibold tracking-tight text-navy">
-            {formatMoney(t.total, t.currency)}
-          </dt>
-          <dd className="sr-only">{t.currency}</dd>
-        </div>
-      ))}
-    </dl>
-  )
-}
-
 // Re-exported so a caller rendering these cards has one import, not two. The
 // type itself is declared with the logic, in lib/dashboard-view.ts.
 export type { DashboardSelection } from '@/lib/dashboard-view'
@@ -365,36 +336,6 @@ export function SummaryCards({
           value={summary.total.toLocaleString('en-PH')}
           support="EVERY STATUS · INCLUDING RELEASED, CANCELLED AND VOIDED"
           {...card('TOTAL_CHECKS')}
-        />
-
-        {/* THE INCOMPLETE CARD IS GONE (client decision, 2026-09-06). Shown the
-            card reading 129 the client said "ignore them mean you have to remove
-            them, dont consider them becuase they dont have amount", so those
-            cheques are out of every count on this screen and out of the table.
-
-            Nothing was deleted — 25 of them are RELEASED — and the exclusion is
-            not silent either: `app/page.tsx` states the number under the cards
-            and above the table, with a link that shows them. That notice is where
-            this card's figure went, and it is the reason removing the card is
-            honest rather than a number that quietly got smaller. The support
-            line below repeats it, because TOTAL VALUE is the figure that would
-            otherwise read as complete.
-
-            Not clickable: there is no "cheques worth this much" set to view. */}
-        <PrimaryCard
-          label="TOTAL VALUE"
-          icon={<IconValue />}
-          value={<CurrencyBreakdown totalsByCurrency={summary.totalsByCurrency} />}
-          /* The old line said "EXCLUDES 129 WITH NO AMOUNT" beside a count that
-             INCLUDED all 129 — true then, because the value skipped them and the
-             count did not. `summary.total` no longer counts them either, so the
-             clause is rewritten rather than left standing as a half-truth: they
-             are outside both figures now. */
-          support={
-            summary.incomplete > 0
-              ? `ACROSS ${summary.total.toLocaleString('en-PH')} CHEQUES · ${summary.incomplete.toLocaleString('en-PH')} WITH NO AMOUNT ARE NOT COUNTED AT ALL`
-              : `ACROSS ${summary.total.toLocaleString('en-PH')} CHEQUES`
-          }
         />
       </div>
 
