@@ -157,4 +157,28 @@ describe('queueReleasedForStale', () => {
     const again = await queueReleasedForStale(testDb, { now: new Date(NOW.getTime() + 60_000), apply: true })
     expect(again).toMatchObject({ found: 0, queued: 0 })
   })
+  it('also reports a cheque the portal was never told about, released since the app went live (2026-10-07)', async () => {
+    // 6000330355 and three others: released 1 Oct by the register catch-up,
+    // availability withdrawn before the portal heard of it, so no event at all.
+    const never = await makeCheck({ status: 'RELEASED', apvNumbers: ['AP-ST040725'], statedReleaseDate: new Date('2026-10-01T00:00:00Z') })
+    // Released before the app went live: not sent.
+    await makeCheck({ status: 'RELEASED', apvNumbers: ['AP-ST000301'], statedReleaseDate: new Date('2026-08-15T00:00:00Z') })
+    // Not a cheque: not sent.
+    await makeCheck({ status: 'RELEASED', isCheque: false, apvNumbers: ['AP-ST000302'], statedReleaseDate: new Date('2026-10-01T00:00:00Z') })
+    const r = await queueReleasedForStale(testDb, { now: NOW, apply: true })
+    expect(r).toMatchObject({ found: 1, queued: 1 })
+    expect(r.cheques.map((c) => c.id)).toEqual([never.id])
+    expect(await testDb.portalEvent.count({ where: { checkId: never.id, kind: 'RELEASED', status: 'PENDING' } })).toBe(1)
+  })
+
+  it('queues at most `limit` per run, newest release first, and the next run takes the rest', async () => {
+    const older = await makeCheck({ status: 'RELEASED', apvNumbers: ['AP-ST000401'], statedReleaseDate: new Date('2026-09-10T00:00:00Z') })
+    const newer = await makeCheck({ status: 'RELEASED', apvNumbers: ['AP-ST000402'], statedReleaseDate: new Date('2026-10-01T00:00:00Z') })
+    const first = await queueReleasedForStale(testDb, { now: NOW, apply: true, limit: 1 })
+    expect(first).toMatchObject({ found: 2, queued: 1 })
+    expect(await testDb.portalEvent.count({ where: { checkId: newer.id, kind: 'RELEASED' } })).toBe(1)
+    expect(await testDb.portalEvent.count({ where: { checkId: older.id, kind: 'RELEASED' } })).toBe(0)
+    const second = await queueReleasedForStale(testDb, { now: new Date(NOW.getTime() + 60_000), apply: true, limit: 1 })
+    expect(second).toMatchObject({ found: 1, queued: 1 })
+  })
 })

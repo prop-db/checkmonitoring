@@ -115,14 +115,34 @@ export async function queueCancelledForStale(db: Db, args: { now: Date; apply: b
  * listed in `noDate` instead. Idempotent: a cheque with any RELEASED event is
  * skipped. Run after every register catch-up (both scripts call it).
  */
-export async function queueReleasedForStale(db: Db, args: { now: Date; apply: boolean }) {
+/**
+ * Since 2026-10-07 a cheque the portal was NEVER told about is reported too
+ * (user: "why not upon clicking the delivery that those checks are
+ * automatically released?") — `6000330355`, `6000338827`, `6000338828`,
+ * `6000337892`, released 1 Oct by the register catch-up, had no portal event
+ * at all, because their availability was withdrawn (Detail1) before the portal
+ * heard of it. Bounded by REPORT_RELEASES_FROM — the day the app went live —
+ * so the ~7,700 older register releases are not sent, and by `limit`, newest
+ * release first, so one Deliver / cron / action kick stays inside its time
+ * budget and the backlog drains over successive runs.
+ */
+export const REPORT_RELEASES_FROM = new Date('2026-09-01T00:00:00Z')
+
+export async function queueReleasedForStale(db: Db, args: { now: Date; apply: boolean; limit?: number }) {
   const candidates = await db.check.findMany({
     where: {
       eligibility: { not: 'INTERNAL' },
       status: 'RELEASED',
-      portalEvents: { some: { kind: 'MARK_AVAILABLE' }, none: { kind: 'RELEASED' } },
+      isCheque: true,
+      portalEvents: { none: { kind: 'RELEASED' } },
+      OR: [
+        { releasedAt: { gte: REPORT_RELEASES_FROM } },
+        { releasedAt: null, statedReleaseDate: { gte: REPORT_RELEASES_FROM } },
+        // No day at all: listed in `noDate`, never sent.
+        { releasedAt: null, statedReleaseDate: null, portalEvents: { some: { kind: 'MARK_AVAILABLE' } } },
+      ],
     },
-    orderBy: [{ checkNumber: 'asc' }, { id: 'asc' }],
+    orderBy: [{ statedReleaseDate: { sort: 'desc', nulls: 'last' } }, { checkNumber: 'asc' }, { id: 'asc' }],
     select: {
       id: true, checkNumber: true, payeeName: true, status: true, eligibility: true,
       releasedAt: true, statedReleaseDate: true,
@@ -136,7 +156,8 @@ export async function queueReleasedForStale(db: Db, args: { now: Date; apply: bo
 
   const runIso = args.now.toISOString()
   let queued = 0
-  for (const c of cheques) {
+  const batch = args.limit ? cheques.slice(0, args.limit) : cheques
+  for (const c of batch) {
     const created = await atomically(db, async (tx) => {
       const existing = await tx.portalEvent.count({ where: { checkId: c.id, kind: 'RELEASED' } })
       if (existing) return false
