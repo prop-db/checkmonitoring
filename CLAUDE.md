@@ -640,6 +640,28 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
   `6000319193`'s held the reversal row's `Closed`. Its Closed set also takes `1791361374` and two 2025
   register-cancelled checks (`6000272567`, `6000290809`). BPI-A-8879's two `1791…` checks were on the
   wrong cash account; Finance fixed them in Acumatica the same day.
+  **The reconcile RAN ONCE, 2026-10-07 08:05 Manila, by the user — NEVER RUN IT AGAIN.** After the
+  full re-reads (GOLIVE 2026-10-06 13:30Z, 196.7 min, 12,898 fetched, 0 errors; MANUFACTURING 141, 0 errors;
+  snapshots `snapshots/payments-full-<TENANT>-2026-10-06T13-*.json`): re-pointed 1, released 47,
+  staled 8, readied 4 (snapshot `snapshots/reconcile-with-acumatica-2026-10-07T00-05-55-565Z.json`).
+  The full check after it: 0 amount, number, company, book or void differences on either tenant.
+  **The 4 AVAILABLE were wrong and are undone.** `1791361448`, `6000308871`, `179174`, `179175` sit
+  only on the 10.05 register's CANCELLED sheet (column A: CANCELLED / STALLED CHECK, no DATE
+  RELEASE), and the user ruled the READY count must stay what the portal shows (67): restored from
+  that snapshot to CANCELLED (`reconcile_available_reverted`), no portal event ever delivered (their
+  MARK_AVAILABLE closed unsent). In between they were marked RELEASED by mistake
+  (`released_confirmed_by_user`) and put back (`release_confirmation_undone`) — the user's "yes they
+  were released" meant `6000330355`, `6000338827`, `6000338828`, `6000337892`. **Lesson: a Finance
+  verdict file is evidence, not an instruction — cross-check it against the latest register before
+  applying, and when the user confirms "they were released", name the check numbers back first.**
+  **Deliver reports every release since go-live** (2026-10-07, `queueReleasedForStale`): a routed
+  RELEASED check with an APV, a release day on/after `REPORT_RELEASES_FROM` (2026-09-01) and no
+  RELEASED event is queued — no longer only those first announced available — 50 per kick (Deliver
+  now, the cron, action kicks), newest first. 1,124 qualified; the user's 4 above (released 1 Oct,
+  their availability withdrawn with Detail1 before the portal heard of them) were in the first 50,
+  all accepted. `1791405389` is READY with no portal event and that is right: it was readied FROM the
+  portal (`backfilled_ready_from_portal`, 2026-09-26), so the portal already lists it — the app's 67
+  READY and the portal's 67 CHECKS AVAILABLE are the same 67.
 - **Which check pays an AP voucher is answered on `/vouchers`, and `CHECK BY VOUCHER.xlsx` is
   its extract.** The Finance Executive Report's `AP Local` sheet used to find a payable's check
   with three `VLOOKUP`s into the released sheets of `CHECK MONITORING <date>.xlsx`; the register
