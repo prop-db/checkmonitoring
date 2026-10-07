@@ -54,7 +54,7 @@ export function TodaysReleasePanel({
         // Stated plainly, and the panel still occupies its place. "Nothing is
         // ready" is an answer; an empty space is not.
         <p className="mt-2 text-sm text-slate-600">
-          NOTHING IS READY TO RELEASE RIGHT NOW. Cheques appear here once they are marked
+          NOTHING IS READY TO RELEASE RIGHT NOW. Checks appear here once they are marked
           READY FOR RELEASE.
         </p>
       ) : (
@@ -65,7 +65,7 @@ export function TodaysReleasePanel({
                 {count.toLocaleString('en-PH')}
               </p>
               <p className="text-xs font-medium tracking-wide text-slate-600">
-                CHEQUE{count === 1 ? '' : 'S'} READY
+                CHECK{count === 1 ? '' : 'S'} READY
               </p>
             </div>
 
@@ -111,13 +111,13 @@ export function TodaysReleasePanel({
                       the two facts being agreed to. Rendered by the SERVER: reaching
                       this text required following a link, not a click that fired. */}
                   <p className="text-sm font-semibold text-rose-900">
-                    RELEASE {count.toLocaleString('en-PH')} CHEQUE{count === 1 ? '' : 'S'}
+                    RELEASE {count.toLocaleString('en-PH')} CHECK{count === 1 ? '' : 'S'}
                     {totalsByCurrency.length > 0 && ' — '}
                     {totalsByCurrency.map((t) => formatMoney(t.total, t.currency)).join(' + ')}?
                   </p>
                   <p className="mt-1 text-sm text-slate-700">
-                    This records that the cheques have been physically handed over. It cannot be undone:
-                    the only status after RELEASED is VOIDED. Each cheque is checked on its own, and any
+                    This records that the checks have been physically handed over. It cannot be undone:
+                    the only status after RELEASED is VOIDED. Each check is verified on its own, and any
                     that cannot be released will be listed here by number.
                   </p>
                 </>

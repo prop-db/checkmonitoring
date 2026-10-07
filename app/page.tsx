@@ -219,10 +219,10 @@ export default async function DashboardPage({
           {companyId && <input type="hidden" name="company" value={companyId} />}
           {cashAccountId && <input type="hidden" name="cashAccount" value={cashAccountId} />}
           {eligibility && <input type="hidden" name="eligibility" value={eligibility} />}
-          <label htmlFor="totals-search" className="sr-only">Search cheques</label>
+          <label htmlFor="totals-search" className="sr-only">Search checks</label>
           <input
             id="totals-search" name="q" type="search"
-            placeholder="Search cheque no., payee, CV or AP voucher"
+            placeholder="Search check no., payee, CV or AP voucher"
             className="w-full rounded-xl border border-hairline bg-white px-4 py-2.5 text-sm shadow-sm focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy"
           />
           <button type="submit" className="rounded-lg bg-navy px-4 py-2 text-sm font-semibold tracking-wide text-white">
@@ -283,7 +283,7 @@ export default async function DashboardPage({
           </Link>
           <StatusSelect options={buildStatusOptions(selection)} />
           <span className="text-xs font-medium tracking-wide text-slate-600">
-            {describeView(selection)} · {matching.toLocaleString('en-PH')} CHEQUE{matching === 1 ? '' : 'S'}
+            {describeView(selection)} · {matching.toLocaleString('en-PH')} CHECK{matching === 1 ? '' : 'S'}
           </span>
         </div>
         <QuickActions selection={selection} refused={refused} />
@@ -306,7 +306,7 @@ export default async function DashboardPage({
               tone="navy"
               prompt={
                 <p className="text-sm font-semibold tracking-wide text-slate-900">
-                  SIGN {pendingSign.count.toLocaleString('en-PH')} CHEQUE{pendingSign.count === 1 ? '' : 'S'}
+                  SIGN {pendingSign.count.toLocaleString('en-PH')} CHECK{pendingSign.count === 1 ? '' : 'S'}
                   {pendingSign.totalsByCurrency.length > 0 && ' — '}
                   {pendingSign.totalsByCurrency.map((t) => formatMoney(t.total, t.currency)).join(' + ')}?
                 </p>
@@ -320,7 +320,7 @@ export default async function DashboardPage({
           )}
           {matching > pendingSign.count && (
             <p className="mt-2 text-xs text-slate-500">
-              {(matching - pendingSign.count).toLocaleString('en-PH')} NON-CHEQUE PAYMENT(S) (DEBIT ADV, CASH) IN THIS VIEW ARE NOT SIGNED.
+              {(matching - pendingSign.count).toLocaleString('en-PH')} NON-CHECK PAYMENT(S) (DEBIT ADV, CASH) IN THIS VIEW ARE NOT SIGNED.
             </p>
           )}
         </div>
@@ -355,7 +355,7 @@ export default async function DashboardPage({
           opens (part C2). */}
       {!incomplete && excludedIncomplete > 0 && (
         <p className="text-xs font-medium tracking-wide text-slate-500">
-          EXCLUDING {excludedIncomplete.toLocaleString('en-PH')} CHEQUE
+          EXCLUDING {excludedIncomplete.toLocaleString('en-PH')} CHECK
           {excludedIncomplete === 1 ? '' : 'S'} WITH NO RECORDED AMOUNT — not counted in the
           totals and not listed below.{' '}
           <Link href={incompleteHref(selection)} className="underline underline-offset-2">
@@ -376,7 +376,7 @@ export default async function DashboardPage({
       {releasedRange && undatedReleases > 0 && (
         <p className="text-xs font-medium tracking-wide text-slate-500">
           NOT MATCHED: {undatedReleases.toLocaleString('en-PH')} RELEASED{' '}
-          {undatedReleases === 1 ? 'CHEQUE CARRIES' : 'CHEQUES CARRY'} NO RELEASE DATE — neither recorded
+          {undatedReleases === 1 ? 'CHECK CARRIES' : 'CHECKS CARRY'} NO RELEASE DATE — neither recorded
           here nor stated in the register. Only a cheque with one of those dates can fall inside a range.
         </p>
       )}

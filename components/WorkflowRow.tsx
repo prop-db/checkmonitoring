@@ -105,8 +105,8 @@ export function WorkflowRow({
       {liveTotal > 0 && (
         <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-hairline">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <p className="text-[11px] font-semibold tracking-widest text-slate-500">WHERE THE LIVE CHEQUES ARE</p>
-            <p className="text-[11px] text-slate-400">share of cheques not yet released</p>
+            <p className="text-[11px] font-semibold tracking-widest text-slate-500">WHERE THE LIVE CHECKS ARE</p>
+            <p className="text-[11px] text-slate-400">share of checks not yet released</p>
           </div>
           <div className="mt-3 flex h-3 w-full overflow-hidden rounded-full bg-slate-100" role="img"
             aria-label={live.map((n) => `${n.label} ${pct(n.count, liveTotal)}%`).join(', ')}>
@@ -128,7 +128,7 @@ export function WorkflowRow({
 
       {incomplete > 0 && (
         <p className="text-xs font-medium tracking-wide text-slate-500">
-          EXCLUDING {incomplete.toLocaleString('en-PH')} CHEQUE{incomplete === 1 ? '' : 'S'} WITH NO RECORDED AMOUNT — not counted above.{' '}
+          EXCLUDING {incomplete.toLocaleString('en-PH')} CHECK{incomplete === 1 ? '' : 'S'} WITH NO RECORDED AMOUNT — not counted above.{' '}
           <Link href={incompleteHref} className="underline underline-offset-2">Show them</Link>.
         </p>
       )}

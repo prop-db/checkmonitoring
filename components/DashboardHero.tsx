@@ -82,7 +82,7 @@ export function DashboardHero({
           {count === 0 ? (
             <>
               <h2 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">Nothing is waiting to be handed over</h2>
-              <p className="mt-2 text-sm text-white/75">Cheques appear here once they are marked READY FOR RELEASE.</p>
+              <p className="mt-2 text-sm text-white/75">Checks appear here once they are marked READY FOR RELEASE.</p>
             </>
           ) : (
             <>
@@ -92,7 +92,7 @@ export function DashboardHero({
               </p>
               <h2 className="mt-3 text-4xl font-semibold tracking-tight sm:text-5xl">
                 <span className="tabular-nums">{count.toLocaleString('en-PH')}</span>{' '}
-                <span className="text-2xl font-medium text-white/85 sm:text-3xl">cheque{count === 1 ? '' : 's'} to hand over</span>
+                <span className="text-2xl font-medium text-white/85 sm:text-3xl">check{count === 1 ? '' : 's'} to hand over</span>
               </h2>
               <p className="mt-2 text-2xl font-semibold tabular-nums text-emerald-200">
                 {totalsByCurrency.map((t) => formatMoney(t.total, t.currency)).join(' + ')}
