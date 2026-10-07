@@ -11,7 +11,7 @@ import { SORT_COOKIE } from '@/lib/list-sort'
 import { activeFilterColumns, columnParamsOf } from '@/lib/column-filters'
 import {
   clearFiltersHref, dashboardScreen, describeView, incompleteHref,
-  releaseConfirmHref, releaseCancelHref, signAllConfirmHref, signAllCancelHref, sortLinks, totalsHref,
+  cardHref, releaseConfirmHref, releaseCancelHref, signAllConfirmHref, signAllCancelHref, sortLinks, totalsHref,
   signAllOffered as isSignAllOffered,
 } from '@/lib/dashboard-view'
 import { AppHeader } from '@/components/AppHeader'
@@ -165,7 +165,15 @@ export default async function DashboardPage({
             on them is only as current as this line says. */}
         <SyncStatusLine staleness={staleness} isAdmin={user.role === 'FINANCE_ADMIN'} />
 
-        <DashboardHero name={user.name} />
+        {/* The day's job, and the ONE place READY FOR RELEASE is shown. */}
+        <DashboardHero
+          name={user.name}
+          todays={todaysRelease}
+          readyHref={cardHref('READY_FOR_RELEASE', selection)}
+          canRelease={user.role === 'FINANCE_ADMIN'}
+          confirming={params.confirm === 'release'}
+          confirmHref={releaseConfirmHref(selection)}
+        />
 
         <TotalsFilterBar
           options={options}
@@ -186,11 +194,7 @@ export default async function DashboardPage({
           total={summary.total}
           incomplete={summary.incomplete}
           incompleteHref={incompleteHref(selection)}
-          todays={todaysRelease}
           selection={selection}
-          canRelease={user.role === 'FINANCE_ADMIN'}
-          confirming={params.confirm === 'release'}
-          confirmHref={releaseConfirmHref(selection)}
         />
 
         {/* The confirmation step only: an exact string match, so an unrecognised
