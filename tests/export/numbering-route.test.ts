@@ -54,7 +54,7 @@ describe('GET /api/export/numbering', () => {
     await chequeInBook('1')
     const res = await get('http://localhost/api/export/numbering')
     expect(res.status).toBe(200)
-    expect(res.headers.get('content-disposition')).toMatch(/cheque-numbering-\d{4}-\d{2}-\d{2}\.xlsx/)
+    expect(res.headers.get('content-disposition')).toMatch(/check-numbering-\d{4}-\d{2}-\d{2}\.xlsx/)
     expect(res.headers.get('cache-control')).toContain('no-store')
   })
 

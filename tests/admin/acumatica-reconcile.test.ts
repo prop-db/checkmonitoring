@@ -151,7 +151,7 @@ describe('markReadyForRelease: the account', () => {
     const c = await makeCheck({ status: 'SIGNED' })
     await testDb.check.update({ where: { id: c.id }, data: { cashAccountId: null } })
     await expect(markReadyForRelease(testDb, { checkId: c.id, userId: user.id, availablePickupDate: new Date('2026-10-07'), now: NOW }))
-      .rejects.toThrow(/CASH ACCOUNT \/ CHEQUE BOOK/)
+      .rejects.toThrow(/CASH ACCOUNT \/ CHECK BOOK/)
   })
 })
 
