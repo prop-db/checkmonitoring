@@ -30,7 +30,7 @@ body {
  * rest on it, a cheque sits in the slot — the picture still says what it is.
  */
 .mm-note,
-.mm-cheque,
+.mm-check,
 .mm-drawer,
 .mm-blink,
 .mm-feed,
@@ -44,8 +44,8 @@ body {
   opacity: 0;
 }
 
-.mm-cheque {
-  animation: mm-cheque 2.4s cubic-bezier(0.3, 0.5, 0.3, 1) infinite;
+.mm-check {
+  animation: mm-check 2.4s cubic-bezier(0.3, 0.5, 0.3, 1) infinite;
   opacity: 0;
 }
 
@@ -87,7 +87,7 @@ body {
   }
 }
 
-@keyframes mm-cheque {
+@keyframes mm-check {
   0% {
     transform: translate(0, 60px) rotate(0deg);
     opacity: 1;
@@ -149,7 +149,7 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .mm-note,
-  .mm-cheque,
+  .mm-check,
   .mm-drawer,
   .mm-blink,
   .mm-feed,
@@ -158,7 +158,7 @@ body {
   }
 
   .mm-note,
-  .mm-cheque {
+  .mm-check {
     opacity: 1;
   }
 }
