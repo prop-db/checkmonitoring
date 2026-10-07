@@ -116,7 +116,7 @@ describe('mapParsedRow', () => {
     // The register is a cheque register: every row on it is a physical cheque,
     // and it has no vocabulary for a void at all. VOIDED is an Acumatica fact
     // (D3), so a workbook row can never assert one.
-    it('is always a cheque and never voided', () => {
+    it('is always a check and never voided', () => {
       const row = mapParsedRow(parsed({ sheet: 'CANCELLED' }), REF)
       expect(row.isCheque).toBe(true)
       expect(row.voided).toBe(false)
@@ -124,8 +124,8 @@ describe('mapParsedRow', () => {
   })
 })
 
-describe('mapParsedRow: the cheque number is canonicalised here too', () => {
-  it('leaves the register’s bare cheque number exactly as written', () => {
+describe('mapParsedRow: the check number is canonicalised here too', () => {
+  it('leaves the register’s bare check number exactly as written', () => {
     // The register is already canonical on essentially every row; running the
     // rule here is what makes "one place the rule lives" true rather than
     // "one place per source", and it is a no-op on 12,161 rows.
@@ -139,7 +139,7 @@ describe('mapParsedRow: the cheque number is canonicalised here too', () => {
     expect(row.statedCheckRef).toBe('BPI 6000319079')
   })
 
-  it('keeps a register row whose cheque number is register noise unkeyable', () => {
+  it('keeps a register row whose check number is register noise unkeyable', () => {
     // `ParsedRow.checkNumber` is non-nullable by construction — the 66 rows
     // with no number at all never reach here, they go to the review queue. What
     // can still arrive is the register's own noise, and nothing here invents a

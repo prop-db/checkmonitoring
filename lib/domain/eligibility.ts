@@ -116,7 +116,7 @@ export function classifyEligibility(input: EligibilityInput): EligibilityResult 
   }
 
   if (FT_MC_SHEETS.map(norm).includes(sheet)) {
-    return { eligibility: 'INTERNAL', reason: 'FUND TRANSFER / MANAGER\u2019S CHEQUE' }
+    return { eligibility: 'INTERNAL', reason: 'FUND TRANSFER / MANAGER\u2019S CHECK' }
   }
 
   if (input.ownCompanyNames.map(companyKey).includes(companyKey(payee))) {

@@ -24,7 +24,7 @@ async function bookFor(c: { companyId: string; cashAccountId: string | null }, c
 }
 
 describe('planCheckBookBackfill', () => {
-  it('matches each cheque to the book its payment states, and reports what it cannot set', async () => {
+  it('matches each check to the book its payment states, and reports what it cannot set', async () => {
     const a = await acumaticaCheque('CV-1', '6000000001')
     const b = await acumaticaCheque('CV-2', '6000000002')
     const c = await acumaticaCheque('CV-3', '6000000003')
@@ -65,7 +65,7 @@ describe('planCheckBookBackfill', () => {
     expect(after.status).toBe('SIGNED')
   })
 
-  it('ignores cheques that already have a book, have no payment id, or belong to the other tenant', async () => {
+  it('ignores checks that already have a book, have no payment id, or belong to the other tenant', async () => {
     const a = await acumaticaCheque('CV-1', '6000000001')
     const book = await bookFor(a, 'BPI-S-4636')
     await testDb.check.update({ where: { id: a.id }, data: { checkBookId: book.id } })
@@ -97,7 +97,7 @@ describe('applyCheckBookBackfill', () => {
     expect(await testDb.auditLog.count({ where: { action: CHECK_BOOK_BACKFILL_ACTION } })).toBe(1)
   })
 
-  it('leaves a cheque that gained a book after planning', async () => {
+  it('leaves a check that gained a book after planning', async () => {
     const a = await acumaticaCheque('CV-1', '6000000001')
     const book = await bookFor(a, 'BPI-S-4636')
     const plan = await planCheckBookBackfill(testDb, fake([pay('CV-1', 'BPI-S-4636')]), 'GOLIVE')
@@ -173,7 +173,7 @@ describe('applyCheckBookRealign', () => {
     expect(audit.details).toMatchObject({ from: 'MBT-A-0002', to: null, code: 'PAYROLL', acumaticaPaymentId: 'CV-2' })
   })
 
-  it('leaves a cheque whose book changed after planning', async () => {
+  it('leaves a check whose book changed after planning', async () => {
     const { check: a, book: oldA } = await bookedCheque('CV-1', '6000000001', 'BPI-S-0001')
     await bookFor(a, 'BPI-S-4636')
     const plan = await planCheckBookBackfill(testDb, fake([pay('CV-1', 'BPI-S-4636')]), 'GOLIVE')

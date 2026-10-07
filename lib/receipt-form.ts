@@ -92,7 +92,7 @@ export function readRowReceipts(formData: FormData, checkIds: readonly string[])
   for (const key of formData.keys()) {
     for (const prefix of [ROW_OR_NUMBER, ROW_RECEIPT_TYPE]) {
       if (key.startsWith(prefix) && !ticked.has(key.slice(prefix.length))) {
-        return { ok: false, message: 'A receipt was sent for a cheque that is not ticked. Nothing was saved.' }
+        return { ok: false, message: 'A receipt was sent for a check that is not ticked. Nothing was saved.' }
       }
     }
   }

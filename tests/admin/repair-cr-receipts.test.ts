@@ -15,7 +15,7 @@ const base: RepairRow = {
 }
 
 describe('classifyRow', () => {
-  it('repairs a CR-shaped crNumber on a cheque with no receipt and no clearing', () => {
+  it('repairs a CR-shaped crNumber on a check with no receipt and no clearing', () => {
     expect(classifyRow(base)).toEqual({ repair: true })
     expect(classifyRow({ ...base, crNumber: 'CR08970' })).toEqual({ repair: true })
   })
@@ -24,12 +24,12 @@ describe('classifyRow', () => {
     expect(classifyRow({ ...base, crNumber: 'BPI-77123' })).toEqual({ repair: false, reason: 'NOT_CR_SHAPED' })
   })
 
-  it('leaves a cheque that already records a receipt', () => {
+  it('leaves a check that already records a receipt', () => {
     expect(classifyRow({ ...base, orNumber: 'OR-1', receiptType: 'OR' }))
       .toEqual({ repair: false, reason: 'RECEIPT_ALREADY_RECORDED' })
   })
 
-  it('leaves a cheque with any clearing recorded — that crNumber may be genuine', () => {
+  it('leaves a check with any clearing recorded — that crNumber may be genuine', () => {
     expect(classifyRow({ ...base, clearingStatus: 'DEPOSITED' }))
       .toEqual({ repair: false, reason: 'CLEARING_RECORDED' })
     expect(classifyRow({ ...base, clearedDate: new Date('2026-09-01') }))

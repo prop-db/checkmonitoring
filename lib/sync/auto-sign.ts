@@ -91,7 +91,7 @@ export async function runAutoSign(
         if (args.deadline && Date.now() >= args.deadline.getTime()) {
           const left = candidates.length - i
           run.outcome = 'FAILED'
-          run.error = `time budget reached with ${left} cheque(s) still due; ${leftoverFate(args.now)}`
+          run.error = `time budget reached with ${left} check(s) still due; ${leftoverFate(args.now)}`
           break
         }
         const c = candidates[i]

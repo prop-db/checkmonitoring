@@ -29,13 +29,13 @@ export type OutstandingInput = {
   amount: string | null
 }
 
-export type IssueBasis = 'RELEASED AT' | 'CHEQUE DATE'
+export type IssueBasis = 'RELEASED AT' | 'CHECK DATE'
 
 export function issuedOn(
   input: Pick<OutstandingInput, 'releasedAt' | 'checkDate'>,
 ): { day: string; basis: IssueBasis } | null {
   if (input.releasedAt) return { day: manilaDay(input.releasedAt), basis: 'RELEASED AT' }
-  if (input.checkDate) return { day: manilaDay(input.checkDate), basis: 'CHEQUE DATE' }
+  if (input.checkDate) return { day: manilaDay(input.checkDate), basis: 'CHECK DATE' }
   return null
 }
 

@@ -41,7 +41,7 @@ export function ImportWorkbookForm() {
       <section className="space-y-4 rounded-2xl bg-white p-6 ring-1 ring-hairline">
         <h2 className="text-[11px] font-semibold tracking-widest text-slate-400">CHOOSE A WORKBOOK</h2>
         <p className="text-sm text-slate-600">
-          Either the cheque register or the approval-for-release list. Which one it is is worked out
+          Either the check register or the approval-for-release list. Which one it is is worked out
           from the file itself.
         </p>
         <input

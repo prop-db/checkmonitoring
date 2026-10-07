@@ -14,21 +14,21 @@ describe('parseSelection', () => {
     expect(parseSelection([' a ', 'b'])).toEqual({ ok: true, checkIds: ['a', 'b'] })
   })
 
-  it('de-duplicates, so one cheque is never acted on twice in a batch', () => {
+  it('de-duplicates, so one check is never acted on twice in a batch', () => {
     expect(parseSelection(['a', 'b', 'a'])).toEqual({ ok: true, checkIds: ['a', 'b'] })
   })
 
   it('refuses an empty selection', () => {
     expect(parseSelection([])).toEqual({
       ok: false,
-      message: 'Select at least one cheque first.',
+      message: 'Select at least one check first.',
     })
   })
 
   it('refuses a selection of nothing but blanks', () => {
     expect(parseSelection(['', '  '])).toEqual({
       ok: false,
-      message: 'Select at least one cheque first.',
+      message: 'Select at least one check first.',
     })
   })
 
@@ -37,7 +37,7 @@ describe('parseSelection', () => {
     expect(parseSelection(many)).toEqual({
       ok: false,
       message:
-        `A bulk action is limited to ${MAX_BULK_SELECTION} cheques at a time; ` +
+        `A bulk action is limited to ${MAX_BULK_SELECTION} checks at a time; ` +
         `${MAX_BULK_SELECTION + 1} are selected. Narrow the selection and try again.`,
     })
   })
@@ -97,7 +97,7 @@ describe('chunkSelection', () => {
     }
   })
 
-  it('de-duplicates before splitting, so one cheque is never released twice', () => {
+  it('de-duplicates before splitting, so one check is never released twice', () => {
     expect(chunkSelection(['a', 'b', 'a', ' b ', ''])).toEqual([['a', 'b']])
   })
 

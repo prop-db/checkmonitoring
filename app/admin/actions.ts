@@ -223,7 +223,7 @@ export async function importWorkbookAction(formData: FormData): Promise<ImportWo
       return {
         ok: false,
         message:
-          `${preview.unruledClashes.length} cheque(s) appear on a combination of sheets Finance ` +
+          `${preview.unruledClashes.length} check(s) appear on a combination of sheets Finance ` +
           'has not ruled on, so the import cannot choose a status for them. Preview the file to see which.',
       }
     }

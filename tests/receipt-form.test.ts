@@ -37,9 +37,9 @@ describe('readRowReceipts', () => {
       .toEqual({ ok: false, message: 'Invalid receipt type.' })
   })
 
-  it('refuses a receipt keyed to a cheque that is not ticked', () => {
+  it('refuses a receipt keyed to a check that is not ticked', () => {
     const r = readRowReceipts(form([['orNumber:z', 'OR-1'], ['receiptType:z', 'OR']]), ['a'])
-    expect(r).toEqual({ ok: false, message: 'A receipt was sent for a cheque that is not ticked. Nothing was saved.' })
+    expect(r).toEqual({ ok: false, message: 'A receipt was sent for a check that is not ticked. Nothing was saved.' })
   })
 
   it('refuses the old single-box fields rather than silently dropping a typed receipt', () => {

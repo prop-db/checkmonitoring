@@ -29,7 +29,7 @@ describe('filters', () => {
 })
 
 describe('mapBillApplication', () => {
-  it('maps a cheque paying a bill, trimmed and upper-cased voucher', () => {
+  it('maps a check paying a bill, trimmed and upper-cased voucher', () => {
     expect(mapBillApplication(golive(), 'GOLIVE')).toEqual({
       paymentRef: 'CV-ST012345', voucher: 'AP-ST042652', lastModifiedOn: new Date('2026-09-29T08:15:00Z'),
     })

@@ -26,7 +26,7 @@ const index = (...rows: ReturnType<typeof registerRow>[]): VoucherIndex =>
 const run = (i: VoucherIndex, dryRun = false) => backfillApvNumbers(testDb, { index: i, dryRun })
 
 describe('indexVouchers', () => {
-  it('groups every voucher the register states under its cheque number', () => {
+  it('groups every voucher the register states under its check number', () => {
     const i = index(
       registerRow(2, '6000353106', 'AP-ST042652'),
       registerRow(3, '6000353107', 'AP-ST042653'),
@@ -35,7 +35,7 @@ describe('indexVouchers', () => {
     expect(i.get('6000353107')).toEqual(['AP-ST042653'])
   })
 
-  it('collects both vouchers when one cheque sits on two sheets', () => {
+  it('collects both vouchers when one check sits on two sheets', () => {
     // Measured 2026-09-07: 360 cheque numbers appear on more than one parsed
     // row and 11 of them state a different voucher on each. Keeping only the
     // last row's is how a voucher goes missing, which is the defect this whole
@@ -54,7 +54,7 @@ describe('indexVouchers', () => {
     expect(i.size).toBe(0)
   })
 
-  it('canonicalises the cheque number through the shared rule', () => {
+  it('canonicalises the check number through the shared rule', () => {
     // `ParsedRow.checkNumber` is what the register STATED; `mapParsedRow` runs
     // it through `canonicalCheckNumber` before the importer stores it. So the
     // index has to key on the canonical form or it looks up a number the
@@ -75,7 +75,7 @@ describe('indexVouchers', () => {
 })
 
 describe('backfillApvNumbers', () => {
-  it('writes the register\'s vouchers onto a cheque that has none', async () => {
+  it('writes the register\'s vouchers onto a check that has none', async () => {
     // The state every one of production's 9,247 register-derived cheques is in:
     // written before the column existed, so the register's voucher is in the
     // workbook and nowhere else.
@@ -95,7 +95,7 @@ describe('backfillApvNumbers', () => {
     expect(second).toMatchObject({ changed: 0, unchanged: 1 })
   })
 
-  it('adds to what a cheque already carries and never replaces it', async () => {
+  it('adds to what a check already carries and never replaces it', async () => {
     // A voucher an import has since written must survive. Nothing here can
     // empty an array or shorten one.
     const check = await makeCheck({ checkNumber: '6000353106', apvNumbers: ['AP-ST042999'] })
@@ -105,7 +105,7 @@ describe('backfillApvNumbers', () => {
     expect(after.apvNumbers).toEqual(['AP-ST042652', 'AP-ST042999'])
   })
 
-  it('skips a cheque number two cheques claim, rather than choosing one', async () => {
+  it('skips a check number two checks claim, rather than choosing one', async () => {
     // The state `scripts/merge-duplicate-cheques.ts` exists to clear. Choosing
     // between them would be this script deciding which company's cheque settled
     // which supplier's bill.
@@ -119,7 +119,7 @@ describe('backfillApvNumbers', () => {
     }
   })
 
-  it('counts a cheque number that is not here rather than failing on it', async () => {
+  it('counts a check number that is not here rather than failing on it', async () => {
     // 2,766 register rows never became cheques — staged for want of a company,
     // or for an ambiguous one. Their vouchers have nowhere to go, and that is
     // an accounting line, not an error.

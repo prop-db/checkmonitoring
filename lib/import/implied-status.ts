@@ -120,7 +120,7 @@ export function resolveImpliedStatus(sheetNames: readonly string[]): ImpliedStat
   if (!ruling) {
     throw new DomainError(
       'UNRULED_STATUS_CLASH',
-      `The register implies ${implied.join(' and ')} for one cheque, on ${sheets.join(', ')}. ` +
+      `The register implies ${implied.join(' and ')} for one check, on ${sheets.join(', ')}. ` +
         'Finance has not ruled on this combination, so the import cannot choose one.',
     )
   }

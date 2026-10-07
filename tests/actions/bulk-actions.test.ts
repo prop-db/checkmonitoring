@@ -44,7 +44,7 @@ function outcomeFor(result: unknown, checkId: string) {
 }
 
 describe('bulkSignAction', () => {
-  it('signs every selected cheque', async () => {
+  it('signs every selected check', async () => {
     const { bulkSignAction } = await import('@/app/checks/bulk-actions')
     const a = await makeCheck({ status: 'SIGNATURE_PENDING' })
     const b = await makeCheck({ status: 'SIGNATURE_PENDING' })
@@ -62,7 +62,7 @@ describe('bulkSignAction', () => {
     }
   })
 
-  it('processes each cheque independently: one refusal does not abort the rest', async () => {
+  it('processes each check independently: one refusal does not abort the rest', async () => {
     const { bulkSignAction } = await import('@/app/checks/bulk-actions')
     // The refused one FIRST, so an implementation that aborts on the first
     // failure leaves the other two untouched and fails this test.
@@ -94,7 +94,7 @@ describe('bulkSignAction', () => {
     expect(outcome.checkNumber).toBe(released.checkNumber)
   })
 
-  it('refuses a non-cheque payment with the spec wording', async () => {
+  it('refuses a non-check payment with the spec wording', async () => {
     const { bulkSignAction } = await import('@/app/checks/bulk-actions')
     const transfer = await makeCheck({ status: 'SIGNATURE_PENDING', isCheque: false })
 
@@ -102,14 +102,14 @@ describe('bulkSignAction', () => {
 
     expect(result.ok).toBe(true)
     expect(outcomeFor(result, transfer.id).message).toBe(
-      'This payment is not a cheque, so it cannot be signed or released. It is tracked here for visibility only.',
+      'This payment is not a check, so it cannot be signed or released. It is tracked here for visibility only.',
     )
   })
 
   it('refuses an empty selection without touching anything', async () => {
     const { bulkSignAction } = await import('@/app/checks/bulk-actions')
     const result = await bulkSignAction(fd([]))
-    expect(result).toEqual({ ok: false, message: 'Select at least one cheque first.' })
+    expect(result).toEqual({ ok: false, message: 'Select at least one check first.' })
   })
 
   it('refuses a selection larger than the cap and writes nothing', async () => {
@@ -127,7 +127,7 @@ describe('bulkSignAction', () => {
     expect((await testDb.check.findUniqueOrThrow({ where: { id: real.id } })).status).toBe('SIGNATURE_PENDING')
   })
 
-  it('writes one audit row per cheque actually changed', async () => {
+  it('writes one audit row per check actually changed', async () => {
     const { bulkSignAction } = await import('@/app/checks/bulk-actions')
     const a = await makeCheck({ status: 'SIGNATURE_PENDING' })
     const released = await makeCheck({ status: 'RELEASED' })
@@ -140,7 +140,7 @@ describe('bulkSignAction', () => {
 })
 
 describe('bulkReadyForReleaseAction', () => {
-  it('marks signed cheques ready and records the pickup date', async () => {
+  it('marks signed checks ready and records the pickup date', async () => {
     const { bulkReadyForReleaseAction } = await import('@/app/checks/bulk-actions')
     const a = await makeCheck({ status: 'SIGNED' })
     const b = await makeCheck({ status: 'SIGNED' })
@@ -163,7 +163,7 @@ describe('bulkReadyForReleaseAction', () => {
 
     expect(result).toEqual({
       ok: false,
-      message: 'Enter the available pickup date before marking cheques ready for release.',
+      message: 'Enter the available pickup date before marking checks ready for release.',
     })
     expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('SIGNED')
   })
@@ -178,7 +178,7 @@ describe('bulkReadyForReleaseAction', () => {
     expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('SIGNED')
   })
 
-  it('an INTERNAL cheque still changes status and produces NO portal event', async () => {
+  it('an INTERNAL check still changes status and produces NO portal event', async () => {
     const { bulkReadyForReleaseAction } = await import('@/app/checks/bulk-actions')
     const internal = await makeCheck({ status: 'SIGNED', eligibility: 'INTERNAL' })
     const supplier = await makeCheck({ status: 'SIGNED', eligibility: 'SUPPLIER' })
@@ -199,7 +199,7 @@ describe('bulkReadyForReleaseAction', () => {
     expect(await testDb.portalEvent.count({ where: { checkId: supplier.id } })).toBe(1)
   })
 
-  it('reports the missing-fields refusal per cheque', async () => {
+  it('reports the missing-fields refusal per check', async () => {
     const { bulkReadyForReleaseAction } = await import('@/app/checks/bulk-actions')
     const noAmount = await makeCheck({ status: 'SIGNED', amount: null })
     const fine = await makeCheck({ status: 'SIGNED' })
@@ -224,11 +224,11 @@ describe('bulkReleaseAction', () => {
 
     const result = await bulkReleaseAction(fd([a.id]))
 
-    expect(result).toEqual({ ok: false, message: 'Only a Finance Admin can mark a cheque RELEASED.' })
+    expect(result).toEqual({ ok: false, message: 'Only a Finance Admin can mark a check RELEASED.' })
     expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('READY_FOR_RELEASE')
   })
 
-  it('releases the selected cheques for a FINANCE_ADMIN', async () => {
+  it('releases the selected checks for a FINANCE_ADMIN', async () => {
     const { bulkReleaseAction } = await import('@/app/checks/bulk-actions')
     currentUser.role = 'FINANCE_ADMIN'
     const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
@@ -255,7 +255,7 @@ describe('bulkReleaseAction', () => {
    * one receipt, and that is the only shape in which a receipt reference has an
    * owner.
    */
-  it('releases each ticked cheque with its OWN receipt, a blank box with none, and never touches crNumber', async () => {
+  it('releases each ticked check with its OWN receipt, a blank box with none, and never touches crNumber', async () => {
     const { bulkReleaseAction } = await import('@/app/checks/bulk-actions')
     currentUser.role = 'FINANCE_ADMIN'
     const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
@@ -296,7 +296,7 @@ describe('bulkReleaseAction', () => {
     expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('READY_FOR_RELEASE')
   })
 
-  it('refuses a receipt keyed to a cheque that is not ticked', async () => {
+  it('refuses a receipt keyed to a check that is not ticked', async () => {
     const { bulkReleaseAction } = await import('@/app/checks/bulk-actions')
     currentUser.role = 'FINANCE_ADMIN'
     const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
@@ -328,7 +328,7 @@ describe('bulkReleaseAction', () => {
 })
 
 describe('bulkRecordReceiptsAction', () => {
-  it('records each typed receipt on its own released cheque, skips blanks, and any Finance user may', async () => {
+  it('records each typed receipt on its own released check, skips blanks, and any Finance user may', async () => {
     const { bulkRecordReceiptsAction } = await import('@/app/checks/bulk-actions')
     const a = await makeCheck({ status: 'RELEASED' })
     const b = await makeCheck({ status: 'RELEASED' })
@@ -347,7 +347,7 @@ describe('bulkRecordReceiptsAction', () => {
     expect((await testDb.check.findUniqueOrThrow({ where: { id: blank.id } })).orNumber).toBeNull()
   })
 
-  it('refuses by name a cheque that already has a receipt, and saves the rest', async () => {
+  it('refuses by name a check that already has a receipt, and saves the rest', async () => {
     const { bulkRecordReceiptsAction } = await import('@/app/checks/bulk-actions')
     const done = await makeCheck({ status: 'RELEASED' })
     await testDb.check.update({ where: { id: done.id }, data: { orNumber: 'OR-OLD', receiptType: 'OR' } })
@@ -363,7 +363,7 @@ describe('bulkRecordReceiptsAction', () => {
     expect((await testDb.check.findUniqueOrThrow({ where: { id: fresh.id } })).orNumber).toBe('OR-2')
   })
 
-  it('refuses a cheque that is not released', async () => {
+  it('refuses a check that is not released', async () => {
     const { bulkRecordReceiptsAction } = await import('@/app/checks/bulk-actions')
     const ready = await makeCheck({ status: 'READY_FOR_RELEASE' })
     const result = await bulkRecordReceiptsAction(fd([ready.id], rk(ready.id, 'OR-1', 'OR')))
@@ -375,7 +375,7 @@ describe('bulkRecordReceiptsAction', () => {
     const { bulkRecordReceiptsAction } = await import('@/app/checks/bulk-actions')
     const a = await makeCheck({ status: 'RELEASED' })
     expect(await bulkRecordReceiptsAction(fd([a.id])))
-      .toEqual({ ok: false, message: 'Type a receipt reference on at least one ticked cheque before saving.' })
+      .toEqual({ ok: false, message: 'Type a receipt reference on at least one ticked check before saving.' })
   })
 
   it('holds the bulk cap', async () => {
@@ -408,7 +408,7 @@ describe('releaseAllReadyAction', () => {
 
     const result = await releaseAllReadyAction(null, confirmed(1))
 
-    expect(result).toEqual({ ok: false, message: 'Only a Finance Admin can mark a cheque RELEASED.' })
+    expect(result).toEqual({ ok: false, message: 'Only a Finance Admin can mark a check RELEASED.' })
     expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('READY_FOR_RELEASE')
   })
 
@@ -426,7 +426,7 @@ describe('releaseAllReadyAction', () => {
     expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('READY_FOR_RELEASE')
   })
 
-  it('releases every READY_FOR_RELEASE and SCHEDULED cheque, and nothing else', async () => {
+  it('releases every READY_FOR_RELEASE and SCHEDULED check, and nothing else', async () => {
     const { releaseAllReadyAction } = await import('@/app/checks/bulk-actions')
     currentUser.role = 'FINANCE_ADMIN'
     const ready = await makeCheck({ status: 'READY_FOR_RELEASE' })
@@ -446,7 +446,7 @@ describe('releaseAllReadyAction', () => {
     expect(result.outcomes.some((o) => o.checkId === signed.id)).toBe(false)
   })
 
-  it('writes one audit row per cheque released', async () => {
+  it('writes one audit row per check released', async () => {
     const { releaseAllReadyAction } = await import('@/app/checks/bulk-actions')
     currentUser.role = 'FINANCE_ADMIN'
     const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
@@ -462,7 +462,7 @@ describe('releaseAllReadyAction', () => {
    * no instruction about them may ever reach the supplier portal, however the
    * release was triggered.
    */
-  it('an INTERNAL cheque releases normally and produces NO portal event', async () => {
+  it('an INTERNAL check releases normally and produces NO portal event', async () => {
     const { releaseAllReadyAction } = await import('@/app/checks/bulk-actions')
     currentUser.role = 'FINANCE_ADMIN'
     const internal = await makeCheck({ status: 'READY_FOR_RELEASE', eligibility: 'INTERNAL' })
@@ -481,7 +481,7 @@ describe('releaseAllReadyAction', () => {
 
   // "73 of 81 released" with no list is unusable to somebody holding a stack of
   // paper. The refusal is the domain's own sentence, per cheque, by number.
-  it('reports each cheque that could not be released, by number and reason', async () => {
+  it('reports each check that could not be released, by number and reason', async () => {
     const { releaseAllReadyAction } = await import('@/app/checks/bulk-actions')
     currentUser.role = 'FINANCE_ADMIN'
     const fine = await makeCheck({ status: 'READY_FOR_RELEASE' })
@@ -498,7 +498,7 @@ describe('releaseAllReadyAction', () => {
     expect(refused.ok).toBe(false)
     expect(refused.checkNumber).toBe(notACheque.checkNumber)
     expect(refused.message).toBe(
-      'This payment is not a cheque, so it cannot be signed or released. It is tracked here for visibility only.',
+      'This payment is not a check, so it cannot be signed or released. It is tracked here for visibility only.',
     )
   })
 
@@ -511,7 +511,7 @@ describe('releaseAllReadyAction', () => {
 
     expect(result.ok).toBe(false)
     if (result.ok) return
-    expect(result.message).toBe('No cheques are ready to release right now.')
+    expect(result.message).toBe('No checks are ready to release right now.')
   })
 
   /**
@@ -523,7 +523,7 @@ describe('releaseAllReadyAction', () => {
    * A set that has SHRUNK is fine: somebody else released some, and releasing
    * the remainder is exactly what was agreed to.
    */
-  it('refuses when more cheques are ready than the count that was confirmed', async () => {
+  it('refuses when more checks are ready than the count that was confirmed', async () => {
     const { releaseAllReadyAction } = await import('@/app/checks/bulk-actions')
     currentUser.role = 'FINANCE_ADMIN'
     const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
@@ -612,7 +612,7 @@ describe('releaseAllReadyAction', () => {
    * mismatch this dashboard exists to prevent, and it is money. The server
    * re-derives the set from the same filter the panel counted.
    */
-  it('releases only the ready cheques of the company on screen', async () => {
+  it('releases only the ready checks of the company on screen', async () => {
     const { releaseAllReadyAction } = await import('@/app/checks/bulk-actions')
     currentUser.role = 'FINANCE_ADMIN'
     const mine = await makeCheck({ status: 'READY_FOR_RELEASE' })
@@ -719,7 +719,7 @@ describe('releaseAllReadyAction', () => {
 })
 
 describe('bulkRevertToSignedAction', () => {
-  it('lets a Finance user revert ready and scheduled cheques, with the reason on each audit row', async () => {
+  it('lets a Finance user revert ready and scheduled checks, with the reason on each audit row', async () => {
     const { bulkRevertToSignedAction } = await import('@/app/checks/bulk-actions')
     const a = await makeCheck({ status: 'READY_FOR_RELEASE', availablePickupDate: new Date('2026-09-26') })
     const b = await makeCheck({ status: 'SCHEDULED' })
@@ -750,7 +750,7 @@ describe('bulkRevertToSignedAction', () => {
     expect(await testDb.auditLog.count({ where: { checkId: a.id, action: 'reverted_availability' } })).toBe(0)
   })
 
-  it('reports a cheque that has moved on and still reverts the rest', async () => {
+  it('reports a check that has moved on and still reverts the rest', async () => {
     const { bulkRevertToSignedAction } = await import('@/app/checks/bulk-actions')
     const ready = await makeCheck({ status: 'READY_FOR_RELEASE' })
     const released = await makeCheck({ status: 'RELEASED' })
@@ -801,7 +801,7 @@ describe('signAllPendingAction', () => {
     expect((await testDb.check.findUniqueOrThrow({ where: { id: p.id } })).status).toBe('SIGNED')
   })
 
-  it('signs only the pending cheques of the company on screen', async () => {
+  it('signs only the pending checks of the company on screen', async () => {
     const { signAllPendingAction } = await import('@/app/checks/bulk-actions')
     const mine = await makeCheck({ status: 'SIGNATURE_PENDING' })
     const other = await makeCheck({ status: 'SIGNATURE_PENDING' })
@@ -843,7 +843,7 @@ describe('signAllPendingAction', () => {
     expect(await signedRows()).toBe(0)
   })
 
-  it('signs only the pending cheques the column filters on screen admit', async () => {
+  it('signs only the pending checks the column filters on screen admit', async () => {
     const { signAllPendingAction } = await import('@/app/checks/bulk-actions')
     const acme = await makeCheck({ status: 'SIGNATURE_PENDING', payeeName: 'ACME TRADING' })
     const other = await makeCheck({ status: 'SIGNATURE_PENDING', payeeName: 'HENKEL PHILIPPINES INC.' })
@@ -865,7 +865,7 @@ describe('signAllPendingAction', () => {
 })
 
 describe('bulkRevertToPendingAction', () => {
-  it('reverts the ticked SIGNED cheques, refuses the rest per cheque, reason optional', async () => {
+  it('reverts the ticked SIGNED checks, refuses the rest per check, reason optional', async () => {
     const { bulkRevertToPendingAction } = await import('@/app/checks/bulk-actions')
     const s = await makeCheck({ status: 'SIGNED' })
     const r = await makeCheck({ status: 'READY_FOR_RELEASE' })

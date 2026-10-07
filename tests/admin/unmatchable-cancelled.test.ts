@@ -11,13 +11,13 @@ async function parked(checkId: string, kind: 'CANCELLED' | 'MARK_AVAILABLE' = 'C
   return testDb.portalEvent.create({
     data: {
       checkId, direction: 'OUT', kind, status, attempts: 1, idempotencyKey: `${checkId}:${kind}:${Math.random()}`,
-      payload: {}, lastError: 'cheque x has no APV numbers; the portal requires at least one',
+      payload: {}, lastError: 'check x has no APV numbers; the portal requires at least one',
     },
   })
 }
 
 describe('findUnmatchableCancelled', () => {
-  it('selects only PARKED CANCELLED events whose cheque has no APV', async () => {
+  it('selects only PARKED CANCELLED events whose check has no APV', async () => {
     const bare = await makeCheck({ status: 'VOIDED', apvNumbers: [] })
     const withApv = await makeCheck({ status: 'VOIDED', apvNumbers: ['AP-1'] })
     const withBill = await makeCheck({ status: 'VOIDED', apvNumbers: [] })
@@ -35,7 +35,7 @@ describe('findUnmatchableCancelled', () => {
 })
 
 describe('closeUnmatchableCancelled', () => {
-  it('closes unsent, sets the cheque NOT_APPLICABLE, and writes one audit row each', async () => {
+  it('closes unsent, sets the check NOT_APPLICABLE, and writes one audit row each', async () => {
     const check = await makeCheck({ status: 'VOIDED', apvNumbers: [] })
     await testDb.check.update({ where: { id: check.id }, data: { portalSyncStatus: 'PENDING', portalDomain: 'LOCAL' } })
     const ev = await parked(check.id)
@@ -58,7 +58,7 @@ describe('closeUnmatchableCancelled', () => {
     expect(await testDb.auditLog.count({ where: { action: 'portal_event_closed_unmatchable' } })).toBe(1)
   })
 
-  it('skips a row whose cheque vanished since listing, and still closes the others', async () => {
+  it('skips a row whose check vanished since listing, and still closes the others', async () => {
     const gone = await makeCheck({ status: 'VOIDED', apvNumbers: [] })
     const kept = await makeCheck({ status: 'VOIDED', apvNumbers: [] })
     const evGone = await parked(gone.id); const evKept = await parked(kept.id)
@@ -70,7 +70,7 @@ describe('closeUnmatchableCancelled', () => {
     expect((await testDb.portalEvent.findUniqueOrThrow({ where: { id: evKept.id } })).status).toBe('SYNCED')
   })
 
-  it('leaves a row that is no longer PARKED, or whose cheque gained an APV, untouched', async () => {
+  it('leaves a row that is no longer PARKED, or whose check gained an APV, untouched', async () => {
     const a = await makeCheck({ status: 'VOIDED', apvNumbers: [] })
     const b = await makeCheck({ status: 'VOIDED', apvNumbers: [] })
     const evA = await parked(a.id); const evB = await parked(b.id)

@@ -484,8 +484,8 @@ async function promoteStagedRows(
           companyCode,
         },
         remarks:
-          `${where} was staged because nothing said which company cheque ${checkNumber} ` +
-          `belonged to. Acumatica states ${companyCode}, so it is linked to this cheque. ` +
+          `${where} was staged because nothing said which company check ${checkNumber} ` +
+          `belonged to. Acumatica states ${companyCode}, so it is linked to this check. ` +
           'The staged row is kept as the record of why it was held.',
       })
     })

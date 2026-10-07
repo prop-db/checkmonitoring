@@ -10,7 +10,7 @@ beforeEach(resetDb)
 // directions and reports what it changed, because a backfill that says nothing
 // is one nobody can tell has run.
 describe('backfillIncompleteFlags', () => {
-  it('flags every cheque with no recorded amount', async () => {
+  it('flags every check with no recorded amount', async () => {
     const a = await makeCheck({ amount: null })
     const b = await makeCheck({ amount: null })
     await testDb.check.updateMany({ where: {}, data: { isIncomplete: false } })
@@ -38,7 +38,7 @@ describe('backfillIncompleteFlags', () => {
   // The other direction. A row flagged incomplete whose amount somebody has
   // since filled in would otherwise sit in the queue for ever, and the count on
   // the dashboard would never come down.
-  it('clears the flag from a cheque that now records an amount', async () => {
+  it('clears the flag from a check that now records an amount', async () => {
     const check = await makeCheck({ amount: '197715.42' })
     await testDb.check.update({ where: { id: check.id }, data: { isIncomplete: true } })
 
@@ -52,7 +52,7 @@ describe('backfillIncompleteFlags', () => {
   // distinction `formatMoney` and `getSummary` keep. A backfill that read
   // "falsy" instead of "null" would flag a cheque genuinely drawn for nothing
   // and offer it for deletion.
-  it('does not flag a cheque recorded as zero', async () => {
+  it('does not flag a check recorded as zero', async () => {
     await makeCheck({ amount: '0.00' })
     const result = await backfillIncompleteFlags(testDb)
     expect(result).toEqual({ flagged: 0, unflagged: 0, incomplete: 0, total: 1 })

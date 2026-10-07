@@ -59,7 +59,7 @@ export function SyncStatusLine({ staleness, isAdmin }: { staleness: Staleness; i
        * so something MAY be missing, and the detail lives on /admin/sync.
        */}
       <p className="mt-1">
-        Acumatica has not been read cleanly since then, so cheques generated since may be missing —{' '}
+        Acumatica has not been read cleanly since then, so checks generated since may be missing —{' '}
         <Link href="/admin/sync" className="underline underline-offset-2">/admin/sync</Link> shows
         what the last attempt reported. {parts.join(' · ')}.{' '}
         {isAdmin ? (

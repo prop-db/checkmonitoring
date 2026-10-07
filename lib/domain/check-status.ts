@@ -111,7 +111,7 @@ const REQUIRED_FIELDS: readonly (readonly [keyof ReadyGuardInput, string])[] = [
   ['payeeName', 'PAYEE'],
   ['amount', 'AMOUNT'],
   ['checkDate', 'CHECK DATE'],
-  ['cashAccountCode', 'CASH ACCOUNT / CHEQUE BOOK'],
+  ['cashAccountCode', 'CASH ACCOUNT / CHECK BOOK'],
   ['availablePickupDate', 'AVAILABLE PICKUP DATE'],
 ]
 
@@ -122,7 +122,7 @@ function isBlank(value: unknown): boolean {
 }
 
 const NOT_A_CHEQUE_MESSAGE =
-  'This payment is not a cheque, so it cannot be signed or released. It is tracked here for visibility only.'
+  'This payment is not a check, so it cannot be signed or released. It is tracked here for visibility only.'
 
 // A non-cheque payment (an Acumatica transfer with no physical document) can
 // never enter the release ladder. Thrown from markSigned and markReleased,

@@ -60,7 +60,7 @@ export async function closeUnmatchableCancelled(db: PrismaClient, rows: readonly
       await writeAudit(tx, {
         checkId: r.checkId, actorType: 'SYSTEM', action: 'portal_event_closed_unmatchable',
         details: { eventId: r.eventId, kind: 'CANCELLED', attempts: r.attempts, lastError: r.lastError, closedAt: now.toISOString() },
-        remarks: 'Closed unsent: the cheque carries no APV, so the portal cannot match a CANCELLED event for it.',
+        remarks: 'Closed unsent: the check carries no APV, so the portal cannot match a CANCELLED event for it.',
       })
       return true
     }, TX_OPTIONS)

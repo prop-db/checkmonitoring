@@ -241,7 +241,7 @@ export async function applyStatedReleaseDates(
           registerRows: release.rows,
         },
         remarks:
-          `${plan.file} states DATE RELEASED ${day} for this cheque (${release.rows.map((r) => `${r.sheet} row ${r.row}`).join(', ')}). ` +
+          `${plan.file} states DATE RELEASED ${day} for this check (${release.rows.map((r) => `${r.sheet} row ${r.row}`).join(', ')}). ` +
           'Recorded as the stated release day on the request of 2026-09-28 so the DATE RELEASED filter can find it. ' +
           'Only statedReleaseDate was written; releasedAt, releasedById and the status are untouched — ' +
           'the app did not record this release and does not claim to have.',

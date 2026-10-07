@@ -377,7 +377,7 @@ export default async function DashboardPage({
         <p className="text-xs font-medium tracking-wide text-slate-500">
           NOT MATCHED: {undatedReleases.toLocaleString('en-PH')} RELEASED{' '}
           {undatedReleases === 1 ? 'CHECK CARRIES' : 'CHECKS CARRY'} NO RELEASE DATE — neither recorded
-          here nor stated in the register. Only a cheque with one of those dates can fall inside a range.
+          here nor stated in the register. Only a check with one of those dates can fall inside a range.
         </p>
       )}
 
@@ -395,13 +395,13 @@ export default async function DashboardPage({
 
       {incomplete && (
         <p className="rounded-lg bg-warning-bg px-4 py-2 text-sm text-warning-ink">
-          SHOWING ONLY THE INCOMPLETE RECORDS — cheques whose amount the register never recorded.
-          They are real cheques and they are still here; they are simply left out of the
+          SHOWING ONLY THE INCOMPLETE RECORDS — checks whose amount the register never recorded.
+          They are real checks and they are still here; they are simply left out of the
           dashboard&rsquo;s counts and its table, and out of every currency total, because there
           is no figure of theirs to add.{' '}
           {/* The toggle's own off-link, so clearing it keeps the view. */}
           <Link href={incompleteHref(selection)} className="underline underline-offset-2">
-            Back to the cheques with amounts
+            Back to the checks with amounts
           </Link>.
         </p>
       )}

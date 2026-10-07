@@ -145,7 +145,7 @@ describe('upsertCheck — creating', () => {
     expect(check.crNumber).toBeNull()
   })
 
-  it('an Acumatica row whose CashAccount is a cheque book gets that book; a non-book code gets none (spec §D)', async () => {
+  it('an Acumatica row whose CashAccount is a check book gets that book; a non-book code gets none (spec §D)', async () => {
     const { company, cashAccount } = await seedCompany()
     const book = await testDb.checkBook.create({ data: { code: 'BPI-S-4636', bankId: cashAccount.bankId, companyId: company.id } })
     await upsert(acumaticaRow({ ReferenceNbr: 'CV-ST-1', PaymentRef: 'BPI 6000400001', CashAccount: 'BPI-S-4636' }))
@@ -161,7 +161,7 @@ describe('upsertCheck — creating', () => {
     for (const audit of audits) expect(audit.details).not.toHaveProperty('checkBookRefused')
   })
 
-  it('sets a cheque book filed under another company on create: books are shared (spec §E)', async () => {
+  it('sets a check book filed under another company on create: books are shared (spec §E)', async () => {
     await seedCompany()
     const a1 = await seedCompany('A1+', 'A1+ Multinational Packaging Inc.')
     // The code names a book on record under A1+; Branch ST files the cheque under STK.
@@ -187,7 +187,7 @@ describe('upsertCheck — creating', () => {
     expect(check.crNumber).toBeNull()
   })
 
-  it('writes the vouchers the source states onto the cheque', async () => {
+  it('writes the vouchers the source states onto the check', async () => {
     // The whole point of the change. `AP-ST042652` was parsed out of the
     // register on every import and then dropped on the floor, because `Check`
     // had no column to put it in — so 84 vouchers were in the database against
@@ -216,7 +216,7 @@ describe('upsertCheck — creating', () => {
     expect(check.checkBookId).toBeNull()
   })
 
-  it('stores a cheque the register records no amount or payee for', async () => {
+  it('stores a check the register records no amount or payee for', async () => {
     await seedCompany()
     await upsert(row({ amount: null, payeeName: null }))
     const check = await testDb.check.findFirstOrThrow()
@@ -236,7 +236,7 @@ describe('upsertCheck — creating', () => {
 })
 
 describe('upsertCheck — re-importing', () => {
-  it('updates rather than duplicating on the same company and cheque number', async () => {
+  it('updates rather than duplicating on the same company and check number', async () => {
     await seedCompany()
     const first = await upsert(row())
     const second = await upsert(row({ amount: '200000.00', sourceRow: 900 }))
@@ -374,7 +374,7 @@ describe('upsertCheck — re-importing', () => {
   //
   // What survives unchanged is the reason a row with NO company is staged
   // rather than guessed at, which the staging tests still pin.
-  it('treats the same cheque number under a different company as the same cheque', async () => {
+  it('treats the same check number under a different company as the same check', async () => {
     await seedCompany('STK')
     await seedCompany('A1+', 'A1+ Multinational Packaging Inc.')
     await upsert(row({ companyCode: 'STK', cashAccountCode: 'BPI STK', checkBookCode: null }))
@@ -382,7 +382,7 @@ describe('upsertCheck — re-importing', () => {
     expect(await testDb.check.count()).toBe(1)
   })
 
-  it('never changes status: a cheque a Finance user has SIGNED stays SIGNED', async () => {
+  it('never changes status: a check a Finance user has SIGNED stays SIGNED', async () => {
     await seedCompany()
     const created = await upsert(row({ sourceSheet: 'MBTC P&P' }))
     const id = created.outcome === 'CREATED' ? created.checkId : ''
@@ -498,7 +498,7 @@ describe('upsertCheck — re-importing', () => {
     expect(check.acumaticaDocType).toBe('Payment')
   })
 
-  it('moves a cheque to another book of its own company Acumatica now names, and records the move', async () => {
+  it('moves a check to another book of its own company Acumatica now names, and records the move', async () => {
     const { company, cashAccount } = await seedCompany()
     const bookA = await testDb.checkBook.create({ data: { code: 'BPI-S-4636', bankId: cashAccount.bankId, companyId: company.id } })
     const bookB = await testDb.checkBook.create({ data: { code: 'BPI-S-4637', bankId: cashAccount.bankId, companyId: company.id } })
@@ -516,7 +516,7 @@ describe('upsertCheck — re-importing', () => {
     expect(audit.details).not.toHaveProperty('checkBookRefused')
   })
 
-  it('moves a cheque to a book Acumatica names under another company, and records the move (spec §E)', async () => {
+  it('moves a check to a book Acumatica names under another company, and records the move (spec §E)', async () => {
     const { company, cashAccount } = await seedCompany()
     const a1 = await seedCompany('A1+', 'A1+ Multinational Packaging Inc.')
     const bookA = await testDb.checkBook.create({ data: { code: 'BPI-S-4636', bankId: cashAccount.bankId, companyId: company.id } })
@@ -547,7 +547,7 @@ describe('upsertCheck — re-importing', () => {
 })
 
 describe('upsertCheck — eligibility and the portal', () => {
-  it('classifies through classifyEligibility and routes a supplier cheque', async () => {
+  it('classifies through classifyEligibility and routes a supplier check', async () => {
     await seedCompany()
     await upsert(row({ payeeName: 'HENKEL PHILIPPINES INC.' }))
     const check = await testDb.check.findFirstOrThrow()
@@ -557,7 +557,7 @@ describe('upsertCheck — eligibility and the portal', () => {
     expect(check.portalSyncStatus).toBe('NOT_APPLICABLE')
   })
 
-  it('gives an INTERNAL cheque no portal routing state at all', async () => {
+  it('gives an INTERNAL check no portal routing state at all', async () => {
     await seedCompany()
     await upsert(row({ payeeName: 'BUREAU OF INTERNAL REVENUE' }))
     const check = await testDb.check.findFirstOrThrow()
@@ -566,7 +566,7 @@ describe('upsertCheck — eligibility and the portal', () => {
     expect(check.portalSyncStatus).toBe('NOT_APPLICABLE')
   })
 
-  it('classifies a cheque with no payee INTERNAL, which is what keeps it off the portal', async () => {
+  it('classifies a check with no payee INTERNAL, which is what keeps it off the portal', async () => {
     await seedCompany()
     await upsert(row({ payeeName: null }))
     const check = await testDb.check.findFirstOrThrow()
@@ -574,7 +574,7 @@ describe('upsertCheck — eligibility and the portal', () => {
     expect(check.portalDomain).toBeNull()
   })
 
-  it('clears portal routing when a re-import reclassifies a cheque INTERNAL', async () => {
+  it('clears portal routing when a re-import reclassifies a check INTERNAL', async () => {
     await seedCompany()
     await upsert(row({ payeeName: 'HENKEL PHILIPPINES INC.' }))
     await upsert(row({ payeeName: 'SSS CONTRIBUTIONS' }))
@@ -748,7 +748,7 @@ describe('upsertCheck — another payment on a number already held (full check 2
 })
 
 describe('upsertCheck — voiding', () => {
-  it('voids a cheque Acumatica reports voided, through the domain action', async () => {
+  it('voids a check Acumatica reports voided, through the domain action', async () => {
     await seedCompany()
     await upsert(row({
       source: 'ACUMATICA', voided: true, sourceSheet: null, sourceRow: null,
@@ -770,7 +770,7 @@ describe('upsertCheck — voiding', () => {
     expect(check.portalSyncStatus).toBe('PENDING')
   })
 
-  it('a cheque created already voided, with no APV, queues no portal event (spec 2026-10-01 §A1)', async () => {
+  it('a check created already voided, with no APV, queues no portal event (spec 2026-10-01 §A1)', async () => {
     await seedCompany()
     await upsert(row({
       source: 'ACUMATICA', voided: true, sourceSheet: null, sourceRow: null, apvNumbers: [],
@@ -782,7 +782,7 @@ describe('upsertCheck — voiding', () => {
     expect(await testDb.portalEvent.count({ where: { checkId: check.id } })).toBe(0)
   })
 
-  it('is idempotent: re-importing a voided cheque does not void it twice', async () => {
+  it('is idempotent: re-importing a voided check does not void it twice', async () => {
     await seedCompany()
     const voidedRow = row({
       source: 'ACUMATICA', voided: true, sourceSheet: null, sourceRow: null,
@@ -897,13 +897,13 @@ describe('upsertCheck — the contradiction ruling', () => {
 // row (both signals present and disagreeing, 17 rows, cash account wins). This
 // one is across rows sharing a cheque number, which `resolveCompany` cannot see
 // because it only ever looks at one row.
-describe('upsertCheck — a cheque number claimed by two companies', () => {
+describe('upsertCheck — a check number claimed by two companies', () => {
   async function twoCompanies() {
     await seedCompany('STK')
     await seedCompany('A1+', 'A1+ Multinational Packaging Inc.')
   }
 
-  it('stages every row for the cheque number and imports none of them', async () => {
+  it('stages every row for the check number and imports none of them', async () => {
     await twoCompanies()
     const claimed = ['STK', 'A1+']
 
@@ -965,7 +965,7 @@ describe('upsertCheck — a cheque number claimed by two companies', () => {
   })
 })
 
-describe('upsertCheck — a cheque already stored under the wrong company', () => {
+describe('upsertCheck — a check already stored under the wrong company', () => {
   async function twoCompanies() {
     const stk = await seedCompany('STK')
     const a1 = await seedCompany('A1+', 'A1+ Multinational Packaging Inc.')
@@ -990,7 +990,7 @@ describe('upsertCheck — a cheque already stored under the wrong company', () =
     ...overrides,
   })
 
-  it('finds the cheque under the other company and corrects it, rather than storing it twice', async () => {
+  it('finds the check under the other company and corrects it, rather than storing it twice', async () => {
     const { a1 } = await twoCompanies()
     const first = await upsert(row({ checkNumber: '6000308848', companyCode: 'STK' }))
     const second = await upsert(feed({ checkNumber: '6000308848' }))
@@ -1056,7 +1056,7 @@ describe('upsertCheck — a cheque already stored under the wrong company', () =
     expect(after.companyId).toBe(a1.id)
   })
 
-  it('stages rather than guessing when two cheques already carry the number', async () => {
+  it('stages rather than guessing when two checks already carry the number', async () => {
     const { stk, a1 } = await twoCompanies()
     await seedCompany('STPP', 'Starkson Paper and Plastic')
     // The pre-existing pair this fix exists to prevent, created directly so the
@@ -1078,7 +1078,7 @@ describe('upsertCheck — a cheque already stored under the wrong company', () =
     expect([...staged.conflictingCompanies].sort()).toEqual(['A1+', 'STK', 'STPP'])
   })
 
-  it('still creates a cheque whose number nothing carries', async () => {
+  it('still creates a check whose number nothing carries', async () => {
     await twoCompanies()
     await upsert(row({ checkNumber: '6000308848', companyCode: 'STK' }))
     const out = await upsert(feed({ checkNumber: '6000399999' }))
@@ -1150,7 +1150,7 @@ describe('importRows — running the whole import', () => {
     expect(await testDb.stagedCheck.count()).toBe(4)
   })
 
-  it('resolves the implied status from every sheet a cheque appears on', async () => {
+  it('resolves the implied status from every sheet a check appears on', async () => {
     await seedCompany('STK')
     await importRows(testDb, {
       rows: [
@@ -1193,7 +1193,7 @@ describe('upsertCheck — staging a payment that came from Acumatica', () => {
     ...overrides,
   })
 
-  it('stages a cheque whose reference is a memo instead of a number', async () => {
+  it('stages a check whose reference is a memo instead of a number', async () => {
     await seedCompany()
     const out = await upsert(feedRow())
     expect(out).toMatchObject({ outcome: 'STAGED', reason: 'NO_CHECK_NUMBER' })
@@ -1257,7 +1257,7 @@ describe('upsertCheck — staging a payment that came from Acumatica', () => {
     expect(await testDb.stagedCheck.count()).toBe(2)
   })
 
-  it('does not collide with a register row staged under the same cheque number', async () => {
+  it('does not collide with a register row staged under the same check number', async () => {
     await seedCompany()
     await upsert(row({ companyCode: null, sourceSheet: 'BPI RELEASED', sourceRow: 77 }))
     await upsert(feedRow({ checkNumber: null }))
@@ -1283,13 +1283,13 @@ describe('upsertCheck — staging a payment that came from Acumatica', () => {
 // stored derivation drifts unless every writer maintains it. The import is the
 // only writer of `amount`, so it is the only place that can.
 describe('upsertCheck — the incomplete flag', () => {
-  it('flags a created cheque whose row carries no amount', async () => {
+  it('flags a created check whose row carries no amount', async () => {
     await seedCompany()
     await upsert(row({ amount: null }))
     expect((await testDb.check.findFirstOrThrow()).isIncomplete).toBe(true)
   })
 
-  it('does not flag a created cheque that has an amount', async () => {
+  it('does not flag a created check that has an amount', async () => {
     await seedCompany()
     await upsert(row())
     expect((await testDb.check.findFirstOrThrow()).isIncomplete).toBe(false)
@@ -1307,7 +1307,7 @@ describe('upsertCheck — the incomplete flag', () => {
   // so the flag must stand with it — deriving the flag from `row.amount` alone
   // would flag a cheque whose amount the register recorded perfectly well, on
   // the next Acumatica sync that happened not to publish one.
-  it('does not flag a cheque whose amount the other source simply does not carry', async () => {
+  it('does not flag a check whose amount the other source simply does not carry', async () => {
     await seedCompany()
     await upsert(row())
     await upsert(row({

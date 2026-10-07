@@ -9,7 +9,7 @@ function row(o: Partial<ForecastRow> & { id: string }): ForecastRow {
   return {
     checkNumber: o.id, payee: 'HENKEL PHILIPPINES INC.', bank: 'BPI', company: 'STK',
     stage: 'SIGNED', currency: 'PHP', amount: '100.00', checkDate: daysAgo(3),
-    kind: 'CHEQUE', expectedOutflowDate: null,
+    kind: 'CHECK', expectedOutflowDate: null,
     ...o,
   }
 }
@@ -94,13 +94,13 @@ describe('buildMatrices — expected dates and planned lines', () => {
     checkNumber: 'PLANNED', payee: 'SEPT PAYROLL', stage: 'PLANNED', kind: 'PLANNED', ...o,
   })
 
-  it('places a cheque on its expected date when it has one, and says so', () => {
+  it('places a check on its expected date when it has one, and says so', () => {
     const { byBank, bucketed } = buildMatrices([
       row({ id: 'a', checkDate: daysAgo(40), expectedOutflowDate: daysAgo(-1) }),
       row({ id: 'b', checkDate: daysAgo(40) }),
     ], TODAY)
     expect(bucketed.find((r) => r.id === 'a')).toMatchObject({ bucket: 'THIS WEEK', dateBasis: 'EXPECTED', days: -1 })
-    expect(bucketed.find((r) => r.id === 'b')).toMatchObject({ bucket: '31–60 DAYS', dateBasis: 'CHEQUE DATE' })
+    expect(bucketed.find((r) => r.id === 'b')).toMatchObject({ bucket: '31–60 DAYS', dateBasis: 'CHECK DATE' })
     expect(byBank.rows.find((r) => r.bucket === '31–60 DAYS')!.cells.BPI.count).toBe(1)
   })
 

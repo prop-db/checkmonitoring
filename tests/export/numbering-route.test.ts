@@ -50,7 +50,7 @@ describe('GET /api/export/numbering', () => {
     expect(state.dbTouches).toBe(0)
   })
 
-  it('serves an uncached file named cheque-numbering-<day>.xlsx', async () => {
+  it('serves an uncached file named check-numbering-<day>.xlsx', async () => {
     await chequeInBook('1')
     const res = await get('http://localhost/api/export/numbering')
     expect(res.status).toBe(200)
@@ -58,7 +58,7 @@ describe('GET /api/export/numbering', () => {
     expect(res.headers.get('cache-control')).toContain('no-store')
   })
 
-  it('honours account: the file holds that cheque book only', async () => {
+  it('honours account: the file holds that check book only', async () => {
     const a = await chequeInBook('1')
     await chequeInBook('2')
     const res = await get(`http://localhost/api/export/numbering?account=${a.book.id}`)
@@ -72,18 +72,18 @@ describe('GET /api/export/numbering', () => {
     expect(String(wb.getWorksheet(NUMBERING_SUMMARY_SHEET)!.getCell('A4').value)).not.toContain('REGISTER-ONLY')
   })
 
-  it('states the register-only cheques on SUMMARY and leaves them out of every sheet (spec §G2)', async () => {
+  it('states the register-only checks on SUMMARY and leaves them out of every sheet (spec §G2)', async () => {
     await chequeInBook('1')
     await makeCheck({ checkNumber: '2' }) // register-only
     const res = await get('http://localhost/api/export/numbering')
     expect(res.status).toBe(200)
     const wb = new ExcelJS.Workbook()
     await wb.xlsx.load(await res.arrayBuffer())
-    expect(String(wb.getWorksheet(NUMBERING_SUMMARY_SHEET)!.getCell('A4').value)).toContain('1 REGISTER-ONLY CHEQUE (NOT IN ACUMATICA) IS NOT SHOWN.')
+    expect(String(wb.getWorksheet(NUMBERING_SUMMARY_SHEET)!.getCell('A4').value)).toContain('1 REGISTER-ONLY CHECK (NOT IN ACUMATICA) IS NOT SHOWN.')
     expect(wb.worksheets).toHaveLength(3)
   })
 
-  it('with a cheque book set, a company filter does not leak into the file description', async () => {
+  it('with a check book set, a company filter does not leak into the file description', async () => {
     const a = await chequeInBook('1')
     const b = await chequeInBook('2')
     expect(a.cheque.companyId).not.toBe(b.cheque.companyId)
@@ -92,18 +92,18 @@ describe('GET /api/export/numbering', () => {
     const wb = new ExcelJS.Workbook()
     await wb.xlsx.load(await res.arrayBuffer())
     const a2 = String(wb.getWorksheet(NUMBERING_SUMMARY_SHEET)!.getCell('A2').value)
-    expect(a2).toContain('CHEQUE BOOK:')
+    expect(a2).toContain('CHECK BOOK:')
     expect(a2).not.toContain('COMPANY:')
   })
 
-  it('refuses an unknown cheque book with 404 rather than widening to every cheque book', async () => {
+  it('refuses an unknown check book with 404 rather than widening to every check book', async () => {
     await chequeInBook('1')
     const res = await get('http://localhost/api/export/numbering?account=nope')
     expect(res.status).toBe(404)
-    expect(await res.text()).toBe('UNKNOWN CHEQUE BOOK')
+    expect(await res.text()).toBe('UNKNOWN CHECK BOOK')
   })
 
-  it('refuses a cash-account id with 404: the account parameter names a cheque book', async () => {
+  it('refuses a cash-account id with 404: the account parameter names a check book', async () => {
     const { cheque } = await chequeInBook('1')
     const res = await get(`http://localhost/api/export/numbering?account=${cheque.cashAccountId}`)
     expect(res.status).toBe(404)

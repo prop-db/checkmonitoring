@@ -135,7 +135,7 @@ describe('recordReceipt', () => {
     return { user, check }
   }
 
-  it('adds the receipt to a cheque already released without one', async () => {
+  it('adds the receipt to a check already released without one', async () => {
     const { user, check } = await releasedCheque()
     const out = await recordReceipt(testDb, {
       checkId: check.id, userId: user.id,
@@ -173,7 +173,7 @@ describe('recordReceipt', () => {
     expect(after.clearingStatus).toBe('NONE')
   })
 
-  it('refuses a cheque that has not been released', async () => {
+  it('refuses a check that has not been released', async () => {
     const { user, check } = await readyCheque()
     await expect(recordReceipt(testDb, {
       checkId: check.id, userId: user.id, orNumber: 'OR-1', receiptType: 'OR', now: LATER,
@@ -189,7 +189,7 @@ describe('recordReceipt', () => {
    * over. The supplier's receipt for that hand-over is part of the same
    * evidence, so it can still be recorded.
    */
-  it('accepts a cheque voided after it was released', async () => {
+  it('accepts a check voided after it was released', async () => {
     const { user, check } = await releasedCheque()
     await voidCheck(testDb, { checkId: check.id, reason: 'Stop payment', now: LATER })
     const out = await recordReceipt(testDb, {
@@ -233,7 +233,7 @@ describe('recordReceipt', () => {
     expect(await receiptRows(check.id)).toHaveLength(1)
   })
 
-  it('refuses a cheque that does not exist', async () => {
+  it('refuses a check that does not exist', async () => {
     const user = await makeUser()
     await expect(recordReceipt(testDb, {
       checkId: 'nope', userId: user.id, orNumber: 'OR-1', receiptType: 'OR', now: LATER,

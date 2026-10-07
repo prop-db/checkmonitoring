@@ -248,9 +248,9 @@ function resolveOne(voucher: string, candidates: readonly CheckCandidate[]): Vou
     return withoutCheque(
       voucher,
       CONTESTED,
-      `More than one live cheque names this voucher: ${live.map(describeConflict).join('; ')}. ` +
-        'Settle it in Check Release Monitoring; no cheque number is given here because ' +
-        'attaching a bill to the wrong cheque tells a supplier the wrong thing.',
+      `More than one live check names this voucher: ${live.map(describeConflict).join('; ')}. ` +
+        'Settle it in Check Release Monitoring; no check number is given here because ' +
+        'attaching a bill to the wrong check tells a supplier the wrong thing.',
     )
   }
   // Nothing live. One dead cheque is still an answer — "the cheque for this was
@@ -259,7 +259,7 @@ function resolveOne(voucher: string, candidates: readonly CheckCandidate[]): Vou
   return withoutCheque(
     voucher,
     ALL_CANCELLED,
-    `Every cheque naming this voucher was cancelled or voided: ${dead.map(describeConflict).join('; ')}.`,
+    `Every check naming this voucher was cancelled or voided: ${dead.map(describeConflict).join('; ')}.`,
   )
 }
 
@@ -296,7 +296,7 @@ function stagedRow(voucher: string, rows: readonly StagedCandidate[]): VoucherRo
   return withoutCheque(
     voucher,
     NOT_KEYED,
-    'A staged row names this voucher and was never settled, so no cheque ' +
+    'A staged row names this voucher and was never settled, so no check ' +
       `number can be given here — see /admin/staged. ${where}.`,
   )
 }

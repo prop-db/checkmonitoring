@@ -35,7 +35,7 @@ const BROKERS = {
 const PIVOT = { name: 'PIVOT', rows: [[null, 'BANK', 'MBTC P&P'], ['Row Labels', 'Sum']] }
 
 describe('readReleaseList', () => {
-  it('finds the header on rows 1-3 of each sheet, skips a pivot and its drill-down, and reads vouchers and cheque numbers', () => {
+  it('finds the header on rows 1-3 of each sheet, skips a pivot and its drill-down, and reads vouchers and check numbers', () => {
     const r = readReleaseList([DETAIL1, LOCAL, BROKERS, PIVOT])
     expect(r.sheets).toEqual([
       { sheet: 'Detail1', read: false, entries: 0 },
@@ -57,13 +57,13 @@ describe('judge', () => {
     id: 'x', checkNumber: '1', status: 'SIGNED', acumaticaStatus: 'Balanced', isCheque: true, ...o,
   })
 
-  it('promotes the one live cheque from a rung below ready', () => {
+  it('promotes the one live check from a rung below ready', () => {
     for (const status of ['GENERATED', 'SIGNATURE_PENDING', 'SIGNED'] as const) {
       expect(judge([c({ status })]).kind).toBe('PROMOTE')
     }
   })
 
-  it('ignores a cancelled twin when exactly one live cheque remains (a re-issue)', () => {
+  it('ignores a cancelled twin when exactly one live check remains (a re-issue)', () => {
     expect(judge([c({ id: 'old', status: 'CANCELLED' }), c({ id: 'new' })])).toMatchObject({ kind: 'PROMOTE', check: { id: 'new' } })
   })
 
@@ -82,7 +82,7 @@ describe('judge', () => {
 describe('plan and apply', () => {
   beforeEach(resetDb)
 
-  it('moves listed cheques to READY_FOR_RELEASE with one audit row each, reports the off-list, and is idempotent', async () => {
+  it('moves listed checks to READY_FOR_RELEASE with one audit row each, reports the off-list, and is idempotent', async () => {
     const byVoucher = await makeCheck({ status: 'SIGNED', checkNumber: '7100000001', apvNumbers: ['AP-ST000001'] })
     const byNumber = await makeCheck({ status: 'SIGNATURE_PENDING', checkNumber: '6000400002' })
     const released = await makeCheck({ status: 'RELEASED', checkNumber: '7100000003', apvNumbers: ['STPP-AP-000021'] })
@@ -113,7 +113,7 @@ describe('plan and apply', () => {
     expect(again.counts.ALREADY_READY).toBe(2)
   })
 
-  it('skips a cheque that moved between the plan and the write', async () => {
+  it('skips a check that moved between the plan and the write', async () => {
     const c = await makeCheck({ status: 'SIGNED', checkNumber: '7100000009', apvNumbers: ['AP-ST000001'] })
     const plan = await planReady(testDb, 'F.xlsx', readReleaseList([LOCAL]))
     await testDb.check.update({ where: { id: c.id }, data: { status: 'CANCELLED' } })

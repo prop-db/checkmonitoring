@@ -77,7 +77,7 @@ describe('buildVoucherIndexWorkbook', () => {
     expect(ws.getRow(VOUCHER_FIRST_DATA_ROW).getCell(2).value).toBe('6000353106')
   })
 
-  it('leaves the cheque number blank rather than writing a guess', async () => {
+  it('leaves the check number blank rather than writing a guess', async () => {
     const wb = await build([row({ voucher: 'AP-ST036567', checkNumber: null, status: 'CONTESTED' })])
     const ws = wb.getWorksheet(VOUCHER_INDEX_SHEET)!
     expect(ws.getRow(VOUCHER_FIRST_DATA_ROW).getCell(2).value).toBeNull()
@@ -90,7 +90,7 @@ describe('buildVoucherIndexWorkbook', () => {
     expect(String(ws.getCell('A3').value)).toContain('FIRST 1 OF 20,100 VOUCHERS')
   })
 
-  it('says on the sheet that cheques with no amount are excluded', async () => {
+  it('says on the sheet that checks with no amount are excluded', async () => {
     const wb = await build([row({ voucher: 'AP-ST042652' })])
     const ws = wb.getWorksheet(VOUCHER_INDEX_SHEET)!
     expect(String(ws.getCell('A4').value)).toContain('no recorded amount')

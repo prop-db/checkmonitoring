@@ -9,7 +9,7 @@ const now = new Date('2026-09-30T04:00:00Z')
 beforeEach(resetDb)
 
 describe('revertSignature', () => {
-  it('returns a SIGNED cheque to SIGNATURE_PENDING, clears the signer, writes one row', async () => {
+  it('returns a SIGNED check to SIGNATURE_PENDING, clears the signer, writes one row', async () => {
     const signer = await makeUser()
     const actor = await makeUser()
     const c = await makeCheck({ status: 'SIGNED' })
@@ -26,7 +26,7 @@ describe('revertSignature', () => {
     })
   })
 
-  it('accepts no reason, and records an auto-signed cheque as such', async () => {
+  it('accepts no reason, and records an auto-signed check as such', async () => {
     const actor = await makeUser()
     const c = await makeCheck({ status: 'SIGNED' })
     await revertSignature(testDb, { checkId: c.id, userId: actor.id, now })

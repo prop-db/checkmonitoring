@@ -98,7 +98,7 @@ export function manilaDay(d: Date): string {
 
 export function buildPortalEventBody(event: { id: string; kind: PortalEventKind }, check: CheckForPortal): PortalEventBody {
   if (portalRoute(check.eligibility as Eligibility) === null) {
-    throw new PortalPayloadError('INTERNAL', `INTERNAL cheque ${check.id} must never reach the portal.`)
+    throw new PortalPayloadError('INTERNAL', `INTERNAL check ${check.id} must never reach the portal.`)
   }
   // apvNumbers is the source's list; the bills are the same vouchers with
   // their PO numbers. A cheque imported before 2026-09-07 may carry only bills.
@@ -116,17 +116,17 @@ export function buildPortalEventBody(event: { id: string; kind: PortalEventKind 
   // review 2026-09-26): a request the portal is certain to refuse is a payload
   // defect, parked here without a round trip instead of sent to earn a 400.
   if (body.apvs.length === 0) {
-    throw new PortalPayloadError('INVALID_PAYLOAD', `cheque ${check.id} has no APV numbers; the portal requires at least one`)
+    throw new PortalPayloadError('INVALID_PAYLOAD', `check ${check.id} has no APV numbers; the portal requires at least one`)
   }
   if (body.apvs.length > MAX_APVS) {
-    throw new PortalPayloadError('INVALID_PAYLOAD', `cheque ${check.id} carries ${body.apvs.length} APV numbers; the portal accepts at most ${MAX_APVS}`)
+    throw new PortalPayloadError('INVALID_PAYLOAD', `check ${check.id} carries ${body.apvs.length} APV numbers; the portal accepts at most ${MAX_APVS}`)
   }
   if (!body.checkNo.trim() && !body.bank.trim()) {
-    throw new PortalPayloadError('INVALID_PAYLOAD', `cheque ${check.id} has neither a cheque number nor a bank code`)
+    throw new PortalPayloadError('INVALID_PAYLOAD', `check ${check.id} has neither a check number nor a bank code`)
   }
   if (event.kind === 'MARK_AVAILABLE' || event.kind === 'RELEASE_REVERSED') {
     if (!check.availablePickupDate) {
-      throw new PortalPayloadError('MISSING_DATE', `${event.kind} cheque ${check.id} has no availablePickupDate; the portal requires availablePickupDate`)
+      throw new PortalPayloadError('MISSING_DATE', `${event.kind} check ${check.id} has no availablePickupDate; the portal requires availablePickupDate`)
     }
     body.availablePickupDate = manilaDay(check.availablePickupDate)
   }
@@ -137,7 +137,7 @@ export function buildPortalEventBody(event: { id: string; kind: PortalEventKind 
     // release date the portal is told.
     const released = check.releasedAt ?? check.statedReleaseDate ?? null
     if (!released) {
-      throw new PortalPayloadError('MISSING_DATE', `RELEASED cheque ${check.id} has neither releasedAt nor statedReleaseDate; the portal requires releaseDate`)
+      throw new PortalPayloadError('MISSING_DATE', `RELEASED check ${check.id} has neither releasedAt nor statedReleaseDate; the portal requires releaseDate`)
     }
     body.releaseDate = manilaDay(released)
     if (check.orNumber) body.orNumber = check.orNumber
@@ -146,11 +146,11 @@ export function buildPortalEventBody(event: { id: string; kind: PortalEventKind 
   }
   if (event.kind === 'RECEIPT') {
     if (!check.orNumber || !check.receiptType) {
-      throw new PortalPayloadError('INVALID_PAYLOAD', `RECEIPT cheque ${check.id} has no receipt reference and type`)
+      throw new PortalPayloadError('INVALID_PAYLOAD', `RECEIPT check ${check.id} has no receipt reference and type`)
     }
     // The portal files a receipt against the cheque number (review 2026-10-02).
     if (!check.checkNumber.trim()) {
-      throw new PortalPayloadError('INVALID_PAYLOAD', `RECEIPT cheque ${check.id} has no cheque number; the portal requires checkNo`)
+      throw new PortalPayloadError('INVALID_PAYLOAD', `RECEIPT check ${check.id} has no check number; the portal requires checkNo`)
     }
     body.receiptType = check.receiptType
     body.orNumber = check.orNumber

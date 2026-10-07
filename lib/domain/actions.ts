@@ -217,7 +217,7 @@ export async function autoSign(
       action: AUTO_SIGNED_ACTION,
       details: { from: 'SIGNATURE_PENDING', to: 'SIGNED', rule: 'MONDAY', inAppSince: check.createdAt.toISOString() },
       remarks:
-        `Signed automatically at Tuesday's run: this Acumatica cheque first reached the app on ` +
+        `Signed automatically at Tuesday's run: this Acumatica check first reached the app on ` +
         `Monday (${check.createdAt.toISOString()}). No one signed it here, so no signing user is recorded.`,
     })
     return tx.check.findUniqueOrThrow({ where: { id: check.id } })
@@ -620,7 +620,7 @@ export async function markReleased(
     if (alreadyHasReceipt && hasReceipt(receipt)) {
       throw new DomainError(
         'RECEIPT_ALREADY_RECORDED',
-        `This cheque already records receipt ${check.orNumber}. A recorded receipt is not ` +
+        `This check already records receipt ${check.orNumber}. A recorded receipt is not ` +
         'overwritten from here — if it is wrong, raise it with a Finance Admin.',
       )
     }
@@ -770,15 +770,15 @@ export async function recordReceipt(
     if (check.status !== 'RELEASED' && check.releasedAt === null) {
       throw new DomainError(
         'NOT_RELEASED',
-        'A supplier’s receipt can only be recorded against a cheque that has been RELEASED. ' +
-        'Release the cheque first; the receipt can be entered at the same time.',
+        'A supplier’s receipt can only be recorded against a check that has been RELEASED. ' +
+        'Release the check first; the receipt can be entered at the same time.',
       )
     }
 
     if (check.orNumber !== null) {
       throw new DomainError(
         'RECEIPT_ALREADY_RECORDED',
-        `This cheque already records receipt ${check.orNumber}. A recorded receipt is not ` +
+        `This check already records receipt ${check.orNumber}. A recorded receipt is not ` +
         'overwritten from here — if it is wrong, raise it with a Finance Admin.',
       )
     }
@@ -947,7 +947,7 @@ export async function recordClearing(
  * the bank, and a paraphrase that drifts is worse than no warning.
  */
 export const VOID_AFTER_RELEASE_WARNING =
-  'MONEY MAY ALREADY HAVE MOVED: this cheque had already been RELEASED to the payee when ' +
+  'MONEY MAY ALREADY HAVE MOVED: this check had already been RELEASED to the payee when ' +
   'Acumatica voided it, so it may have been presented or cleared. Confirm with the bank before ' +
   'treating it as unpaid.'
 
@@ -1074,7 +1074,7 @@ export async function deleteIncompleteCheck(
   // single thing a future reader of the surviving audit row cannot reconstruct
   // from the data.
   if (!args.reason || args.reason.trim() === '') {
-    throw new DomainError('REASON_REQUIRED', 'A reason is required to delete a cheque record.')
+    throw new DomainError('REASON_REQUIRED', 'A reason is required to delete a check record.')
   }
 
   return inTx(db, async (tx) => {
@@ -1104,7 +1104,7 @@ export async function deleteIncompleteCheck(
     if (events > 0) {
       throw new DomainError(
         'PORTAL_EVENT_QUEUED',
-        'The supplier portal outbox still holds an instruction about this cheque, so it cannot ' +
+        'The supplier portal outbox still holds an instruction about this check, so it cannot ' +
         'be deleted. A queued event cannot be detached the way an audit row can.',
       )
     }
@@ -1122,7 +1122,7 @@ export async function deleteIncompleteCheck(
     if (promoted > 0) {
       throw new DomainError(
         'PROMOTED_FROM_STAGED',
-        'A staged register row was promoted into this cheque, and deleting it would leave the ' +
+        'A staged register row was promoted into this check, and deleting it would leave the ' +
         'staging queue pointing at nothing. Settle the staged row first.',
       )
     }
@@ -1167,7 +1167,7 @@ export async function deleteIncompleteCheck(
         deletedBills: bills,
       },
       remarks:
-        `Deleted incomplete cheque ${check.company.code} ${check.checkNumber} — ` +
+        `Deleted incomplete check ${check.company.code} ${check.checkNumber} — ` +
         `${check.payeeName ?? 'no payee recorded'} (${check.status}, no amount recorded). ` +
         args.reason,
     })
@@ -1237,7 +1237,7 @@ export async function restoreCancelled(
     if (told > 0) {
       throw new DomainError(
         'PORTAL_ALREADY_NOTIFIED',
-        'The portal has already been told this cheque is cancelled, so it cannot be restored here.',
+        'The portal has already been told this check is cancelled, so it cannot be restored here.',
       )
     }
     const { count } = await tx.check.updateMany({

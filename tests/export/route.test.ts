@@ -70,7 +70,7 @@ describe('GET /api/export — the guard', () => {
 
   // The assertion that matters: not merely "no workbook came back", but that
   // the request never reached the database at all.
-  it('hands an unauthenticated caller no cheque data of any kind', async () => {
+  it('hands an unauthenticated caller no check data of any kind', async () => {
     await makeCheck({ payeeName: 'HENKEL PHILIPPINES INC.', checkNumber: '6000240287' })
     state.dbTouches = 0
     state.user = null
@@ -111,7 +111,7 @@ describe('GET /api/export — the download', () => {
     expect(res.headers.get('cache-control')).toContain('no-store')
   })
 
-  it('produces a workbook with both sheets and the cheque in it', async () => {
+  it('produces a workbook with both sheets and the check in it', async () => {
     const check = await makeCheck({ status: 'SIGNED', payeeName: 'HENKEL PHILIPPINES INC.' })
     const wb = await sheetsFrom(await get('http://localhost/api/export?status=SIGNED'))
 
@@ -148,7 +148,7 @@ describe('GET /api/export — the download', () => {
       if (typeof v === 'string' && /^\d/.test(v)) numbers.push(v)
     }
     expect(numbers).toEqual([ready.checkNumber])
-    expect(ws.getCell('A2').value).toBe('READY FOR RELEASE — 1 CHEQUE')
+    expect(ws.getCell('A2').value).toBe('READY FOR RELEASE — 1 CHECK')
   })
 
   it('carries a search term into the file and says so in the title block', async () => {
@@ -170,7 +170,7 @@ describe('GET /api/export — the download', () => {
     await makeCheck({ status: 'RELEASED' })
     const ws = (await sheetsFrom(await get('http://localhost/api/export')))
       .getWorksheet(REGISTER_SHEET)!
-    expect(ws.getCell('A2').value).toBe('NEEDS ACTION — 1 CHEQUE')
+    expect(ws.getCell('A2').value).toBe('NEEDS ACTION — 1 CHECK')
   })
 
   // A hand-edited or stale bookmarked link must produce an unfiltered export,
@@ -180,7 +180,7 @@ describe('GET /api/export — the download', () => {
     const res = await get('http://localhost/api/export?status=DELETED&company=nope&eligibility=MAYBE')
     expect(res.status).toBe(200)
     const ws = (await sheetsFrom(res)).getWorksheet(REGISTER_SHEET)!
-    expect(ws.getCell('A2').value).toBe('NEEDS ACTION — 1 CHEQUE')
+    expect(ws.getCell('A2').value).toBe('NEEDS ACTION — 1 CHECK')
     // Not "No filters applied" any more: since 2026-09-06 the dashboard excludes
     // the cheques with no recorded amount by default, and a report that does not
     // say what it excludes is read as the whole picture.
@@ -195,15 +195,15 @@ describe('GET /api/export — the download', () => {
    * workbook. `?incomplete=1` still lists them, and the blank cell it writes is
    * still the property worth pinning: never a zero.
    */
-  it('follows the dashboard and excludes a cheque with no recorded amount', async () => {
+  it('follows the dashboard and excludes a check with no recorded amount', async () => {
     await makeCheck({ status: 'SIGNED', amount: null })
     const ws = (await sheetsFrom(await get('http://localhost/api/export?status=SIGNED')))
       .getWorksheet(REGISTER_SHEET)!
-    expect(ws.getCell('A2').value).toBe('SIGNED — NO CHEQUES MATCH')
+    expect(ws.getCell('A2').value).toBe('SIGNED — NO CHECKS MATCH')
     expect(ws.getCell('A3').value).toBe('EXCLUDES RECORDS WITH NO AMOUNT')
   })
 
-  it('leaves a cheque with no recorded amount blank when it is asked for', async () => {
+  it('leaves a check with no recorded amount blank when it is asked for', async () => {
     await makeCheck({ status: 'SIGNED', amount: null })
     const ws = (await sheetsFrom(await get('http://localhost/api/export?status=SIGNED&incomplete=1')))
       .getWorksheet(REGISTER_SHEET)!
@@ -223,7 +223,7 @@ describe('GET /api/export — the download', () => {
     })
     // Two cheques exist; the register sheet holds only the one SIGNED cheque.
     // The summary counts both, exactly as the dashboard cards do.
-    expect(found.get('TOTAL CHEQUES')).toBe(2)
+    expect(found.get('TOTAL CHECKS')).toBe(2)
     expect(found.get('RELEASED')).toBe(1)
   })
 
@@ -248,7 +248,7 @@ describe('GET /api/export — the download', () => {
     const res = await get('http://localhost/api/export?status=SCHEDULED')
     expect(res.status).toBe(200)
     const ws = (await sheetsFrom(res)).getWorksheet(REGISTER_SHEET)!
-    expect(ws.getCell('A2').value).toBe('SCHEDULED — NO CHEQUES MATCH')
+    expect(ws.getCell('A2').value).toBe('SCHEDULED — NO CHECKS MATCH')
   })
 })
 
@@ -271,7 +271,7 @@ describe('GET /api/export — sort, filters, columns', () => {
     await makeCheck({ checkNumber: '6000000003', amount: '200.00', payeeName: 'HENKEL PHILIPPINES INC.' })
   }
 
-  it('sorts the file as the URL asks, across every matching cheque', async () => {
+  it('sorts the file as the URL asks, across every matching check', async () => {
     await seed()
     const ws = (await sheetsFrom(await get('http://localhost/api/export?scope=all&sort=amount&dir=asc'))).getWorksheet(REGISTER_SHEET)!
     expect(column1(ws)).toEqual(['6000000002', '6000000003', '6000000001'])

@@ -322,7 +322,7 @@ export function CheckTable({
                 <input
                   type="checkbox" checked={allSelected} onChange={toggleAll}
                   disabled={selectableRows.length === 0}
-                  aria-label="Select every actionable cheque on this page"
+                  aria-label="Select every actionable check on this page"
                 />
               </th>
               {shown.map((key) => <SortHeader key={key} column={key} sort={sort} link={sortLinks[key]} />)}

@@ -83,7 +83,7 @@ function row(overrides: Partial<NormalisedRow> = {}): NormalisedRow {
 const upsert = (r: NormalisedRow) =>
   upsertCheck(testDb, { row: r, ownCompanyNames: ['A1+ MULTINATIONAL PACKAGING INC.'], now: NOW })
 
-describe('a cheque number corrected in Acumatica', () => {
+describe('a check number corrected in Acumatica', () => {
   it('updates the payment we already hold instead of trying to create a second one', async () => {
     await seedCompany()
 
@@ -108,12 +108,12 @@ describe('a cheque number corrected in Acumatica', () => {
 
     const audits = await testDb.auditLog.findMany()
     const renumber = audits.find((a) => a.action === 'renumbered_by_acumatica')
-    expect(renumber, 'a cheque number changing is worth an audit row').toBeDefined()
+    expect(renumber, 'a check number changing is worth an audit row').toBeDefined()
     expect(JSON.stringify(renumber?.details)).toContain('17913405552')
     expect(JSON.stringify(renumber?.details)).toContain('1791405552')
   })
 
-  it('leaves a cheque the ERP has never seen to the ordinary lookup', async () => {
+  it('leaves a check the ERP has never seen to the ordinary lookup', async () => {
     await seedCompany()
     // No payment id at all: a register row. Two different numbers are two cheques.
     await upsert(row({ source: 'WORKBOOK', acumaticaPaymentId: null, checkNumber: '1791405552', statedCheckRef: '1791405552', sourceSheet: 'BPI A1', sourceRow: 4 }))

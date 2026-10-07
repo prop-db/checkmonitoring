@@ -84,7 +84,7 @@ describe('statedDay', () => {
   // The 9.25 register states 2081-05-08 on one row. A mis-key needs a person;
   // it must not be written, and it must not be dropped so another row's day
   // could win on the same cheque.
-  it('refuses a day outside the plausible window, and the whole cheque with it', () => {
+  it('refuses a day outside the plausible window, and the whole check with it', () => {
     expect(statedDay(release([{ sheet: 'A', row: 1, dateReleased: '2081-05-08' }]), LATEST))
       .toEqual({ kind: 'NO_USABLE_DATE', verbatim: ['2081-05-08'] })
     expect(statedDay(release([{ sheet: 'A', row: 1, dateReleased: '2026-09-29' }]), LATEST).kind).toBe('NO_USABLE_DATE')
@@ -110,7 +110,7 @@ describe('judge', () => {
     id: 'x', checkNumber: '6000308584', companyCode: 'STK', status: 'RELEASED', statedReleaseDate: null, ...o,
   })
 
-  it('writes the day onto the one RELEASED cheque with that number', () => {
+  it('writes the day onto the one RELEASED check with that number', () => {
     expect(judge(rel, [c()], LATEST)).toEqual({ kind: 'WRITE', check: c(), day: '2026-09-25' })
   })
 
@@ -124,7 +124,7 @@ describe('judge', () => {
     expect(judge(release(rel.rows, []), [c({ id: 'a' }), c({ id: 'b' })], LATEST)).toEqual({ kind: 'AMBIGUOUS', count: 2 })
   })
 
-  it('leaves a cheque that is absent, not released here, or already stated', () => {
+  it('leaves a check that is absent, not released here, or already stated', () => {
     expect(judge(rel, [], LATEST)).toEqual({ kind: 'NOT_IN_SYSTEM' })
     expect(judge(rel, [c({ status: 'SIGNED' })], LATEST)).toMatchObject({ kind: 'NOT_RELEASED_HERE' })
     expect(judge(rel, [c({ status: 'CANCELLED' })], LATEST)).toMatchObject({ kind: 'NOT_RELEASED_HERE' })
@@ -198,7 +198,7 @@ describe('plan and apply', () => {
     expect(again.counts.ALREADY_STATED).toBe(2)
   })
 
-  it('also writes the stated day onto a cheque the app released, leaving the timestamp alone', async () => {
+  it('also writes the stated day onto a check the app released, leaving the timestamp alone', async () => {
     const when = new Date('2026-09-25T02:00:00.000Z')
     const c = await makeCheck({ status: 'RELEASED', checkNumber: '7000000004', releasedAt: when })
     const plan = await planStatedReleaseDates(testDb, 'R.xlsx', [row('BPI RELEASED', 2, '7000000004', null)], REF, NOW)
@@ -208,7 +208,7 @@ describe('plan and apply', () => {
     expect(after.statedReleaseDate).toEqual(dayToDate('2026-09-25'))
   })
 
-  it('skips a cheque that changed between the plan and the write', async () => {
+  it('skips a check that changed between the plan and the write', async () => {
     const c = await makeCheck({ status: 'RELEASED', checkNumber: '7000000009' })
     const plan = await planStatedReleaseDates(testDb, 'R.xlsx', [row('BPI RELEASED', 2, '7000000009', null)], REF, NOW)
     await testDb.check.update({ where: { id: c.id }, data: { statedReleaseDate: dayToDate('2026-09-20') } })

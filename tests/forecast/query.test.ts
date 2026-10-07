@@ -24,12 +24,12 @@ describe('listForecastRows — the population', () => {
     expect(rows.map((r) => r.checkNumber).sort()).toEqual(['1', '2', '3', '4'])
   })
 
-  it('leaves out a cheque with no recorded amount', async () => {
+  it('leaves out a check with no recorded amount', async () => {
     await makeCheck({ status: 'SIGNED', amount: null })
     expect(await listForecastRows(testDb)).toHaveLength(0)
   })
 
-  it('leaves out a payment that is not a cheque', async () => {
+  it('leaves out a payment that is not a check', async () => {
     await makeCheck({ status: 'SIGNED', isCheque: false })
     expect(await listForecastRows(testDb)).toHaveLength(0)
   })
@@ -46,7 +46,7 @@ describe('listForecastRows — the population', () => {
     expect(row.stage).toBe('SIGNED')
   })
 
-  it('orders oldest cheque date first, undated last', async () => {
+  it('orders oldest check date first, undated last', async () => {
     await makeCheck({ status: 'SIGNED', checkNumber: 'B', checkDate: new Date('2026-08-01') })
     await makeCheck({ status: 'SIGNED', checkNumber: 'C', checkDate: null })
     await makeCheck({ status: 'SIGNED', checkNumber: 'A', checkDate: new Date('2026-07-01') })
@@ -80,7 +80,7 @@ describe('listForecastRows — the filters', () => {
     expect(rows.map((r) => r.checkNumber)).toEqual(['1'])
   })
 
-  it('prefers the checkbook bank when a cheque has both', async () => {
+  it('prefers the checkbook bank when a check has both', async () => {
     const check = await makeCheck({ status: 'SIGNED' })
     const bank = await testDb.bank.create({ data: { code: 'MBTC-X', name: 'Metrobank' } })
     const book = await testDb.checkBook.create({
@@ -97,17 +97,17 @@ describe('countExcludedIncomplete', () => {
   // Pinned per FIX 1: this report's own exclusion, not the database-wide
   // `Check.isIncomplete` count — struck over the same population
   // `listForecastRows` reads, with the amount clause inverted.
-  it('counts a live cheque with no recorded amount', async () => {
+  it('counts a live check with no recorded amount', async () => {
     await makeCheck({ status: 'SIGNED', amount: null })
     expect(await countExcludedIncomplete(testDb)).toBe(1)
   })
 
-  it('does not count an incomplete cheque outside the live statuses', async () => {
+  it('does not count an incomplete check outside the live statuses', async () => {
     await makeCheck({ status: 'RELEASED', amount: null })
     expect(await countExcludedIncomplete(testDb)).toBe(0)
   })
 
-  it('does not count a complete cheque', async () => {
+  it('does not count a complete check', async () => {
     await makeCheck({ status: 'SIGNED', amount: '100.00' })
     expect(await countExcludedIncomplete(testDb)).toBe(0)
   })
@@ -151,7 +151,7 @@ describe('listPlannedRows', () => {
     })
   })
 
-  it('narrows by bank and company, and is empty under a cheque stage', async () => {
+  it('narrows by bank and company, and is empty under a check stage', async () => {
     const { bank, company } = await line({ bankCode: 'BPIX' })
     await line({ bankCode: 'MBTX' })
     expect((await listPlannedRows(testDb, { bankCode: 'BPIX' })).map((r) => r.bank)).toEqual([bank.code])
@@ -160,18 +160,18 @@ describe('listPlannedRows', () => {
     expect(await listPlannedRows(testDb, { stage: 'PLANNED' })).toHaveLength(2)
   })
 
-  it('the cheque query is empty, and the exclusion zero, under the PLANNED stage', async () => {
+  it('the check query is empty, and the exclusion zero, under the PLANNED stage', async () => {
     await makeCheck({ status: 'SIGNED' })
     await makeCheck({ status: 'SIGNED', amount: null })
     expect(await listForecastRows(testDb, { stage: 'PLANNED' })).toHaveLength(0)
     expect(await countExcludedIncomplete(testDb, { stage: 'PLANNED' })).toBe(0)
   })
 
-  it('carries the expected outflow date on a cheque', async () => {
+  it('carries the expected outflow date on a check', async () => {
     const c = await makeCheck({ status: 'SIGNED' })
     await testDb.check.update({ where: { id: c.id }, data: { expectedOutflowDate: new Date('2026-09-20T00:00:00.000Z') } })
     const [row] = await listForecastRows(testDb)
-    expect(row.kind).toBe('CHEQUE')
+    expect(row.kind).toBe('CHECK')
     expect(row.expectedOutflowDate).toEqual(new Date('2026-09-20T00:00:00.000Z'))
   })
 })

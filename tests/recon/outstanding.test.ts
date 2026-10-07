@@ -13,8 +13,8 @@ describe('issuedOn', () => {
     expect(issuedOn({ releasedAt: new Date('2026-09-10T15:30:00Z'), checkDate: d('2026-08-20') }))
       .toEqual({ day: '2026-09-10', basis: 'RELEASED AT' })
   })
-  it('falls back to the cheque date, and says so', () => {
-    expect(issuedOn({ releasedAt: null, checkDate: d('2026-08-20') })).toEqual({ day: '2026-08-20', basis: 'CHEQUE DATE' })
+  it('falls back to the check date, and says so', () => {
+    expect(issuedOn({ releasedAt: null, checkDate: d('2026-08-20') })).toEqual({ day: '2026-08-20', basis: 'CHECK DATE' })
   })
   it('is null with neither date', () => {
     expect(issuedOn({ releasedAt: null, checkDate: null })).toBeNull()
@@ -33,12 +33,12 @@ describe('clearedOn', () => {
 })
 
 describe('isOutstandingAsOf', () => {
-  it('counts a released, uncleared cheque issued on or before the day', () => {
+  it('counts a released, uncleared check issued on or before the day', () => {
     expect(isOutstandingAsOf(base, '2026-09-12')).toBe(true)
     expect(isOutstandingAsOf(base, '2026-08-20')).toBe(true)   // issued that very day
     expect(isOutstandingAsOf(base, '2026-08-19')).toBe(false)  // not yet issued
   })
-  it('never counts a cheque that is not RELEASED', () => {
+  it('never counts a check that is not RELEASED', () => {
     for (const status of ['SIGNED', 'READY_FOR_RELEASE', 'CANCELLED', 'VOIDED'] as const) {
       expect(isOutstandingAsOf({ ...base, status }, '2026-09-12'), status).toBe(false)
     }
@@ -56,10 +56,10 @@ describe('isOutstandingAsOf', () => {
     expect(isOutstandingAsOf({ ...base, clearingStatus: 'DEPOSITED' }, '2026-09-12')).toBe(true)
     expect(isOutstandingAsOf({ ...base, clearingStatus: 'ENCASHED' }, '2026-09-12')).toBe(true)
   })
-  it('counts a released cheque with no date at all on any day', () => {
+  it('counts a released check with no date at all on any day', () => {
     expect(isOutstandingAsOf({ ...base, checkDate: null }, '2000-01-01')).toBe(true)
   })
-  it('never counts a cheque with no recorded amount', () => {
+  it('never counts a check with no recorded amount', () => {
     expect(isOutstandingAsOf({ ...base, amount: null }, '2026-09-12')).toBe(false)
   })
 })

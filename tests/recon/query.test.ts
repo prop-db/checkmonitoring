@@ -6,7 +6,7 @@ import { listOutstandingCandidates, countExcludedIncomplete } from '@/lib/recon/
 beforeEach(resetDb)
 
 describe('listOutstandingCandidates — the population', () => {
-  it('holds RELEASED real cheques with an amount, whatever their clearing, and nothing else', async () => {
+  it('holds RELEASED real checks with an amount, whatever their clearing, and nothing else', async () => {
     await makeCheck({ status: 'RELEASED', checkNumber: '1' })
     const cleared = await makeCheck({ status: 'RELEASED', checkNumber: '2' })
     await testDb.check.update({ where: { id: cleared.id }, data: { clearingStatus: 'CLEARED', clearedDate: new Date('2026-09-01') } })
@@ -41,7 +41,7 @@ describe('listOutstandingCandidates — the population', () => {
     expect((await listOutstandingCandidates(testDb, { cashAccountId: accA.id })).map((r) => r.checkNumber)).toEqual(['1'])
   })
 
-  it('keeps a released cheque with no cash account, with the bank from its checkbook if any', async () => {
+  it('keeps a released check with no cash account, with the bank from its checkbook if any', async () => {
     const c = await makeCheck({ status: 'RELEASED', checkNumber: '9' })
     await testDb.check.update({ where: { id: c.id }, data: { cashAccountId: null } })
     const [row] = await listOutstandingCandidates(testDb)
@@ -59,7 +59,7 @@ describe('listOutstandingCandidates — the population', () => {
     expect((await listOutstandingCandidates(testDb, { bankCode: 'MBTC-X' })).map((r) => r.checkNumber)).toEqual(['9'])
   })
 
-  it('the cheque book wins over a register cash-account label: account, bank and both filters (2026-10-06)', async () => {
+  it('the check book wins over a register cash-account label: account, bank and both filters (2026-10-06)', async () => {
     // Follow Acumatica: its CashAccount is the cheque book. The register label
     // decides only for a cheque with no book.
     const c = await makeCheck({ status: 'RELEASED', checkNumber: '9' })
@@ -76,7 +76,7 @@ describe('listOutstandingCandidates — the population', () => {
 })
 
 describe('countExcludedIncomplete', () => {
-  it('counts released cheques with no amount under the same filters', async () => {
+  it('counts released checks with no amount under the same filters', async () => {
     await makeCheck({ status: 'RELEASED', amount: null })
     await makeCheck({ status: 'SIGNED', amount: null })
     await makeCheck({ status: 'RELEASED' })

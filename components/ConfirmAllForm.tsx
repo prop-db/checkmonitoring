@@ -135,7 +135,7 @@ export function ConfirmAllForm({
           <div className="space-y-2">
             {done.succeeded > 0 && (
               <p className="rounded-lg bg-emerald-50 p-3 text-sm font-medium text-emerald-900">
-                {done.succeeded} OF {done.outcomes.length} CHEQUE
+                {done.succeeded} OF {done.outcomes.length} CHECK
                 {done.outcomes.length === 1 ? '' : 'S'} {labels.done}.
               </p>
             )}
@@ -144,7 +144,7 @@ export function ConfirmAllForm({
             {failures.length > 0 && (
               <div className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
                 <p className="font-medium">
-                  {failures.length} CHEQUE{failures.length === 1 ? ' WAS' : 'S WERE'} NOT {labels.done}:
+                  {failures.length} CHECK{failures.length === 1 ? ' WAS' : 'S WERE'} NOT {labels.done}:
                 </p>
                 <ul className="mt-2 space-y-1">
                   {failures.map((f) => (

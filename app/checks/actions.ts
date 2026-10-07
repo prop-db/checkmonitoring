@@ -234,7 +234,7 @@ export async function deleteIncompleteCheckAction(formData: FormData): Promise<A
   if (user.role !== 'FINANCE_ADMIN') {
     // The same sentence `checkDeletable` returns for NOT_ADMIN, so a Finance
     // user reads one wording whichever layer refused them.
-    return { ok: false, message: 'Only a Finance Admin can delete a cheque record.' }
+    return { ok: false, message: 'Only a Finance Admin can delete a check record.' }
   }
   const checkId = str(formData, 'checkId')
   return run(checkId, () => deleteIncompleteCheck(prisma, {

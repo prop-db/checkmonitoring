@@ -74,7 +74,7 @@ async function heldCheque(paymentRef: string, extra: Parameters<typeof makeCheck
 }
 
 describe('runBillsSync — linking vouchers', () => {
-  it('links two vouchers to the cheque whose acumaticaPaymentId matches, sorted, with one audit row', async () => {
+  it('links two vouchers to the check whose acumaticaPaymentId matches, sorted, with one audit row', async () => {
     const c = await heldCheque('CV-ST012345')
     const other = await heldCheque('CV-ST099999')
     const result = await bills([
@@ -198,7 +198,7 @@ describe('runBillsSync — the run record', () => {
     expect(run.message).toBeNull()
   })
 
-  it('one cheque whose write fails is an error; the next cheque is still linked', async () => {
+  it('one check whose write fails is an error; the next check is still linked', async () => {
     const first = await heldCheque('CV-FIRST001')
     const second = await heldCheque('CV-SECOND01')
     let calls = 0
@@ -208,7 +208,7 @@ describe('runBillsSync — the run record', () => {
         if (prop === '$transaction') {
           return (...a: unknown[]) => {
             calls++
-            if (calls === 1) return Promise.reject(new Error('write refused for the first cheque'))
+            if (calls === 1) return Promise.reject(new Error('write refused for the first check'))
             return (target.$transaction as (...x: unknown[]) => unknown).apply(target, a)
           }
         }
@@ -226,7 +226,7 @@ describe('runBillsSync — the run record', () => {
     expect((await testDb.check.findUniqueOrThrow({ where: { id: second.id } })).apvNumbers).toEqual(['AP-S'])
     const run = await testDb.syncRun.findUniqueOrThrow({ where: { id: result.syncRunId } })
     expect(run.errors).toBe(1)
-    expect(run.message).toContain('write refused for the first cheque')
+    expect(run.message).toContain('write refused for the first check')
     // The failing cheque is named by its payment reference.
     expect(run.message).toContain('CV-FIRST001')
     // The watermark is held, so the failed cheque's vouchers are re-read next run.

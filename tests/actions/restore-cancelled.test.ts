@@ -18,7 +18,7 @@ async function cancelled() {
 }
 
 describe('restoreCancelled', () => {
-  it('returns a CANCELLED cheque to SIGNED, clears the cancel fields, writes one row', async () => {
+  it('returns a CANCELLED check to SIGNED, clears the cancel fields, writes one row', async () => {
     const { actor, c } = await cancelled()
     const after = await restoreCancelled(testDb, { checkId: c.id, userId: actor.id, reason: 'Cancelled in error', now })
     expect(after).toMatchObject({ status: 'SIGNED', cancelledById: null, cancelledAt: null, cancelReason: null })

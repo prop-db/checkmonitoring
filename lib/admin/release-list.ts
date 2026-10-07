@@ -269,7 +269,7 @@ export async function applyReady(db: PrismaClient, plan: ReadyPlan): Promise<{ p
           acumaticaStatusAtTheTime: check.acumaticaStatus,
         },
         remarks:
-          `${plan.file} lists this cheque for release (${entries.map((e) => `${e.sheet} row ${e.row}`).join(', ')}). ` +
+          `${plan.file} lists this check for release (${entries.map((e) => `${e.sheet} row ${e.row}`).join(', ')}). ` +
           'The for-release list is the ready-for-release set (client, 2026-09-04). Set directly: no one ' +
           'approved it in this system, so no approving user, time or pickup date is recorded.',
       })

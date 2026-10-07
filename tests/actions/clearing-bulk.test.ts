@@ -48,7 +48,7 @@ describe('previewClearingAction', () => {
     expect(result.rows[0].clearedDate).toEqual(new Date('2026-09-10'))
     expect(result.rows[0].crNumber).toBe('BPI 1')
     expect(result.rows[2].detail).toBe('SIGNED')
-    expect(result.errors).toEqual([{ line: 6, raw: 'not-a-number', message: 'Not a cheque number.' }])
+    expect(result.errors).toEqual([{ line: 6, raw: 'not-a-number', message: 'Not a check number.' }])
 
     const untouched = await testDb.check.findUniqueOrThrow({ where: { id: will.id } })
     expect(untouched.clearingStatus).toBe('NONE')

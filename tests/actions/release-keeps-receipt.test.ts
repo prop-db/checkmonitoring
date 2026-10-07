@@ -56,7 +56,7 @@ describe('markReleased keeps a receipt already on record', () => {
     expect(after.releasedAt).toBeNull()
   })
 
-  it('releasing a cheque with no receipt yet still records one typed at release (regression)', async () => {
+  it('releasing a check with no receipt yet still records one typed at release (regression)', async () => {
     const user = await makeUser()
     const check = await makeCheck({ status: 'READY_FOR_RELEASE' })
     const out = await markReleased(testDb, {

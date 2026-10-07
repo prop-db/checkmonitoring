@@ -53,13 +53,13 @@ export default async function ReconPage({
 
   return (
     <main className="space-y-4 px-4 py-5">
-      <AppHeader user={user} title="OUTSTANDING CHEQUES" back={{ href: '/', label: '← DASHBOARD' }} />
+      <AppHeader user={user} title="OUTSTANDING CHECKS" back={{ href: '/', label: '← DASHBOARD' }} />
 
       <p className="rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">
         Outstanding means released and not yet cleared by the bank as of the date. Where no release date
-        was recorded, the cheque date stands in — so a released cheque dated after the day is not counted, and
-        the line below says how many. Record clearing on the cheque or on{' '}
-        <Link href="/clearing" className="underline underline-offset-2">CLEARING</Link> to move a cheque off this list.
+        was recorded, the check date stands in — so a released check dated after the day is not counted, and
+        the line below says how many. Record clearing on the check or on{' '}
+        <Link href="/clearing" className="underline underline-offset-2">CLEARING</Link> to move a check off this list.
       </p>
 
       <form className="flex flex-wrap items-center gap-2 rounded-2xl bg-white p-3 ring-1 ring-hairline" method="get">
@@ -83,17 +83,17 @@ export default async function ReconPage({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="space-y-1">
           <p className="text-xs font-medium tracking-wide text-slate-600">
-            {summary.lines.length.toLocaleString('en-PH')} CHEQUE{summary.lines.length === 1 ? '' : 'S'} OUTSTANDING AS OF {asOfDay}
+            {summary.lines.length.toLocaleString('en-PH')} CHECK{summary.lines.length === 1 ? '' : 'S'} OUTSTANDING AS OF {asOfDay}
             {' · '}{describeReconFilters({ bank, company: company?.code, account: account?.code })}
           </p>
           {summary.notYetIssued > 0 && (
             <p className="text-xs font-medium tracking-wide text-slate-500">
-              NOT COUNTED: {summary.notYetIssued.toLocaleString('en-PH')} RELEASED CHEQUE{summary.notYetIssued === 1 ? '' : 'S'} DATED AFTER {asOfDay} — not yet presentable on that day.
+              NOT COUNTED: {summary.notYetIssued.toLocaleString('en-PH')} RELEASED CHECK{summary.notYetIssued === 1 ? '' : 'S'} DATED AFTER {asOfDay} — not yet presentable on that day.
             </p>
           )}
           {incompleteCount > 0 && (
             <p className="text-xs font-medium tracking-wide text-slate-500">
-              EXCLUDES {incompleteCount.toLocaleString('en-PH')} RELEASED CHEQUE{incompleteCount === 1 ? '' : 'S'} WITH NO RECORDED AMOUNT.{' '}
+              EXCLUDES {incompleteCount.toLocaleString('en-PH')} RELEASED CHECK{incompleteCount === 1 ? '' : 'S'} WITH NO RECORDED AMOUNT.{' '}
               <Link href="/?incomplete=1" className="underline underline-offset-2">Show them</Link>.
             </p>
           )}
@@ -106,14 +106,14 @@ export default async function ReconPage({
 
       {summary.lines.length === 0 ? (
         <EmptyState title="NOTHING OUTSTANDING" tone={narrowed ? 'plain' : 'good'}>
-          {narrowed ? 'No released cheque under these filters was uncleared on that day.' : `No released cheque was uncleared as of ${asOfDay}.`}
+          {narrowed ? 'No released check under these filters was uncleared on that day.' : `No released check was uncleared as of ${asOfDay}.`}
         </EmptyState>
       ) : (
         <>
           <ReconTable summary={summary} params={current} />
           {account && (
             <>
-              <h2 className="text-[11px] font-semibold tracking-widest text-slate-400">{account.code} — THE CHEQUES</h2>
+              <h2 className="text-[11px] font-semibold tracking-widest text-slate-400">{account.code} — THE CHECKS</h2>
               <OutstandingList lines={summary.lines} />
             </>
           )}

@@ -35,5 +35,5 @@ export function describeReconFilters(
 }
 
 export function reconFilename(asOfDay: string): string {
-  return `${slugify('outstanding cheques')}-${asOfDay}.xlsx`
+  return `${slugify('outstanding checks')}-${asOfDay}.xlsx`
 }

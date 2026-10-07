@@ -11,7 +11,7 @@ const mk = (over: Partial<ParsedRow>): ParsedRow => ({
 })
 
 describe('duplicates across sheets', () => {
-  it('reports one cheque appearing on two sheets, naming both', () => {
+  it('reports one check appearing on two sheets, naming both', () => {
     const { conflicts } = reconcile([
       mk({ sheet: 'BPI RELEASED', row: 5 }),
       mk({ sheet: 'CANCELLED', row: 9 }),
@@ -23,7 +23,7 @@ describe('duplicates across sheets', () => {
     ])
   })
 
-  it('does not treat the same cheque twice on one sheet as a cross-sheet duplicate', () => {
+  it('does not treat the same check twice on one sheet as a cross-sheet duplicate', () => {
     const { conflicts } = reconcile([
       mk({ sheet: 'BPI RELEASED', row: 5 }),
       mk({ sheet: 'BPI RELEASED', row: 6 }),
@@ -31,13 +31,13 @@ describe('duplicates across sheets', () => {
     expect(conflicts.filter((c) => c.kind === 'DUPLICATE_ACROSS_SHEETS')).toHaveLength(0)
   })
 
-  it('does not report a cheque that appears once', () => {
+  it('does not report a check that appears once', () => {
     expect(reconcile([mk({})], { today: TODAY }).conflicts).toHaveLength(0)
   })
 })
 
 describe('contradictory status', () => {
-  it('reports a cheque the register says is both released and cancelled', () => {
+  it('reports a check the register says is both released and cancelled', () => {
     const { conflicts } = reconcile([
       mk({ sheet: 'BPI RELEASED', row: 5 }),
       mk({ sheet: 'CANCELLED', row: 9 }),
@@ -58,7 +58,7 @@ describe('contradictory status', () => {
 })
 
 describe('amount mismatch', () => {
-  it('reports the same cheque carrying two different amounts', () => {
+  it('reports the same check carrying two different amounts', () => {
     const { conflicts } = reconcile([
       mk({ sheet: 'A', row: 2, amount: '7950.00' }),
       mk({ sheet: 'B', row: 3, amount: '8950.00' }),
@@ -87,7 +87,7 @@ describe('amount mismatch', () => {
 })
 
 describe('implausible dates', () => {
-  it('flags a cheque dated more than a year ahead', () => {
+  it('flags a check dated more than a year ahead', () => {
     const { conflicts } = reconcile([
       mk({ sheet: 'BPI RELEASED', row: 4, checkDate: new Date('2028-11-18T00:00:00Z') }),
     ], { today: TODAY })
@@ -96,7 +96,7 @@ describe('implausible dates', () => {
     expect(c!.detail).toContain('2028-11-18')
   })
 
-  it('does not flag an ordinary post-dated cheque', () => {
+  it('does not flag an ordinary post-dated check', () => {
     const { conflicts } = reconcile([
       mk({ checkDate: new Date('2026-11-18T00:00:00Z') }),
     ], { today: TODAY })

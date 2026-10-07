@@ -148,8 +148,8 @@ function TenantCard({
  */
 const COUNT_CAPTIONS: Partial<Record<string, { short: string; titles: readonly [string, string, string] }>> = {
   [BILLS_MODE]: {
-    short: 'vouchers added · cheques · not held here',
-    titles: ['vouchers added', 'cheques changed', 'payments not held here'],
+    short: 'vouchers added · checks · not held here',
+    titles: ['vouchers added', 'checks changed', 'payments not held here'],
   },
   [BILL_REFS_MODE]: {
     short: 'bills written · deleted · ref but no PO',
@@ -199,7 +199,7 @@ export default async function SyncPage() {
               {/* Shown here too: a run that hit its time budget mid-backlog may
                   still have signed some cheques before it stopped, and that is
                   worth knowing even though the run did not finish. */}
-              {lastAutoSign.signed > 0 && <>: {n(lastAutoSign.signed)} cheque(s) signed</>}
+              {lastAutoSign.signed > 0 && <>: {n(lastAutoSign.signed)} check(s) signed</>}
               {lastAutoSign.skipped > 0 && <>, {n(lastAutoSign.skipped)} skipped because they changed first</>}
             </p>
             {lastAutoSign.error && <p className="text-sm text-danger-ink/90">{lastAutoSign.error}</p>}
@@ -209,8 +209,8 @@ export default async function SyncPage() {
             {fmtDateTime(lastAutoSign.at)} — {lastAutoSign.outcome}
             {/* A run recorded before the Monday rule (2026-10-01) is described by its own rule. */}
             {lastAutoSign.outcome === 'OK' && (lastAutoSign.legacyDays !== null
-              ? <>: {n(lastAutoSign.signed)} cheque(s) signed after {n(lastAutoSign.legacyDays)} day(s)</>
-              : <>: {n(lastAutoSign.signed)} Monday cheque(s) signed</>)}
+              ? <>: {n(lastAutoSign.signed)} check(s) signed after {n(lastAutoSign.legacyDays)} day(s)</>
+              : <>: {n(lastAutoSign.signed)} Monday check(s) signed</>)}
             {lastAutoSign.outcome === 'IDLE' && <>: not a Tuesday — nothing due</>}
             {lastAutoSign.skipped > 0 && <>, {n(lastAutoSign.skipped)} skipped because they changed first</>}
             {lastAutoSign.outcome === 'DISABLED' && <>: switched off in settings</>}

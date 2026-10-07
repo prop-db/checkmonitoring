@@ -97,9 +97,9 @@ export function TransmittalBuilder({
       {/* ── PICKER (screen only) ─────────────────────────────────────── */}
       <section className="print-hide space-y-3 rounded-2xl bg-white p-4 ring-1 ring-hairline">
         <p className="text-sm leading-relaxed text-slate-600">
-          Tick the cheques to put on the transmittal. The list holds cheques still at SIGNATURE PENDING or SIGNED
+          Tick the checks to put on the transmittal. The list holds checks still at SIGNATURE PENDING or SIGNED
           with a recorded amount. Fill in the sheet below, then press PRINT — choose <strong>Save as PDF</strong> in
-          the print window to keep a copy. Nothing here changes a cheque’s status.
+          the print window to keep a copy. Nothing here changes a check’s status.
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)} className={field}>
@@ -113,7 +113,7 @@ export function TransmittalBuilder({
           </select>
           <input
             type="search" value={query} onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search cheque no., payee, voucher, PO…" aria-label="Search" className={`${field} w-72`}
+            placeholder="Search check no., payee, voucher, PO…" aria-label="Search" className={`${field} w-72`}
           />
           <button
             type="button" onClick={addShown} disabled={allShownPicked || shown.length === 0}
@@ -150,7 +150,7 @@ export function TransmittalBuilder({
             </thead>
             <tbody>
               {shown.length === 0 && (
-                <tr><td colSpan={6} className="px-2 py-6 text-center text-slate-500">NO CHEQUES MATCH.</td></tr>
+                <tr><td colSpan={6} className="px-2 py-6 text-center text-slate-500">NO CHECKS MATCH.</td></tr>
               )}
               {shown.slice(0, 500).map((c) => (
                 <tr key={c.id} className="cursor-pointer border-t border-slate-100 hover:bg-navy-bg" onClick={() => toggle(c.id)}>
@@ -238,7 +238,7 @@ export function TransmittalBuilder({
           <tbody>
             {picked.length === 0 && (
               <tr><td colSpan={7} className="px-2 py-8 text-center text-slate-500">
-                NO CHEQUES SELECTED — TICK THEM ABOVE.
+                NO CHECKS SELECTED — TICK THEM ABOVE.
               </td></tr>
             )}
             {picked.map((c, i) => (

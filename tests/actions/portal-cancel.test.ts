@@ -8,7 +8,7 @@ const NOW = new Date('2026-09-26T10:00:00+08:00')
 beforeEach(resetDb)
 
 describe('CANCELLED portal event', () => {
-  it('cancelCheck queues CANCELLED for a SUPPLIER cheque', async () => {
+  it('cancelCheck queues CANCELLED for a SUPPLIER check', async () => {
     const user = await makeUser('FINANCE_ADMIN')
     const check = await makeCheck({ status: 'READY_FOR_RELEASE', eligibility: 'SUPPLIER', apvNumbers: ['AP-ST000001'] })
     await cancelCheck(testDb, { checkId: check.id, userId: user.id, reason: 'duplicate', now: NOW })
@@ -22,7 +22,7 @@ describe('CANCELLED portal event', () => {
     expect(after.portalDomain).toBe('LOCAL')
   })
 
-  it('voidCheck queues CANCELLED for a BROKER cheque, even after release', async () => {
+  it('voidCheck queues CANCELLED for a BROKER check, even after release', async () => {
     const check = await makeCheck({ status: 'RELEASED', eligibility: 'BROKER', apvNumbers: ['AP-ST000002'] })
     await voidCheck(testDb, { checkId: check.id, reason: 'Voided in Acumatica', now: NOW })
     const ev = await testDb.portalEvent.findFirstOrThrow({ where: { checkId: check.id } })
@@ -31,7 +31,7 @@ describe('CANCELLED portal event', () => {
     expect(after.portalDomain).toBe('BROKER')
   })
 
-  it('an INTERNAL cheque queues nothing', async () => {
+  it('an INTERNAL check queues nothing', async () => {
     const user = await makeUser('FINANCE_ADMIN')
     const check = await makeCheck({ status: 'SIGNED', eligibility: 'INTERNAL' })
     await cancelCheck(testDb, { checkId: check.id, userId: user.id, reason: 'x', now: NOW })
@@ -40,7 +40,7 @@ describe('CANCELLED portal event', () => {
     expect(after.portalSyncStatus).toBe('NOT_APPLICABLE')
   })
 
-  it('cancelCheck queues nothing for a routed cheque with no APV, and says so', async () => {
+  it('cancelCheck queues nothing for a routed check with no APV, and says so', async () => {
     const user = await makeUser('FINANCE_ADMIN')
     const check = await makeCheck({ status: 'SIGNED', eligibility: 'SUPPLIER', apvNumbers: [] })
     await cancelCheck(testDb, { checkId: check.id, userId: user.id, reason: 'spoiled', now: NOW })
@@ -52,7 +52,7 @@ describe('CANCELLED portal event', () => {
     expect(audit.details).toEqual({ portalNotified: false, portalSkipReason: NO_APV_SKIP_REASON })
   })
 
-  it('voidCheck queues nothing for a routed cheque with no APV, and says so', async () => {
+  it('voidCheck queues nothing for a routed check with no APV, and says so', async () => {
     const check = await makeCheck({ status: 'SIGNATURE_PENDING', eligibility: 'SUPPLIER', apvNumbers: [] })
     await voidCheck(testDb, { checkId: check.id, reason: 'Voided in Acumatica', now: NOW })
     expect(await testDb.portalEvent.count({ where: { checkId: check.id } })).toBe(0)
@@ -63,7 +63,7 @@ describe('CANCELLED portal event', () => {
     expect(audit.details).toMatchObject({ portalNotified: false, portalSkipReason: NO_APV_SKIP_REASON })
   })
 
-  it('voidCheck on a RELEASED routed cheque with no APV queues nothing and audits voided_after_release with the skip reason', async () => {
+  it('voidCheck on a RELEASED routed check with no APV queues nothing and audits voided_after_release with the skip reason', async () => {
     const check = await makeCheck({ status: 'RELEASED', eligibility: 'SUPPLIER', apvNumbers: [] })
     await voidCheck(testDb, { checkId: check.id, reason: 'Voided in Acumatica', now: NOW })
     expect(await testDb.portalEvent.count({ where: { checkId: check.id } })).toBe(0)
@@ -71,7 +71,7 @@ describe('CANCELLED portal event', () => {
     expect(audit.details).toMatchObject({ portalNotified: false, portalSkipReason: NO_APV_SKIP_REASON })
   })
 
-  it('a cheque with no apvNumbers but a bill still queues — the bill is an APV', async () => {
+  it('a check with no apvNumbers but a bill still queues — the bill is an APV', async () => {
     const check = await makeCheck({ status: 'SIGNED', eligibility: 'SUPPLIER', apvNumbers: [] })
     await testDb.checkBill.create({ data: { checkId: check.id, apvNumber: 'AP-ST000004', amount: '1.00' } })
     await voidCheck(testDb, { checkId: check.id, reason: 'Voided in Acumatica', now: NOW })
@@ -81,7 +81,7 @@ describe('CANCELLED portal event', () => {
     expect(audit.details).toMatchObject({ portalNotified: true })
   })
 
-  it('a routed cheque that queues records portalNotified: true', async () => {
+  it('a routed check that queues records portalNotified: true', async () => {
     const user = await makeUser('FINANCE_ADMIN')
     const check = await makeCheck({ status: 'SIGNED', eligibility: 'SUPPLIER', apvNumbers: ['AP-ST000005'] })
     await cancelCheck(testDb, { checkId: check.id, userId: user.id, reason: 'duplicate', now: NOW })
@@ -89,7 +89,7 @@ describe('CANCELLED portal event', () => {
     expect(audit.details).toEqual({ portalNotified: true })
   })
 
-  it('an INTERNAL cheque records no portal keys at all', async () => {
+  it('an INTERNAL check records no portal keys at all', async () => {
     const user = await makeUser('FINANCE_ADMIN')
     const check = await makeCheck({ status: 'SIGNED', eligibility: 'INTERNAL' })
     await cancelCheck(testDb, { checkId: check.id, userId: user.id, reason: 'x', now: NOW })

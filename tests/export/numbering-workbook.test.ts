@@ -52,7 +52,7 @@ describe('buildNumberingWorkbook', () => {
     expect(ws.getRow(3).getCell(6).value).toBe(197715.42)
   })
 
-  it('notes DUPLICATE NUMBER on both cheques sharing a number', async () => {
+  it('notes DUPLICATE NUMBER on both checks sharing a number', async () => {
     const wb = await load(await buildNumberingWorkbook({ accounts: [account('BPI STK', [ch('8'), { ...ch('8'), id: 'id-8b' }])], meta: META }))
     const ws = wb.getWorksheet('BPI STK')!
     expect(ws.getRow(2).getCell(10).value).toBe('DUPLICATE NUMBER')
@@ -83,7 +83,7 @@ describe('buildNumberingWorkbook', () => {
     const summary = wb.getWorksheet(NUMBERING_SUMMARY_SHEET)!
     const text = summary.getSheetValues().flat().filter((v) => typeof v === 'string').join(' ')
     expect(text).toContain('BPI STK')
-    expect(text).toContain('3 cheques with no cheque book')
+    expect(text).toContain('3 checks with no check book')
   })
 
   it('prints no "Not in any series" sentence when noAccountCount is null', async () => {
@@ -99,10 +99,10 @@ describe('buildNumberingWorkbook', () => {
   it('states the register-only count on A4, after the no-book sentence (spec §G2)', async () => {
     const wb = await load(await buildNumberingWorkbook({ accounts: [account('BPI STK', [ch('101')])], meta: META }))
     const a4 = String(wb.getWorksheet(NUMBERING_SUMMARY_SHEET)!.getCell('A4').value)
-    expect(a4).toContain('5 REGISTER-ONLY CHEQUES (NOT IN ACUMATICA) ARE NOT SHOWN.')
-    expect(a4.indexOf('3 cheques with no cheque book')).toBeLessThan(a4.indexOf('5 REGISTER-ONLY'))
+    expect(a4).toContain('5 REGISTER-ONLY CHECKS (NOT IN ACUMATICA) ARE NOT SHOWN.')
+    expect(a4.indexOf('3 checks with no check book')).toBeLessThan(a4.indexOf('5 REGISTER-ONLY'))
     const one = await load(await buildNumberingWorkbook({ accounts: [account('BPI STK', [ch('101')])], meta: { ...META, registerOnlyCount: 1 } }))
-    expect(String(one.getWorksheet(NUMBERING_SUMMARY_SHEET)!.getCell('A4').value)).toContain('1 REGISTER-ONLY CHEQUE (NOT IN ACUMATICA) IS NOT SHOWN.')
+    expect(String(one.getWorksheet(NUMBERING_SUMMARY_SHEET)!.getCell('A4').value)).toContain('1 REGISTER-ONLY CHECK (NOT IN ACUMATICA) IS NOT SHOWN.')
   })
 
   it('missing-only keeps just the MISSING lines', async () => {
@@ -125,7 +125,7 @@ describe('buildNumberingWorkbook', () => {
     expect(wb.getWorksheet(NUMBERING_SUMMARY_SHEET)).toBeDefined()
   })
 
-  it('lists non-numeric cheques after the sequence', async () => {
+  it('lists non-numeric checks after the sequence', async () => {
     const wb = await load(await buildNumberingWorkbook({ accounts: [account('BPI STK', [ch('5'), ch('MEMO')])], meta: META }))
     const ws = wb.getWorksheet('BPI STK')!
     expect(ws.getRow(3).getCell(1).value).toBe('MEMO')
@@ -160,7 +160,7 @@ describe('STAGED lines', () => {
     expect(ws.rowCount).toBe(4) // header, 101, STAGED 102, 103 — no MISSING line
   })
 
-  it('an out-of-pattern cheque is written after the sequence with its note, and SUMMARY counts it', async () => {
+  it('an out-of-pattern check is written after the sequence with its note, and SUMMARY counts it', async () => {
     const inPattern = Array.from({ length: 25 }, (_, i) => ch(String(6000100000 + i)))
     const wb = await load(await buildNumberingWorkbook({ accounts: [account('BPI STK', [...inPattern, ch('1791361374')])], meta: META }))
     const ws = wb.getWorksheet('BPI STK')!
@@ -200,12 +200,12 @@ describe('TO FIX IN ACUMATICA (spec §G3)', () => {
   const rowsOf = (ws: ExcelJS.Worksheet) =>
     Array.from({ length: ws.rowCount - 1 }, (_, i) => Array.from({ length: 7 }, (_, c) => ws.getRow(i + 2).getCell(c + 1).value))
 
-  it('sits right after SUMMARY with its header, and lists every entry newest cheque date first, each with its CV', async () => {
+  it('sits right after SUMMARY with its header, and lists every entry newest check date first, each with its CV', async () => {
     const wb = await load(await buildNumberingWorkbook({ accounts: [toFixBook(), account('MBTC A1', [ch('7')])], meta: META }))
     expect(wb.worksheets.map((w) => w.name)).toEqual([NUMBERING_SUMMARY_SHEET, NUMBERING_TO_FIX_SHEET, 'BPI STK', 'MBTC A1'])
     const ws = wb.getWorksheet(NUMBERING_TO_FIX_SHEET)!
     expect(ws.getRow(1).values).toEqual([undefined, ...NUMBERING_TO_FIX_HEADERS])
-    expect(NUMBERING_TO_FIX_HEADERS).toEqual(['CHEQUE BOOK', 'CHECK NUMBER', 'CV', 'CHEQUE DATE', 'PAYEE', 'STATUS', 'REASON'])
+    expect(NUMBERING_TO_FIX_HEADERS).toEqual(['CHECK BOOK', 'CHECK NUMBER', 'CV', 'CHECK DATE', 'PAYEE', 'STATUS', 'REASON'])
     const sept1 = new Date('2026-09-01T00:00:00Z')
     const sept2 = new Date('2026-09-02T00:00:00Z')
     // Newest cheque date first; on the same date, by cheque book, then cheque number.
@@ -217,7 +217,7 @@ describe('TO FIX IN ACUMATICA (spec §G3)', () => {
     expect(ws.autoFilter).toBe('A1:G4')
   })
 
-  it('sorts across cheque books newest first, with an undated cheque last (user request 2026-10-06)', async () => {
+  it('sorts across check books newest first, with an undated check last (user request 2026-10-06)', async () => {
     const dated = (n: string, day: string | null, status: SeriesCheque['status'] = 'RELEASED'): SeriesCheque =>
       ({ ...ch(n, status), checkDate: day ? new Date(`${day}T00:00:00Z`) : null })
     const inPattern = (base: number) => Array.from({ length: 25 }, (_, i) => ch(String(base + i)))

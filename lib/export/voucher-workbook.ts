@@ -113,7 +113,7 @@ export async function buildVoucherIndexWorkbook(
   ws.getCell('A3').font = { size: 10, color: { argb: 'FF475569' } }
 
   ws.getCell('A4').value =
-    'Excludes cheques with no recorded amount. A blank CHECK NUMBER means this system will not ' +
+    'Excludes checks with no recorded amount. A blank CHECK NUMBER means this system will not ' +
     'guess — read REMARKS.'
   ws.getCell('A4').font = { size: 10, color: { argb: 'FF475569' } }
 

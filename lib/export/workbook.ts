@@ -296,14 +296,14 @@ function writeTotals(ws: ExcelJS.Worksheet, rows: readonly CheckTableRow[], amou
   let r = FIRST_DATA_ROW + rows.length + 1 // one blank row below the table
 
   const countCell = ws.getCell(r, 1)
-  countCell.value = `TOTAL — ${rows.length.toLocaleString('en-PH')} CHEQUES EXPORTED`
+  countCell.value = `TOTAL — ${rows.length.toLocaleString('en-PH')} CHECKS EXPORTED`
   countCell.font = { bold: true, size: 11 }
   mergeLabel(r)
   r += 1
 
   for (const t of totals) {
     const label = ws.getCell(r, labelColumn)
-    label.value = `TOTAL VALUE — ${t.currency} (${t.count.toLocaleString('en-PH')} CHEQUE${t.count === 1 ? '' : 'S'})`
+    label.value = `TOTAL VALUE — ${t.currency} (${t.count.toLocaleString('en-PH')} CHECK${t.count === 1 ? '' : 'S'})`
     label.font = { bold: true }
     label.alignment = { horizontal: amountColumn > 1 ? 'right' : 'left' }
     mergeLabel(r)
@@ -326,8 +326,8 @@ function writeTotals(ws: ExcelJS.Worksheet, rows: readonly CheckTableRow[], amou
   if (missing > 0) {
     const note = ws.getCell(r, 1)
     note.value = missing === 1
-      ? '1 OF THESE CHEQUES HAS NO RECORDED AMOUNT AND IS ABSENT FROM THE TOTALS ABOVE. IT IS NOT WORTH ZERO — THE AMOUNT WAS NEVER RECORDED.'
-      : `${missing.toLocaleString('en-PH')} OF THESE CHEQUES HAVE NO RECORDED AMOUNT AND ARE ABSENT FROM THE TOTALS ABOVE. THEY ARE NOT WORTH ZERO — THE AMOUNTS WERE NEVER RECORDED.`
+      ? '1 OF THESE CHECKS HAS NO RECORDED AMOUNT AND IS ABSENT FROM THE TOTALS ABOVE. IT IS NOT WORTH ZERO — THE AMOUNT WAS NEVER RECORDED.'
+      : `${missing.toLocaleString('en-PH')} OF THESE CHECKS HAVE NO RECORDED AMOUNT AND ARE ABSENT FROM THE TOTALS ABOVE. THEY ARE NOT WORTH ZERO — THE AMOUNTS WERE NEVER RECORDED.`
     note.font = { italic: true, size: 9, color: { argb: 'FF92400E' } }
     // Not merged: a merged cell clips, and this note must never be half-read.
   }
@@ -366,7 +366,7 @@ function buildSummarySheet(wb: ExcelJS.Workbook, { summary, meta }: ExportInput)
   titleBlock(ws, [
     'CHECK RELEASE MONITORING',
     'SUMMARY — THE WHOLE SYSTEM, NOT THIS FILE’S FILTERS',
-    'These figures are not narrowed by the filters on the CHECK REGISTER sheet. They cover every cheque the system holds EXCEPT those with no recorded amount, exactly as the dashboard cards do — those are counted on their own line below.',
+    'These figures are not narrowed by the filters on the CHECK REGISTER sheet. They cover every check the system holds EXCEPT those with no recorded amount, exactly as the dashboard cards do — those are counted on their own line below.',
     generatedLine(meta),
   ])
 
@@ -375,8 +375,8 @@ function buildSummarySheet(wb: ExcelJS.Workbook, { summary, meta }: ExportInput)
   const totalWidths: string[] = []
 
   let r = HEADER_ROW
-  sectionHeader(ws, r, ['CHEQUES BY STATUS', 'COUNT'])
-  labelWidths.push('CHEQUES BY STATUS')
+  sectionHeader(ws, r, ['CHECKS BY STATUS', 'COUNT'])
+  labelWidths.push('CHECKS BY STATUS')
   valueWidths.push('COUNT')
   r += 1
 
@@ -386,7 +386,7 @@ function buildSummarySheet(wb: ExcelJS.Workbook, { summary, meta }: ExportInput)
     ['READY FOR RELEASE', summary.readyForRelease],
     ['SCHEDULED', summary.scheduled],
     ['RELEASED', summary.released],
-    ['TOTAL CHEQUES', summary.total],
+    ['TOTAL CHECKS', summary.total],
   ]
   for (const [label, value] of statusLines) {
     ws.getCell(r, 1).value = label
@@ -394,7 +394,7 @@ function buildSummarySheet(wb: ExcelJS.Workbook, { summary, meta }: ExportInput)
     cell.value = value
     cell.numFmt = COUNT_FORMAT
     cell.alignment = { horizontal: 'right' }
-    if (label === 'TOTAL CHEQUES') {
+    if (label === 'TOTAL CHECKS') {
       ws.getCell(r, 1).font = { bold: true }
       cell.font = { bold: true }
       cell.border = { top: { style: 'double', color: { argb: HEADER_FILL } } }
@@ -422,13 +422,13 @@ function buildSummarySheet(wb: ExcelJS.Workbook, { summary, meta }: ExportInput)
   // figures, and this sheet reports the dashboard. Nothing was deleted, so the
   // number is stated rather than dropped — a register that shrinks by 129 with
   // no line explaining it is how a reader concludes money went missing.
-  note.value = 'Real cheques whose amount the register never recorded. They are NOT counted in the figures above and are NOT in the values below — there is nothing of theirs to add, and they are not worth zero. They are still in the system: open the dashboard with the INCOMPLETE ONLY filter to list them. The CURRENCY counts below are the population each total was struck over and do include them.'
+  note.value = 'Real checks whose amount the register never recorded. They are NOT counted in the figures above and are NOT in the values below — there is nothing of theirs to add, and they are not worth zero. They are still in the system: open the dashboard with the INCOMPLETE ONLY filter to list them. The CURRENCY counts below are the population each total was struck over and do include them.'
   note.font = { italic: true, size: 9, color: { argb: 'FF475569' } }
   // Not merged, for the same reason the title block is not: merges clip.
   r += 2
 
-  sectionHeader(ws, r, ['CURRENCY', 'CHEQUES', 'TOTAL VALUE'])
-  valueWidths.push('CHEQUES')
+  sectionHeader(ws, r, ['CURRENCY', 'CHECKS', 'TOTAL VALUE'])
+  valueWidths.push('CHECKS')
   totalWidths.push('TOTAL VALUE')
   r += 1
 
@@ -454,11 +454,11 @@ function buildSummarySheet(wb: ExcelJS.Workbook, { summary, meta }: ExportInput)
   }
 
   const excluded = ws.getCell(r, 1)
-  excluded.value = 'Values exclude CANCELLED cheques. Each currency is totalled on its own line — two currencies are never added together.'
+  excluded.value = 'Values exclude CANCELLED checks. Each currency is totalled on its own line — two currencies are never added together.'
   excluded.font = { italic: true, size: 9, color: { argb: 'FF475569' } }
   // Not merged, for the same reason the title block is not: merges clip.
 
-  ws.getColumn(1).width = fitColumnWidth('CHEQUES BY STATUS', labelWidths)
+  ws.getColumn(1).width = fitColumnWidth('CHECKS BY STATUS', labelWidths)
   ws.getColumn(2).width = fitColumnWidth('COUNT', valueWidths)
   ws.getColumn(3).width = fitColumnWidth('TOTAL VALUE', totalWidths)
 

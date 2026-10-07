@@ -18,7 +18,7 @@ export function NumberingSummaryTable({ accounts, company }: { accounts: readonl
       <table className="w-full text-sm">
         <thead className="border-b border-hairline text-left text-[11px] font-semibold tracking-widest text-slate-400">
           <tr>
-            <th className={th}>CHEQUE BOOK</th><th className={th}>BANK</th><th className={th}>COMPANY</th>
+            <th className={th}>CHECK BOOK</th><th className={th}>BANK</th><th className={th}>COMPANY</th>
             <th className={th}>FIRST</th><th className={th}>LAST</th>
             <th className={`${th} text-right`}>HELD</th><th className={`${th} text-right`}>VOIDED</th>
             <th className={`${th} text-right`}>CANCELLED</th><th className={`${th} text-right`}>STAGED</th><th className={`${th} text-right`}>MISSING</th>
@@ -89,7 +89,7 @@ export function NumberingEntriesTable({ entries }: { entries: readonly SeriesEnt
     <section className="overflow-x-auto rounded-2xl bg-white ring-1 ring-hairline">
       <table className="w-full text-sm">
         <thead className="border-b border-hairline text-left text-[11px] font-semibold tracking-widest text-slate-400">
-          <tr><th className={th}>CHECK NUMBER</th><th className={th}>CHEQUE DATE</th><th className={th}>PAYEE</th><th className={`${th} text-right`}>AMOUNT</th><th className={th}>STATUS</th></tr>
+          <tr><th className={th}>CHECK NUMBER</th><th className={th}>CHECK DATE</th><th className={th}>PAYEE</th><th className={`${th} text-right`}>AMOUNT</th><th className={th}>STATUS</th></tr>
         </thead>
         <tbody>
           {entries.map((e) => e.kind === 'MISSING'
@@ -124,7 +124,7 @@ export function OutOfPatternTable({ entries }: { entries: readonly SeriesEntry[]
     <section className="overflow-x-auto rounded-2xl bg-white ring-1 ring-hairline">
       <table className="w-full text-sm">
         <tbody>
-          {entries.map((e) => e.kind === 'CHEQUE'
+          {entries.map((e) => e.kind === 'CHECK'
             ? <ChequeRow key={e.cheque.id} c={e.cheque} note={e.duplicate ? 'DUPLICATE NUMBER' : undefined} />
             : e.kind === 'STAGED'
             ? <StagedRow key={`s-${e.staged.acumaticaTenant}-${e.staged.acumaticaRef}`} s={e.staged} />

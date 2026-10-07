@@ -94,7 +94,7 @@ describe('printHref', () => {
     expect(printHref(NOTHING)).toBe(PRINT_PATH)
   })
 
-  it('carries the incomplete toggle and the ALL CHEQUES scope', () => {
+  it('carries the incomplete toggle and the ALL CHECKS scope', () => {
     expect(printHref({ ...NOTHING, showAll: true, incomplete: true }))
       .toBe('/print?scope=all&incomplete=1')
   })

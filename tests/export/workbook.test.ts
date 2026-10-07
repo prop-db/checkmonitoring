@@ -100,7 +100,7 @@ describe('CHECK REGISTER — the title block', () => {
   it('opens with the system name, the view, the filters and who generated it', async () => {
     const ws = (await readBack(input())).getWorksheet(REGISTER_SHEET)!
     expect(ws.getCell('A1').value).toBe('CHECK RELEASE MONITORING')
-    expect(ws.getCell('A2').value).toBe('READY FOR RELEASE — 1 CHEQUE')
+    expect(ws.getCell('A2').value).toBe('READY FOR RELEASE — 1 CHECK')
     expect(ws.getCell('A3').value).toBe('COMPANY: STK')
     expect(String(ws.getCell('A4').value)).toContain('Paolo Parcon')
     expect(String(ws.getCell('A4').value)).toMatch(/^Generated /)
@@ -121,7 +121,7 @@ describe('CHECK REGISTER — the title block', () => {
     const ws = (await readBack(input({
       meta: { ...input().meta, totalMatching: 12_227 },
     }))).getWorksheet(REGISTER_SHEET)!
-    expect(ws.getCell('A2').value).toBe('READY FOR RELEASE — FIRST 1 OF 12,227 MATCHING CHEQUES')
+    expect(ws.getCell('A2').value).toBe('READY FOR RELEASE — FIRST 1 OF 12,227 MATCHING CHECKS')
   })
 
   it('says so plainly when nothing is narrowing the view', async () => {
@@ -180,14 +180,14 @@ describe('CHECK REGISTER — the rows', () => {
     expect(r.getCell(9).value).toBe('READY FOR RELEASE')
   })
 
-  it('joins every APV on the cheque, because the search matched across all of them', async () => {
+  it('joins every APV on the check, because the search matched across all of them', async () => {
     const ws = (await readBack(input({
       rows: [row({ apvNumbers: ['APV-1', 'APV-2'] })],
     }))).getWorksheet(REGISTER_SHEET)!
     expect(ws.getRow(FIRST_DATA_ROW).getCell(2).value).toBe('APV-1, APV-2')
   })
 
-  it('joins every PO on the cheque into column 3', async () => {
+  it('joins every PO on the check into column 3', async () => {
     const ws = (await readBack(input({
       rows: [row({ poNumbers: ['PO-1', 'PO-2'] })],
     }))).getWorksheet(REGISTER_SHEET)!
@@ -222,7 +222,7 @@ describe('CHECK REGISTER — the rows', () => {
    * zero would be read as a cheque genuinely drawn for nothing — indistinguishable
    * from the real thing once it is in a spreadsheet on somebody's laptop.
    */
-  it('leaves the amount cell BLANK for a cheque with no recorded amount, never zero', async () => {
+  it('leaves the amount cell BLANK for a check with no recorded amount, never zero', async () => {
     const ws = (await readBack(input({
       rows: [row({ amount: null })],
     }))).getWorksheet(REGISTER_SHEET)!
@@ -276,13 +276,13 @@ describe('CHECK REGISTER — the totals', () => {
     }))).getWorksheet(REGISTER_SHEET)!
 
     const countRow = FIRST_DATA_ROW + 3 + 1 // three rows, then a blank
-    expect(ws.getCell(`A${countRow}`).value).toBe('TOTAL — 3 CHEQUES EXPORTED')
+    expect(ws.getCell(`A${countRow}`).value).toBe('TOTAL — 3 CHECKS EXPORTED')
 
-    expect(ws.getCell(`A${countRow + 1}`).value).toBe('TOTAL VALUE — CNY (1 CHEQUE)')
+    expect(ws.getCell(`A${countRow + 1}`).value).toBe('TOTAL VALUE — CNY (1 CHECK)')
     expect(ws.getCell(`H${countRow + 1}`).value).toBe(2000.25)
     expect(ws.getCell(`H${countRow + 1}`).numFmt).toBe('"¥"#,##0.00')
 
-    expect(ws.getCell(`A${countRow + 2}`).value).toBe('TOTAL VALUE — PHP (2 CHEQUES)')
+    expect(ws.getCell(`A${countRow + 2}`).value).toBe('TOTAL VALUE — PHP (2 CHECKS)')
     expect(ws.getCell(`H${countRow + 2}`).value).toBe(1500.5)
     expect(ws.getCell(`H${countRow + 2}`).numFmt).toBe('"₱"#,##0.00')
     expect(ws.getCell(`H${countRow + 2}`).font?.bold).toBe(true)
@@ -311,19 +311,19 @@ describe('CHECK REGISTER — the totals', () => {
       rows: [row({ id: 'a', amount: null }), row({ id: 'b', amount: null })],
     }))).getWorksheet(REGISTER_SHEET)!
     const totalRow = FIRST_DATA_ROW + 2 + 2
-    expect(ws.getCell(`A${totalRow}`).value).toBe('TOTAL VALUE — PHP (2 CHEQUES)')
+    expect(ws.getCell(`A${totalRow}`).value).toBe('TOTAL VALUE — PHP (2 CHECKS)')
     expect(ws.getCell(`H${totalRow}`).value).toBeNull()
   })
 
-  it('says how many of the exported cheques carry no amount', async () => {
+  it('says how many of the exported checks carry no amount', async () => {
     const ws = (await readBack(input({
       rows: [row({ id: 'a' }), row({ id: 'b', amount: null })],
     }))).getWorksheet(REGISTER_SHEET)!
     const note = FIRST_DATA_ROW + 2 + 1 + 1 + 1 // rows, blank, count, one currency
-    expect(String(ws.getCell(`A${note}`).value)).toContain('1 OF THESE CHEQUES HAS NO RECORDED AMOUNT')
+    expect(String(ws.getCell(`A${note}`).value)).toContain('1 OF THESE CHECKS HAS NO RECORDED AMOUNT')
   })
 
-  it('omits that note when every exported cheque carries an amount', async () => {
+  it('omits that note when every exported check carries an amount', async () => {
     const ws = (await readBack(input())).getWorksheet(REGISTER_SHEET)!
     const values: string[] = []
     ws.eachRow((r) => { if (typeof r.getCell(1).value === 'string') values.push(r.getCell(1).value as string) })
@@ -334,9 +334,9 @@ describe('CHECK REGISTER — the totals', () => {
     const ws = (await readBack(input({
       rows: [], meta: { ...input().meta, totalMatching: 0 },
     }))).getWorksheet(REGISTER_SHEET)!
-    expect(ws.getCell('A2').value).toBe('READY FOR RELEASE — NO CHEQUES MATCH')
+    expect(ws.getCell('A2').value).toBe('READY FOR RELEASE — NO CHECKS MATCH')
     expect(ws.getRow(HEADER_ROW).getCell(1).value).toBe('CHECK NUMBER')
-    expect(ws.getCell(`A${FIRST_DATA_ROW + 1}`).value).toBe('TOTAL — 0 CHEQUES EXPORTED')
+    expect(ws.getCell(`A${FIRST_DATA_ROW + 1}`).value).toBe('TOTAL — 0 CHECKS EXPORTED')
   })
 })
 
@@ -390,7 +390,7 @@ describe('SUMMARY', () => {
     expect(found.get('READY FOR RELEASE')).toBe(81)
     expect(found.get('SCHEDULED')).toBe(6)
     expect(found.get('RELEASED')).toBe(7433)
-    expect(found.get('TOTAL CHEQUES')).toBe(9247)
+    expect(found.get('TOTAL CHECKS')).toBe(9247)
     expect(found.get('NO RECORDED AMOUNT')).toBe(129)
   })
 
@@ -466,7 +466,7 @@ describe('CHECK REGISTER — the viewer’s column order', () => {
     expect(String(totalRow.getCell(2).value)).toMatch(/^TOTAL VALUE — PHP/)
   })
 
-  it('keeps a cheque with no recorded amount blank, never 0, when AMOUNT moves', async () => {
+  it('keeps a check with no recorded amount blank, never 0, when AMOUNT moves', async () => {
     const ws = (await readBack(input({
       rows: [row({ amount: null })],
       columns: exportColumnOrder('status,amount'),

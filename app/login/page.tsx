@@ -51,7 +51,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             From Acumatica to the supplier&rsquo;s hand, one record.
           </p>
           <p className="mt-2 text-sm leading-relaxed text-slate-600">
-            Tick a cheque READY FOR RELEASE here and the Supplier Portal is told. Nothing is typed twice,
+            Tick a check READY FOR RELEASE here and the Supplier Portal is told. Nothing is typed twice,
             and nothing is released without a Finance user saying so.
           </p>
         </div>

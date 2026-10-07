@@ -27,7 +27,7 @@ async function inBook(book: { id: string }, overrides: Parameters<typeof makeChe
 }
 
 describe('listNumberingAccounts', () => {
-  it('includes every status and cheques with no amount; excludes non-cheques', async () => {
+  it('includes every status and checks with no amount; excludes non-checks', async () => {
     const first = await acuCheck({ checkNumber: '100', status: 'RELEASED' })
     const book = await bookFor(first)
     await inBook(book, { checkNumber: '101', status: 'VOIDED', amount: null })
@@ -38,11 +38,11 @@ describe('listNumberingAccounts', () => {
     expect(acc.accountId).toBe(book.id)
     expect(acc.account).toBe(book.code)
     expect(acc.series.summary).toMatchObject({ first: '100', last: '102', held: 3, voided: 1, cancelled: 1, missingRuns: 0 })
-    const voided = acc.series.entries.find((e) => e.kind === 'CHEQUE' && e.cheque.checkNumber === '101')
-    expect(voided?.kind === 'CHEQUE' && voided.cheque.amount).toBeNull()
+    const voided = acc.series.entries.find((e) => e.kind === 'CHECK' && e.cheque.checkNumber === '101')
+    expect(voided?.kind === 'CHECK' && voided.cheque.amount).toBeNull()
   })
 
-  it('one entry per cheque book, sorted by book code, amounts as strings', async () => {
+  it('one entry per check book, sorted by book code, amounts as strings', async () => {
     const a = await acuCheck({ checkNumber: '1', amount: '197715.42' })
     const b = await acuCheck({ checkNumber: '2' })
     await bookFor(a, 'ZZZ')
@@ -50,7 +50,7 @@ describe('listNumberingAccounts', () => {
     const out = await listNumberingAccounts(testDb, {})
     expect(out.map((x) => x.account)).toEqual(['AAA', 'ZZZ'])
     const e = out[1].series.entries[0]
-    expect(e.kind === 'CHEQUE' && e.cheque.amount).toBe('197715.42')
+    expect(e.kind === 'CHECK' && e.cheque.amount).toBe('197715.42')
   })
 
   it('returns amounts as two-decimal strings', async () => {
@@ -59,14 +59,14 @@ describe('listNumberingAccounts', () => {
     await inBook(book, { checkNumber: '2', amount: '500' })
     const [acc] = await listNumberingAccounts(testDb, {})
     const amountOf = (n: string) => {
-      const e = acc.series.entries.find((x) => x.kind === 'CHEQUE' && x.cheque.checkNumber === n)
-      return e?.kind === 'CHEQUE' ? e.cheque.amount : undefined
+      const e = acc.series.entries.find((x) => x.kind === 'CHECK' && x.cheque.checkNumber === n)
+      return e?.kind === 'CHECK' ? e.cheque.amount : undefined
     }
     expect(amountOf('1')).toBe('1000.50')
     expect(amountOf('2')).toBe('500.00')
   })
 
-  it('a named cheque book is shown whole: a companyId with no cheque in it does not empty it (spec §E)', async () => {
+  it('a named check book is shown whole: a companyId with no check in it does not empty it (spec §E)', async () => {
     const a = await acuCheck({ checkNumber: '1' })
     const b = await acuCheck({ checkNumber: '2' })
     const bookA = await bookFor(a)
@@ -76,7 +76,7 @@ describe('listNumberingAccounts', () => {
     expect(out[0].series.summary.held).toBe(1)
   })
 
-  it('narrows by the books the company\'s cheques use, and by one cheque book', async () => {
+  it('narrows by the books the company\'s checks use, and by one check book', async () => {
     const a = await acuCheck({ checkNumber: '1' })
     const b = await acuCheck({ checkNumber: '2' })
     const bookA = await bookFor(a)
@@ -85,7 +85,7 @@ describe('listNumberingAccounts', () => {
     expect((await listNumberingAccounts(testDb, { checkBookId: bookB.id })).map((x) => x.accountId)).toEqual([bookB.id])
   })
 
-  it('a company with no cheque in any book gets no series', async () => {
+  it('a company with no check in any book gets no series', async () => {
     const a = await acuCheck({ checkNumber: '1' })
     await bookFor(a)
     const loose = await acuCheck({ checkNumber: '2' }) // its company's only cheque carries no book
@@ -93,7 +93,7 @@ describe('listNumberingAccounts', () => {
   })
 })
 
-describe('listNumberingAccounts — a cheque book shared across companies (spec §E)', () => {
+describe('listNumberingAccounts — a check book shared across companies (spec §E)', () => {
   /** Book 500-502: X holds 500 and 502, Y holds 501. A second book holds only X's 900. */
   async function sharedBook() {
     const x1 = await acuCheck({ checkNumber: '500' })
@@ -109,7 +109,7 @@ describe('listNumberingAccounts — a cheque book shared across companies (spec 
     return { book, xOnly, X, Y }
   }
 
-  it('one series per book, its company listing every company in it, most cheques first', async () => {
+  it('one series per book, its company listing every company in it, most checks first', async () => {
     const { book, X, Y } = await sharedBook()
     const out = await listNumberingAccounts(testDb, {})
     const shared = out.filter((x) => x.accountId === book.id)
@@ -118,7 +118,7 @@ describe('listNumberingAccounts — a cheque book shared across companies (spec 
     expect(shared[0].series.summary).toMatchObject({ first: '500', last: '502', held: 3, missingRuns: 0 })
   })
 
-  it('a company filter returns the whole shared book, with no MISSING where another company\'s cheque sits', async () => {
+  it('a company filter returns the whole shared book, with no MISSING where another company\'s check sits', async () => {
     const { book, X, Y } = await sharedBook()
     const out = await listNumberingAccounts(testDb, { companyId: Y.id })
     expect(out.map((x) => x.accountId)).toEqual([book.id])
@@ -127,7 +127,7 @@ describe('listNumberingAccounts — a cheque book shared across companies (spec 
     expect(out[0].company).toBe(`${X.code}, ${Y.code}`)
   })
 
-  it('a book holding none of the company\'s cheques is left out', async () => {
+  it('a book holding none of the company\'s checks is left out', async () => {
     const { book, xOnly, X, Y } = await sharedBook()
     expect((await listNumberingAccounts(testDb, { companyId: Y.id })).map((x) => x.accountId)).not.toContain(xOnly.id)
     const forX = await listNumberingAccounts(testDb, { companyId: X.id })
@@ -136,7 +136,7 @@ describe('listNumberingAccounts — a cheque book shared across companies (spec 
     expect(forX.find((x) => x.accountId === xOnly.id)?.company).toBe(X.code)
   })
 
-  it('a cheque with a cash account but no cheque book is in no series', async () => {
+  it('a check with a cash account but no check book is in no series', async () => {
     const c = await acuCheck({ checkNumber: '500' })
     expect(c.cashAccountId).not.toBeNull()
     expect(c.checkBookId).toBeNull()
@@ -162,7 +162,7 @@ async function stage(cashAccountCode: string | null, statedCheckRef: string, ext
 }
 
 describe('listNumberingAccounts — staged dotted re-uses', () => {
-  it('joins a dotted staged payment to its cheque book as a STAGED line', async () => {
+  it('joins a dotted staged payment to its check book as a STAGED line', async () => {
     const first = await acuCheck({ checkNumber: '1000' })
     const book = await bookFor(first)
     await inBook(book, { checkNumber: '1003' })
@@ -175,7 +175,7 @@ describe('listNumberingAccounts — staged dotted re-uses', () => {
     expect(s?.kind === 'STAGED' && s.staged.amount).toBe('500.00')
   })
 
-  it('ignores a promoted row, a row without a dot, a WORKBOOK row, an unknown cheque book and a cash-account code', async () => {
+  it('ignores a promoted row, a row without a dot, a WORKBOOK row, an unknown check book and a cash-account code', async () => {
     const first = await acuCheck({ checkNumber: '2000' })
     const book = await bookFor(first)
     await inBook(book, { checkNumber: '2006' })
@@ -191,7 +191,7 @@ describe('listNumberingAccounts — staged dotted re-uses', () => {
     expect(a.series.summary.missingNumbers).toBe('5')
   })
 
-  it('a cheque book with only staged numbers still appears', async () => {
+  it('a check book with only staged numbers still appears', async () => {
     const other = await acuCheck({ checkNumber: '1' })
     await bookFor(other)
     const bank = await testDb.bank.create({ data: { code: `B${Math.random().toString(36).slice(2, 7)}`, name: 'BPI' } })
@@ -204,7 +204,7 @@ describe('listNumberingAccounts — staged dotted re-uses', () => {
     expect(e?.company).toBe('')
   })
 
-  it('honours the company and cheque-book filters for staged rows', async () => {
+  it('honours the company and check-book filters for staged rows', async () => {
     const a = await acuCheck({ checkNumber: '10' })
     const b = await acuCheck({ checkNumber: '20' })
     const bookA = await bookFor(a)
@@ -222,7 +222,7 @@ describe('listNumberingAccounts — staged dotted re-uses', () => {
 })
 
 describe('countChequesWithoutCheckBook', () => {
-  it('counts cheques with no cheque book, narrowed by the cheque\'s company', async () => {
+  it('counts checks with no check book, narrowed by the check\'s company', async () => {
     const a = await acuCheck({ checkNumber: '1' })
     const b = await acuCheck({ checkNumber: '2' })
     await bookFor(b)
@@ -234,8 +234,8 @@ describe('countChequesWithoutCheckBook', () => {
   })
 })
 
-describe('only Acumatica cheques (spec §G2)', () => {
-  it('a register-only cheque in a book is left out of the series; each cheque carries its CV', async () => {
+describe('only Acumatica checks (spec §G2)', () => {
+  it('a register-only check in a book is left out of the series; each check carries its CV', async () => {
     const first = await acuCheck({ checkNumber: '100' })
     const book = await bookFor(first)
     await inBook(book, { checkNumber: '101' }, true) // register-only: no Acumatica payment
@@ -244,16 +244,16 @@ describe('only Acumatica cheques (spec §G2)', () => {
     expect(rest).toHaveLength(0)
     expect(acc.series.summary).toMatchObject({ first: '100', last: '102', held: 2, missingNumbers: '1' })
     const e = acc.series.entries[0]
-    expect(e.kind === 'CHEQUE' && e.cheque.cv).toBe(first.acumaticaPaymentId)
+    expect(e.kind === 'CHECK' && e.cheque.cv).toBe(first.acumaticaPaymentId)
   })
 
-  it('a book holding only register-only cheques is not shown', async () => {
+  it('a book holding only register-only checks is not shown', async () => {
     const reg = await makeCheck({ checkNumber: '7' })
     await bookFor(reg)
     expect(await listNumberingAccounts(testDb, {})).toEqual([])
   })
 
-  it('company book selection ignores register-only cheques', async () => {
+  it('company book selection ignores register-only checks', async () => {
     const acu = await acuCheck({ checkNumber: '1' })
     const book = await bookFor(acu)
     const reg = await inBook(book, { checkNumber: '2' }, true) // its own company, register-only
@@ -261,7 +261,7 @@ describe('only Acumatica cheques (spec §G2)', () => {
     expect((await listNumberingAccounts(testDb, { companyId: acu.companyId })).map((x) => x.accountId)).toEqual([book.id])
   })
 
-  it('countRegisterOnlyCheques counts cheques with no Acumatica payment, by company; non-cheques are not counted', async () => {
+  it('countRegisterOnlyCheques counts checks with no Acumatica payment, by company; non-checks are not counted', async () => {
     const reg = await makeCheck({ checkNumber: '1' })
     await bookFor(reg)
     await makeCheck({ checkNumber: '2' })
@@ -272,7 +272,7 @@ describe('only Acumatica cheques (spec §G2)', () => {
     expect(await countRegisterOnlyCheques(testDb, { companyId: acu.companyId })).toBe(0)
   })
 
-  it('countChequesWithoutCheckBook counts only Acumatica cheques', async () => {
+  it('countChequesWithoutCheckBook counts only Acumatica checks', async () => {
     await makeCheck({ checkNumber: '1' }) // register-only, no book
     await acuCheck({ checkNumber: '2' })
     expect(await countChequesWithoutCheckBook(testDb, {})).toBe(1)
@@ -280,7 +280,7 @@ describe('only Acumatica cheques (spec §G2)', () => {
 })
 
 describe('listCheckBookOptions', () => {
-  it('lists every cheque book by code with its bank code', async () => {
+  it('lists every check book by code with its bank code', async () => {
     const a = await acuCheck({ checkNumber: '1' })
     const b = await acuCheck({ checkNumber: '2' })
     const bookA = await bookFor(a, 'ZZZ-BOOK')

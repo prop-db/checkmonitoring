@@ -106,7 +106,7 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
     <main className="mx-auto max-w-5xl space-y-6 p-8">
       <AppHeader
         user={user}
-        title="CHEQUE"
+        title="CHECK"
         back={{ href: '/', label: '← BACK TO DASHBOARD' }}
       />
 
@@ -180,7 +180,7 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
 
       {check.isIncomplete && (
         <Notice tone="warning" title="NO AMOUNT RECORDED">
-          The register never recorded an amount for this cheque. It is left out of every currency
+          The register never recorded an amount for this check. It is left out of every currency
           total — there is no figure of its to add — and out of the dashboard&rsquo;s counts and
           table entirely, and it cannot be marked ready for release until somebody supplies one.
           Nothing about it has been deleted.
@@ -343,7 +343,7 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
             <input name="reason" required placeholder="Approved in error"
               className="h-10 w-full max-w-md rounded-lg border border-hairline bg-white px-3 text-sm text-slate-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy" />
             <p className="text-[11px] text-slate-500">
-              Returns this cheque to SIGNED and clears any pickup the supplier had booked.
+              Returns this check to SIGNED and clears any pickup the supplier had booked.
             </p>
           </ActionForm>
         )}
@@ -351,7 +351,7 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
         {check.status === 'RELEASED' && (
           <div className="space-y-4">
             <p className="rounded-xl bg-success-bg px-4 py-3 text-sm text-success-ink">
-              This cheque has been released
+              This check has been released
               {check.releasedBy?.name ? ` by ${check.releasedBy.name}` : ''}
               {check.releasedAt ? ` on ${fmtDateTime(check.releasedAt)}` : ''}.
             </p>
@@ -400,7 +400,7 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
                   <input name="reason" required placeholder="Ticked the wrong row"
                     className="h-10 w-full max-w-md rounded-lg border border-hairline bg-white px-3 text-sm text-slate-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy" />
                   <p className="text-[11px] text-slate-500">
-                    Returns this cheque to READY FOR RELEASE, clears any pickup that was booked
+                    Returns this check to READY FOR RELEASE, clears any pickup that was booked
                     {/* Rule 2: an INTERNAL cheque never produces a portal call, and this reversal
                         is no exception — `reverseRelease` queues nothing for it. Stating the portal
                         clause anyway would tell Finance something false about a payroll, tax or
@@ -440,14 +440,14 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
 
         {check.status === 'VOIDED' && (
           <p className="text-sm text-slate-500">
-            This cheque is VOIDED in Acumatica. Acumatica is the source of that fact and this system
+            This check is VOIDED in Acumatica. Acumatica is the source of that fact and this system
             never writes it back.
           </p>
         )}
 
         {check.status === 'GENERATED' && (
           <p className="text-sm text-slate-500">
-            This cheque has not been sent for signature yet, so there is nothing to do here.
+            This check has not been sent for signature yet, so there is nothing to do here.
           </p>
         )}
       </Panel>

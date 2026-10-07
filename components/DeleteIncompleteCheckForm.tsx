@@ -39,7 +39,7 @@ export function DeleteIncompleteCheckForm({ checkId, checkNumber }: { checkId: s
           DELETE THIS INCOMPLETE RECORD
         </button>
         <p className="text-xs text-slate-500">
-          Permanent. The audit trail survives the deletion, detached from the cheque and intact.
+          Permanent. The audit trail survives the deletion, detached from the check and intact.
         </p>
       </div>
     )
@@ -63,9 +63,9 @@ export function DeleteIncompleteCheckForm({ checkId, checkNumber }: { checkId: s
     >
       <input type="hidden" name="checkId" value={checkId} />
       <p className="text-sm text-danger-ink">
-        <strong>Delete cheque {checkNumber} permanently?</strong> This removes the record itself.
+        <strong>Delete check {checkNumber} permanently?</strong> This removes the record itself.
         Its audit rows survive, detached, so what was done to it stays on the record — but the
-        cheque, and any bill lines on it, are gone.
+        check, and any bill lines on it, are gone.
       </p>
       <label className="block text-[11px] font-semibold tracking-widest text-danger-ink">
         REASON (REQUIRED)

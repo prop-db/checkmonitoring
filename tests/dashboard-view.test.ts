@@ -67,7 +67,7 @@ describe('selecting a view', () => {
       .toBe('READY FOR RELEASE — INCLUDING SCHEDULED')
   })
 
-  it('shows RELEASED without needing the all-cheques scope', () => {
+  it('shows RELEASED without needing the all-checks scope', () => {
     // RELEASED is excluded from the NEEDS ACTION default, and an explicit
     // status wins over that default — so the card opens a full table.
     expect(cardHref('RELEASED', NOTHING)).toBe('/?status=RELEASED')
@@ -110,7 +110,7 @@ describe('TOTAL CHECKS', () => {
     expect(viewStatusFilter({ ...NOTHING, showAll: true }))
       .toEqual({ status: undefined, statusIn: undefined })
     expect(describeView({ ...NOTHING, showAll: true }))
-      .toBe('ALL CHEQUES — EVERY STATUS, INCLUDING RELEASED, CANCELLED AND VOIDED')
+      .toBe('ALL CHECKS — EVERY STATUS, INCLUDING RELEASED, CANCELLED AND VOIDED')
   })
 
   /**
@@ -119,7 +119,7 @@ describe('TOTAL CHECKS', () => {
    * like every other card. It used to clear them ("show me everything, start
    * again"); RESET on either filter bar is the way to do that now.
    */
-  it('carries the search, the dropdowns and the incomplete toggle into the all-cheques view', () => {
+  it('carries the search, the dropdowns and the incomplete toggle into the all-checks view', () => {
     const messy: DashboardSelection = { ...NARROWED, status: 'SIGNED', incomplete: true }
     expect(cardHref('TOTAL_CHECKS', messy))
       .toBe('/?q=ACME&company=c1&cashAccount=a1&eligibility=ELIGIBLE&scope=all&incomplete=1')
@@ -179,7 +179,7 @@ describe('INCOMPLETE (NO AMOUNT) is a toggle, and no longer a card', () => {
       .toBe('/?scope=live&incomplete=1')
   })
 
-  it('composes with the all-cheques view too', () => {
+  it('composes with the all-checks view too', () => {
     expect(incompleteHref({ ...NOTHING, showAll: true })).toBe('/?scope=all&incomplete=1')
   })
 
@@ -311,7 +311,7 @@ describe('dashboardScreen', () => {
     })).toBe('TOTALS')
   })
 
-  it('opens the LIST for a card, all cheques, the incomplete toggle, the live list, or a search', () => {
+  it('opens the LIST for a card, all checks, the incomplete toggle, the live list, or a search', () => {
     expect(dashboardScreen({ ...NOTHING, status: 'SIGNED' })).toBe('LIST')
     expect(dashboardScreen({ ...NOTHING, showAll: true })).toBe('LIST')
     expect(dashboardScreen({ ...NOTHING, incomplete: true })).toBe('LIST')
@@ -381,7 +381,7 @@ describe('scope=live', () => {
     expect(dashboardHref({ ...LIVE, base: { company: 'c1' } })).toBe('/?company=c1&scope=live')
   })
 
-  it('is not written beside a status or the all-cheques scope, which already open the list', () => {
+  it('is not written beside a status or the all-checks scope, which already open the list', () => {
     expect(dashboardHref({ ...LIVE, status: 'SIGNED' })).toBe('/?status=SIGNED')
     expect(dashboardHref({ ...LIVE, showAll: true })).toBe('/?scope=all')
     expect(cardHref('SIGNED', LIVE)).toBe('/?status=SIGNED')
@@ -423,7 +423,7 @@ describe('signAllOffered', () => {
   it('is not offered with the incomplete toggle on', () => {
     expect(signAllOffered({ ...PENDING, incomplete: true })).toBe(false)
   })
-  it('is not offered on ALL CHEQUES', () => {
+  it('is not offered on ALL CHECKS', () => {
     expect(signAllOffered({ ...PENDING, status: null, showAll: true })).toBe(false)
     expect(signAllOffered({ ...PENDING, showAll: true })).toBe(false)
   })

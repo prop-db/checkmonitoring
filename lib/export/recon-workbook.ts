@@ -13,7 +13,7 @@ import type { ReconSummary, OutstandingLine } from '@/lib/recon/summary'
 export const RECON_SUMMARY_SHEET = 'SUMMARY'
 export const RECON_DETAIL_SHEET = 'DETAIL'
 export const RECON_DETAIL_HEADERS = [
-  'CHECK NUMBER', 'PAYEE', 'ACCOUNT', 'BANK', 'COMPANY', 'CHEQUE DATE', 'ISSUED', 'ISSUE BASIS',
+  'CHECK NUMBER', 'PAYEE', 'ACCOUNT', 'BANK', 'COMPANY', 'CHECK DATE', 'ISSUED', 'ISSUE BASIS',
   'DAYS OUTSTANDING', 'CLEARING', 'CURRENCY', 'AMOUNT',
 ] as const
 const SUMMARY_HEADERS = ['ACCOUNT', 'BANK', 'COMPANY', 'CURRENCY', 'OUTSTANDING', 'AMOUNT'] as const
@@ -49,20 +49,20 @@ export async function buildReconWorkbook(
   wb.created = meta.generatedAt
 
   const ws = wb.addWorksheet(RECON_SUMMARY_SHEET)
-  ws.getCell('A1').value = `OUTSTANDING CHEQUES AS OF ${meta.asOfDay} — CHECK RELEASE MONITORING`
+  ws.getCell('A1').value = `OUTSTANDING CHECKS AS OF ${meta.asOfDay} — CHECK RELEASE MONITORING`
   ws.getCell('A1').font = { bold: true, size: 16, color: { argb: TITLE_INK } }
   ws.getRow(1).height = 24
   ws.getCell('A2').value = meta.filterDescription
   ws.getCell('A2').font = { bold: true, size: 12, color: { argb: TITLE_INK } }
   ws.getCell('A3').value = detail.length < meta.totalRows
-    ? `${generatedLine(meta)}  ·  DETAIL holds the FIRST ${count(detail.length)} OF ${count(meta.totalRows)} cheques`
-    : `${generatedLine(meta)}  ·  ${count(meta.totalRows)} cheque${meta.totalRows === 1 ? '' : 's'}`
+    ? `${generatedLine(meta)}  ·  DETAIL holds the FIRST ${count(detail.length)} OF ${count(meta.totalRows)} checks`
+    : `${generatedLine(meta)}  ·  ${count(meta.totalRows)} check${meta.totalRows === 1 ? '' : 's'}`
   ws.getCell('A3').font = { size: 10, color: { argb: MUTED_INK } }
   ws.getCell('A4').value =
     `Outstanding means released and not cleared by the bank as of the day. Where no release date was ` +
-    `recorded, the cheque date stands in. Excludes ${count(meta.incompleteCount)} released ` +
-    `cheque${meta.incompleteCount === 1 ? '' : 's'} with no recorded amount, and ${count(meta.notYetIssuedCount)} released ` +
-    `cheque${meta.notYetIssuedCount === 1 ? '' : 's'} dated after the day (not yet presentable).`
+    `recorded, the check date stands in. Excludes ${count(meta.incompleteCount)} released ` +
+    `check${meta.incompleteCount === 1 ? '' : 's'} with no recorded amount, and ${count(meta.notYetIssuedCount)} released ` +
+    `check${meta.notYetIssuedCount === 1 ? '' : 's'} dated after the day (not yet presentable).`
   ws.getCell('A4').font = { size: 10, color: { argb: MUTED_INK } }
 
   const header = ws.getRow(6)

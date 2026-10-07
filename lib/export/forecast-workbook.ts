@@ -60,7 +60,7 @@ function generatedLine(meta: ForecastMeta): string {
 /** The population in words: cheques and planned lines counted apart, because they are not the same thing. */
 const population = (meta: ForecastMeta) => {
   const cheques = meta.totalRows - meta.plannedCount
-  return `${count(cheques)} cheque${cheques === 1 ? '' : 's'} and ${count(meta.plannedCount)} planned line${meta.plannedCount === 1 ? '' : 's'}`
+  return `${count(cheques)} check${cheques === 1 ? '' : 's'} and ${count(meta.plannedCount)} planned line${meta.plannedCount === 1 ? '' : 's'}`
 }
 
 /**
@@ -147,7 +147,7 @@ export async function buildForecastWorkbook(
 
   // ── SUMMARY ──────────────────────────────────────────────────────────────
   const summary = wb.addWorksheet(SUMMARY_SHEET)
-  summary.getCell('A1').value = 'CASH OUTFLOW BY CHEQUE DATE — CHECK RELEASE MONITORING'
+  summary.getCell('A1').value = 'CASH OUTFLOW BY CHECK DATE — CHECK RELEASE MONITORING'
   summary.getCell('A1').font = { bold: true, size: 16, color: { argb: TITLE_INK } }
   summary.getRow(1).height = 24
   summary.getCell('A2').value = meta.filterDescription
@@ -158,9 +158,9 @@ export async function buildForecastWorkbook(
   summary.getCell('A3').value = scope
   summary.getCell('A3').font = { size: 10, color: { argb: MUTED_INK } }
   summary.getCell('A4').value =
-    `Dates are the cheque's own date — the day from which it can be presented — unless Finance typed an ` +
-    `expected outflow date (${count(meta.expectedCount)} here), which then places the cheque. Planned lines sit on their own day. Excludes ` +
-    `${count(meta.incompleteCount)} cheque${meta.incompleteCount === 1 ? '' : 's'} with no recorded amount.`
+    `Dates are the check's own date — the day from which it can be presented — unless Finance typed an ` +
+    `expected outflow date (${count(meta.expectedCount)} here), which then places the check. Planned lines sit on their own day. Excludes ` +
+    `${count(meta.incompleteCount)} check${meta.incompleteCount === 1 ? '' : 's'} with no recorded amount.`
   summary.getCell('A4').font = { size: 10, color: { argb: MUTED_INK } }
 
   let next = writeMatrix(summary, 6, 'BY BANK', byBank)

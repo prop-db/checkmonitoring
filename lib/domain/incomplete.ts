@@ -85,7 +85,7 @@ export function checkDeletable(input: DeleteGuardInput): GuardResult {
     return {
       ok: false,
       code: 'NOT_ADMIN',
-      message: 'Only a Finance Admin can delete a cheque record.',
+      message: 'Only a Finance Admin can delete a check record.',
     }
   }
 
@@ -94,7 +94,7 @@ export function checkDeletable(input: DeleteGuardInput): GuardResult {
       ok: false,
       code: 'ALREADY_RELEASED',
       message:
-        'This cheque has been RELEASED. Deleting it would erase the record of money that ' +
+        'This check has been RELEASED. Deleting it would erase the record of money that ' +
         'actually moved, so it cannot be deleted from here.',
     }
   }
@@ -104,7 +104,7 @@ export function checkDeletable(input: DeleteGuardInput): GuardResult {
       ok: false,
       code: 'ANNOUNCED',
       message:
-        `This cheque is ${input.status.replace(/_/g, ' ')}, so a supplier may already have been ` +
+        `This check is ${input.status.replace(/_/g, ' ')}, so a supplier may already have been ` +
         'told it is waiting for them. It cannot be deleted — revert its availability first if ' +
         'that was a mistake.',
     }
@@ -115,7 +115,7 @@ export function checkDeletable(input: DeleteGuardInput): GuardResult {
       ok: false,
       code: 'AMOUNT_RECORDED',
       message:
-        'This cheque records an amount, so it is not an incomplete record. Only a cheque whose ' +
+        'This check records an amount, so it is not an incomplete record. Only a check whose ' +
         'amount was never recorded can be deleted; cancel it instead.',
     }
   }

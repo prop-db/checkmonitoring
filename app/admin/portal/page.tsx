@@ -27,7 +27,7 @@ export default async function AdminPortalPage() {
         ) : (
           <table className="mt-3 w-full text-sm">
             <thead className="text-left text-xs text-slate-400">
-              <tr><th>CHEQUE</th><th>PAYEE</th><th>EVENT</th><th>STATUS</th><th>TRIES</th><th>LAST ERROR</th><th>NEXT</th><th></th></tr>
+              <tr><th>CHECK</th><th>PAYEE</th><th>EVENT</th><th>STATUS</th><th>TRIES</th><th>LAST ERROR</th><th>NEXT</th><th></th></tr>
             </thead>
             <tbody>
               {o.attention.map((r) => (

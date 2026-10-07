@@ -123,7 +123,7 @@ export async function bulkReadyForReleaseAction(formData: FormData): Promise<Bul
   if (!availablePickupDate || Number.isNaN(availablePickupDate.getTime())) {
     return {
       ok: false,
-      message: 'Enter the available pickup date before marking cheques ready for release.',
+      message: 'Enter the available pickup date before marking checks ready for release.',
     }
   }
 
@@ -146,7 +146,7 @@ export async function bulkRevertToSignedAction(formData: FormData): Promise<Bulk
   if (!selection.ok) return { ok: false, message: selection.message }
 
   const reason = str(formData, 'reason')
-  if (!reason) return { ok: false, message: 'Enter a reason before reverting cheques to SIGNED.' }
+  if (!reason) return { ok: false, message: 'Enter a reason before reverting checks to SIGNED.' }
 
   const now = new Date()
   return runEach(prisma, selection.checkIds, (checkId) =>
@@ -199,7 +199,7 @@ export async function bulkRevertToPendingAction(formData: FormData): Promise<Bul
 export async function bulkReleaseAction(formData: FormData): Promise<BulkActionResult> {
   const user = await requireUser()
   if (user.role !== 'FINANCE_ADMIN') {
-    return { ok: false, message: 'Only a Finance Admin can mark a cheque RELEASED.' }
+    return { ok: false, message: 'Only a Finance Admin can mark a check RELEASED.' }
   }
   const settings = await loadSettings(prisma)
   const selection = parseSelection(ids(formData), settings.values['caps.bulkSelection'])
@@ -240,7 +240,7 @@ export async function bulkRecordReceiptsAction(formData: FormData): Promise<Bulk
 
   const typed = selection.checkIds.filter((id) => read.receipts.has(id))
   if (typed.length === 0) {
-    return { ok: false, message: 'Type a receipt reference on at least one ticked cheque before saving.' }
+    return { ok: false, message: 'Type a receipt reference on at least one ticked check before saving.' }
   }
 
   const now = new Date()
@@ -420,7 +420,7 @@ export async function releaseAllReadyAction(
 ): Promise<BulkActionResult> {
   const user = await requireUser()
   if (user.role !== 'FINANCE_ADMIN') {
-    return { ok: false, message: 'Only a Finance Admin can mark a cheque RELEASED.' }
+    return { ok: false, message: 'Only a Finance Admin can mark a check RELEASED.' }
   }
 
   return runConfirmedAll(formData, {
@@ -432,9 +432,9 @@ export async function releaseAllReadyAction(
       notConfirmed: 'This release was not confirmed. Open TODAY’S RELEASE and confirm the figures first.',
       badCount: 'This release could not be confirmed. Open TODAY’S RELEASE again and re-read the figures.',
       badFilter: 'The filter on screen was not recognised. Open TODAY’S RELEASE again and re-read the figures.',
-      empty: 'No cheques are ready to release right now.',
+      empty: 'No checks are ready to release right now.',
       moreThanConfirmed: (n, expected) =>
-        `${n} cheques are ready now, but ${expected} were on screen when you ` +
+        `${n} checks are ready now, but ${expected} were on screen when you ` +
         'confirmed. Re-read TODAY’S RELEASE and confirm the current figures.',
     },
   })
@@ -464,9 +464,9 @@ export async function signAllPendingAction(
       notConfirmed: 'This was not confirmed. Press SIGN ALL and confirm the figures first.',
       badCount: 'This could not be confirmed. Press SIGN ALL again and re-read the figures.',
       badFilter: 'The filter on screen was not recognised. Press SIGN ALL again and re-read the figures.',
-      empty: 'No cheques are waiting for a signature.',
+      empty: 'No checks are waiting for a signature.',
       moreThanConfirmed: (n, expected) =>
-        `${n} cheques are pending now, but ${expected} were on screen when you confirmed. Re-read and confirm the current figures.`,
+        `${n} checks are pending now, but ${expected} were on screen when you confirmed. Re-read and confirm the current figures.`,
     },
   })
 }

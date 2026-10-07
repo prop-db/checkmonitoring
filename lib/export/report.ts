@@ -62,7 +62,7 @@ export function statusWords(status: CheckStatus | string): string {
  */
 export function exportViewLabel(view: { status: CheckStatus | null; showAll: boolean }): string {
   if (view.status) return statusWords(view.status)
-  return view.showAll ? 'ALL CHEQUES' : 'NEEDS ACTION'
+  return view.showAll ? 'ALL CHECKS' : 'NEEDS ACTION'
 }
 
 /** A filename-safe fragment. Never empty — a nameless file is worse than a dull one. */
@@ -101,11 +101,11 @@ const count = (n: number) => n.toLocaleString('en-PH')
  * out for the same reason — an empty table and a broken export look identical.
  */
 export function describeScope(viewLabel: string, exported: number, totalMatching: number): string {
-  if (exported === 0) return `${viewLabel} — NO CHEQUES MATCH`
+  if (exported === 0) return `${viewLabel} — NO CHECKS MATCH`
   if (exported < totalMatching) {
-    return `${viewLabel} — FIRST ${count(exported)} OF ${count(totalMatching)} MATCHING CHEQUES`
+    return `${viewLabel} — FIRST ${count(exported)} OF ${count(totalMatching)} MATCHING CHECKS`
   }
-  return `${viewLabel} — ${count(exported)} CHEQUE${exported === 1 ? '' : 'S'}`
+  return `${viewLabel} — ${count(exported)} CHECK${exported === 1 ? '' : 'S'}`
 }
 
 export type FilterDescription = {

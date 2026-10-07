@@ -54,11 +54,11 @@ describe('detectWorkbook', () => {
   it('does not recognise a sheet whose header has moved', () => {
     // Every column of a bill sheet is read positionally, and the header is the
     // only thing that makes that safe. A shifted column is refused, not read.
-    const shifted = HEADER.map((h) => (h === 'check No. ' ? 'cheque' : h))
+    const shifted = HEADER.map((h) => (h === 'check No. ' ? 'check' : h))
     expect(detectWorkbook(rows({ 'local supplier': 227 }, shifted)).kind).toBe('UNKNOWN')
   })
 
-  it('recognises the cheque register by its own sheet names', () => {
+  it('recognises the check register by its own sheet names', () => {
     const d = detectWorkbook(rows({ 'BPI RELEASED': 6026, CANCELLED: 774, 'FT & MC': 50 }))
     expect(d).toMatchObject({ kind: 'REGISTER', dataRows: 6026 + 774 + 50 })
   })

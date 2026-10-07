@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 const DESCRIPTION =
-  'RCL Finance system that tracks a cheque from Acumatica to the supplier’s hands. Internal use only.'
+  'RCL Finance system that tracks a check from Acumatica to the supplier’s hands. Internal use only.'
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://checkmonitoring.rclcompanies.com'),

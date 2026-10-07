@@ -33,7 +33,7 @@ async function acumaticaCheck(
 }
 
 describe('findClosedButDeadHere', () => {
-  it('selects register-cancelled and system-voided cheques Acumatica holds Closed, and nothing else', async () => {
+  it('selects register-cancelled and system-voided checks Acumatica holds Closed, and nothing else', async () => {
     const cancelled = await acumaticaCheck('CANCELLED', 'Closed')
     const voided = await acumaticaCheck('VOIDED', 'Closed')
     await acumaticaCheck('CANCELLED', 'Balanced')
@@ -106,7 +106,7 @@ describe('Finance verdicts', () => {
     expect(await testDb.auditLog.count({ where: { checkId: c.id, action: REINSTATED_ACTION } })).toBe(0)
   })
 
-  it('refuses a line whose cheque number disagrees with its CV, or names no cheque', async () => {
+  it('refuses a line whose check number disagrees with its CV, or names no check', async () => {
     const c = await acumaticaCheck('CANCELLED', 'Balanced')
     const plan = await planFinanceVerdicts(testDb, [
       { checkNumber: '999', cv: c.acumaticaPaymentId!, verdict: 'AVAILABLE', row: 5 },
@@ -135,7 +135,7 @@ describe('Finance verdicts', () => {
 })
 
 describe('markReadyForRelease: the account', () => {
-  it('accepts a cheque with a cheque book and no register cash-account label', async () => {
+  it('accepts a check with a check book and no register cash-account label', async () => {
     const user = await makeUser()
     const c = await makeCheck({ status: 'SIGNED' })
     const bank = await testDb.bank.create({ data: { code: `BK${Date.now() % 100000}`, name: 'BPI' } })
@@ -146,7 +146,7 @@ describe('markReadyForRelease: the account', () => {
     expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('READY_FOR_RELEASE')
   })
 
-  it('still refuses a cheque with neither, naming both', async () => {
+  it('still refuses a check with neither, naming both', async () => {
     const user = await makeUser()
     const c = await makeCheck({ status: 'SIGNED' })
     await testDb.check.update({ where: { id: c.id }, data: { cashAccountId: null } })
@@ -166,14 +166,14 @@ describe('live voids and swapped shared numbers (2026-10-07)', () => {
     expect([...refs].sort()).toEqual(['CV-DONE', 'CV-PEND'])
   })
 
-  it('never releases a cheque whose payment carries a void in the live feed', async () => {
+  it('never releases a check whose payment carries a void in the live feed', async () => {
     const pending = await acumaticaCheck('VOIDED', 'Closed')
     const plain = await acumaticaCheck('CANCELLED', 'Closed')
     const rows = await findClosedButDeadHere(testDb, new Set([pending.acumaticaPaymentId!]))
     expect(rows.map((r) => r.id)).toEqual([plain.id])
   })
 
-  it('re-points a cheque holding the voided payment to the live one staged on its number, status untouched', async () => {
+  it('re-points a check holding the voided payment to the live one staged on its number, status untouched', async () => {
     const held = await acumaticaCheck('CANCELLED', 'Voided', { checkNumber: '1791361448' })
     const staged = await testDb.stagedCheck.create({
       data: {

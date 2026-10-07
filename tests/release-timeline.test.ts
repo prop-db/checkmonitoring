@@ -22,7 +22,7 @@ const SUMMARY: TimelineSummary = {
 }
 
 describe('buildReleaseTimeline', () => {
-  it('walks the ladder in order, so a reader sees where cheques are stuck', () => {
+  it('walks the ladder in order, so a reader sees where checks are stuck', () => {
     expect(buildReleaseTimeline(SUMMARY, NOTHING).map((n) => n.label))
       .toEqual(['GENERATED', 'PENDING', 'SIGNED', 'READY', 'RELEASED'])
   })
@@ -75,7 +75,7 @@ describe('buildReleaseTimeline', () => {
     expect(lit.map((n) => n.id)).toEqual(['SIGNED'])
   })
 
-  it('lights READY while the table is showing a SCHEDULED cheque', () => {
+  it('lights READY while the table is showing a SCHEDULED check', () => {
     const onReady: DashboardSelection = { ...NOTHING, status: 'READY_FOR_RELEASE' }
     const lit = buildReleaseTimeline(SUMMARY, onReady).filter((n) => n.selected)
     expect(lit.map((n) => n.id)).toEqual(['READY_FOR_RELEASE'])
@@ -105,18 +105,18 @@ describe('buildCheckProgress', () => {
       .toEqual(buildReleaseTimeline(SUMMARY, NOTHING).map((n) => n.label))
   })
 
-  it('marks the rungs behind the cheque DONE and the ones ahead UPCOMING', () => {
+  it('marks the rungs behind the check DONE and the ones ahead UPCOMING', () => {
     const { steps, current } = buildCheckProgress('SIGNED')
     expect(current).toBe('SIGNED')
     expect(steps.map((s) => s.state)).toEqual(['DONE', 'DONE', 'CURRENT', 'UPCOMING', 'UPCOMING'])
   })
 
-  it('starts a freshly generated cheque on the first rung with nothing behind it', () => {
+  it('starts a freshly generated check on the first rung with nothing behind it', () => {
     expect(buildCheckProgress('GENERATED').steps.map((s) => s.state))
       .toEqual(['CURRENT', 'UPCOMING', 'UPCOMING', 'UPCOMING', 'UPCOMING'])
   })
 
-  it('leaves nothing ahead of a released cheque', () => {
+  it('leaves nothing ahead of a released check', () => {
     const { steps, current } = buildCheckProgress('RELEASED')
     expect(current).toBe('RELEASED')
     expect(steps.every((s) => s.state !== 'UPCOMING')).toBe(true)
@@ -143,7 +143,7 @@ describe('buildCheckProgress', () => {
     expect(progress.steps.every((s) => s.state === 'UPCOMING')).toBe(true)
   })
 
-  it('says a live cheque has not stopped', () => {
+  it('says a live check has not stopped', () => {
     expect(buildCheckProgress('READY_FOR_RELEASE').stopped).toBeNull()
   })
 

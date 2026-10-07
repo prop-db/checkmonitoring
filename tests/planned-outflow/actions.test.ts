@@ -119,12 +119,12 @@ describe('markPlannedOutflowPaid and cancelPlannedOutflow', () => {
     const line = await createPlannedOutflow(testDb, { input: input(bank.id, company.id), userId: user.id, now: NOW })
     await expect(cancelPlannedOutflow(testDb, { id: line.id, reason: ' ', userId: user.id, now: NOW }))
       .rejects.toMatchObject({ code: 'REASON_REQUIRED' })
-    const out = await cancelPlannedOutflow(testDb, { id: line.id, reason: 'Paid by cheque instead', userId: user.id, now: NOW })
+    const out = await cancelPlannedOutflow(testDb, { id: line.id, reason: 'Paid by check instead', userId: user.id, now: NOW })
     expect(out.status).toBe('CANCELLED')
-    expect(out.cancelReason).toBe('Paid by cheque instead')
+    expect(out.cancelReason).toBe('Paid by check instead')
     expect(out.cancelledById).toBe(user.id)
     const rows = await trail(line.id, 'planned_outflow_cancelled')
-    expect(rows[0].remarks).toBe('Paid by cheque instead')
+    expect(rows[0].remarks).toBe('Paid by check instead')
   })
 
   it('never reopens a closed line', async () => {

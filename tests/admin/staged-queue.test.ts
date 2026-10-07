@@ -116,7 +116,7 @@ describe('getStagedSummary', () => {
     expect(s.byImpliedStatus).toContainEqual({ status: 'SIGNED', count: 1 })
   })
 
-  it('counts the rows the sync has since linked to a cheque', async () => {
+  it('counts the rows the sync has since linked to a check', async () => {
     // The staged row is linked, never deleted: it is the evidence of why the
     // cheque was held. So a promoted row is still in the queue and has to be
     // countable, or the backlog never appears to shrink.

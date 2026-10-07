@@ -51,7 +51,7 @@ const del = (checkId: string, over: Partial<{ userId: string; actorRole: 'FINANC
   })
 
 describe('deleteIncompleteCheck', () => {
-  it('deletes an incomplete cheque that never left the building', async () => {
+  it('deletes an incomplete check that never left the building', async () => {
     const check = await makeCheck({ amount: null, status: 'SIGNATURE_PENDING' })
     await del(check.id)
     expect(await testDb.check.findUnique({ where: { id: check.id } })).toBeNull()
@@ -120,19 +120,19 @@ describe('deleteIncompleteCheck', () => {
     expect(await testDb.check.findUnique({ where: { id: check.id } })).not.toBeNull()
   })
 
-  it('refuses a cheque that records an amount', async () => {
+  it('refuses a check that records an amount', async () => {
     const check = await makeCheck({ amount: '197715.42', status: 'SIGNATURE_PENDING' })
     await expect(del(check.id)).rejects.toThrow(DomainError)
     expect(await testDb.check.findUnique({ where: { id: check.id } })).not.toBeNull()
   })
 
-  it('refuses a RELEASED cheque with no amount — 25 of the 129 are exactly this', async () => {
+  it('refuses a RELEASED check with no amount — 25 of the 129 are exactly this', async () => {
     const check = await makeCheck({ amount: null, status: 'RELEASED' })
     await expect(del(check.id)).rejects.toThrow(DomainError)
     expect(await testDb.check.findUnique({ where: { id: check.id } })).not.toBeNull()
   })
 
-  it('refuses a cheque carrying a release timestamp whatever its status says', async () => {
+  it('refuses a check carrying a release timestamp whatever its status says', async () => {
     const check = await makeCheck({ amount: null, status: 'VOIDED' })
     await testDb.check.update({
       where: { id: check.id }, data: { releasedAt: new Date('2026-02-06T04:00:00Z') },
@@ -147,7 +147,7 @@ describe('deleteIncompleteCheck', () => {
     expect(await testDb.check.findUnique({ where: { id: check.id } })).not.toBeNull()
   })
 
-  it('reports a cheque that is already gone rather than succeeding silently', async () => {
+  it('reports a check that is already gone rather than succeeding silently', async () => {
     await expect(del('no-such-check-id')).rejects.toThrow(DomainError)
   })
 
@@ -155,7 +155,7 @@ describe('deleteIncompleteCheck', () => {
   // an audit row can — and a queued event is an instruction to tell a supplier
   // something about a cheque. The outbox must never be left holding one whose
   // cheque has vanished.
-  it('refuses a cheque the outbox still holds an event for', async () => {
+  it('refuses a check the outbox still holds an event for', async () => {
     const check = await makeCheck({ amount: null, status: 'SIGNATURE_PENDING' })
     await testDb.portalEvent.create({
       data: {
@@ -171,7 +171,7 @@ describe('deleteIncompleteCheck', () => {
   // nothing in the database would stop this and the pointer would simply
   // dangle — the staged queue would go on reporting the row as promoted into a
   // cheque that no longer exists.
-  it('refuses a cheque a staged register row was promoted into', async () => {
+  it('refuses a check a staged register row was promoted into', async () => {
     const check = await makeCheck({ amount: null, status: 'SIGNATURE_PENDING' })
     await testDb.stagedCheck.create({
       data: {
@@ -187,7 +187,7 @@ describe('deleteIncompleteCheck', () => {
   // A bill is a line OF the cheque and has no meaning without it, which is why
   // the FK has always been ON DELETE CASCADE. None of the 129 carry one; this
   // pins what happens if a future incomplete cheque does.
-  it('takes the cheque bills with it', async () => {
+  it('takes the check bills with it', async () => {
     const check = await makeCheck({ amount: null, status: 'SIGNATURE_PENDING' })
     await testDb.checkBill.create({
       data: { checkId: check.id, apvNumber: 'APV-0001', amount: '1.00' },
@@ -200,7 +200,7 @@ describe('deleteIncompleteCheck', () => {
   // cheque that is genuinely gone is the ONE mutation it permits; every other
   // UPDATE, including blanking the checkId of a live cheque's audit row, still
   // raises.
-  it('does not let an audit row be detached from a cheque that still exists', async () => {
+  it('does not let an audit row be detached from a check that still exists', async () => {
     const check = await makeCheck({ amount: null, status: 'SIGNATURE_PENDING' })
     const row = await testDb.auditLog.create({
       data: { checkId: check.id, actorType: 'USER', userId: actorId, action: 'marked_signed' },
@@ -237,12 +237,12 @@ describe('deleteIncompleteCheckAction', () => {
     const result = await deleteIncompleteCheckAction(fd({ checkId: check.id, reason: REASON }))
     expect(result).toEqual({
       ok: false,
-      message: 'Only a Finance Admin can delete a cheque record.',
+      message: 'Only a Finance Admin can delete a check record.',
     })
     expect(await testDb.check.findUnique({ where: { id: check.id } })).not.toBeNull()
   })
 
-  it('returns the guard message for a released cheque rather than throwing', async () => {
+  it('returns the guard message for a released check rather than throwing', async () => {
     const { deleteIncompleteCheckAction } = await import('@/app/checks/actions')
     const check = await makeCheck({ amount: null, status: 'RELEASED' })
     const result = await deleteIncompleteCheckAction(fd({ checkId: check.id, reason: REASON }))

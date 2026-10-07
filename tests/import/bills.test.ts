@@ -107,7 +107,7 @@ describe('parseBillRows', () => {
     expect(b.row).toBe(2)
   })
 
-  it('reads a numeric cheque cell as digits, not as a float rendering', () => {
+  it('reads a numeric check cell as digits, not as a float rendering', () => {
     // Every one of the 84 usable `check No.` cells is a numeric cell, so the
     // cheque number arrives as a JS number and has to survive the trip back to
     // a string intact.
@@ -115,7 +115,7 @@ describe('parseBillRows', () => {
     expect(b.checkNumber).toBe('1791361727')
   })
 
-  it('canonicalises a bank-prefixed cheque number through the shared rule', () => {
+  it('canonicalises a bank-prefixed check number through the shared rule', () => {
     // Acumatica prefixes 90.0% of its refs with a bank code. Matching a bill to
     // a cheque on the raw string would silently match nothing, so this must go
     // through `canonicalCheckNumber` rather than a second normalisation.
@@ -152,7 +152,7 @@ describe('parseBillRows', () => {
   // is fatal is a question about the DATABASE — the voucher may name exactly
   // one cheque — and a pure parser cannot answer it. It is decided in
   // `matchBills`, which the tests below pin.
-  it('keeps a row whose check No. is not a cheque number, with the cell verbatim', () => {
+  it('keeps a row whose check No. is not a check number, with the cell verbatim', () => {
     const { bills, review } = parseBillRows([
       billRow(2, { checkNo: new Date('2026-08-13T00:00:00Z') }),
       billRow(3, { checkNo: null }),
@@ -335,7 +335,7 @@ describe('importBills', () => {
     return importBills(testDb, { bills, review, sheets, now: NOW })
   }
 
-  it('writes a bill against the cheque its check No. names', async () => {
+  it('writes a bill against the check its check No. names', async () => {
     const check = await makeCheck({ checkNumber: '6000338925' })
     const summary = await run([billRow(2)])
 
@@ -365,7 +365,7 @@ describe('importBills', () => {
     expect(bills[0].amount.toFixed(2)).toBe('197715.43')
   })
 
-  it('lets one cheque carry several bills', async () => {
+  it('lets one check carry several bills', async () => {
     // One bill per cheque is a property of the 4 September snapshot, not of the
     // domain: the register carries cheques settling several bills, and
     // `CheckBill` is correctly one-to-many. Nothing here may harden the
@@ -380,7 +380,7 @@ describe('importBills', () => {
     expect(bills.map((b) => b.apvNumber).sort()).toEqual(['AP-ST036371', 'AP-ST036372'])
   })
 
-  it('sends a bill whose cheque is not imported to review, not the bin', async () => {
+  it('sends a bill whose check is not imported to review, not the bin', async () => {
     // Not an error: the cheque may be staged for want of a company, or simply
     // absent from the register. This file is a snapshot and says nothing about
     // a cheque's absence.
@@ -393,7 +393,7 @@ describe('importBills', () => {
     expect(await testDb.checkBill.count()).toBe(0)
   })
 
-  it('sends a cheque number claimed by two companies to review', async () => {
+  it('sends a check number claimed by two companies to review', async () => {
     await makeCheck({ checkNumber: '6000338925' })
     await makeCheck({ checkNumber: '6000338925' })
     const summary = await run([billRow(2)])
@@ -402,7 +402,7 @@ describe('importBills', () => {
     expect(await testDb.checkBill.count()).toBe(0)
   })
 
-  it('never changes a cheque\'s release status', async () => {
+  it('never changes a check\'s release status', async () => {
     // FINANCE REMARKS is AVAILABLE on all 85 rows. It corroborates
     // READY_FOR_RELEASE; it does not instruct. Import never changes release
     // status (D4) and a bill import is an import.
@@ -417,7 +417,7 @@ describe('importBills', () => {
     expect(after.amount?.toFixed(2)).toBe(check.amount?.toFixed(2))
   })
 
-  it('records the import in the cheque\'s audit trail as SYSTEM', async () => {
+  it('records the import in the check\'s audit trail as SYSTEM', async () => {
     const check = await makeCheck({ checkNumber: '6000338925' })
     await run([billRow(2)])
 
@@ -427,7 +427,7 @@ describe('importBills', () => {
   })
 })
 
-describe('importBills — a check No. cell that is not a cheque number', () => {
+describe('importBills — a check No. cell that is not a check number', () => {
   beforeEach(resetDb)
 
   afterEach(async () => {
@@ -451,7 +451,7 @@ describe('importBills — a check No. cell that is not a cheque number', () => {
     referenceNbr: 'AP-ST042652',
   })
 
-  it('attaches the bill to the one cheque carrying its voucher', async () => {
+  it('attaches the bill to the one check carrying its voucher', async () => {
     const check = await makeCheck({ checkNumber: '6000353106', apvNumbers: ['AP-ST042652'] })
     const summary = await run([misKeyed(81)])
 
@@ -474,7 +474,7 @@ describe('importBills — a check No. cell that is not a cheque number', () => {
     expect(audit.remarks).toContain(BILL_CHECK_REF_RULING)
   })
 
-  it('stages the row rather than guessing when the voucher names no cheque', async () => {
+  it('stages the row rather than guessing when the voucher names no check', async () => {
     await makeCheck({ checkNumber: '6000353106', apvNumbers: [] })
     const summary = await run([misKeyed(81)])
 
@@ -484,7 +484,7 @@ describe('importBills — a check No. cell that is not a cheque number', () => {
     ])
   })
 
-  it('stages the row rather than choosing when the voucher names two cheques', async () => {
+  it('stages the row rather than choosing when the voucher names two checks', async () => {
     // Two cheques carrying one voucher is a state the register can produce, and
     // a bill hung on the wrong one is a supplier told the wrong thing. A wrong
     // cheque is far worse than a staged row.
@@ -497,7 +497,7 @@ describe('importBills — a check No. cell that is not a cheque number', () => {
     expect(summary.unmatched[0].companies).toHaveLength(2)
   })
 
-  it('does not re-resolve a good cheque number that names no cheque', async () => {
+  it('does not re-resolve a good check number that names no check', async () => {
     // The fallback is for a cell that holds no cheque number, and only that. A
     // perfectly good number naming no cheque here is not an invitation to
     // overrule the workbook on evidence it did not offer — the cheque is simply
@@ -548,7 +548,7 @@ describe('stageBills — the rows that did not attach', () => {
     expect(await testDb.stagedBill.count()).toBe(1)
   })
 
-  it('takes a row away once it attaches to a cheque', async () => {
+  it('takes a row away once it attaches to a check', async () => {
     // Otherwise the queue only ever grows and a corrected cell never stops
     // being reported, which is how a queue stops being read.
     await run([misKeyedForClearing()])
@@ -616,7 +616,7 @@ describe('importBills — a workbook of several sheets', () => {
     ])
   })
 
-  it('records which sheet a bill came from, so a broker cheque stays identifiable', async () => {
+  it('records which sheet a bill came from, so a broker check stays identifiable', async () => {
     // The supplier portal exposes broker cheques on
     // `POST /api/broker-checks/mark-available`, separately from
     // `POST /api/checks/mark-available`. Nothing routes on this yet — that is

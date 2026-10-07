@@ -93,7 +93,7 @@ export function QuickActions({
         type="button"
         disabled
         aria-disabled="true"
-        title="The Supplier Portal connection is not yet configured. Cheques cannot be pushed to the portal until the encoder service account exists."
+        title="The Supplier Portal connection is not yet configured. Checks cannot be pushed to the portal until the encoder service account exists."
         className="cursor-not-allowed rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium tracking-wide text-slate-400 ring-1 ring-hairline"
       >
         UPLOAD READY CHECKS

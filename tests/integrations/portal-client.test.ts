@@ -21,14 +21,14 @@ describe('manilaDay', () => {
 })
 
 describe('buildPortalEventBody', () => {
-  it('MARK_AVAILABLE carries apvs, positional PO numbers, cheque number, bank and the pickup date', () => {
+  it('MARK_AVAILABLE carries apvs, positional PO numbers, check number, bank and the pickup date', () => {
     expect(buildPortalEventBody({ id: 'ev1', kind: 'MARK_AVAILABLE' }, check())).toEqual({
       eventId: 'ev1', kind: 'MARK_AVAILABLE', apvs: ['AP-1001', 'AP-1002'], poNumbers: ['PO-77', ''],
       checkNo: '6000353106', bank: 'BPI', availablePickupDate: '2026-09-30',
     })
   })
 
-  it('RELEASED carries the release day and receipt from the cheque as it stands', () => {
+  it('RELEASED carries the release day and receipt from the check as it stands', () => {
     const body = buildPortalEventBody({ id: 'ev2', kind: 'RELEASED' }, check({
       releasedAt: new Date('2026-10-02T02:00:00Z'), orNumber: 'OR-9', orDate: new Date('2026-10-02T00:00:00Z'),
     }))
@@ -44,7 +44,7 @@ describe('buildPortalEventBody', () => {
     }
   })
 
-  it('takes the bank from the cheque book when there is no cash account, and blank when neither', () => {
+  it('takes the bank from the check book when there is no cash account, and blank when neither', () => {
     expect(buildPortalEventBody({ id: 'e', kind: 'REVERT' }, check({ cashAccount: null, checkBook: { bank: { code: 'MBTC' } } })).bank).toBe('MBTC')
     expect(buildPortalEventBody({ id: 'e', kind: 'REVERT' }, check({ cashAccount: null })).bank).toBe('')
   })
@@ -53,7 +53,7 @@ describe('buildPortalEventBody', () => {
     expect(buildPortalEventBody({ id: 'e', kind: 'REVERT' }, check({ apvNumbers: [] })).apvs).toEqual(['AP-1001', 'AP-1002'])
   })
 
-  it('refuses an INTERNAL cheque before building anything', () => {
+  it('refuses an INTERNAL check before building anything', () => {
     expect(() => buildPortalEventBody({ id: 'e', kind: 'MARK_AVAILABLE' }, check({ eligibility: 'INTERNAL' })))
       .toThrow(/INTERNAL/)
     try {
@@ -105,7 +105,7 @@ describe('buildPortalEventBody', () => {
     }
   })
 
-  it('pre-checks the portal validation: no APVs, more than 50, or no cheque number and no bank → INVALID_PAYLOAD', () => {
+  it('pre-checks the portal validation: no APVs, more than 50, or no check number and no bank → INVALID_PAYLOAD', () => {
     const code = (c: CheckForPortal) => {
       try { buildPortalEventBody({ id: 'e', kind: 'REVERT' }, c); return null } catch (err) {
         expect(err).toBeInstanceOf(PortalPayloadError)
@@ -144,7 +144,7 @@ describe('buildPortalEventBody', () => {
     expect(() => buildPortalEventBody({ id: 'r', kind: 'RECEIPT' }, check({ orNumber: 'OR-1', receiptType: null })))
       .toThrow(PortalPayloadError)
   })
-  it('RECEIPT with a blank cheque number is a payload defect (the portal requires checkNo; review 2026-10-02)', () => {
+  it('RECEIPT with a blank check number is a payload defect (the portal requires checkNo; review 2026-10-02)', () => {
     try {
       buildPortalEventBody({ id: 'r', kind: 'RECEIPT' }, check({ checkNumber: '  ', orNumber: 'OR-1', receiptType: 'OR' }))
       expect.fail('expected a payload defect')

@@ -11,7 +11,7 @@ const held = (...cs: AppCheque[]) => {
 }
 
 describe('judgeLink', () => {
-  it('links the one live cheque, reading a bank-prefixed payment reference', () => {
+  it('links the one live check, reading a bank-prefixed payment reference', () => {
     const v = judgeLink([{ payType: 'CHK', paymentRef: 'BPI 6000400001' }], held(chq({ checkNumber: '6000400001' })))
     expect(v).toMatchObject({ kind: 'LINK', check: { checkNumber: '6000400001' } })
   })
@@ -29,7 +29,7 @@ describe('judgeLink', () => {
     expect(v).toMatchObject({ kind: 'LINK', check: { checkNumber: '6000400002' } })
   })
 
-  it('refuses two live cheques, a number held twice, and a cheque Acumatica voided', () => {
+  it('refuses two live checks, a number held twice, and a check Acumatica voided', () => {
     expect(judgeLink(
       [{ payType: 'CHK', paymentRef: '1' }, { payType: 'CHK', paymentRef: '2' }],
       held(chq({ checkNumber: '1' }), chq({ checkNumber: '2' })),
@@ -38,7 +38,7 @@ describe('judgeLink', () => {
     expect(judgeLink([{ payType: 'CHK', paymentRef: '1' }], held(chq({ checkNumber: '1', acumaticaStatus: 'Voided' }))).kind).toBe('NO_LIVE_CHEQUE_HERE')
   })
 
-  it('reports a voucher with no application, or whose cheque this system does not hold', () => {
+  it('reports a voucher with no application, or whose check this system does not hold', () => {
     expect(judgeLink([], held()).kind).toBe('NO_APPLICATION')
     expect(judgeLink([{ payType: 'CHK', paymentRef: '9' }], held()).kind).toBe('NO_LIVE_CHEQUE_HERE')
   })

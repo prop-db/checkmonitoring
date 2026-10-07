@@ -27,7 +27,7 @@ export async function POST(request: Request): Promise<Response> {
 
   const form = await request.formData()
   const ids = [...new Set(text(form.get('ids'), 500_000).split(',').filter(Boolean))].slice(0, MAX_IDS)
-  if (ids.length === 0) return new Response('NO CHEQUES SELECTED', { status: 400, headers: { 'content-type': 'text/plain; charset=utf-8' } })
+  if (ids.length === 0) return new Response('NO CHECKS SELECTED', { status: 400, headers: { 'content-type': 'text/plain; charset=utf-8' } })
 
   const rows = (await listChecksByIds(prisma, ids))
     .filter((r) => (r.status === 'SIGNATURE_PENDING' || r.status === 'SIGNED') && r.isCheque && r.amount !== null)

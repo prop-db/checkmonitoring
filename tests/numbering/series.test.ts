@@ -7,7 +7,7 @@ function c(checkNumber: string, status: SeriesCheque['status'] = 'RELEASED'): Se
   return { id: `id${String(seq).padStart(4, '0')}`, checkNumber, checkDate: null, payeeName: null, amount: '1.00', currency: 'PHP', status, cv: `CV-${checkNumber}` }
 }
 const shape = (entries: SeriesEntry[]) =>
-  entries.map((e) => (e.kind === 'CHEQUE' ? e.cheque.checkNumber
+  entries.map((e) => (e.kind === 'CHECK' ? e.cheque.checkNumber
     : e.kind === 'STAGED' ? `STAGED ${e.number}`
     : `MISSING ${e.from}-${e.to} (${e.count})`))
 
@@ -41,7 +41,7 @@ describe('buildSeries', () => {
     expect(s.summary.missingRuns).toBe(1)
   })
 
-  it('gaps either side of a single cheque are two lines', () => {
+  it('gaps either side of a single check are two lines', () => {
     expect(shape(buildSeries([c('1'), c('5'), c('9')]).entries))
       .toEqual(['1', 'MISSING 2-4 (3)', '5', 'MISSING 6-8 (3)', '9'])
   })
@@ -50,15 +50,15 @@ describe('buildSeries', () => {
     expect(shape(buildSeries([c('1000'), c('999')]).entries)).toEqual(['999', '1000'])
   })
 
-  it('shows both cheques on a duplicate number, flagged, counted once as held', () => {
+  it('shows both checks on a duplicate number, flagged, counted once as held', () => {
     const s = buildSeries([c('7'), c('7'), c('8')])
-    expect(s.entries.filter((e) => e.kind === 'CHEQUE' && e.duplicate)).toHaveLength(2)
+    expect(s.entries.filter((e) => e.kind === 'CHECK' && e.duplicate)).toHaveLength(2)
     expect(s.summary).toMatchObject({ held: 2, duplicates: 2, missingNumbers: '0' })
   })
 
   it('flags 007 and 7 in one account as duplicates, counted once as held', () => {
     const s = buildSeries([c('007'), c('7'), c('8')])
-    expect(s.entries.filter((e) => e.kind === 'CHEQUE' && e.duplicate)).toHaveLength(2)
+    expect(s.entries.filter((e) => e.kind === 'CHECK' && e.duplicate)).toHaveLength(2)
     expect(s.summary).toMatchObject({ held: 2, duplicates: 2, missingNumbers: '0' })
   })
 
@@ -69,7 +69,7 @@ describe('buildSeries', () => {
     expect(s.summary.notNumeric).toBe(1)
   })
 
-  it('counts VOIDED and CANCELLED across every cheque in the account', () => {
+  it('counts VOIDED and CANCELLED across every check in the account', () => {
     const s = buildSeries([c('1', 'VOIDED'), c('2', 'CANCELLED'), c('3'), c('X', 'VOIDED')])
     expect(s.summary).toMatchObject({ voided: 2, cancelled: 1 })
   })
@@ -78,7 +78,7 @@ describe('buildSeries', () => {
     expect(shape(buildSeries([c('0098'), c('0101')]).entries)).toEqual(['0098', 'MISSING 0099-0100 (2)', '0101'])
   })
 
-  it('a single cheque, and an empty account', () => {
+  it('a single check, and an empty account', () => {
     expect(buildSeries([c('42')]).summary).toMatchObject({ first: '42', last: '42', held: 1, missingRuns: 0 })
     expect(buildSeries([])).toEqual({
       entries: [], notNumeric: [], outOfPattern: [], pattern: null,
@@ -111,11 +111,11 @@ describe('buildSeries with staged re-uses', () => {
     expect(s.summary).toMatchObject({ held: 2, staged: 1, missingNumbers: '1', missingRuns: 1 })
   })
 
-  it('a cheque and its dotted re-use: the cheque row first, never a duplicate', () => {
+  it('a check and its dotted re-use: the check row first, never a duplicate', () => {
     const s = buildSeries([c('7')], [st('7.'), st('7..', 'CV-second')])
     expect(shape(s.entries)).toEqual(['7', 'STAGED 7', 'STAGED 7'])
     expect(s.summary).toMatchObject({ held: 1, staged: 2, duplicates: 0, missingNumbers: '0' })
-    expect(s.entries[0]).toMatchObject({ kind: 'CHEQUE', duplicate: false })
+    expect(s.entries[0]).toMatchObject({ kind: 'CHECK', duplicate: false })
   })
 
   it('a staged number extends the range', () => {
@@ -147,7 +147,7 @@ describe('OUT OF PATTERN (spec §F)', () => {
     expect(numberShape('0000')).toEqual({ digits: 0, lead: '' })
   })
 
-  it('below PATTERN_MIN_CHEQUES numeric cheques there is no pattern and nothing is out', () => {
+  it('below PATTERN_MIN_CHEQUES numeric checks there is no pattern and nothing is out', () => {
     const s = buildSeries([...run(6000100000, PATTERN_MIN_CHEQUES - 2), c('60000')])
     expect(s.pattern).toBeNull()
     expect(s.outOfPattern).toEqual([])
@@ -159,7 +159,7 @@ describe('OUT OF PATTERN (spec §F)', () => {
   it('takes a short number and another bank\'s number out of the sequence and the gap count', () => {
     const s = buildSeries([...sixty(), c('60000'), c('1791361374')])
     expect(s.pattern).toEqual({ digits: 10, lead: '60' })
-    expect(s.outOfPattern.map((e) => (e.kind === 'CHEQUE' ? e.cheque.checkNumber : e.kind))).toEqual(['60000', '1791361374'])
+    expect(s.outOfPattern.map((e) => (e.kind === 'CHECK' ? e.cheque.checkNumber : e.kind))).toEqual(['60000', '1791361374'])
     expect(s.summary).toMatchObject({
       outOfPattern: 2, first: '6000100000', last: '6000100024', held: 25, missingNumbers: '0', missingRuns: 0,
     })
@@ -183,7 +183,7 @@ describe('OUT OF PATTERN (spec §F)', () => {
     expect(s.summary).toMatchObject({ staged: 1, outOfPattern: 1, last: '6000100024' })
   })
 
-  it('an out-of-pattern VOIDED cheque still counts as voided', () => {
+  it('an out-of-pattern VOIDED check still counts as voided', () => {
     const s = buildSeries([...sixty(), c('60003162116', 'VOIDED')])
     expect(s.summary).toMatchObject({ voided: 1, outOfPattern: 1, held: 25, last: '6000100024' })
   })

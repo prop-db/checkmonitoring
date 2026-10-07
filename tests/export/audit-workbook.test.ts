@@ -33,14 +33,14 @@ describe('buildAuditWorkbook', () => {
     expect(r[6]).toBe('{"releasedAt":"2026-09-10T01:00:00.000Z"}')
   })
 
-  it('writes SYSTEM for a system row and the detached marker for a row with no cheque', async () => {
+  it('writes SYSTEM for a system row and the detached marker for a row with no check', async () => {
     const ws = await build([row({ id: 'a', actorType: 'SYSTEM', userName: null, checkId: null, checkNumber: null })])
     const r = ws.getRow(AUDIT_FIRST_DATA_ROW).values as unknown[]
     expect(r[2]).toBe('SYSTEM')
-    expect(r[4]).toBe('(cheque removed)')
+    expect(r[4]).toBe('(check removed)')
   })
 
-  it('names a planned-outflow row as such, never as a removed cheque', async () => {
+  it('names a planned-outflow row as such, never as a removed check', async () => {
     const ws = await build([row({
       id: 'a', action: 'planned_outflow_paid', checkId: null, checkNumber: null, plannedOutflowId: 'po1',
       details: { plannedOutflowId: 'po1', description: 'SEPT PAYROLL' },

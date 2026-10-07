@@ -55,7 +55,7 @@ describe('getSummary', () => {
     expect(s.pendingSignature).toBe(3)
   })
 
-  it('counts a SIGNATURE_PENDING cheque created today as generated today (Manila day), and opens the same set', async () => {
+  it('counts a SIGNATURE_PENDING check created today as generated today (Manila day), and opens the same set', async () => {
     await makeCheck({ status: 'GENERATED' })
     const fresh = await makeCheck({ status: 'SIGNATURE_PENDING' })
     const old = await makeCheck({ status: 'SIGNATURE_PENDING' })
@@ -112,7 +112,7 @@ describe('getSummary', () => {
   // CHECKS card, which links to a table that no longer lists the cheques with no
   // amount, so it counts 2 of these 3. The currency block above is untouched -
   // see the note in getSummary for why the two answer different questions.
-  it('leaves a cheque with no recorded amount out of the total but still counts it', async () => {
+  it('leaves a check with no recorded amount out of the total but still counts it', async () => {
     await makeCheck({ currency: 'PHP', amount: '1000.00' })
     await makeCheck({ currency: 'PHP', amount: '500.50' })
     await makeCheck({ currency: 'PHP', amount: null })
@@ -244,7 +244,7 @@ describe('listChecks', () => {
 // any screen said so. `Check.isIncomplete` is the stored flag; these pin that
 // it is counted, filterable, and — crucially — that flagging them changed
 // nothing about the money.
-describe('incomplete cheques', () => {
+describe('incomplete checks', () => {
   /**
    * SUPERSEDED BY A CLIENT DECISION, 2026-09-06. This used to assert
    * `s.total === 3` — every cheque, the two with no amount included. Shown the
@@ -257,7 +257,7 @@ describe('incomplete cheques', () => {
    * which is what makes a register that got smaller readable rather than
    * alarming.
    */
-  it('counts the cheques flagged incomplete, and leaves them out of every other figure', async () => {
+  it('counts the checks flagged incomplete, and leaves them out of every other figure', async () => {
     await makeCheck({ amount: '1000.00' })
     await makeCheck({ amount: null })
     await makeCheck({ amount: null })
@@ -338,7 +338,7 @@ describe('incomplete cheques', () => {
   // coalescing the null to zero would leave the figure looking identical while
   // meaning something else — a total that silently absorbs 129 unknowns as
   // zeroes and reads as authoritative. See getSummary for the full note.
-  it('keeps an incomplete cheque out of the currency total while still counting it', async () => {
+  it('keeps an incomplete check out of the currency total while still counting it', async () => {
     await makeCheck({ currency: 'PHP', amount: '1000.00' })
     await makeCheck({ currency: 'PHP', amount: null })
 
@@ -473,13 +473,13 @@ describe('toTableRow', () => {
     expect(toTableRow(row).poNumbers).toEqual(['PO-1', 'PO-2'])
   })
 
-  it('gives no PO numbers for a cheque with no bills', async () => {
+  it('gives no PO numbers for a check with no bills', async () => {
     await makeCheck({})
     const [row] = await listChecks(testDb, {})
     expect(toTableRow(row).poNumbers).toEqual([])
   })
 
-  it('finds a cheque by a PO number through the bills search', async () => {
+  it('finds a check by a PO number through the bills search', async () => {
     const check = await makeCheck({ checkNumber: '6000353106' })
     await testDb.checkBill.create({
       data: { checkId: check.id, apvNumber: 'APV-1', amount: '1.00', poNumber: 'PO-1' },
@@ -489,7 +489,7 @@ describe('toTableRow', () => {
     expect(rows.map((r) => r.checkNumber)).toEqual(['6000353106'])
   })
 
-  it('finds a cheque by a voucher the register states', async () => {
+  it('finds a check by a voucher the register states', async () => {
     // Whole voucher, not a substring: Postgres array containment is the only
     // filter available over a `text[]`. Worth knowing, and far better than the
     // column not being searchable at all.
@@ -523,7 +523,7 @@ describe('toTableRow', () => {
 // The fix is `nulls: 'last'`, and this is what stops it coming back: a plain
 // `{ checkDate: 'desc' }` fails the first test here.
 describe('listChecks ordering', () => {
-  it('puts a cheque with no date after every dated one, newest dated first', async () => {
+  it('puts a check with no date after every dated one, newest dated first', async () => {
     await makeCheck({ checkNumber: '6000000901', checkDate: null })
     await makeCheck({ checkNumber: '6000000902', checkDate: new Date('2026-01-15') })
     await makeCheck({ checkNumber: '6000000903', checkDate: new Date('2026-08-20') })
@@ -542,7 +542,7 @@ describe('listChecks ordering', () => {
     expect(rows.map((r) => r.checkNumber)).toEqual(['6000000904', '6000000905'])
   })
 
-  it('orders a table made entirely of dateless cheques rather than dropping them', async () => {
+  it('orders a table made entirely of dateless checks rather than dropping them', async () => {
     await makeCheck({ checkNumber: '6000000907', checkDate: null })
     await makeCheck({ checkNumber: '6000000906', checkDate: null })
 
@@ -573,7 +573,7 @@ describe('toTableRow bank columns', () => {
     expect(typeof table.bankCode).toBe('string')
   })
 
-  it('reports null, not an empty string, for a cheque with no cash account', async () => {
+  it('reports null, not an empty string, for a check with no cash account', async () => {
     const check = await makeCheck({})
     await testDb.check.update({ where: { id: check.id }, data: { cashAccountId: null } })
 
@@ -728,7 +728,7 @@ describe('filters compose', () => {
     expect(rows.map((r) => r.checkNumber)).toEqual(['6000000920'])
   })
 
-  it('BANK filters on the ACCOUNT: the cheque book, else the register label (2026-10-06)', async () => {
+  it('BANK filters on the ACCOUNT: the check book, else the register label (2026-10-06)', async () => {
     const booked = await makeCheck({ checkNumber: '6000000930' })
     const labelOnly = await makeCheck({ checkNumber: '6000000931' })
     const bank = await testDb.bank.create({ data: { code: 'BPI-Q', name: 'BPI' } })
@@ -786,7 +786,7 @@ describe('DATE RELEASED range', () => {
   const from = new Date('2026-09-24T16:00:00.000Z')
   const to = new Date('2026-09-25T15:59:59.999Z')
 
-  it('returns only the cheques released inside the range, never one with no recorded release', async () => {
+  it('returns only the checks released inside the range, never one with no recorded release', async () => {
     await makeCheck({ status: 'RELEASED', checkNumber: 'R-IN', releasedAt: new Date('2026-09-25T02:00:00.000Z') })
     await makeCheck({ status: 'RELEASED', checkNumber: 'R-BEFORE', releasedAt: new Date('2026-09-20T02:00:00.000Z') })
     await makeCheck({ status: 'RELEASED', checkNumber: 'R-AFTER', releasedAt: new Date('2026-09-26T02:00:00.000Z') })
@@ -819,7 +819,7 @@ describe('DATE RELEASED range', () => {
     expect(onOrBefore.map((r) => r.checkNumber)).toEqual(['R-EARLY'])
   })
 
-  it('counts, for the disclosure, only the released cheques with neither date', async () => {
+  it('counts, for the disclosure, only the released checks with neither date', async () => {
     await makeCheck({ status: 'RELEASED', releasedAt: new Date('2026-09-25T02:00:00.000Z') })
     await makeCheck({ status: 'RELEASED', statedReleaseDate: new Date('2026-09-25T00:00:00.000Z') })
     await makeCheck({ status: 'RELEASED' })
@@ -832,7 +832,7 @@ describe('DATE RELEASED range', () => {
 
   // The register's stated day is stored as UTC midnight — 08:00 Manila — so it
   // sits inside the Manila-day bounds the resolver builds.
-  it('matches a cheque on its stated release day when the app recorded no release', async () => {
+  it('matches a check on its stated release day when the app recorded no release', async () => {
     await makeCheck({ status: 'RELEASED', checkNumber: 'S-IN', statedReleaseDate: new Date('2026-09-25T00:00:00.000Z') })
     await makeCheck({ status: 'RELEASED', checkNumber: 'S-OUT', statedReleaseDate: new Date('2026-09-22T00:00:00.000Z') })
     await makeCheck({ status: 'RELEASED', checkNumber: 'S-NONE' })
@@ -841,7 +841,7 @@ describe('DATE RELEASED range', () => {
     expect(rows.map((r) => r.checkNumber)).toEqual(['S-IN'])
   })
 
-  it('matches on either date when a cheque carries both', async () => {
+  it('matches on either date when a check carries both', async () => {
     // App says the 25th, register says the 22nd: inside on the app date.
     await makeCheck({ status: 'RELEASED', checkNumber: 'B-APP', releasedAt: new Date('2026-09-25T02:00:00.000Z'), statedReleaseDate: new Date('2026-09-22T00:00:00.000Z') })
     // App says the 20th, register says the 25th: inside on the stated date.
@@ -930,7 +930,7 @@ describe('getTodaysRelease', () => {
    * with the case it explained. Nothing is deleted; the cheque is still there,
    * and `/?incomplete=1` still lists it.
    */
-  it('leaves a cheque with no recorded amount out of the set entirely', async () => {
+  it('leaves a check with no recorded amount out of the set entirely', async () => {
     await makeCheck({ status: 'READY_FOR_RELEASE', amount: '1000.00' })
     await makeCheck({ status: 'SCHEDULED', amount: null })
 
@@ -942,7 +942,7 @@ describe('getTodaysRelease', () => {
   // The cheque is excluded from the panel, NOT removed: it is still in the
   // table, still READY_FOR_RELEASE, and still reachable by the filter the
   // dashboard links to.
-  it('does not delete or restatus the cheque it excludes', async () => {
+  it('does not delete or restatus the check it excludes', async () => {
     await makeCheck({ status: 'READY_FOR_RELEASE', amount: null, checkNumber: '6000000301' })
 
     expect(await countChecks(testDb, { incomplete: true })).toBe(1)
@@ -989,7 +989,7 @@ describe('getTodaysRelease', () => {
   })
 })
 describe("getTodaysRelease and listTodaysReleaseIds narrowed", () => {
-  it('count the ready cheques of one company, and RELEASE ALL acts on exactly those', async () => {
+  it('count the ready checks of one company, and RELEASE ALL acts on exactly those', async () => {
     const mine = await makeCheck({ status: 'READY_FOR_RELEASE', amount: '100.00' })
     const alsoMine = await testDb.check.create({
       data: {
@@ -1019,7 +1019,7 @@ describe("getTodaysRelease and listTodaysReleaseIds narrowed", () => {
 })
 
 describe('SIGN ALL set', () => {
-  it('is pending, real cheques with an amount, narrowed', async () => {
+  it('is pending, real checks with an amount, narrowed', async () => {
     const a = await makeCheck({ status: 'SIGNATURE_PENDING', amount: '100.00' })
     const b = await makeCheck({ status: 'SIGNATURE_PENDING', amount: '250.50' })
     await makeCheck({ status: 'SIGNATURE_PENDING', isCheque: false, amount: '9.00' })
@@ -1113,7 +1113,7 @@ describe('listChecks sort', () => {
     expect(await sorted('checkNumber', 'desc')).toEqual(['6000000003', '6000000002', '6000000001'])
   })
 
-  it('APV NUMBER, by the first value shown — the cheque’s own or a bill’s', async () => {
+  it('APV NUMBER, by the first value shown — the check’s own or a bill’s', async () => {
     const [, , c] = await three({ apvNumbers: ['AP-B', 'AP-Z'] }, { apvNumbers: ['AP-C'] }, { apvNumbers: [] })
     expect(await sorted('apvNumbers', 'asc')).toEqual(ASC)
     expect(await sorted('apvNumbers', 'desc')).toEqual(DESC)
@@ -1130,7 +1130,7 @@ describe('listChecks sort', () => {
     expect(await sorted('poNumbers', 'desc')).toEqual(DESC)
   })
 
-  it('BANK, by the cash account code, a cheque with none last both ways', async () => {
+  it('BANK, by the cash account code, a check with none last both ways', async () => {
     const [a, b, c] = await three({}, {}, {})
     await testDb.cashAccount.update({ where: { id: a.cashAccountId! }, data: { code: 'AAA BANK' } })
     await testDb.cashAccount.update({ where: { id: b.cashAccountId! }, data: { code: 'ZZZ BANK' } })
@@ -1150,7 +1150,7 @@ describe('listChecks sort', () => {
   })
 
   // The list shows at most 200: the sort must pick the right 200, not sort the first 200.
-  it('sorts across every matching cheque before the limit, in the database and in the app', async () => {
+  it('sorts across every matching check before the limit, in the database and in the app', async () => {
     await makeCheck({ checkNumber: '6000000001', amount: '500.00', apvNumbers: ['AP-M'] })
     await makeCheck({ checkNumber: '6000000002', amount: '100.00', apvNumbers: ['AP-Z'] })
     await makeCheck({ checkNumber: '6000000003', amount: '300.00', apvNumbers: ['AP-A'] })
@@ -1158,7 +1158,7 @@ describe('listChecks sort', () => {
     expect(await sorted('apvNumbers', 'asc', 2)).toEqual(['6000000003', '6000000001'])
   })
 
-  it('breaks a tie on the cheque number, ascending, in both directions', async () => {
+  it('breaks a tie on the check number, ascending, in both directions', async () => {
     const nine = await makeCheck({ checkNumber: '6000000009', amount: '100.00' })
     const eight = await makeCheck({ checkNumber: '6000000008', amount: '100.00' })
     // The factory gives every cheque its own randomly coded cash account; one
@@ -1173,7 +1173,7 @@ describe('listChecks sort', () => {
 describe('column filters', () => {
   const nums = (rows: { checkNumber: string }[]) => rows.map((r) => r.checkNumber).sort()
 
-  it('matches part of a cheque number, any case', async () => {
+  it('matches part of a check number, any case', async () => {
     await makeCheck({ checkNumber: 'BPI6000329924' })
     await makeCheck({ checkNumber: '1791379619' })
     expect(nums(await listChecks(testDb, { checkNumberContains: 'bpi6000' }))).toEqual(['BPI6000329924'])
@@ -1185,7 +1185,7 @@ describe('column filters', () => {
     expect(nums(await listChecks(testDb, { payeeContains: 'philip' }))).toEqual(['6000000001'])
   })
 
-  it('matches part of an APV held on the cheque or on one of its bills, any case', async () => {
+  it('matches part of an APV held on the check or on one of its bills, any case', async () => {
     await makeCheck({ checkNumber: '6000000011', apvNumbers: ['AP-ST042652'] })
     const onBill = await makeCheck({ checkNumber: '6000000012' })
     await testDb.checkBill.create({ data: { checkId: onBill.id, apvNumber: 'AP-ST099042', amount: '1.00' } })
@@ -1208,7 +1208,7 @@ describe('column filters', () => {
     expect(nums(await listChecks(testDb, { poContains: 'stk-04' }))).toEqual(['6000000021'])
   })
 
-  it('bounds the amount inclusively, as decimal strings, and leaves out a cheque with no amount', async () => {
+  it('bounds the amount inclusively, as decimal strings, and leaves out a check with no amount', async () => {
     await makeCheck({ checkNumber: '6000000031', amount: '100.00' })
     await makeCheck({ checkNumber: '6000000032', amount: '500.00' })
     await makeCheck({ checkNumber: '6000000033', amount: '900.00' })
@@ -1251,7 +1251,7 @@ describe('column filters', () => {
 })
 
 describe('SIGN ALL set with column filters', () => {
-  it('counts and lists only the pending cheques the column filters admit', async () => {
+  it('counts and lists only the pending checks the column filters admit', async () => {
     const acme = await makeCheck({ status: 'SIGNATURE_PENDING', payeeName: 'ACME TRADING', amount: '100.00' })
     await makeCheck({ status: 'SIGNATURE_PENDING', payeeName: 'HENKEL PHILIPPINES INC.', amount: '200.00' })
     expect(await listPendingSignatureIds(testDb, {}, { payeeContains: 'acme' })).toEqual([acme.id])
@@ -1297,7 +1297,7 @@ describe('PO NUMBER from Acumatica (AcumaticaBill)', () => {
     expect(toTableRow(row).poNumbers).toEqual(['PO-ST-000009', 'PO-ST-031110 / PO-ST-031109'])
   })
 
-  it('a cheque none of whose APVs has an AcumaticaBill shows its bills’ POs only, or none', async () => {
+  it('a check none of whose APVs has an AcumaticaBill shows its bills’ POs only, or none', async () => {
     await makeCheck({ checkNumber: '6000000001', apvNumbers: ['AP-ST000001'] })
     await acuBill('AP-ST000002', ['PO-ST-031109'])
     // Its APV has no AcumaticaBill, but a CheckBill carries a PO: exactly that PO shows.
@@ -1309,7 +1309,7 @@ describe('PO NUMBER from Acumatica (AcumaticaBill)', () => {
     expect(poOf('6000000002')).toEqual(['PO-ST-000042'])
   })
 
-  it('the global search finds a cheque by part of an Acumatica PO, any case, and the count agrees', async () => {
+  it('the global search finds a check by part of an Acumatica PO, any case, and the count agrees', async () => {
     await makeCheck({ checkNumber: '6000000001', apvNumbers: ['AP-ST000001'] })
     const viaBill = await makeCheck({ checkNumber: '6000000002' })
     await testDb.checkBill.create({ data: { checkId: viaBill.id, apvNumber: 'AP-ST000002', amount: '1.00' } })
@@ -1338,7 +1338,7 @@ describe('PO NUMBER from Acumatica (AcumaticaBill)', () => {
     expect(await countChecks(testDb, { poContains: '%' })).toBe(0)
   })
 
-  it('a broad pattern matches exactly the cheques whose displayed APVs carry an Acumatica PO — never through another cheque’s APV', async () => {
+  it('a broad pattern matches exactly the checks whose displayed APVs carry an Acumatica PO — never through another check’s APV', async () => {
     await makeCheck({ checkNumber: '6000000001', apvNumbers: ['AP-ST000001'] })
     const viaBill = await makeCheck({ checkNumber: '6000000002' })
     await testDb.checkBill.create({ data: { checkId: viaBill.id, apvNumber: 'AP-ST000002', amount: '1.00' } })
@@ -1355,7 +1355,7 @@ describe('PO NUMBER from Acumatica (AcumaticaBill)', () => {
     expect(nums(await listChecks(testDb, { q: 'PO' }))).toEqual(['6000000001', '6000000002'])
   })
 
-  it('sorts PO NUMBER by the first value shown, Acumatica’s included, over every matching cheque before the limit', async () => {
+  it('sorts PO NUMBER by the first value shown, Acumatica’s included, over every matching check before the limit', async () => {
     await makeCheck({ checkNumber: '6000000001', apvNumbers: ['AP-1'] })
     await makeCheck({ checkNumber: '6000000002', apvNumbers: ['AP-2'] })
     const c = await makeCheck({ checkNumber: '6000000003' })

@@ -68,7 +68,7 @@ export function detectWorkbook(rows: readonly RawRow[]): WorkbookDetection {
   if (looksLikeBills && looksLikeRegister) {
     return {
       kind: 'UNKNOWN', sheets, dataRows: dataRowsAll,
-      reason: 'This file carries both a bill-detail sheet and cheque-register sheets. ' +
+      reason: 'This file carries both a bill-detail sheet and check-register sheets. ' +
         'The two have different grains and cannot be imported together.',
     }
   }
@@ -96,7 +96,7 @@ export function detectWorkbook(rows: readonly RawRow[]): WorkbookDetection {
     kind: 'UNKNOWN', sheets, dataRows: dataRowsAll,
     reason: sheets.length === 0
       ? 'The workbook has no sheets with data rows.'
-      : `None of these sheets belongs to either workbook: ${sheets.join(', ')}. A cheque register ` +
+      : `None of these sheets belongs to either workbook: ${sheets.join(', ')}. A check register ` +
         'is recognised by its sheet names and an approval-for-release export by the Acumatica ' +
         'header on row 1 of each sheet, which must name Reference Nbr., Detail Total, FINANCE ' +
         'REMARKS, check No. and bank where this parser expects them.',

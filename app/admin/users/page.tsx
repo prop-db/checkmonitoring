@@ -162,7 +162,7 @@ export default async function UsersPage() {
       </div>
 
       <p className="max-w-4xl rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">
-        Accounts are never deleted here. A user is named on the cheques they signed, marked ready,
+        Accounts are never deleted here. A user is named on the checks they signed, marked ready,
         released or cancelled, and on every audit entry they wrote; deleting the row would blank
         that attribution out rather than fail. DEACTIVATE is removal — a deactivated account is
         refused at sign-in and keeps its history. The last active Finance Admin can be neither

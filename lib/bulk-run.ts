@@ -59,7 +59,7 @@ export async function runEach(
       console.error(e)
       outcomes.push({
         ok: false, checkId, checkNumber,
-        message: 'Something went wrong with this cheque. Please try again.',
+        message: 'Something went wrong with this check. Please try again.',
       })
     }
   }

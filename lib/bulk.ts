@@ -39,14 +39,14 @@ export function parseSelection(raw: readonly string[], cap: number = MAX_BULK_SE
   const checkIds = [...new Set(raw.map((v) => v.trim()).filter((v) => v !== ''))]
 
   if (checkIds.length === 0) {
-    return { ok: false, message: 'Select at least one cheque first.' }
+    return { ok: false, message: 'Select at least one check first.' }
   }
 
   if (checkIds.length > cap) {
     return {
       ok: false,
       message:
-        `A bulk action is limited to ${cap} cheques at a time; ` +
+        `A bulk action is limited to ${cap} checks at a time; ` +
         `${checkIds.length} are selected. Narrow the selection and try again.`,
     }
   }

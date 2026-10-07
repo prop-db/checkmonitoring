@@ -241,7 +241,7 @@ describe('importWorkbookAction', () => {
     expect(result.preview.unmatched).toHaveLength(2)
   })
 
-  it('refuses the whole workbook when one cheque carries a clash nobody has ruled on', async () => {
+  it('refuses the whole workbook when one check carries a clash nobody has ruled on', async () => {
     const { importWorkbookAction } = await import('@/app/admin/actions')
     // RELEASED + FT_MC is not in the 2026-09-03 ruling table.
     // `resolveImpliedStatus` throws on it by design; the preview catches that so

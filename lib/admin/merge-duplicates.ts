@@ -8,7 +8,7 @@ import { writeAudit } from '@/lib/audit'
  * would start failing to compile the day the write path is retired.
  */
 export const MERGE_RULING_BASIS =
-  'Client ruling of 2026-09-06: Acumatica\'s Branch is authoritative for which company owns a cheque'
+  'Client ruling of 2026-09-06: Acumatica\'s Branch is authoritative for which company owns a check'
 
 export type MergeRefusalReason =
   /** Not one register row and one Acumatica-only row. Nothing to merge INTO. */
@@ -134,7 +134,7 @@ export async function mergeDuplicateCheques(
         `${rows.length} rows carry this number: ${register.length} from the register ` +
           `(${register.map((r) => r.company.code).join(', ') || 'none'}) and ${acumatica.length} ` +
           `from Acumatica (${acumatica.map((r) => r.company.code).join(', ') || 'none'}). ` +
-          'A human has to say which cheque is which.',
+          'A human has to say which check is which.',
       )
       continue
     }
@@ -203,7 +203,7 @@ export async function mergeDuplicateCheques(
       refuse(
         checkNumber,
         'TWO_ACUMATICA_PAYMENTS',
-        'The two rows name different Acumatica payments, so they are not one cheque stored ' +
+        'The two rows name different Acumatica payments, so they are not one check stored ' +
           'twice.',
       )
       continue
@@ -245,7 +245,7 @@ export async function mergeDuplicateCheques(
           basis: MERGE_RULING_BASIS,
         },
         remarks:
-          `Absorbed the Acumatica-only row for cheque ${checkNumber} (${duplicate.company.code}, ` +
+          `Absorbed the Acumatica-only row for check ${checkNumber} (${duplicate.company.code}, ` +
           `${duplicate.status}) into this register row (${survivor.company.code}, ` +
           `${survivor.status}), and refiled it under ${duplicate.company.code}. ` +
           `${MERGE_RULING_BASIS}.`,

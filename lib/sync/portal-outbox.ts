@@ -196,7 +196,7 @@ async function settle(
  * Conditional on still holding the claim, like settle.
  */
 async function closeStale(db: Db, ev: PortalEvent, checkStatus: CheckStatus, claimedBy: string): Promise<boolean> {
-  const lastError = `stale: cheque is now ${checkStatus}`
+  const lastError = `stale: check is now ${checkStatus}`
   return atomically(db, async (tx) => {
     const r = await tx.portalEvent.updateMany({
       where: { id: ev.id, status: 'IN_FLIGHT', claimedBy },
@@ -352,7 +352,7 @@ export async function deliverPortalEvents(
         },
       })
       if (!check) {
-        if (await settle(db, ev, { status: 'PARKED', error: 'cheque no longer exists' }, args.now, false, claimedBy)) out.parked += 1
+        if (await settle(db, ev, { status: 'PARKED', error: 'check no longer exists' }, args.now, false, claimedBy)) out.parked += 1
         continue
       }
 
@@ -403,7 +403,7 @@ export async function deliverPortalEvents(
       if (authRefused) { out.stoppedOnAuth = true; break }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
-      console.error(`portal outbox: event ${ev.id} (cheque ${ev.checkId}) failed unexpectedly: ${message}`)
+      console.error(`portal outbox: event ${ev.id} (check ${ev.checkId}) failed unexpectedly: ${message}`)
       out.error ??= cap(`event ${ev.id}: ${message}`)
     }
   }

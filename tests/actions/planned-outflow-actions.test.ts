@@ -45,7 +45,7 @@ describe('the planned outflow actions', () => {
 
     const second = await testDb.plannedOutflow.create({ data: { date: new Date('2026-09-20T00:00:00Z'), amount: '1.00', bankId: bank.id, companyId: company.id, description: 'X', createdById: currentUser.id } })
     expect(await a.markPlannedOutflowPaidAction(fd({ id: line.id, paidOn: '2026-09-16' }))).toEqual({ ok: true })
-    expect(await a.cancelPlannedOutflowAction(fd({ id: second.id, reason: 'Paid by cheque' }))).toEqual({ ok: true })
+    expect(await a.cancelPlannedOutflowAction(fd({ id: second.id, reason: 'Paid by check' }))).toEqual({ ok: true })
     expect((await testDb.plannedOutflow.findUniqueOrThrow({ where: { id: line.id } })).status).toBe('PAID')
     expect((await testDb.plannedOutflow.findUniqueOrThrow({ where: { id: second.id } })).status).toBe('CANCELLED')
   })

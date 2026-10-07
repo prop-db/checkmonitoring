@@ -259,10 +259,10 @@ export async function applyRegisterReleases(
           acumaticaStatusAtTheTime: check.acumaticaStatus,
         },
         remarks:
-          `${plan.file} lists this cheque on a RELEASED sheet (${release.rows.map((r) => `${r.sheet} row ${r.row}`).join(', ')}). ` +
+          `${plan.file} lists this check on a RELEASED sheet (${release.rows.map((r) => `${r.sheet} row ${r.row}`).join(', ')}). ` +
           'Recorded as picked up on the request of 2026-09-24 to update the checks picked up from that file. ' +
           'The status is set directly rather than walked up the ladder: no one signed or approved it here. ' +
-          "No release date or releasing user is recorded on the cheque; the register's DATE RELEASED is kept above, as stated.",
+          "No release date or releasing user is recorded on the check; the register's DATE RELEASED is kept above, as stated.",
       })
       released++
     }, TX_OPTIONS)

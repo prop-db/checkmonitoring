@@ -46,7 +46,7 @@ describe('summariseByAccount', () => {
     expect(s.accounts[3]).toMatchObject({ accountId: null, bank: 'BDO', count: 1 })
   })
 
-  it('blanks BANK and COMPANY on a group whose cheques disagree, and counts the post-dated separately', () => {
+  it('blanks BANK and COMPANY on a group whose checks disagree, and counts the post-dated separately', () => {
     const s = summariseByAccount([
       row({ id: 'a', accountId: null, account: null, bank: 'BDO' }),
       row({ id: 'b', accountId: null, account: null, bank: 'BPI', company: 'A1+' }),
@@ -66,7 +66,7 @@ describe('summariseByAccount', () => {
       row({ id: 'b', releasedAt: new Date('2026-09-10T15:30:00Z') }),
       row({ id: 'c', checkDate: null }),
     ], '2026-09-12')
-    expect(s.lines.find((l) => l.id === 'a')).toMatchObject({ issuedDay: '2026-08-20', basis: 'CHEQUE DATE', days: 23 })
+    expect(s.lines.find((l) => l.id === 'a')).toMatchObject({ issuedDay: '2026-08-20', basis: 'CHECK DATE', days: 23 })
     expect(s.lines.find((l) => l.id === 'b')).toMatchObject({ issuedDay: '2026-09-10', basis: 'RELEASED AT', days: 2 })
     expect(s.lines.find((l) => l.id === 'c')).toMatchObject({ issuedDay: null, basis: null, days: null })
   })

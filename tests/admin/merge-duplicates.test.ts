@@ -251,7 +251,7 @@ describe('mergeDuplicateCheques', () => {
     ])
   })
 
-  it('leaves a cheque number only one row carries alone', async () => {
+  it('leaves a check number only one row carries alone', async () => {
     const { stk, a1 } = await companies()
     await registerRow(stk.id)
     await acumaticaRow(a1.id, { checkNumber: '6000399999' })

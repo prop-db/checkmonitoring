@@ -10,11 +10,11 @@ import type { CheckStatus } from '@/lib/domain/check-status'
 // They are genuine records (83 name a real payee), not junk, so they are
 // flagged for review rather than hidden or deleted wholesale.
 describe('isCheckIncomplete', () => {
-  it('flags a cheque whose amount the register never recorded', () => {
+  it('flags a check whose amount the register never recorded', () => {
     expect(isCheckIncomplete({ amount: null })).toBe(true)
   })
 
-  it('does not flag a cheque that records an amount', () => {
+  it('does not flag a check that records an amount', () => {
     expect(isCheckIncomplete({ amount: '197715.42' })).toBe(false)
   })
 
@@ -35,11 +35,11 @@ const base = {
 }
 
 describe('checkDeletable', () => {
-  it('permits a Finance Admin to delete an incomplete cheque that never left the building', () => {
+  it('permits a Finance Admin to delete an incomplete check that never left the building', () => {
     expect(checkDeletable(base)).toEqual({ ok: true })
   })
 
-  it('permits deletion of an incomplete CANCELLED cheque', () => {
+  it('permits deletion of an incomplete CANCELLED check', () => {
     expect(checkDeletable({ ...base, status: 'CANCELLED' })).toEqual({ ok: true })
   })
 
@@ -48,13 +48,13 @@ describe('checkDeletable', () => {
     expect(result).toEqual({
       ok: false,
       code: 'NOT_ADMIN',
-      message: 'Only a Finance Admin can delete a cheque record.',
+      message: 'Only a Finance Admin can delete a check record.',
     })
   })
 
   // The refusal that will disappoint the request: of the 129, 25 are RELEASED.
   // Deleting one erases the record of money that actually moved.
-  it('refuses a RELEASED cheque even with no amount recorded', () => {
+  it('refuses a RELEASED check even with no amount recorded', () => {
     const result = checkDeletable({ ...base, status: 'RELEASED' })
     expect(result.ok).toBe(false)
     expect(result.ok === false && result.code).toBe('ALREADY_RELEASED')
@@ -64,7 +64,7 @@ describe('checkDeletable', () => {
   // cheque later VOIDED after release still carries the release facts (see
   // voidCheck, which deliberately leaves them standing), and that is exactly
   // the cheque whose deletion would erase the evidence.
-  it('refuses a cheque carrying a release timestamp whatever its status now says', () => {
+  it('refuses a check carrying a release timestamp whatever its status now says', () => {
     const result = checkDeletable({
       ...base, status: 'VOIDED', releasedAt: new Date('2026-02-06T04:00:00Z'),
     })
@@ -74,19 +74,19 @@ describe('checkDeletable', () => {
 
   // 6 of the 129 are READY_FOR_RELEASE. A supplier may already have been told
   // the cheque is waiting for them.
-  it('refuses a READY_FOR_RELEASE cheque', () => {
+  it('refuses a READY_FOR_RELEASE check', () => {
     const result = checkDeletable({ ...base, status: 'READY_FOR_RELEASE' })
     expect(result.ok).toBe(false)
     expect(result.ok === false && result.code).toBe('ANNOUNCED')
   })
 
-  it('refuses a SCHEDULED cheque', () => {
+  it('refuses a SCHEDULED check', () => {
     const result = checkDeletable({ ...base, status: 'SCHEDULED' })
     expect(result.ok).toBe(false)
     expect(result.ok === false && result.code).toBe('ANNOUNCED')
   })
 
-  it('refuses a cheque that records an amount', () => {
+  it('refuses a check that records an amount', () => {
     const result = checkDeletable({ ...base, amount: '197715.42' })
     expect(result.ok).toBe(false)
     expect(result.ok === false && result.code).toBe('AMOUNT_RECORDED')
@@ -96,7 +96,7 @@ describe('checkDeletable', () => {
   // refused as released, not as "it has an amount" — the second reads as an
   // invitation to blank the amount out and try again, which would turn a
   // safety rule into a two-step workaround.
-  it('reports a released cheque as released rather than as one with an amount', () => {
+  it('reports a released check as released rather than as one with an amount', () => {
     const result = checkDeletable({
       ...base, amount: '197715.42', status: 'RELEASED',
       releasedAt: new Date('2026-02-06T04:00:00Z'),

@@ -27,7 +27,7 @@ export type ForecastRow = {
   amount: string
   /** The cheque's date; for a planned line, the day it leaves the bank. */
   checkDate: Date | null
-  kind: 'CHEQUE' | 'PLANNED'
+  kind: 'CHECK' | 'PLANNED'
   /** Typed by Finance (2026-09-12); the forecast buckets on it when set. Always null on a planned line. */
   expectedOutflowDate: Date | null
 }
@@ -117,7 +117,7 @@ export async function listForecastRows(db: Db, filters: ForecastFilters = {}): P
       // `tests/admin/backfill-apv-numbers.test.ts` compare the same way.
       amount: c.amount.toFixed(2),
       checkDate: c.checkDate,
-      kind: 'CHEQUE' as const,
+      kind: 'CHECK' as const,
       expectedOutflowDate: c.expectedOutflowDate,
     }]
   })

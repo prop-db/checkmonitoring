@@ -9,7 +9,7 @@ import { checkReleaseReversible, RECEIPT_ON_RECORD_MESSAGE, CLEARED_MESSAGE } fr
 const clean = { orNumber: null, receiptType: null, clearingStatus: 'NONE', crNumber: null, clearedDate: null }
 
 describe('checkReleaseReversible', () => {
-  it('allows a cheque with no receipt and no clearing', () => {
+  it('allows a check with no receipt and no clearing', () => {
     expect(checkReleaseReversible(clean)).toEqual({ ok: true })
   })
 

@@ -209,7 +209,7 @@ export async function runBillsSync(db: Db, args: BillsSyncArgs): Promise<BillsRu
         // payment sync cannot erase an append made here.
         const locked = await tx.$queryRaw<{ apvNumbers: string[] }[]>(Prisma.sql`
           SELECT "apvNumbers" FROM "Check" WHERE "id" = ${checkId} FOR UPDATE`)
-        if (locked.length === 0) throw new Error(`Cheque ${checkId} no longer exists.`)
+        if (locked.length === 0) throw new Error(`Check ${checkId} no longer exists.`)
         const have = new Set(locked[0].apvNumbers)
         const missing = [...vouchers].filter((v) => !have.has(v)).sort()
         if (missing.length === 0) return 0
@@ -226,7 +226,7 @@ export async function runBillsSync(db: Db, args: BillsSyncArgs): Promise<BillsRu
           actorType: 'SYSTEM',
           action: VOUCHER_LINKED_ACTION,
           details: { vouchers: missing, source: BILLS_FEED, tenant, paymentRef },
-          remarks: `Acumatica (AP-PAYMENTS-WITH-BILLS) shows this cheque paying ${missing.join(', ')}.`,
+          remarks: `Acumatica (AP-PAYMENTS-WITH-BILLS) shows this check paying ${missing.join(', ')}.`,
         })
         return missing.length
       })
@@ -287,7 +287,7 @@ function runMessage(
     parts.push(
       `${notHeldRefs.length} payment(s) in the inquiry are not held here: ${named.join(', ')}` +
       (rest > 0 ? `, and ${rest} more` : '') +
-      `. A full re-read (scripts/sync.ts ${tenant} --bills --full) links them once their cheques exist.`,
+      `. A full re-read (scripts/sync.ts ${tenant} --bills --full) links them once their checks exist.`,
     )
   }
   if (problems.length > 0) parts.push(summarise(problems))

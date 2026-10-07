@@ -31,10 +31,10 @@ describe('buildReconWorkbook', () => {
     const wb = await build([row({ id: 'a' })])
     expect(wb.worksheets.map((w) => w.name)).toEqual([RECON_SUMMARY_SHEET, RECON_DETAIL_SHEET])
     const ws = wb.getWorksheet(RECON_SUMMARY_SHEET)!
-    expect(String(ws.getCell('A1').value)).toContain('OUTSTANDING CHEQUES AS OF 2026-09-12')
+    expect(String(ws.getCell('A1').value)).toContain('OUTSTANDING CHECKS AS OF 2026-09-12')
     expect(String(ws.getCell('A2').value)).toContain('No filters applied')
     expect(String(ws.getCell('A4').value)).toContain('25')
-    expect(String(ws.getCell('A4').value)).toContain('3 released cheques dated after the day')
+    expect(String(ws.getCell('A4').value)).toContain('3 released checks dated after the day')
   })
 
   it('writes one account line per currency with numeric amounts, then totals', async () => {
@@ -56,13 +56,13 @@ describe('buildReconWorkbook', () => {
     expect(total[6]).toBe(107)
   })
 
-  it('lists one detail row per outstanding cheque under the fixed header', async () => {
+  it('lists one detail row per outstanding check under the fixed header', async () => {
     const wb = await build([row({ id: 'a' }), row({ id: 'b', releasedAt: new Date('2026-09-10T15:30:00Z') })])
     const ws = wb.getWorksheet(RECON_DETAIL_SHEET)!
     expect((ws.getRow(1).values as string[]).slice(1)).toEqual([...RECON_DETAIL_HEADERS])
     const a = ws.getRow(2).values as unknown[]
     expect(a[1]).toBe('a')
-    expect(a[8]).toBe('CHEQUE DATE')
+    expect(a[8]).toBe('CHECK DATE')
     expect(a[9]).toBe(23)
     expect(a[10]).toBe('NONE')
     expect(a[12]).toBe(100)

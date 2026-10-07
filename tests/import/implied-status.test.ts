@@ -60,7 +60,7 @@ describe('impliedStatus', () => {
 })
 
 describe('resolveImpliedStatus', () => {
-  it('resolves a cheque on a single sheet to the status that sheet asserts', () => {
+  it('resolves a check on a single sheet to the status that sheet asserts', () => {
     const r = resolveImpliedStatus(['BPI RELEASED'])
     expect(r.status).toBe('RELEASED')
     expect(r.sheets).toEqual(['BPI RELEASED'])

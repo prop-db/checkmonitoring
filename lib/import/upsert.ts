@@ -142,7 +142,7 @@ export const FINANCE_RULING_BASIS = 'Finance ruling of 2026-09-03 on register co
  * where, so it is left alone and each cheque is corrected as the ERP asserts it.
  */
 export const COMPANY_RULING_BASIS =
-  'Client ruling of 2026-09-06: Acumatica\'s Branch is authoritative for which company owns a cheque'
+  'Client ruling of 2026-09-06: Acumatica\'s Branch is authoritative for which company owns a check'
 
 export type UpsertArgs = {
   row: NormalisedRow
@@ -475,7 +475,7 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
             basis: FINANCE_RULING_BASIS,
           },
           remarks:
-            `The register implies ${implied.implied.join(' and ')} for this cheque, on ` +
+            `The register implies ${implied.implied.join(' and ')} for this check, on ` +
             `${implied.sheets.join(', ')}. Resolved to ${implied.resolvedFrom} ` +
             `(${implied.status}) under the ${FINANCE_RULING_BASIS}.`,
         })
@@ -513,10 +513,10 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
           basis: COMPANY_RULING_BASIS,
         },
         remarks:
-          `Cheque ${checkNumber} was filed under ${misfiled.companyCode} and is refiled under ` +
+          `Check ${checkNumber} was filed under ${misfiled.companyCode} and is refiled under ` +
           `${company.code}, asserted by ${row.source}` +
           (row.acumaticaBranch ? ` (Branch ${row.acumaticaBranch.trim()})` : '') +
-          '. Matched on the cheque number alone, because a cheque number belongs to one cheque ' +
+          '. Matched on the check number alone, because a check number belongs to one check ' +
           `book. Status left at ${existing.status}. ${COMPANY_RULING_BASIS}.`,
       })
     }
@@ -628,7 +628,7 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
           acumaticaPaymentId: row.acumaticaPaymentId,
         },
         remarks:
-          `Acumatica now states cheque number ${checkNumber} for payment ` +
+          `Acumatica now states check number ${checkNumber} for payment ` +
           `${row.acumaticaPaymentId}, which this system held as ${renumberedFrom}. ` +
           'Matched on the payment reference, which the ERP does not re-key, and the ' +
           'number corrected to follow Acumatica. Nothing else about the identity moved.',
@@ -676,7 +676,7 @@ async function applyVoid(
         acumaticaStatus: row.acumaticaStatus,
       },
       remarks:
-        `Acumatica reports this cheque voided, but it is ${current} here — a terminal Finance ` +
+        `Acumatica reports this check voided, but it is ${current} here — a terminal Finance ` +
         'decision with a recorded reason. The status is unchanged and the disagreement needs a human.',
     })
     return
@@ -722,7 +722,7 @@ async function stageRow(
     new DomainError(
       'CANNOT_STAGE',
       `A ${row.source} row cannot be staged because it carries no ${missing} to key it on. ` +
-        `Cheque number: ${row.checkNumber ?? 'none'}; reason: ${reason}.`,
+        `Check number: ${row.checkNumber ?? 'none'}; reason: ${reason}.`,
     )
 
   const data = {

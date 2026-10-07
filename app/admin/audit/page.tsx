@@ -86,7 +86,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
               a count that quietly excluded them would read as the whole. */}
           {filters.checkNumber && (
             <p className="text-xs font-medium tracking-wide text-slate-500">
-              Rows whose cheque has since been removed cannot match a cheque number; clear this filter and
+              Rows whose check has since been removed cannot match a check number; clear this filter and
               show SYSTEM ROWS to see them.
             </p>
           )}

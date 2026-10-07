@@ -17,7 +17,7 @@ import { visibleEntries, registerOnlyLine, NUMBERING_SCOPE_NOTE } from '@/lib/nu
  */
 export const NUMBERING_SUMMARY_SHEET = 'SUMMARY'
 export const NUMBERING_ACCOUNT_HEADERS = [
-  'CHECK NUMBER', 'CHEQUE DATE', 'PAYEE', 'STATUS', 'CURRENCY', 'AMOUNT', 'FROM', 'TO', 'COUNT', 'NOTE',
+  'CHECK NUMBER', 'CHECK DATE', 'PAYEE', 'STATUS', 'CURRENCY', 'AMOUNT', 'FROM', 'TO', 'COUNT', 'NOTE',
 ] as const
 /**
  * TO FIX IN ACUMATICA (spec §G3): every OUT OF PATTERN cheque or staged line and
@@ -25,8 +25,8 @@ export const NUMBERING_ACCOUNT_HEADERS = [
  * list: never cut by the row limit, written under MISSING ONLY too.
  */
 export const NUMBERING_TO_FIX_SHEET = 'TO FIX IN ACUMATICA'
-export const NUMBERING_TO_FIX_HEADERS = ['CHEQUE BOOK', 'CHECK NUMBER', 'CV', 'CHEQUE DATE', 'PAYEE', 'STATUS', 'REASON'] as const
-const SUMMARY_HEADERS =['CHEQUE BOOK', 'BANK', 'COMPANY', 'FIRST', 'LAST', 'HELD', 'VOIDED', 'CANCELLED', 'STAGED', 'MISSING NUMBERS', 'MISSING RUNS', 'NOT NUMERIC', 'OUT OF PATTERN'] as const
+export const NUMBERING_TO_FIX_HEADERS = ['CHECK BOOK', 'CHECK NUMBER', 'CV', 'CHECK DATE', 'PAYEE', 'STATUS', 'REASON'] as const
+const SUMMARY_HEADERS =['CHECK BOOK', 'BANK', 'COMPANY', 'FIRST', 'LAST', 'HELD', 'VOIDED', 'CANCELLED', 'STAGED', 'MISSING NUMBERS', 'MISSING RUNS', 'NOT NUMERIC', 'OUT OF PATTERN'] as const
 
 export type NumberingMeta = {
   generatedAt: Date; generatedBy: string; filterDescription: string
@@ -78,18 +78,18 @@ export async function buildNumberingWorkbook(
     (n, l) => n + l.entries.length + (meta.missingOnly ? 0 : l.a.series.notNumeric.length + l.a.series.outOfPattern.length), 0)
 
   const ws = wb.addWorksheet(NUMBERING_SUMMARY_SHEET)
-  ws.getCell('A1').value = 'CHEQUE NUMBERING — CHECK RELEASE MONITORING'
+  ws.getCell('A1').value = 'CHECK NUMBERING — CHECK RELEASE MONITORING'
   ws.getCell('A1').font = { bold: true, size: 16, color: { argb: TITLE_INK } }
   ws.getCell('A2').value = meta.filterDescription
   ws.getCell('A2').font = { bold: true, size: 12, color: { argb: TITLE_INK } }
   ws.getCell('A3').value = totalLines > meta.rowLimit
-    ? `${generatedLine(meta)}  ·  the cheque-book sheets hold the first ${fmt(meta.rowLimit)} of ${fmt(totalLines)} lines`
-    : `${generatedLine(meta)}  ·  ${fmt(accounts.length)} cheque book${accounts.length === 1 ? '' : 's'}`
+    ? `${generatedLine(meta)}  ·  the check-book sheets hold the first ${fmt(meta.rowLimit)} of ${fmt(totalLines)} lines`
+    : `${generatedLine(meta)}  ·  ${fmt(accounts.length)} check book${accounts.length === 1 ? '' : 's'}`
   ws.getCell('A3').font = { size: 10, color: { argb: MUTED_INK } }
   ws.getCell('A4').value = [
     NUMBERING_SCOPE_NOTE,
     meta.noAccountCount === null ? null
-      : `Not in any series: ${fmt(meta.noAccountCount)} cheque${meta.noAccountCount === 1 ? '' : 's'} with no cheque book.`,
+      : `Not in any series: ${fmt(meta.noAccountCount)} check${meta.noAccountCount === 1 ? '' : 's'} with no check book.`,
     meta.registerOnlyCount === null ? null : registerOnlyLine(meta.registerOnlyCount),
   ].filter((s) => s !== null).join(' ')
   ws.getCell('A4').font = { size: 10, color: { argb: MUTED_INK } }
@@ -128,7 +128,7 @@ export async function buildNumberingWorkbook(
     const p = a.series.pattern
     const outReason = p ? `OUT OF PATTERN — expected ${p.digits} digits starting ${p.lead}` : 'OUT OF PATTERN'
     const items: StrayEnd[] = [
-      ...a.series.outOfPattern.flatMap((o): StrayEnd[] => (o.kind === 'CHEQUE' ? [{ cheque: o.cheque, staged: null, reason: outReason }]
+      ...a.series.outOfPattern.flatMap((o): StrayEnd[] => (o.kind === 'CHECK' ? [{ cheque: o.cheque, staged: null, reason: outReason }]
         : o.kind === 'STAGED' ? [{ cheque: null, staged: o.staged, reason: outReason }] : [])),
       ...strayEnds(a.series),
     ]
@@ -178,7 +178,7 @@ export async function buildNumberingWorkbook(
       row.getCell(5).value = s.currency
       row.getCell(6).value = s.amount === null ? null : Number(s.amount)
       if (s.currency) row.getCell(6).numFmt = currencyNumberFormat(s.currency)
-      row.getCell(10).value = note ?? `Acumatica ${s.acumaticaRef}: the same cheque number used again (staged)`
+      row.getCell(10).value = note ?? `Acumatica ${s.acumaticaRef}: the same check number used again (staged)`
     }
     const pattern = a.series.pattern
     const outNote = pattern ? `OUT OF PATTERN (expected ${pattern.digits} digits starting ${pattern.lead})` : 'OUT OF PATTERN'
@@ -191,12 +191,12 @@ export async function buildNumberingWorkbook(
       if ('c' in item) { chequeRow(item.c, 'NOT NUMERIC'); continue }
       if ('o' in item) {
         const o = item.o
-        if (o.kind === 'CHEQUE') chequeRow(o.cheque, o.duplicate ? `${outNote}; DUPLICATE NUMBER` : outNote)
-        else if (o.kind === 'STAGED') stagedRow(o.staged, `${outNote}; Acumatica ${o.staged.acumaticaRef}: the same cheque number used again (staged)`)
+        if (o.kind === 'CHECK') chequeRow(o.cheque, o.duplicate ? `${outNote}; DUPLICATE NUMBER` : outNote)
+        else if (o.kind === 'STAGED') stagedRow(o.staged, `${outNote}; Acumatica ${o.staged.acumaticaRef}: the same check number used again (staged)`)
         continue
       }
       const e = item.e
-      if (e.kind === 'CHEQUE') { chequeRow(e.cheque, e.duplicate ? 'DUPLICATE NUMBER' : null); continue }
+      if (e.kind === 'CHECK') { chequeRow(e.cheque, e.duplicate ? 'DUPLICATE NUMBER' : null); continue }
       if (e.kind === 'STAGED') { stagedRow(e.staged); continue }
       const row = sheet.getRow(r++)
       row.getCell(1).value = e.from === e.to ? e.from : `${e.from} – ${e.to}`

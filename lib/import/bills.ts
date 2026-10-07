@@ -408,7 +408,7 @@ export type MatchedBill = { bill: ParsedBill; checkId: string; matchedOn: BillMa
  */
 export const BILL_CHECK_REF_RULING =
   'Client instruction of 2026-09-07: in the approval-for-release workbook, use Acumatica as the ' +
-  'reference for cheque numbers'
+  'reference for check numbers'
 
 export type BillImportSummary = {
   /** What was read, and from where. A run that read one sheet of three has to
@@ -726,9 +726,9 @@ export async function importBills(
         `Bill ${bill.apvNumber} ${existing ? 'updated' : 'imported'} from the approval-for-release ` +
         `workbook (${bill.sheet} row ${bill.row}). Release status unchanged.` +
         (matchedOn === 'APV'
-          ? ` Its check No. cell held ${bill.statedCheckRef ?? 'nothing'}, which is not a cheque ` +
-            `number, so the bill was matched to this cheque by its voucher ${bill.apvNumber} — the ` +
-            `only cheque carrying it. ${BILL_CHECK_REF_RULING}.`
+          ? ` Its check No. cell held ${bill.statedCheckRef ?? 'nothing'}, which is not a check ` +
+            `number, so the bill was matched to this check by its voucher ${bill.apvNumber} — the ` +
+            `only check carrying it. ${BILL_CHECK_REF_RULING}.`
           : ''),
     })
   }

@@ -67,7 +67,7 @@ export function parseClearingPaste(text: string): { lines: PastedLine[]; errors:
 
     const checkNumber = canonicalCheckNumber(fields[0])
     if (checkNumber === null || !/^\d+$/.test(checkNumber)) {
-      errors.push({ line, raw, message: 'Not a cheque number.' })
+      errors.push({ line, raw, message: 'Not a check number.' })
       return
     }
 

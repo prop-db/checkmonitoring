@@ -57,7 +57,7 @@ describe('internal classification', () => {
   it('treats everything on the FT & MC sheet as INTERNAL regardless of payee', () => {
     const r = classify('THE WALT DISNEY COMPANY (PHILIPPINES), INC.', 'LOCAL SUPPLIER', 'FT & MC')
     expect(r.eligibility).toBe('INTERNAL')
-    expect(r.reason).toBe('FUND TRANSFER / MANAGER\u2019S CHEQUE')
+    expect(r.reason).toBe('FUND TRANSFER / MANAGER\u2019S CHECK')
   })
 
   it('defaults to INTERNAL when the payee is unknown or blank', () => {

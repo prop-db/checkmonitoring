@@ -66,7 +66,7 @@ describe('updateDetails', () => {
     expect(rows[1].details).toEqual({ pointPerson: { from: 'ANA', to: null } })
   })
 
-  it('accepts a note on a cheque in any status — cancelled included', async () => {
+  it('accepts a note on a check in any status — cancelled included', async () => {
     const user = await makeUser()
     const check = await makeCheck({ status: 'CANCELLED' })
     const out = await updateDetails(testDb, { checkId: check.id, userId: user.id, now: NOW, fields: { remarks: 'spoiled at printing' } })

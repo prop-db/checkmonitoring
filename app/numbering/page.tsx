@@ -36,8 +36,8 @@ export default async function NumberingPage({
   if (accountParam && !account) {
     return (
       <main className="space-y-4 px-4 py-5">
-        <AppHeader user={user} title="CHEQUE NUMBERING" back={{ href: NUMBERING_PATH, label: '← ALL CHEQUE BOOKS' }} />
-        <EmptyState title="NO SUCH CHEQUE BOOK">That cheque book is not on record. Choose one from the list.</EmptyState>
+        <AppHeader user={user} title="CHECK NUMBERING" back={{ href: NUMBERING_PATH, label: '← ALL CHECK BOOKS' }} />
+        <EmptyState title="NO SUCH CHECK BOOK">That check book is not on record. Choose one from the list.</EmptyState>
       </main>
     )
   }
@@ -54,7 +54,7 @@ export default async function NumberingPage({
 
   return (
     <main className="space-y-4 px-4 py-5">
-      <AppHeader user={user} title="CHEQUE NUMBERING" back={{ href: '/', label: '← DASHBOARD' }} />
+      <AppHeader user={user} title="CHECK NUMBERING" back={{ href: '/', label: '← DASHBOARD' }} />
 
       <p className="rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">
         {NUMBERING_SCOPE_NOTE}
@@ -75,12 +75,12 @@ export default async function NumberingPage({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="space-y-1">
           <p className="text-xs font-medium tracking-wide text-slate-600">
-            {account ? account.code : `${accounts.length.toLocaleString('en-PH')} CHEQUE BOOK${accounts.length === 1 ? '' : 'S'}`}
+            {account ? account.code : `${accounts.length.toLocaleString('en-PH')} CHECK BOOK${accounts.length === 1 ? '' : 'S'}`}
             {' · '}{describeNumberingFilters({ company: scopedCompany?.code, account: account?.code, missingOnly })}
           </p>
           {!account && noAccountCount > 0 && (
             <p className="text-xs font-medium tracking-wide text-slate-500">
-              NOT IN ANY SERIES: {noAccountCount.toLocaleString('en-PH')} CHEQUE{noAccountCount === 1 ? '' : 'S'} WITH NO CHEQUE BOOK.
+              NOT IN ANY SERIES: {noAccountCount.toLocaleString('en-PH')} CHECK{noAccountCount === 1 ? '' : 'S'} WITH NO CHECK BOOK.
             </p>
           )}
           {!account && registerOnlyCount > 0 && (
@@ -90,7 +90,7 @@ export default async function NumberingPage({
         <div className="flex flex-wrap items-center gap-3">
           {account && (
             <>
-              <Link href={numberingHref({ company: company?.id })} className="text-sm text-slate-600 underline underline-offset-2">← ALL CHEQUE BOOKS</Link>
+              <Link href={numberingHref({ company: company?.id })} className="text-sm text-slate-600 underline underline-offset-2">← ALL CHECK BOOKS</Link>
               <Link href={numberingHref({ ...current, missing: !missingOnly })} className="rounded-lg px-3 py-2 text-sm font-medium tracking-wide text-navy ring-1 ring-hairline">
                 {missingOnly ? 'SHOW ALL' : 'MISSING ONLY'}
               </Link>
@@ -101,19 +101,19 @@ export default async function NumberingPage({
       </div>
 
       {!account && (accounts.length === 0
-        ? <EmptyState title="NO CHEQUES IN ANY CHEQUE BOOK">{company ? 'No cheque of this company is in any cheque book.' : 'No cheque carries a cheque book yet.'}</EmptyState>
+        ? <EmptyState title="NO CHECKS IN ANY CHECK BOOK">{company ? 'No check of this company is in any check book.' : 'No check carries a check book yet.'}</EmptyState>
         : <NumberingSummaryTable accounts={accounts} company={company?.id} />)}
 
-      {account && !one && <EmptyState title="NO CHEQUES IN THIS CHEQUE BOOK">No cheque on record carries this cheque book.</EmptyState>}
+      {account && !one && <EmptyState title="NO CHECKS IN THIS CHECK BOOK">No check on record carries this check book.</EmptyState>}
 
       {one && (() => {
         const entries = visibleEntries(one.series.entries, missingOnly)
         return (
           <>
             {entries.length === 0 && one.series.summary.first === null && !missingOnly
-              ? <EmptyState title="NO NUMERIC CHEQUES">Every cheque in this cheque book carries a number that is not all digits; they are listed below.</EmptyState>
+              ? <EmptyState title="NO NUMERIC CHECKS">Every check in this check book carries a number that is not all digits; they are listed below.</EmptyState>
               : entries.length === 0
-              ? <EmptyState title="NOTHING MISSING" tone="good">Every number from {one.series.summary.first ?? '—'} to {one.series.summary.last ?? '—'} is used here — held as a cheque or staged as a re-use.</EmptyState>
+              ? <EmptyState title="NOTHING MISSING" tone="good">Every number from {one.series.summary.first ?? '—'} to {one.series.summary.last ?? '—'} is used here — held as a check or staged as a re-use.</EmptyState>
               : <NumberingEntriesTable entries={entries} />}
             {!missingOnly && one.series.notNumeric.length > 0 && (
               <>
@@ -126,7 +126,7 @@ export default async function NumberingPage({
                 <h2 className="text-[11px] font-semibold tracking-widest text-slate-400">OUT OF PATTERN — NOT IN THE SEQUENCE</h2>
                 {one.series.pattern && (
                   <p className="text-sm text-slate-600">
-                    This cheque book&apos;s numbers are {one.series.pattern.digits} digits starting {one.series.pattern.lead}; these are not. Usually a mistyped or misfiled number in Acumatica.
+                    This check book&apos;s numbers are {one.series.pattern.digits} digits starting {one.series.pattern.lead}; these are not. Usually a mistyped or misfiled number in Acumatica.
                   </p>
                 )}
                 <OutOfPatternTable entries={one.series.outOfPattern} />

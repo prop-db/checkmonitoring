@@ -14,7 +14,7 @@ describe('exportViewLabel', () => {
   })
 
   it('names the everything view', () => {
-    expect(exportViewLabel({ status: null, showAll: true })).toBe('ALL CHEQUES')
+    expect(exportViewLabel({ status: null, showAll: true })).toBe('ALL CHECKS')
   })
 
   it('names a status view in words, not in enum spelling', () => {
@@ -35,7 +35,7 @@ describe('slugify', () => {
   })
 
   it('collapses runs of punctuation into one hyphen and trims the ends', () => {
-    expect(slugify('ALL CHEQUES — EVERY STATUS')).toBe('all-cheques-every-status')
+    expect(slugify('ALL CHECKS — EVERY STATUS')).toBe('all-checks-every-status')
     expect(slugify('  SIGNED  ')).toBe('signed')
   })
 
@@ -54,8 +54,8 @@ describe('exportFilename', () => {
   })
 
   it('zero-pads the month and day', () => {
-    expect(exportFilename('ALL CHEQUES', new Date(2026, 0, 3, 23, 59)))
-      .toBe('check-register-all-cheques-2026-01-03.xlsx')
+    expect(exportFilename('ALL CHECKS', new Date(2026, 0, 3, 23, 59)))
+      .toBe('check-register-all-checks-2026-01-03.xlsx')
   })
 })
 
@@ -194,7 +194,7 @@ describe('totalsByCurrency', () => {
 
   // The 129 production cheques with no recorded amount. They are counted, and
   // they are absent from the total — never absorbed as zero.
-  it('counts a cheque with no amount but leaves it out of the total', () => {
+  it('counts a check with no amount but leaves it out of the total', () => {
     expect(totalsByCurrency([
       { currency: 'PHP', amount: '1000.00' },
       { currency: 'PHP', amount: null },
@@ -214,7 +214,7 @@ describe('totalsByCurrency', () => {
     expect(totalsByCurrency([])).toEqual([])
   })
 
-  it('sums negatives, which a voided cheque can produce', () => {
+  it('sums negatives, which a voided check can produce', () => {
     expect(totalsByCurrency([
       { currency: 'PHP', amount: '1000.00' },
       { currency: 'PHP', amount: '-1000.00' },
@@ -269,23 +269,23 @@ describe('EXPORT_ROW_LIMIT', () => {
 })
 
 describe('describeScope', () => {
-  it('names the view and how many cheques the file holds', () => {
-    expect(describeScope('READY FOR RELEASE', 200, 200)).toBe('READY FOR RELEASE — 200 CHEQUES')
+  it('names the view and how many checks the file holds', () => {
+    expect(describeScope('READY FOR RELEASE', 200, 200)).toBe('READY FOR RELEASE — 200 CHECKS')
   })
 
-  it('says one cheque, not one cheques', () => {
-    expect(describeScope('SIGNED', 1, 1)).toBe('SIGNED — 1 CHEQUE')
+  it('says one check, not one checks', () => {
+    expect(describeScope('SIGNED', 1, 1)).toBe('SIGNED — 1 CHECK')
   })
 
   // The cap must never be silent. A short file that says nothing reads as a
   // small result, and a manager has no way to tell the two apart.
   it('states the truncation when fewer rows were exported than matched', () => {
-    expect(describeScope('ALL CHEQUES', 10_000, 12_227))
-      .toBe('ALL CHEQUES — FIRST 10,000 OF 12,227 MATCHING CHEQUES')
+    expect(describeScope('ALL CHECKS', 10_000, 12_227))
+      .toBe('ALL CHECKS — FIRST 10,000 OF 12,227 MATCHING CHECKS')
   })
 
   it('says plainly when nothing matched, rather than showing an empty table', () => {
-    expect(describeScope('SCHEDULED', 0, 0)).toBe('SCHEDULED — NO CHEQUES MATCH')
+    expect(describeScope('SCHEDULED', 0, 0)).toBe('SCHEDULED — NO CHECKS MATCH')
   })
 })
 

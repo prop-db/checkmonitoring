@@ -20,7 +20,7 @@ describe('summariseBacklog', () => {
     expect(JSON.stringify(s)).not.toMatch(/197715/)
   })
 
-  it('flags a winner whose kind no longer matches the cheque as stale (final review 2026-09-26)', async () => {
+  it('flags a winner whose kind no longer matches the check as stale (final review 2026-09-26)', async () => {
     const cancelled = await makeCheck({ status: 'CANCELLED' })
     const ready = await makeCheck({ status: 'READY_FOR_RELEASE' })
     await mkEvent(cancelled.id, 'MARK_AVAILABLE', new Date('2026-09-05'))
@@ -54,7 +54,7 @@ describe('queueCancelledForStale', () => {
     return { cancelled, voided }
   }
 
-  it('a cancelled routed cheque with an open MARK_AVAILABLE and no APV is not found and gets no CANCELLED event', async () => {
+  it('a cancelled routed check with an open MARK_AVAILABLE and no APV is not found and gets no CANCELLED event', async () => {
     const noApv = await makeCheck({ status: 'CANCELLED', eligibility: 'SUPPLIER', apvNumbers: [] })
     await mkEvent(noApv.id, 'MARK_AVAILABLE', new Date('2026-09-05'))
     const dry = await queueCancelledForStale(testDb, { now: NOW, apply: false })
@@ -65,7 +65,7 @@ describe('queueCancelledForStale', () => {
     expect(await testDb.portalEvent.count({ where: { checkId: noApv.id, kind: 'CANCELLED' } })).toBe(0)
   })
 
-  it('dry run counts the cheques and writes nothing', async () => {
+  it('dry run counts the checks and writes nothing', async () => {
     const { cancelled, voided } = await scenario()
     const before = await testDb.portalEvent.count()
     const r = await queueCancelledForStale(testDb, { now: NOW, apply: false })
@@ -75,7 +75,7 @@ describe('queueCancelledForStale', () => {
     expect(await testDb.auditLog.count({ where: { action: 'portal_event_backfilled' } })).toBe(0)
   })
 
-  it('apply queues one CANCELLED event per cheque with an audit row; a second apply queues nothing', async () => {
+  it('apply queues one CANCELLED event per check with an audit row; a second apply queues nothing', async () => {
     const { cancelled, voided } = await scenario()
     const r = await queueCancelledForStale(testDb, { now: NOW, apply: true })
     expect(r).toMatchObject({ found: 2, queued: 2 })
@@ -128,7 +128,7 @@ describe('queueReleasedForStale', () => {
     return { register, noDay }
   }
 
-  it('dry run lists the cheque, sets aside one with no day, and writes nothing', async () => {
+  it('dry run lists the check, sets aside one with no day, and writes nothing', async () => {
     const { register, noDay } = await scenario()
     const before = await testDb.portalEvent.count()
     const r = await queueReleasedForStale(testDb, { now: NOW, apply: false })
@@ -157,7 +157,7 @@ describe('queueReleasedForStale', () => {
     const again = await queueReleasedForStale(testDb, { now: new Date(NOW.getTime() + 60_000), apply: true })
     expect(again).toMatchObject({ found: 0, queued: 0 })
   })
-  it('also reports a cheque the portal was never told about, released since the app went live (2026-10-07)', async () => {
+  it('also reports a check the portal was never told about, released since the app went live (2026-10-07)', async () => {
     // 6000330355 and three others: released 1 Oct by the register catch-up,
     // availability withdrawn before the portal heard of it, so no event at all.
     const never = await makeCheck({ status: 'RELEASED', apvNumbers: ['AP-ST040725'], statedReleaseDate: new Date('2026-10-01T00:00:00Z') })

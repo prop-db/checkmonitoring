@@ -32,7 +32,7 @@ describe('markSigned', () => {
     expect(audit.userId).toBe(user.id)
   })
 
-  it('refuses a non-cheque payment and leaves it untouched', async () => {
+  it('refuses a non-check payment and leaves it untouched', async () => {
     const user = await makeUser()
     const check = await makeCheck({ status: 'SIGNATURE_PENDING', isCheque: false })
     await expect(markSigned(testDb, { checkId: check.id, userId: user.id, now: NOW }))
@@ -125,7 +125,7 @@ describe('markReadyForRelease', () => {
     })).rejects.toMatchObject({ code: 'MISSING_FIELDS' })
   })
 
-  it('refuses a non-cheque payment and leaves it untouched', async () => {
+  it('refuses a non-check payment and leaves it untouched', async () => {
     const user = await makeUser()
     const check = await makeCheck({ status: 'SIGNED', isCheque: false })
     await expect(markReadyForRelease(testDb, {
@@ -276,7 +276,7 @@ describe('markReleased', () => {
       .rejects.toMatchObject({ code: 'ILLEGAL_TRANSITION' })
   })
 
-  it('refuses a non-cheque payment and leaves it untouched', async () => {
+  it('refuses a non-check payment and leaves it untouched', async () => {
     // A non-cheque check can never reach READY_FOR_RELEASE through the normal
     // ladder (markSigned and markReadyForRelease both refuse it), so this
     // reproduces the state directly to prove markReleased is its own,
@@ -398,7 +398,7 @@ describe('voidCheck', () => {
   // because a stop-payment on a cheque already handed over is a real event and
   // Acumatica is the source of truth for it. This system showing RELEASED for a
   // cheque the ERP says no longer exists is the worse failure.
-  it('voids a RELEASED check, because Acumatica can stop a cheque already handed over', async () => {
+  it('voids a RELEASED check, because Acumatica can stop a check already handed over', async () => {
     const user = await makeUser()
     const check = await makeCheck({ status: 'SIGNED' })
     await markReadyForRelease(testDb, { checkId: check.id, userId: user.id, availablePickupDate: PICKUP, now: NOW })
@@ -455,7 +455,7 @@ describe('voidCheck', () => {
   // queues the same CANCELLED event `cancelCheck` does for a portal-routed
   // cheque, so the supplier portal stops showing a cheque the ERP says no
   // longer exists.
-  it('queues a CANCELLED portal event for a portal-routed cheque', async () => {
+  it('queues a CANCELLED portal event for a portal-routed check', async () => {
     const check = await makeCheck({ status: 'SIGNATURE_PENDING', eligibility: 'SUPPLIER', apvNumbers: ['AP-ST000003'] })
     await voidCheck(testDb, { checkId: check.id, reason: 'Voided in Acumatica.', now: NOW })
     const event = await testDb.portalEvent.findFirstOrThrow({ where: { checkId: check.id } })
@@ -467,7 +467,7 @@ describe('voidCheck', () => {
     expect(after.portalDomain).toBe('LOCAL')
   })
 
-  it('writes no portal event for an INTERNAL cheque', async () => {
+  it('writes no portal event for an INTERNAL check', async () => {
     const check = await makeCheck({ status: 'SIGNATURE_PENDING', eligibility: 'INTERNAL' })
     await voidCheck(testDb, { checkId: check.id, reason: 'Voided in Acumatica.', now: NOW })
     expect(await testDb.portalEvent.count({ where: { checkId: check.id } })).toBe(0)

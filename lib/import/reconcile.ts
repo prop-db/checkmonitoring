@@ -109,7 +109,7 @@ export function reconcile(
           checkNumber,
           kind: 'CONTRADICTORY_STATUS',
           rows: where,
-          detail: 'the register implies ' + statuses.join(' and ') + ' for the same cheque',
+          detail: 'the register implies ' + statuses.join(' and ') + ' for the same check',
         })
       }
     }

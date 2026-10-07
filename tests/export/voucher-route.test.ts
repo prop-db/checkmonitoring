@@ -70,7 +70,7 @@ describe('GET /api/export/vouchers — the file', () => {
     )
   })
 
-  it('is never cached — it is a register of real cheques', async () => {
+  it('is never cached — it is a register of real checks', async () => {
     await makeCheck({ apvNumbers: ['AP-ST042652'] })
     const res = await get()
     expect(res.headers.get('cache-control')).toContain('no-store')

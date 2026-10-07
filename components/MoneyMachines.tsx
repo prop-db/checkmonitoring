@@ -52,7 +52,7 @@ function Banknote({ delay, dx, rot }: { delay: string; dx: string; rot: string }
 function Cheque({ delay, dx, rot }: { delay: string; dx: string; rot: string }) {
   return (
     <g
-      className="mm-cheque"
+      className="mm-check"
       style={{ animationDelay: delay, ['--mm-dx' as string]: dx, ['--mm-rot' as string]: rot }}
     >
       <rect x="-50" y="-24" width="100" height="48" rx="4" fill="#FFFCF2" stroke="#B89B4E" strokeWidth="1.5" />
@@ -61,7 +61,7 @@ function Cheque({ delay, dx, rot }: { delay: string; dx: string; rot: string }) 
       <line x1="-44" y1="4" x2="0" y2="4" stroke="#1E3A5F" strokeWidth="1" opacity="0.35" />
       <rect x="20" y="-10" width="24" height="12" rx="2" fill="#DFF5E8" stroke="#166534" strokeWidth="0.8" />
       <path d="M-40 16c4-6 8-6 12 0s8 6 12 0 8-6 12 0" fill="none" stroke="#1E3A5F" strokeWidth="1.2" strokeLinecap="round" opacity="0.7" />
-      <text x="40" y="18" textAnchor="end" fontSize="5.5" fontWeight="700" letterSpacing="0.6" fill="#B89B4E">CHEQUE</text>
+      <text x="40" y="18" textAnchor="end" fontSize="5.5" fontWeight="700" letterSpacing="0.6" fill="#B89B4E">CHECK</text>
     </g>
   )
 }
@@ -130,9 +130,9 @@ export function CashRegister({ className = '' }: { className?: string }) {
  */
 export function ChequeRegister({ className = '' }: { className?: string }) {
   return (
-    <svg viewBox="0 0 260 250" className={`mm-bob mm-bob-late ${className}`} role="img" aria-label="A cheque register dispensing cheques">
+    <svg viewBox="0 0 260 250" className={`mm-bob mm-bob-late ${className}`} role="img" aria-label="A check register dispensing checks">
       <defs>
-        <clipPath id="mm-cheque-window">
+        <clipPath id="mm-check-window">
           <rect x="0" y="0" width="260" height="126" />
         </clipPath>
       </defs>
@@ -145,7 +145,7 @@ export function ChequeRegister({ className = '' }: { className?: string }) {
       <circle cx="130" cy="98" r="5" fill="#E4EBF4" stroke="#1E3A5F" strokeWidth="1" />
 
       {/* cheques, revealed only above the slot */}
-      <g clipPath="url(#mm-cheque-window)">
+      <g clipPath="url(#mm-check-window)">
         <g transform="translate(130 100)">
           {CHEQUE_DRIFT.map((c) => <Cheque key={c.delay} {...c} />)}
         </g>
@@ -155,7 +155,7 @@ export function ChequeRegister({ className = '' }: { className?: string }) {
       <rect x="36" y="122" width="188" height="86" rx="16" fill="#EEEBFA" stroke="#4C3D8F" strokeWidth="2" />
       <rect x="62" y="118" width="136" height="10" rx="3" fill="#1E3A5F" />
       <rect x="52" y="146" width="74" height="34" rx="6" fill="#FFFFFF" stroke="#4C3D8F" strokeWidth="1" opacity="0.9" />
-      <text x="89" y="160" textAnchor="middle" fontSize="7" fontWeight="700" letterSpacing="1.2" fill="#4C3D8F">CHEQUE</text>
+      <text x="89" y="160" textAnchor="middle" fontSize="7" fontWeight="700" letterSpacing="1.2" fill="#4C3D8F">CHECK</text>
       <text x="89" y="172" textAnchor="middle" fontSize="7" fontWeight="700" letterSpacing="1.2" fill="#4C3D8F">REGISTER</text>
       <circle cx="176" cy="152" r="5" fill="#DFF5E8" stroke="#166534" strokeWidth="1" className="mm-blink" />
       <circle cx="194" cy="152" r="5" fill="#FEF3C7" stroke="#92400E" strokeWidth="1" />

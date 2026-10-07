@@ -96,7 +96,7 @@ describe('canonicalCheckNumber', () => {
   // ever be promoted and every cheque in both sources double-counted in the
   // dashboard totals. The bare form wins because it is the register's and the
   // one a human reads off the cheque itself.
-  it('strips the bank prefix Acumatica puts in front of a cheque number', () => {
+  it('strips the bank prefix Acumatica puts in front of a check number', () => {
     expect(canonicalCheckNumber('BPI 6000240287')).toBe('6000240287')
     expect(canonicalCheckNumber('MBTC 6000240287')).toBe('6000240287')
     expect(canonicalCheckNumber('BDO 6000240287')).toBe('6000240287')
@@ -104,14 +104,14 @@ describe('canonicalCheckNumber', () => {
     expect(canonicalCheckNumber('MBTC 179123')).toBe('179123')
   })
 
-  it('is the SAME key for a register cheque number and its Acumatica counterpart', () => {
+  it('is the SAME key for a register check number and its Acumatica counterpart', () => {
     // The whole point. Measured over 2,000 live rows: stripping merges zero
     // distinct original refs onto one key, so this cannot collide two cheques.
     expect(canonicalCheckNumber('BPI 6000240287')).toBe(canonicalCheckNumber('6000240287'))
     expect(canonicalCheckNumber('MBTC 6000308584')).toBe(canonicalCheckNumber(' 6000308584 '))
   })
 
-  it('leaves a bare cheque number exactly as it found it', () => {
+  it('leaves a bare check number exactly as it found it', () => {
     expect(canonicalCheckNumber('6000308584')).toBe('6000308584')
     expect(canonicalCheckNumber('179123')).toBe('179123')
   })
@@ -120,7 +120,7 @@ describe('canonicalCheckNumber', () => {
   // digits> and nothing else. A blind replace(/\D/g, '') would turn the free
   // text 80 real cheques carry ("Oct interest", "pay 12 25 2nd") into
   // plausible-looking cheque numbers, which is inventing a fact about money.
-  it('does not touch a reference that is not a bank code followed by a cheque number', () => {
+  it('does not touch a reference that is not a bank code followed by a check number', () => {
     expect(canonicalCheckNumber('Oct interest')).toBe('Oct interest')
     expect(canonicalCheckNumber('pay 12 25 2nd')).toBe('pay 12 25 2nd')
     // A near miss: a bank code, but not a cheque number after it.
@@ -145,7 +145,7 @@ describe('isBareCheckNumber', () => {
   // What separates a cheque number from a memo somebody typed into the cheque
   // number field. 80 live rows are PaymentMethod CHK — genuinely cheques — but
   // carry free text here, and they cannot be keyed on (company, checkNumber).
-  it('accepts a canonical cheque number and rejects free text', () => {
+  it('accepts a canonical check number and rejects free text', () => {
     expect(isBareCheckNumber('6000308584')).toBe(true)
     expect(isBareCheckNumber('179123')).toBe(true)
     expect(isBareCheckNumber('Oct interest')).toBe(false)

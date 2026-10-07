@@ -52,7 +52,7 @@ describe('listAuditRows — the population', () => {
     expect(rows.map((r) => r.action)).toEqual(['imported', 'released'])
   })
 
-  it('carries the cheque number from the cheque, or from details when the cheque is gone', async () => {
+  it('carries the check number from the check, or from details when the check is gone', async () => {
     const u = await makeUser()
     const check = await makeCheck({ checkNumber: '6000353106' })
     await row({ action: 'released', userId: u.id, checkId: check.id, createdAt: '2026-09-11T02:00:00Z' })
@@ -65,7 +65,7 @@ describe('listAuditRows — the population', () => {
     expect(rows[1].plannedOutflowId).toBeNull()
   })
 
-  it('marks a planned-outflow row as such — no cheque was ever involved', async () => {
+  it('marks a planned-outflow row as such — no check was ever involved', async () => {
     const u = await makeUser()
     await row({ action: 'planned_outflow_paid', userId: u.id, createdAt: '2026-09-12T02:00:00Z', details: { plannedOutflowId: 'po1', description: 'SEPT PAYROLL' } })
     const { rows } = await listAuditRows(testDb, { system: false }, null)
@@ -76,7 +76,7 @@ describe('listAuditRows — the population', () => {
 })
 
 describe('listAuditRows — the filters', () => {
-  it('narrows by action, user, cheque number and date', async () => {
+  it('narrows by action, user, check number and date', async () => {
     const a = await makeUser()
     const b = await makeUser()
     const check = await makeCheck({ checkNumber: '6000353106' })

@@ -111,7 +111,7 @@ export async function applyCheckBookBackfill(db: PrismaClient, candidates: reado
       await writeAudit(tx, {
         checkId: c.checkId, actorType: 'SYSTEM', action: CHECK_BOOK_BACKFILL_ACTION,
         details: { checkBookCode: c.checkBookCode, acumaticaPaymentId: c.acumaticaPaymentId },
-        remarks: `Cheque book ${c.checkBookCode} recorded from Acumatica's CashAccount for payment ${c.acumaticaPaymentId}. Status unchanged.`,
+        remarks: `Check book ${c.checkBookCode} recorded from Acumatica's CashAccount for payment ${c.acumaticaPaymentId}. Status unchanged.`,
       })
       return true
     }, TX_OPTIONS)
@@ -136,8 +136,8 @@ export async function applyCheckBookRealign(db: PrismaClient, rows: readonly Che
         checkId: c.checkId, actorType: 'SYSTEM', action: CHECK_BOOK_REALIGN_ACTION,
         details: { from: c.fromCode, to, code: c.code, acumaticaPaymentId: c.acumaticaPaymentId },
         remarks: to
-          ? `Cheque book moved from ${c.fromCode} to ${to}, as Acumatica's CashAccount states for payment ${c.acumaticaPaymentId}. Status unchanged.`
-          : `Cheque book ${c.fromCode} cleared: Acumatica's CashAccount for payment ${c.acumaticaPaymentId} is ${c.code}, which is not a cheque book. Status unchanged.`,
+          ? `Check book moved from ${c.fromCode} to ${to}, as Acumatica's CashAccount states for payment ${c.acumaticaPaymentId}. Status unchanged.`
+          : `Check book ${c.fromCode} cleared: Acumatica's CashAccount for payment ${c.acumaticaPaymentId} is ${c.code}, which is not a check book. Status unchanged.`,
       })
       return true
     }, TX_OPTIONS)

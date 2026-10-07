@@ -23,7 +23,7 @@ async function pendingAt(createdAt: Date, o: { acumatica?: boolean; acumaticaSta
 beforeEach(resetDb)
 
 describe('listAutoSignCandidates', () => {
-  it('lists Monday’s Acumatica cheques only, on a Tuesday', async () => {
+  it('lists Monday’s Acumatica checks only, on a Tuesday', async () => {
     const monEarly = await pendingAt(new Date('2026-09-27T16:00:00Z'))       // Mon 00:00 Manila
     const monNull = await pendingAt(new Date('2026-09-28T09:00:00Z'), { acumaticaStatus: null })
     await pendingAt(new Date('2026-09-27T15:59:59Z'))                         // Sun 23:59:59 Manila
@@ -35,7 +35,7 @@ describe('listAutoSignCandidates', () => {
     expect(ids).toEqual([monEarly.id, monNull.id].sort())
   })
 
-  it('leaves out a reverted cheque', async () => {
+  it('leaves out a reverted check', async () => {
     const u = await makeUser()
     const c = await pendingAt(new Date('2026-09-28T09:00:00Z'))
     await markSigned(testDb, { checkId: c.id, userId: u.id, now: new Date('2026-09-28T10:00:00Z') })
@@ -50,7 +50,7 @@ describe('listAutoSignCandidates', () => {
 })
 
 describe('runAutoSign', () => {
-  it('signs Monday’s cheques on Tuesday and records one run row with no checkId', async () => {
+  it('signs Monday’s checks on Tuesday and records one run row with no checkId', async () => {
     const a = await pendingAt(new Date('2026-09-28T01:00:00Z'))
     const b = await pendingAt(new Date('2026-09-28T09:00:00Z'))
     const tue = await pendingAt(new Date('2026-09-29T01:00:00Z'))
@@ -85,7 +85,7 @@ describe('runAutoSign', () => {
     const c = await pendingAt(new Date('2026-09-28T09:00:00Z'))
     const run = await runAutoSign(testDb, { now: tuesdayNoon, deadline: new Date(0) })
     expect(run).toMatchObject({ outcome: 'FAILED', signed: 0 })
-    expect(run.error).toBe('time budget reached with 1 cheque(s) still due; the 18:00 run continues')
+    expect(run.error).toBe('time budget reached with 1 check(s) still due; the 18:00 run continues')
     expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('SIGNATURE_PENDING')
     const rows = await testDb.auditLog.findMany({ where: { action: AUTO_SIGN_RUN_ACTION } })
     expect(rows).toHaveLength(1)
@@ -97,7 +97,7 @@ describe('runAutoSign', () => {
     const tuesdayEvening = new Date('2026-09-29T10:00:00Z')   // 18:00 Manila, the last run
     const run = await runAutoSign(testDb, { now: tuesdayEvening, deadline: new Date(0) })
     expect(run).toMatchObject({ outcome: 'FAILED', signed: 0 })
-    expect(run.error).toBe('time budget reached with 1 cheque(s) still due; they wait for SIGN ALL')
+    expect(run.error).toBe('time budget reached with 1 check(s) still due; they wait for SIGN ALL')
   })
   it('records FAILED and returns rather than throwing', async () => {
     await pendingAt(new Date('2026-09-28T09:00:00Z'))
@@ -112,7 +112,7 @@ describe('runAutoSign', () => {
     expect(await getLastAutoSign(testDb)).toBeNull()
   })
 
-  it('skips a cheque deleted between listing and signing instead of failing the whole run', async () => {
+  it('skips a check deleted between listing and signing instead of failing the whole run', async () => {
     // `a` is older, so it is visited first; deleting it inside the first
     // $transaction makes autoSign's own load() throw the real NOT_FOUND.
     const a = await pendingAt(new Date('2026-09-28T01:00:00Z'))

@@ -38,7 +38,7 @@ export type SeriesStaged = {
   amount: string | null; currency: string | null
 }
 export type SeriesEntry =
-  | { kind: 'CHEQUE'; cheque: SeriesCheque; duplicate: boolean }
+  | { kind: 'CHECK'; cheque: SeriesCheque; duplicate: boolean }
   | { kind: 'STAGED'; staged: SeriesStaged; number: string }
   | { kind: 'MISSING'; from: string; to: string; count: string }
 export type SeriesSummary = {
@@ -148,7 +148,7 @@ export function buildSeries(cheques: readonly SeriesCheque[], staged: readonly S
   for (const x of all) if (x.cheque) perNumber.set(x.n, (perNumber.get(x.n) ?? 0) + 1)
   const isDuplicate = (n: bigint) => (perNumber.get(n) ?? 0) > 1
   const toEntry = (x: Item): SeriesEntry => (x.cheque
-    ? { kind: 'CHEQUE', cheque: x.cheque, duplicate: isDuplicate(x.n) }
+    ? { kind: 'CHECK', cheque: x.cheque, duplicate: isDuplicate(x.n) }
     : { kind: 'STAGED', staged: x.staged, number: x.text })
 
   const entries: SeriesEntry[] = []
@@ -220,13 +220,13 @@ export function strayEnds(series: AccountSeries): StrayEnd[] {
   const groups: { n: bigint; entries: HeldEntry[] }[] = []
   for (const e of series.entries) {
     if (e.kind === 'MISSING') continue
-    const n = BigInt(e.kind === 'CHEQUE' ? e.cheque.checkNumber.trim() : e.number)
+    const n = BigInt(e.kind === 'CHECK' ? e.cheque.checkNumber.trim() : e.number)
     const last = groups[groups.length - 1]
     if (last && last.n === n) last.entries.push(e)
     else groups.push({ n, entries: [e] })
   }
   const named = (g: { entries: HeldEntry[] }, reason: string): StrayEnd[] =>
-    g.entries.map((e) => (e.kind === 'CHEQUE'
+    g.entries.map((e) => (e.kind === 'CHECK'
       ? { cheque: e.cheque, staged: null, reason }
       : { cheque: null, staged: e.staged, reason }))
 

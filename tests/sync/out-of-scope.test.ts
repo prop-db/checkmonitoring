@@ -40,7 +40,7 @@ async function heldCheque(ref: string, checkNumber: string, status: 'SIGNATURE_P
 }
 
 describe('refreshOutOfScope', () => {
-  it('lists LIVE cheques whose payment left the scoped feed, and a dry run writes nothing', async () => {
+  it('lists LIVE checks whose payment left the scoped feed, and a dry run writes nothing', async () => {
     await heldCheque('CV-IN', '6000400100')
     await heldCheque('CV-OUT', 'PCF26-0244')
     await heldCheque('CV-DEAD', '6000400101', 'CANCELLED')
@@ -51,7 +51,7 @@ describe('refreshOutOfScope', () => {
     expect(client.calls).toHaveLength(1)
   })
 
-  it('re-reads each by its reference and follows Acumatica: now CASH, so no longer a cheque; status untouched', async () => {
+  it('re-reads each by its reference and follows Acumatica: now CASH, so no longer a check; status untouched', async () => {
     const c = await heldCheque('CV-OUT', 'PCF26-0244')
     const client = fakeClient([], [payment({ ReferenceNbr: 'CV-OUT', PaymentRef: 'PCF26-0244', PaymentMethod: 'CASH' })])
 

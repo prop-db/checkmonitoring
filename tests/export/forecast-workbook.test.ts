@@ -13,7 +13,7 @@ function row(o: Partial<ForecastRow> & { id: string }): ForecastRow {
   return {
     checkNumber: o.id, payee: 'HENKEL PHILIPPINES INC.', bank: 'BPI', company: 'STK',
     stage: 'SIGNED', currency: 'PHP', amount: '100.00', checkDate: daysAgo(3),
-    kind: 'CHEQUE', expectedOutflowDate: null,
+    kind: 'CHECK', expectedOutflowDate: null,
     ...o,
   }
 }
@@ -64,7 +64,7 @@ describe('buildForecastWorkbook', () => {
     expect(usd[4]).toBe(5)
   })
 
-  it('lists one detail row per cheque under the fixed header', async () => {
+  it('lists one detail row per check under the fixed header', async () => {
     const wb = await build([row({ id: 'a', checkDate: daysAgo(45) })])
     const ws = wb.getWorksheet(DETAIL_SHEET)!
     expect((ws.getRow(1).values as string[]).slice(1)).toEqual([...DETAIL_HEADERS])
@@ -113,7 +113,7 @@ describe('buildForecastWorkbook', () => {
     expect(String(ws.getCell('A3').value)).toContain('FIRST 1 OF 2')
   })
 
-  it('writes KIND, EXPECTED OUT and DATE BASIS on DETAIL, for a cheque and a planned line', async () => {
+  it('writes KIND, EXPECTED OUT and DATE BASIS on DETAIL, for a check and a planned line', async () => {
     const wb = await build([
       row({ id: 'a', expectedOutflowDate: daysAgo(-2) }),
       row({ id: 'p', checkNumber: 'PLANNED', payee: 'SEPT PAYROLL', stage: 'PLANNED', kind: 'PLANNED', checkDate: daysAgo(0), amount: '250.00' }),
@@ -121,7 +121,7 @@ describe('buildForecastWorkbook', () => {
     const ws = wb.getWorksheet(DETAIL_SHEET)!
     expect(ws.getRow(1).values).toEqual([undefined, ...DETAIL_HEADERS])
     const cheque = ws.getRow(2).values as unknown[]
-    expect(cheque[1]).toBe('CHEQUE')
+    expect(cheque[1]).toBe('CHECK')
     expect(cheque[9]).toBe('EXPECTED')
     expect((cheque[8] as Date).toISOString().slice(0, 10)).toBe('2026-09-18')
     const line = ws.getRow(3).values as unknown[]

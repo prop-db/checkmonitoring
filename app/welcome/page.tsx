@@ -83,7 +83,7 @@ export default async function WelcomePage() {
 
         <div className="order-3">
           <ChequeRegister className="mx-auto w-full max-w-xs" />
-          <p className="mt-2 text-center text-[11px] font-semibold tracking-widest text-slate-400">CHEQUE REGISTER</p>
+          <p className="mt-2 text-center text-[11px] font-semibold tracking-widest text-slate-400">CHECK REGISTER</p>
         </div>
       </section>
 

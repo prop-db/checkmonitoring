@@ -21,10 +21,10 @@ const n = (v: number) => v.toLocaleString('en-PH')
 const ROWS_SHOWN = 200
 
 const REASON_LABEL: Readonly<Record<StagedReason, string>> = {
-  NO_COMPANY: 'NO COMPANY — neither a checkbook nor a cash account says whose cheque this is',
-  AMBIGUOUS_COMPANY: 'AMBIGUOUS COMPANY — this cheque number is claimed by more than one company',
-  NO_CHECK_NUMBER: 'NO CHECK NUMBER — the row carries nothing that can key a cheque',
-  SHARED_NUMBER: 'SHARED NUMBER — another Acumatica payment already holds this cheque number',
+  NO_COMPANY: 'NO COMPANY — neither a checkbook nor a cash account says whose check this is',
+  AMBIGUOUS_COMPANY: 'AMBIGUOUS COMPANY — this check number is claimed by more than one company',
+  NO_CHECK_NUMBER: 'NO CHECK NUMBER — the row carries nothing that can key a check',
+  SHARED_NUMBER: 'SHARED NUMBER — another Acumatica payment already holds this check number',
 }
 
 const fmtDate = (d: Date | null) =>
@@ -111,7 +111,7 @@ export function RegisterPreviewReport({ preview }: { preview: ImportPreview }) {
 
       <p className="rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">
         {n(preview.totalRows)} rows in the workbook, all accounted for. Of the {n(preview.willStage)}{' '}
-        that will not import, {n(preview.stagedLive)} are cheques still in the release workflow and{' '}
+        that will not import, {n(preview.stagedLive)} are checks still in the release workflow and{' '}
         {n(preview.stagedClosed)} are already released or cancelled
         {preview.stagedUnruled > 0 && `, and ${n(preview.stagedUnruled)} carry a status combination nobody has ruled on`}.
         None of them is discarded.
@@ -120,7 +120,7 @@ export function RegisterPreviewReport({ preview }: { preview: ImportPreview }) {
       {preview.unruledClashes.length > 0 && (
         <section className="rounded-2xl bg-danger-bg p-6 ring-1 ring-danger-ink/20">
           <h3 className="text-[11px] font-semibold tracking-widest text-danger-ink">
-            {n(preview.unruledClashes.length)} CHEQUE(S) CANNOT BE IMPORTED AT ALL
+            {n(preview.unruledClashes.length)} CHECK(S) CANNOT BE IMPORTED AT ALL
           </h3>
           <p className="mt-2 text-sm text-danger-ink">
             Their sheets imply a combination of statuses Finance has not ruled on, so the importer
@@ -275,11 +275,11 @@ export function RegisterPreviewReport({ preview }: { preview: ImportPreview }) {
 // shown one reason's wording under another reason's name.
 const UNMATCHED_BILL_WHY: Record<UnmatchedBillReason, string> = {
   NO_MATCHING_CHECK:
-    'No cheque with this number is here — it may be staged for want of a company, or absent from the register',
+    'No check with this number is here — it may be staged for want of a company, or absent from the register',
   AMBIGUOUS_CHECK:
-    'More than one cheque carries this number or voucher; a human has to say which',
+    'More than one check carries this number or voucher; a human has to say which',
   NO_CHECK_NUMBER:
-    'The check No. cell holds no cheque number, and the row’s voucher matches no cheque here — correct the cell, or import the register so the voucher can find it',
+    'The check No. cell holds no check number, and the row’s voucher matches no check here — correct the cell, or import the register so the voucher can find it',
 }
 
 export function BillPreviewReport({ preview }: { preview: BillPreview }) {
@@ -288,7 +288,7 @@ export function BillPreviewReport({ preview }: { preview: BillPreview }) {
       <div className="grid gap-4 md:grid-cols-2">
         <Figure label="BILLS THAT WILL BE ATTACHED" value={n(preview.willImport)} tone="good" />
         <Figure
-          label="BILLS WHOSE CHEQUE IS NOT HERE"
+          label="BILLS WHOSE CHECK IS NOT HERE"
           value={n(preview.unmatched.length + preview.review.length)}
           tone="warn"
         />
@@ -296,8 +296,8 @@ export function BillPreviewReport({ preview }: { preview: BillPreview }) {
 
       <p className="rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">
         {n(preview.totalRows)} rows read, all accounted for. This file is a snapshot of the
-        approval-for-release working list, not a history: it says nothing about cheques outside it,
-        and importing it changes no cheque&apos;s release status.
+        approval-for-release working list, not a history: it says nothing about checks outside it,
+        and importing it changes no check&apos;s release status.
       </p>
 
       {/* Which sheets those rows came from, and which sheets were skipped. The
@@ -324,15 +324,15 @@ export function BillPreviewReport({ preview }: { preview: BillPreview }) {
       {preview.willResolveByVoucher > 0 && (
         <p className="rounded-lg bg-warning-bg px-4 py-2 text-sm text-warning-ink">
           {n(preview.willResolveByVoucher)} of them will be attached by their VOUCHER, because the
-          workbook&apos;s <em>check No.</em> cell does not hold a cheque number. Each matched exactly
-          one cheque; none was guessed at, and the audit trail records the basis.
+          workbook&apos;s <em>check No.</em> cell does not hold a check number. Each matched exactly
+          one check; none was guessed at, and the audit trail records the basis.
         </p>
       )}
 
       {preview.unmatched.length > 0 && (
         <details className="rounded-2xl bg-white ring-1 ring-hairline" open>
           <summary className="cursor-pointer px-6 py-4 text-sm font-medium">
-            {n(preview.unmatched.length)} · BILLS WITH NO CHEQUE TO ATTACH TO
+            {n(preview.unmatched.length)} · BILLS WITH NO CHECK TO ATTACH TO
           </summary>
           <div className="overflow-x-auto border-t border-slate-100">
             <table className="w-full text-sm">

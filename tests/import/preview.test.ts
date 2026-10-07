@@ -103,7 +103,7 @@ describe('previewRegisterImport — the full accounting', () => {
 })
 
 describe('previewRegisterImport — what the reconciliation report has to show', () => {
-  it('shows how the Finance ruling resolved each contradictory cheque', () => {
+  it('shows how the Finance ruling resolved each contradictory check', () => {
     const r = preview([
       p({ sheet: 'BPI RELEASED', row: 2, checkNumber: '6000319079', cashAccountLabel: 'BPI STK' }),
       p({ sheet: 'CANCELLED', row: 3, checkNumber: '6000319079', cashAccountLabel: 'BPI STK' }),
@@ -193,12 +193,12 @@ describe('previewRegisterImport — what the reconciliation report has to show',
   })
 })
 
-describe('previewRegisterImport — unruled clashes are reported per cheque', () => {
+describe('previewRegisterImport — unruled clashes are reported per check', () => {
   // The resolution is cached on the sheet set. Recording the clash on the cache
   // miss reported one cheque per distinct combination and swallowed every other
   // cheque sharing it — silent under-reporting on the one report whose entire
   // purpose is that nothing is hidden.
-  it('lists every cheque blocked by the same sheet combination, not just the first', () => {
+  it('lists every check blocked by the same sheet combination, not just the first', () => {
     const r = preview([
       p({ sheet: 'BPI RELEASED', row: 2, checkNumber: '6000000009', cashAccountLabel: 'BPI STK' }),
       p({ sheet: 'FT & MC', row: 3, checkNumber: '6000000009', cashAccountLabel: 'BPI STK' }),

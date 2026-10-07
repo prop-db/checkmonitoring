@@ -34,7 +34,7 @@ export type Matrix = {
   /** The column totals. Its `bucket` is meaningless and set to 'NO DATE' only to satisfy the type. */
   total: MatrixRow
 }
-export type DateBasis = 'EXPECTED' | 'CHEQUE DATE' | 'PLANNED'
+export type DateBasis = 'EXPECTED' | 'CHECK DATE' | 'PLANNED'
 export type BucketedRow = ForecastRow & { bucket: Bucket; days: number | null; dateBasis: DateBasis }
 
 /** The day a row is bucketed on: a planned line's own day; a cheque's expected date when Finance typed one, else its cheque date. */
@@ -45,7 +45,7 @@ export function outflowDate(r: ForecastRow): Date | null {
 
 function basisOf(r: ForecastRow): DateBasis {
   if (r.kind === 'PLANNED') return 'PLANNED'
-  return r.expectedOutflowDate ? 'EXPECTED' : 'CHEQUE DATE'
+  return r.expectedOutflowDate ? 'EXPECTED' : 'CHECK DATE'
 }
 
 type Acc = { count: number; byCurrency: Map<string, { count: number; cents: bigint }> }

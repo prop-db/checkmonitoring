@@ -3,7 +3,7 @@ import { parseClearingPaste, MAX_CLEARING_LINES } from '@/lib/clearing-paste'
 import { MAX_BULK_SELECTION } from '@/lib/bulk'
 
 describe('parseClearingPaste', () => {
-  it('reads a bare cheque number per line', () => {
+  it('reads a bare check number per line', () => {
     const { lines, errors } = parseClearingPaste('6000319079\n174602\n')
     expect(errors).toEqual([])
     expect(lines).toEqual([
@@ -28,10 +28,10 @@ describe('parseClearingPaste', () => {
     expect(lines).toEqual([{ line: 3, checkNumber: '6000319079', clearedDate: null, crNumber: null }])
   })
 
-  it('reports a line whose first field is not a cheque number', () => {
+  it('reports a line whose first field is not a check number', () => {
     const { lines, errors } = parseClearingPaste('HENKEL, 2026-09-10\n6000319079')
     expect(lines).toHaveLength(1)
-    expect(errors).toEqual([{ line: 1, raw: 'HENKEL, 2026-09-10', message: 'Not a cheque number.' }])
+    expect(errors).toEqual([{ line: 1, raw: 'HENKEL, 2026-09-10', message: 'Not a check number.' }])
   })
 
   it('reports an unreadable date rather than guessing one', () => {
@@ -40,7 +40,7 @@ describe('parseClearingPaste', () => {
     expect(errors[0].message).toBe('Date must be YYYY-MM-DD or DD/MM/YYYY.')
   })
 
-  it('reports a repeated cheque number on its later line', () => {
+  it('reports a repeated check number on its later line', () => {
     const { lines, errors } = parseClearingPaste('6000319079\n6000319079, 2026-09-10')
     expect(lines).toHaveLength(1)
     expect(errors).toEqual([{ line: 2, raw: '6000319079, 2026-09-10', message: 'Repeats line 1.' }])

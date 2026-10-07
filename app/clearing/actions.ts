@@ -29,7 +29,7 @@ function parse(formData: FormData, cap: number): Parsed {
   const text = String(formData.get('lines') ?? '')
   const { lines, errors } = parseClearingPaste(text)
   const total = lines.length + errors.length
-  if (total === 0) return { ok: false, message: 'Paste at least one cheque number, one per line.' }
+  if (total === 0) return { ok: false, message: 'Paste at least one check number, one per line.' }
   if (total > cap) {
     return {
       ok: false,
@@ -56,7 +56,7 @@ export async function confirmClearingAction(formData: FormData): Promise<BulkAct
   const rows = await previewClearing(prisma, parsed.lines)
   const willClear = rows.filter((r) => r.verdict === 'WILL_CLEAR' && r.checkId !== null)
   if (willClear.length === 0) {
-    return { ok: false, message: 'None of these lines names a released cheque that is not yet cleared.' }
+    return { ok: false, message: 'None of these lines names a released check that is not yet cleared.' }
   }
   const byId = new Map(willClear.map((r) => [r.checkId as string, r]))
   const now = new Date()

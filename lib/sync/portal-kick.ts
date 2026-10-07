@@ -29,7 +29,7 @@ export async function kickPortalDelivery(
     // inside each run's time budget (2026-10-07).
     await queueReleasedForStale(db, { now, apply: true, limit: 50 })
   } catch (e) {
-    console.error('queueing released cheques for the portal failed:', e instanceof Error ? e.message : e)
+    console.error('queueing released checks for the portal failed:', e instanceof Error ? e.message : e)
   }
   let client = args.client
   if (!client) {

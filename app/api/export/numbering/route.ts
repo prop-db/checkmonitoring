@@ -31,7 +31,7 @@ export async function GET(request: Request): Promise<Response> {
   const company = options.companies.find((c) => c.id === (params.get('company')?.trim() || undefined))
   const accountParam = params.get('account')?.trim() || undefined
   const account = books.find((b) => b.id === accountParam)
-  if (accountParam && !account) return new Response('UNKNOWN CHEQUE BOOK', { status: 404, headers: TEXT })
+  if (accountParam && !account) return new Response('UNKNOWN CHECK BOOK', { status: 404, headers: TEXT })
   const missingOnly = isMissingOnly(params.get('missing'))
 
   // With an account open the company filter is not applied, so it must not be described or counted either.

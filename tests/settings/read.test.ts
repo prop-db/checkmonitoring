@@ -40,7 +40,7 @@ describe('loadSettings', () => {
 })
 
 describe('categoryUsage', () => {
-  it('counts cheques and planned lines per category', async () => {
+  it('counts checks and planned lines per category', async () => {
     const a = await makeCheck({ status: 'SIGNED' })
     const b = await makeCheck({ status: 'SIGNED' })
     await testDb.check.update({ where: { id: a.id }, data: { category: 'PAYROLL' } })

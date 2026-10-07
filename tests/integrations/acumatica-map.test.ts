@@ -30,7 +30,7 @@ const paymentRow = {
   LastModifiedOn: '2025-12-24T09:15:00',
 }
 
-describe('mapPayment: PaymentRef is the cheque number, ReferenceNbr is the CV', () => {
+describe('mapPayment: PaymentRef is the check number, ReferenceNbr is the CV', () => {
   it('does NOT put ReferenceNbr in checkNumber or PaymentRef in cvNumber — the single most likely mapping error', () => {
     // Reversing these two files every cheque under its voucher number. The
     // dedup key is (company, checkNumber), so the mistake is not cosmetic: it
@@ -125,8 +125,8 @@ describe('mapPayment: company resolution', () => {
   })
 })
 
-describe('mapPayment: not every payment is a cheque', () => {
-  it('flags the China offices as non-cheque payments', () => {
+describe('mapPayment: not every payment is a check', () => {
+  it('flags the China offices as non-check payments', () => {
     // DG (Dongguan) and SH (Shanghai) pay by transfer in CNY, and their
     // PaymentRef carries an AP reference rather than a cheque number. There is
     // no physical document to sign or hand over.
@@ -150,7 +150,7 @@ describe('mapPayment: not every payment is a cheque', () => {
     expect(sh.companyCode).toBe('SH')
   })
 
-  it('treats every other branch as a cheque', () => {
+  it('treats every other branch as a check', () => {
     expect(mapPayment(paymentRow, 'GOLIVE')!.isCheque).toBe(true)
     expect(mapPayment({ ...paymentRow, Branch: 'A1+' }, 'GOLIVE')!.isCheque).toBe(true)
     // Even an unrecognised branch: the two non-cheque branches are known by
@@ -242,7 +242,7 @@ describe('mapPayment: the rest of the shared row contract', () => {
     expect(r.sourceRow).toBeNull()
   })
 
-  it('passes CashAccount through as the cheque book, trimmed, and null when absent', () => {
+  it('passes CashAccount through as the check book, trimmed, and null when absent', () => {
     expect(mapPayment({ ...paymentRow, CashAccount: '  BPI-S-4636 ' }, 'GOLIVE')!.checkBookCode).toBe('BPI-S-4636')
     expect(mapPayment({ ...paymentRow, CashAccount: null }, 'GOLIVE')!.checkBookCode).toBeNull()
   })
@@ -287,8 +287,8 @@ function registerRow(overrides: Partial<ParsedRow> = {}): ParsedRow {
   }
 }
 
-describe('mapPayment: the cheque number both sources must agree on', () => {
-  it('keys an Acumatica payment the SAME as the register row for the same cheque', () => {
+describe('mapPayment: the check number both sources must agree on', () => {
+  it('keys an Acumatica payment the SAME as the register row for the same check', () => {
     // The register writes a cheque number bare; Acumatica prefixes it with the
     // bank on 90.0% of rows. The dedup key is (companyId, checkNumber), so
     // until this matched, one physical cheque was stored twice — once per
@@ -324,7 +324,7 @@ describe('mapPayment: the cheque number both sources must agree on', () => {
 // ---------------------------------------------------------------------------
 
 describe('mapPayment: PaymentMethod decides whether there is a physical document', () => {
-  it('treats only CHK as a cheque', () => {
+  it('treats only CHK as a check', () => {
     // Finance ruling of 2026-09-04. Measured across the live feed: CHK 1947,
     // DEBIT ADV 35, CASH 5. Those 40 non-CHK payments have no physical document
     // to sign or hand over, so Finance must never be offered a SIGN or RELEASE
@@ -348,7 +348,7 @@ describe('mapPayment: PaymentMethod decides whether there is a physical document
     }
   })
 
-  it('imports a non-cheque payment rather than dropping it', () => {
+  it('imports a non-check payment rather than dropping it', () => {
     // The 40 still import and stay visible; they are simply blocked from the
     // release ladder. Losing them would hide money that actually moved.
     const r = mapPayment({ ...paymentRow, PaymentMethod: 'DEBIT ADV', PaymentRef: 'Oct interest' }, 'GOLIVE')!
@@ -364,7 +364,7 @@ describe('mapPayment: PaymentMethod decides whether there is a physical document
 // Defect 4: 80 real cheques carry a memo instead of a cheque number.
 // ---------------------------------------------------------------------------
 
-describe('mapPayment: a memo where the cheque number belongs', () => {
+describe('mapPayment: a memo where the check number belongs', () => {
   it('refuses to key a CHK payment whose PaymentRef is free text', () => {
     // 80 live rows. They are genuinely cheques, but nothing in them can key
     // (company, checkNumber). Finance ruled on 2026-09-04 that they are staged
@@ -381,13 +381,13 @@ describe('mapPayment: a memo where the cheque number belongs', () => {
     }
   })
 
-  it('never invents a cheque number out of the digits in a memo', () => {
+  it('never invents a check number out of the digits in a memo', () => {
     const r = mapPayment({ ...paymentRow, PaymentRef: 'pay 12 25 2nd' }, 'GOLIVE')!
     expect(r.checkNumber).toBeNull()
     expect(r.checkNumber).not.toBe('12252')
   })
 
-  it('leaves a non-cheque payment reference alone — it is the only identifier it has', () => {
+  it('leaves a non-check payment reference alone — it is the only identifier it has', () => {
     // The China rows' AP reference is not a cheque number and never was. It
     // still keys the payment, because dropping it would make the row unkeyable
     // and lose a payment that really happened.
@@ -439,7 +439,7 @@ describe('collapseVoidPairs', () => {
     expect(out[0].acumaticaDocType).toBe('Voided Payment')
   })
 
-  it('pairs on (company, cheque number) — the key the upsert actually writes on', () => {
+  it('pairs on (company, check number) — the key the upsert actually writes on', () => {
     // Two different cheques, each with its own reversal. Pairing on the cheque
     // number alone would be wrong the moment two companies share a number.
     const out = collapseVoidPairs([
@@ -452,7 +452,7 @@ describe('collapseVoidPairs', () => {
     expect(out.map((r) => r.amount)).toEqual(['88426.95', '100.00'])
   })
 
-  it('does not pair a reversal with a same-numbered cheque of ANOTHER company', () => {
+  it('does not pair a reversal with a same-numbered check of ANOTHER company', () => {
     const golive = original({ PaymentRef: '6000240287', Branch: 'ST' })
     const other = mapPayment({
       ...paymentRow, Type: 'Voided Payment', Status: 'Closed',

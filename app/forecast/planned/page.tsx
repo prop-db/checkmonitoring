@@ -41,7 +41,7 @@ export default async function PlannedOutflowsPage({
       <AppHeader user={user} title="PLANNED OUTFLOWS" back={{ href: '/forecast', label: '← CASH OUTFLOW' }} />
 
       <p className="rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">
-        Outflows that are not cheques — payroll, tax, loan amortisation, transfers — typed with the day
+        Outflows that are not checks — payroll, tax, loan amortisation, transfers — typed with the day
         they leave the bank. An open line stays on the forecast until it is marked PAID or CANCELLED;
         a line whose day has passed is overdue, not gone. Nothing here is deleted.
       </p>

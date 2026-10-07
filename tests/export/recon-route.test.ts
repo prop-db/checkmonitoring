@@ -38,7 +38,7 @@ describe('GET /api/export/recon', () => {
     await makeCheck({ status: 'RELEASED' })
     const res = await get('http://localhost/api/export/recon?asOf=2026-08-31')
     expect(res.status).toBe(200)
-    expect(res.headers.get('content-disposition')).toContain('outstanding-cheques-2026-08-31.xlsx')
+    expect(res.headers.get('content-disposition')).toContain('outstanding-checks-2026-08-31.xlsx')
     expect(res.headers.get('cache-control')).toContain('no-store')
   })
 

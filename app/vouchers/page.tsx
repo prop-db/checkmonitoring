@@ -27,14 +27,14 @@ import { loadSettings } from '@/lib/settings/read'
  */
 function describeEmptyVoucherState(q: string, status: string | undefined): string {
   if (!q && !status) {
-    return 'No cheque carries an AP voucher yet. Vouchers arrive with the register import and the approval-for-release workbook.'
+    return 'No check carries an AP voucher yet. Vouchers arrive with the register import and the approval-for-release workbook.'
   }
   const what = q && status
     ? `No voucher contains "${q}" with status ${status}.`
     : q
       ? `No voucher contains "${q}".`
       : `No voucher has status ${status}.`
-  return `${what} A voucher can also be missing because its only cheque has no recorded amount — see the note above the table.`
+  return `${what} A voucher can also be missing because its only check has no recorded amount — see the note above the table.`
 }
 
 /**
@@ -147,7 +147,7 @@ export default async function VouchersPage({
               exclusion, with the count, every time it is nonzero. */}
           {incompleteCount > 0 && (
             <p className="text-xs font-medium tracking-wide text-slate-500">
-              EXCLUDES {incompleteCount.toLocaleString('en-PH')} CHEQUE{incompleteCount === 1 ? '' : 'S'} WITH
+              EXCLUDES {incompleteCount.toLocaleString('en-PH')} CHECK{incompleteCount === 1 ? '' : 'S'} WITH
               NO RECORDED AMOUNT — a voucher carried only by one of them has no row here and none
               in the file.{' '}
               <Link href="/?incomplete=1" className="underline underline-offset-2">
@@ -181,22 +181,22 @@ export default async function VouchersPage({
 
       <Panel title="WHEN THE CHECK NUMBER IS BLANK">
         <p className="text-sm leading-relaxed text-slate-600">
-          A blank cheque number is not a failure. It means this system will not guess, and
+          A blank check number is not a failure. It means this system will not guess, and
           the STATUS column says which of three reasons applies. REMARKS spells it out every time.
         </p>
         <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-3">
           <div>
             <dt className="font-semibold text-navy">{CONTESTED}</dt>
             <dd className="mt-1 text-slate-600">
-              Two live cheques both name this voucher. Naming one would tell a supplier the wrong
-              thing. REMARKS names both, with their companies. Settle it on the cheques themselves.
+              Two live checks both name this voucher. Naming one would tell a supplier the wrong
+              thing. REMARKS names both, with their companies. Settle it on the checks themselves.
             </dd>
           </div>
           <div>
             <dt className="font-semibold text-navy">{ALL_CANCELLED}</dt>
             <dd className="mt-1 text-slate-600">
-              Every cheque that named this voucher was cancelled or voided. The payable still needs
-              a cheque. REMARKS lists the cancelled ones.
+              Every check that named this voucher was cancelled or voided. The payable still needs
+              a check. REMARKS lists the cancelled ones.
             </dd>
           </div>
           <div>
@@ -208,7 +208,7 @@ export default async function VouchersPage({
           </div>
         </dl>
         <p className="mt-4 text-sm leading-relaxed text-slate-600">
-          A voucher with <span className="font-semibold">no row at all</span> is the ordinary case: no cheque
+          A voucher with <span className="font-semibold">no row at all</span> is the ordinary case: no check
           has been written for that payable yet.
         </p>
       </Panel>

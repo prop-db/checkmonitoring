@@ -24,7 +24,7 @@ describe('getPortalOverview', () => {
     const check = await makeCheck({ status: 'RELEASED' })
     const mk = (key: string, lastError: string | null) =>
       testDb.portalEvent.create({ data: { checkId: check.id, direction: 'OUT', kind: 'RELEASED', status: 'SYNCED', idempotencyKey: key, payload: {}, lastError } })
-    await mk('a', null); await mk('b', 'unmatched: AP-9'); await mk('c', 'superseded by x'); await mk('d', 'stale: cheque is now CANCELLED')
+    await mk('a', null); await mk('b', 'unmatched: AP-9'); await mk('c', 'superseded by x'); await mk('d', 'stale: check is now CANCELLED')
     await mk('e', 'unmatchable: no APV numbers')
     const o = await getPortalOverview(testDb)
     expect(o.counts.SYNCED).toBe(5)

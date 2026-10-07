@@ -31,7 +31,7 @@ export function describeNumberingFilters(
 ): string {
   const parts: string[] = []
   if (f.company) parts.push(`COMPANY: ${f.company}`)
-  if (f.account) parts.push(`CHEQUE BOOK: ${f.account}`)
+  if (f.account) parts.push(`CHECK BOOK: ${f.account}`)
   if (f.missingOnly) parts.push('MISSING ONLY')
   return parts.length ? parts.join('  ·  ') : 'No filters applied'
 }
@@ -42,24 +42,24 @@ export function missingLabel(e: { from: string; to: string; count: string }): st
 }
 
 export function numberingFilename(day: string): string {
-  return `${slugify('cheque numbering')}-${day}.xlsx`
+  return `${slugify('check numbering')}-${day}.xlsx`
 }
 
 /** The register-only cheques NUMBERING leaves out (spec §G2), stated on the page and on SUMMARY. */
 export function registerOnlyLine(count: number): string {
   return count === 1
-    ? '1 REGISTER-ONLY CHEQUE (NOT IN ACUMATICA) IS NOT SHOWN.'
-    : `${count.toLocaleString('en-PH')} REGISTER-ONLY CHEQUES (NOT IN ACUMATICA) ARE NOT SHOWN.`
+    ? '1 REGISTER-ONLY CHECK (NOT IN ACUMATICA) IS NOT SHOWN.'
+    : `${count.toLocaleString('en-PH')} REGISTER-ONLY CHECKS (NOT IN ACUMATICA) ARE NOT SHOWN.`
 }
 
 /** Printed on the page and in the file (spec §B2): what MISSING cannot tell you. */
 export const NUMBERING_SCOPE_NOTE =
-  'MISSING means no cheque in this system holds the number. Each series is one cheque book, built from ' +
-  'Acumatica\'s own cheque numbers and cash accounts (e.g. BPI-S-4636); cheques that exist only in the old ' +
+  'MISSING means no check in this system holds the number. Each series is one check book, built from ' +
+  'Acumatica\'s own check numbers and cash accounts (e.g. BPI-S-4636); checks that exist only in the old ' +
   'register are not shown. The Acumatica sync reads payments dated 2026 ' +
-  'onward, so a cheque book\'s first number may sit partway through a booklet; numbers before the register\'s ' +
-  'history and the sync\'s 2026 scope are not known here. A number Acumatica re-used with a trailing dot (a second payment on the same cheque number) counts as ' +
-  'used and is listed as STAGED. A cheque Acumatica holds with a memo in place of its number is on /admin/staged, ' +
+  'onward, so a check book\'s first number may sit partway through a booklet; numbers before the register\'s ' +
+  'history and the sync\'s 2026 scope are not known here. A number Acumatica re-used with a trailing dot (a second payment on the same check number) counts as ' +
+  'used and is listed as STAGED. A check Acumatica holds with a memo in place of its number is on /admin/staged, ' +
   'not here — its number may still be one of the MISSING. A number that does not match its book\'s usual length ' +
-  'and first digits is listed as OUT OF PATTERN — usually a mistyped or misfiled cheque number in Acumatica — and ' +
+  'and first digits is listed as OUT OF PATTERN — usually a mistyped or misfiled check number in Acumatica — and ' +
   'left out of the gap count.'

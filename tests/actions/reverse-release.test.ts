@@ -24,7 +24,7 @@ async function released(opts: { eligibility?: 'SUPPLIER' | 'INTERNAL'; withRecei
 }
 
 describe('reverseRelease — the happy path', () => {
-  it('returns the cheque to READY_FOR_RELEASE, clears the release and the collection, keeps the availability', async () => {
+  it('returns the check to READY_FOR_RELEASE, clears the release and the collection, keeps the availability', async () => {
     const { user, check } = await released()
     const admin = await makeUser('FINANCE_ADMIN')
     const out = await reverseRelease(testDb, { checkId: check.id, userId: admin.id, reason: 'Ticked the wrong row', now: LATER })
@@ -76,7 +76,7 @@ describe('reverseRelease — the happy path', () => {
 })
 
 describe('reverseRelease — the portal', () => {
-  it('queues exactly one RELEASE_REVERSED event for a SUPPLIER cheque, keyed on this action', async () => {
+  it('queues exactly one RELEASE_REVERSED event for a SUPPLIER check, keyed on this action', async () => {
     const { check } = await released({ eligibility: 'SUPPLIER' })
     const admin = await makeUser('FINANCE_ADMIN')
     const out = await reverseRelease(testDb, { checkId: check.id, userId: admin.id, reason: 'x', now: LATER })
@@ -96,7 +96,7 @@ describe('reverseRelease — the portal', () => {
    * refuses routing state on one. Pinned here the way the other three sites
    * pin it.
    */
-  it('never queues anything for an INTERNAL cheque', async () => {
+  it('never queues anything for an INTERNAL check', async () => {
     const { check } = await released({ eligibility: 'INTERNAL' })
     const admin = await makeUser('FINANCE_ADMIN')
     const out = await reverseRelease(testDb, { checkId: check.id, userId: admin.id, reason: 'x', now: LATER })
@@ -144,7 +144,7 @@ describe('reverseRelease — the refusals, and that they write nothing', () => {
     await expectUntouched(check.id)
   })
 
-  it('refuses a cheque that is not RELEASED', async () => {
+  it('refuses a check that is not RELEASED', async () => {
     const admin = await makeUser('FINANCE_ADMIN')
     const check = await makeCheck({ status: 'SIGNED' })
     await expect(reverseRelease(testDb, { checkId: check.id, userId: admin.id, reason: 'x', now: LATER }))
@@ -161,7 +161,7 @@ describe('reverseRelease — the refusals, and that they write nothing', () => {
    * so `reverseRelease` must apply the same `assertReleasable` guard every
    * other status-changing action does.
    */
-  it('refuses a non-cheque, even one already RELEASED', async () => {
+  it('refuses a non-check, even one already RELEASED', async () => {
     const check = await makeCheck({ status: 'RELEASED', isCheque: false })
     await testDb.check.update({ where: { id: check.id }, data: { releasedAt: NOW } })
     const admin = await makeUser('FINANCE_ADMIN')

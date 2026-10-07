@@ -8,14 +8,14 @@ beforeEach(async () => {
 })
 
 describe('listVoucherCandidates', () => {
-  it('returns one candidate per (voucher, cheque) pair', async () => {
+  it('returns one candidate per (voucher, check) pair', async () => {
     await makeCheck({ apvNumbers: ['AP-ST042652', 'AP-ST042653'], checkNumber: '6000353106' })
     const { checks } = await listVoucherCandidates(testDb)
     expect(checks.map((c) => c.voucher).sort()).toEqual(['AP-ST042652', 'AP-ST042653'])
     expect(checks[0].checkNumber).toBe('6000353106')
   })
 
-  it('ignores a cheque carrying no voucher', async () => {
+  it('ignores a check carrying no voucher', async () => {
     await makeCheck({ apvNumbers: [] })
     const { checks } = await listVoucherCandidates(testDb)
     expect(checks).toHaveLength(0)
@@ -26,7 +26,7 @@ describe('listVoucherCandidates', () => {
    * other 58 that sit on an incomplete cheque are also carried by a complete
    * one, so they still get a row.
    */
-  it('excludes a cheque with no recorded amount', async () => {
+  it('excludes a check with no recorded amount', async () => {
     await makeCheck({ apvNumbers: ['AP-ST099999'], amount: null })
     const { checks } = await listVoucherCandidates(testDb)
     expect(checks).toHaveLength(0)
@@ -49,7 +49,7 @@ describe('listVoucherCandidates', () => {
     expect(checks[0].bank).toBe('MBTC-X')
   })
 
-  it('returns the cheque id alongside its number', async () => {
+  it('returns the check id alongside its number', async () => {
     const check = await makeCheck({ apvNumbers: ['AP-ST042652'] })
     const { checks } = await listVoucherCandidates(testDb)
     expect(checks[0].checkId).toBe(check.id)

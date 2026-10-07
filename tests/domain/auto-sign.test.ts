@@ -53,7 +53,7 @@ describe('isDueForAutoSign', () => {
     expect(isDueForAutoSign(pending(), tuesdayNoon, false)).toBe(false)
   })
 
-  it('never re-signs a cheque someone reverted', () => {
+  it('never re-signs a check someone reverted', () => {
     expect(isDueForAutoSign(pending({ reverted: true }), tuesdayNoon, true)).toBe(false)
   })
 
@@ -61,7 +61,7 @@ describe('isDueForAutoSign', () => {
     expect(isDueForAutoSign(pending({ acumaticaStatus: null }), tuesdayNoon, true)).toBe(true)
   })
 
-  it('refuses other statuses, register-only, non-cheques and Voided', () => {
+  it('refuses other statuses, register-only, non-checks and Voided', () => {
     for (const status of ['GENERATED', 'SIGNED', 'READY_FOR_RELEASE', 'RELEASED', 'CANCELLED', 'VOIDED']) {
       expect(isDueForAutoSign(pending({ status }), tuesdayNoon, true), status).toBe(false)
     }

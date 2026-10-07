@@ -13,7 +13,7 @@ export function OutstandingList({ lines }: { lines: readonly OutstandingLine[] }
       <table className="w-full text-sm">
         <thead className="border-b border-hairline text-left text-[11px] font-semibold tracking-widest text-slate-400">
           <tr>
-            <th className="px-4 py-3">CHECK NUMBER</th><th className="px-4 py-3">PAYEE</th><th className="px-4 py-3">CHEQUE DATE</th>
+            <th className="px-4 py-3">CHECK NUMBER</th><th className="px-4 py-3">PAYEE</th><th className="px-4 py-3">CHECK DATE</th>
             <th className="px-4 py-3">ISSUED</th><th className="px-4 py-3 text-right">DAYS</th><th className="px-4 py-3">CLEARING</th>
             <th className="px-4 py-3 text-right">AMOUNT</th>
           </tr>
@@ -26,7 +26,7 @@ export function OutstandingList({ lines }: { lines: readonly OutstandingLine[] }
               <td className="px-4 py-3">{fmtDay(l.checkDate)}</td>
               <td className="px-4 py-3">
                 {fmtIso(l.issuedDay)}
-                {l.basis === 'CHEQUE DATE' && <span className="ml-2 text-xs text-slate-500">from register</span>}
+                {l.basis === 'CHECK DATE' && <span className="ml-2 text-xs text-slate-500">from register</span>}
               </td>
               <td className="px-4 py-3 text-right tabular-nums">{l.days ?? '—'}</td>
               <td className="px-4 py-3">{l.clearingStatus}</td>

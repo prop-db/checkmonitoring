@@ -17,7 +17,7 @@ export default async function ImportPage() {
         <p className="mt-2 max-w-3xl text-sm text-slate-600">
           Nothing is written until you have seen the report and confirmed it. Import brings in what
           the workbook knows — amounts, dates, payees, cash accounts. It never changes whether a
-          cheque has been signed, made available, released or cancelled: the register does not know
+          check has been signed, made available, released or cancelled: the register does not know
           those, and neither does Acumatica.
         </p>
         {/* The one-time 12,227-row load is a CLI job with a dry run, not a
@@ -34,7 +34,7 @@ export default async function ImportPage() {
 
       {staged.total > 0 && (
         <p className="rounded-xl bg-warning-bg px-4 py-3 text-sm text-warning-ink">
-          {n(staged.total)} row(s) are already held for review — {n(staged.live)} of them cheques
+          {n(staged.total)} row(s) are already held for review — {n(staged.live)} of them checks
           still in the release workflow.{' '}
           <Link href="/admin/staged" className="font-medium underline underline-offset-2">
             OPEN THE STAGED QUEUE

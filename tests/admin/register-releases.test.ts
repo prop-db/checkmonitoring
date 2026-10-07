@@ -27,7 +27,7 @@ function row(sheet: string, n: number, checkNumber: string, book: string | null 
 }
 
 describe('readRegisterReleases', () => {
-  it('reads a cheque on a RELEASED sheet, with its company and the date the register stated', () => {
+  it('reads a check on a RELEASED sheet, with its company and the date the register stated', () => {
     const r = readRegisterReleases([row('BPI RELEASED', 7, '6000308584')], REF)
     expect(r.released).toEqual([{
       checkNumber: '6000308584', companyCodes: ['STK'],
@@ -35,7 +35,7 @@ describe('readRegisterReleases', () => {
     }])
   })
 
-  it('ignores a cheque that is only on a pending or AVAIL. sheet', () => {
+  it('ignores a check that is only on a pending or AVAIL. sheet', () => {
     const r = readRegisterReleases([row('MBTC AVAIL.', 3, '1791361727', 'MBT-A-4155'), row('MBTC P&P', 4, '1791361728', 'MBT-A-4155')], REF)
     expect(r.released).toEqual([])
   })
@@ -67,18 +67,18 @@ describe('judge', () => {
     id: 'x', checkNumber: '6000308584', companyCode: 'STK', status: 'SIGNED', acumaticaStatus: 'Balanced', ...o,
   })
 
-  it('releases the one matching cheque at a live rung', () => {
+  it('releases the one matching check at a live rung', () => {
     for (const status of ['SIGNATURE_PENDING', 'SIGNED', 'READY_FOR_RELEASE', 'SCHEDULED'] as const) {
       expect(judge(release, [c({ status })]).kind).toBe('RELEASE')
     }
   })
 
-  it('matches the one cheque with that number even when the register names another company', () => {
+  it('matches the one check with that number even when the register names another company', () => {
     // The register's company is known wrong on 1,958 cheques; Acumatica's wins.
     expect(judge(release, [c({ id: 'a', companyCode: 'A1+' })])).toMatchObject({ kind: 'RELEASE', check: { id: 'a' } })
   })
 
-  it('uses the register row’s company only to break a tie between cheques sharing a number', () => {
+  it('uses the register row’s company only to break a tie between checks sharing a number', () => {
     expect(judge(release, [c({ id: 'a', companyCode: 'A1+' }), c({ id: 'b' })])).toMatchObject({ kind: 'RELEASE', check: { id: 'b' } })
     expect(judge(release, [c({ id: 'a', companyCode: 'A1+' }), c({ id: 'b', companyCode: 'IND' })]))
       .toEqual({ kind: 'AMBIGUOUS', count: 2 })
@@ -101,7 +101,7 @@ describe('judge', () => {
 describe('plan and apply', () => {
   beforeEach(resetDb)
 
-  it('moves a picked-up cheque to RELEASED with one audit row, and a second run does nothing', async () => {
+  it('moves a picked-up check to RELEASED with one audit row, and a second run does nothing', async () => {
     const signed = await makeCheck({ status: 'SIGNED', checkNumber: '7000000001' })
     const cancelled = await makeCheck({ status: 'CANCELLED', checkNumber: '7000000002' })
     const pending = await makeCheck({ status: 'SIGNATURE_PENDING', checkNumber: '7000000003' }) // not on a RELEASED sheet
@@ -138,7 +138,7 @@ describe('plan and apply', () => {
     expect(again.counts.ALREADY_RELEASED).toBe(1)
   })
 
-  it('skips a cheque that moved between the plan and the write', async () => {
+  it('skips a check that moved between the plan and the write', async () => {
     const c = await makeCheck({ status: 'SIGNED', checkNumber: '7000000009' })
     const plan = await planRegisterReleases(testDb, 'R.xlsx', [row('BPI RELEASED', 2, '7000000009', null)], REF)
     await testDb.check.update({ where: { id: c.id }, data: { status: 'READY_FOR_RELEASE' } })

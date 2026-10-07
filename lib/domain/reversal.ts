@@ -28,10 +28,10 @@ export type ReversalInput = {
 }
 
 export const RECEIPT_ON_RECORD_MESSAGE =
-  "A receipt is recorded: the supplier's own paper says they collected this cheque. " +
+  "A receipt is recorded: the supplier's own paper says they collected this check. " +
   'Settle that with the supplier before reversing the release.'
 
-export const CLEARED_MESSAGE = 'The bank has cleared this cheque; it cannot be un-released.'
+export const CLEARED_MESSAGE = 'The bank has cleared this check; it cannot be un-released.'
 
 export function checkReleaseReversible(input: ReversalInput): GuardResult {
   if (input.orNumber !== null || input.receiptType !== null) {

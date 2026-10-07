@@ -30,6 +30,6 @@ describe('describeReconFilters and reconFilename', () => {
     expect(describeReconFilters({})).toBe('No filters applied')
   })
   it('dates the file by the as-of day', () => {
-    expect(reconFilename('2026-08-31')).toBe('outstanding-cheques-2026-08-31.xlsx')
+    expect(reconFilename('2026-08-31')).toBe('outstanding-checks-2026-08-31.xlsx')
   })
 })

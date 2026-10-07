@@ -72,7 +72,7 @@ export function SettingsForm({
         <ul className="flex flex-wrap gap-2 text-xs text-slate-500">
           {usage.map((u) => (
             <li key={u.name} className="rounded-md bg-ground px-2 py-1">
-              {u.name}: {u.cheques.toLocaleString('en-PH')} cheque{u.cheques === 1 ? '' : 's'}, {u.lines.toLocaleString('en-PH')} line{u.lines === 1 ? '' : 's'}
+              {u.name}: {u.cheques.toLocaleString('en-PH')} check{u.cheques === 1 ? '' : 's'}, {u.lines.toLocaleString('en-PH')} line{u.lines === 1 ? '' : 's'}
             </li>
           ))}
         </ul>

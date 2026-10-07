@@ -61,11 +61,11 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
       <AppHeader
         user={user}
         title="SUPPLIER RECEIPT"
-        back={{ href: `/checks/${check.id}`, label: '← BACK TO CHEQUE' }}
+        back={{ href: `/checks/${check.id}`, label: '← BACK TO CHECK' }}
       />
 
       <section className="rounded-2xl bg-white p-6 ring-1 ring-hairline">
-        <p className="text-xs font-semibold tracking-widest text-slate-600">CHEQUE</p>
+        <p className="text-xs font-semibold tracking-widest text-slate-600">CHECK</p>
         <p className="mt-1 text-lg font-semibold text-slate-900">
           {check.company.code} {check.checkNumber}
         </p>
@@ -112,13 +112,13 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
                 already moved; replacing one is not something this page does. */}
             <p className="text-xs text-slate-500">
               A RECORDED RECEIPT IS NOT OVERWRITTEN FROM HERE. If it is wrong, raise it with a
-              Finance Admin — the audit trail on the cheque shows who recorded it and when.
+              Finance Admin — the audit trail on the check shows who recorded it and when.
             </p>
           </div>
         ) : released ? (
           <>
             <p className="mt-1 text-sm text-slate-600">
-              This cheque was released without a receipt reference. Record it here when the paper
+              This check was released without a receipt reference. Record it here when the paper
               reaches you.
             </p>
             <div className="mt-4">
@@ -129,10 +129,10 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
           // Not an error and not a blank space: a receipt is the paper handed
           // back at collection, so there is genuinely nothing to record yet.
           <p className="mt-2 text-sm text-slate-600">
-            THIS CHEQUE HAS NOT BEEN RELEASED. A supplier’s receipt can only be recorded once the
-            cheque has been handed over — the reference can be entered on the release itself.{' '}
+            THIS CHECK HAS NOT BEEN RELEASED. A supplier’s receipt can only be recorded once the
+            check has been handed over — the reference can be entered on the release itself.{' '}
             <Link href={`/checks/${check.id}`} className="underline underline-offset-2">
-              Open the cheque
+              Open the check
             </Link>
             .
           </p>

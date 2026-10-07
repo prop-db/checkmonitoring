@@ -375,7 +375,7 @@ export function describeView(sel: DashboardSelection): string {
     : sel.status
       ? words(sel.status)
       : sel.showAll
-        ? 'ALL CHEQUES — EVERY STATUS, INCLUDING RELEASED, CANCELLED AND VOIDED'
+        ? 'ALL CHECKS — EVERY STATUS, INCLUDING RELEASED, CANCELLED AND VOIDED'
         : `NEEDS ACTION — ${LIVE_STATUSES.map(words).join(', ')}`
 
   // The toggle is named alongside the view, never instead of it: SIGNED +

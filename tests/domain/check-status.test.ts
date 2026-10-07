@@ -148,7 +148,7 @@ describe('READY FOR RELEASE guards', () => {
     expect(r.code).toBe('ALREADY_RELEASED')
   })
 
-  it('blocks a non-cheque payment, ahead of every other guard', () => {
+  it('blocks a non-check payment, ahead of every other guard', () => {
     const r = checkReadyForRelease({
       ...validReady, isCheque: false, status: 'RELEASED', checkNumber: null,
     })
@@ -156,23 +156,23 @@ describe('READY FOR RELEASE guards', () => {
       ok: false,
       code: 'NOT_A_CHEQUE',
       message:
-        'This payment is not a cheque, so it cannot be signed or released. It is tracked here for visibility only.',
+        'This payment is not a check, so it cannot be signed or released. It is tracked here for visibility only.',
     })
   })
 })
 
 describe('assertReleasable', () => {
-  it('passes silently for a cheque', () => {
+  it('passes silently for a check', () => {
     expect(() => assertReleasable({ isCheque: true })).not.toThrow()
   })
 
-  it('throws a coded DomainError for a non-cheque payment', () => {
+  it('throws a coded DomainError for a non-check payment', () => {
     expect(() => assertReleasable({ isCheque: false })).toThrow(DomainError)
     try { assertReleasable({ isCheque: false }) }
     catch (e) {
       expect((e as DomainError).code).toBe('NOT_A_CHEQUE')
       expect((e as DomainError).message).toBe(
-        'This payment is not a cheque, so it cannot be signed or released. It is tracked here for visibility only.')
+        'This payment is not a check, so it cannot be signed or released. It is tracked here for visibility only.')
     }
   })
 })
@@ -230,7 +230,7 @@ describe('live and closed statuses', () => {
     }
   })
 
-  it('counts a released cheque as closed even though it can still be voided', () => {
+  it('counts a released check as closed even though it can still be voided', () => {
     // RELEASED keeps an outgoing edge to VOIDED, so a terminality test derived
     // from TRANSITIONS would read it as live. It is not: the money has moved.
     expect(canTransition('RELEASED', 'VOIDED')).toBe(true)

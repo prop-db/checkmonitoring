@@ -131,7 +131,7 @@ export function BulkActionBar({
           <button
             type="button" disabled={disabled || live.length === 0 || pickupDate === ''}
             onClick={() => {
-              if (!confirm(`Mark ${live.length} cheque(s) READY FOR RELEASE?`)) return
+              if (!confirm(`Mark ${live.length} check(s) READY FOR RELEASE?`)) return
               submit(bulkReadyForReleaseAction, live, [['availablePickupDate', pickupDate]])
             }}
             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
@@ -157,7 +157,7 @@ export function BulkActionBar({
             <button
               type="button" disabled={disabled || revertReason.trim() === ''}
               onClick={() => {
-                if (!confirm(`Revert ${revertable.length} cheque(s) to SIGNED? They come off the release list.`)) return
+                if (!confirm(`Revert ${revertable.length} check(s) to SIGNED? They come off the release list.`)) return
                 submit(bulkRevertToSignedAction, revertable, [['reason', revertReason.trim()]])
                 setRevertReason('')
               }}
@@ -186,7 +186,7 @@ export function BulkActionBar({
             <button
               type="button" disabled={disabled}
               onClick={() => {
-                if (!confirm(`Revert ${signed.length} cheque(s) to SIGNATURE PENDING?`)) return
+                if (!confirm(`Revert ${signed.length} check(s) to SIGNATURE PENDING?`)) return
                 const reason = pendingReason.trim()
                 submit(bulkRevertToPendingAction, signed, reason ? [['reason', reason]] : [])
                 setPendingReason('')
@@ -207,7 +207,7 @@ export function BulkActionBar({
               const entries = receiptEntries(live, drafts)
               const withReceipt = entries.length > 0 ? ` (${entries.length / 2} with a supplier receipt)` : ''
               if (!confirm(
-                `Mark ${live.length} cheque(s) RELEASED${withReceipt}? This records that the cheques ` +
+                `Mark ${live.length} check(s) RELEASED${withReceipt}? This records that the checks ` +
                 'have been physically handed over and cannot be undone.',
               )) return
               submit(bulkReleaseAction, live, entries)
@@ -249,14 +249,14 @@ export function BulkActionBar({
         // Said rather than left to be discovered by a refusal. The receipt
         // box lives in the row now, not here.
         <p className="mt-3 text-xs text-slate-500">
-          A ticked RELEASED cheque takes its receipt in the OR / CR column. SAVE RECEIPTS records
+          A ticked RELEASED check takes its receipt in the OR / CR column. SAVE RECEIPTS records
           every one typed there.
         </p>
       )}
 
       {overCap && (
         <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
-          {total} CHEQUES ARE SELECTED. A bulk action is limited to {cap}
+          {total} CHECKS ARE SELECTED. A bulk action is limited to {cap}
           {' '}at a time — untick some before continuing.
         </p>
       )}
@@ -269,7 +269,7 @@ export function BulkActionBar({
         <div className="mt-3 space-y-2">
           {result.succeeded > 0 && (
             <p className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">
-              {result.succeeded} CHEQUE{result.succeeded === 1 ? '' : 'S'} UPDATED.
+              {result.succeeded} CHECK{result.succeeded === 1 ? '' : 'S'} UPDATED.
               {/* SAVE RECEIPTS skips a ticked RELEASED row with an empty box
                   rather than failing it, so the count would otherwise vanish
                   into `succeeded` with nothing to show for it. */}
@@ -281,7 +281,7 @@ export function BulkActionBar({
           {failures.length > 0 && (
             <div className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
               <p className="font-medium">
-                {failures.length} CHEQUE{failures.length === 1 ? ' WAS' : 'S WERE'} NOT UPDATED:
+                {failures.length} CHECK{failures.length === 1 ? ' WAS' : 'S WERE'} NOT UPDATED:
               </p>
               <ul className="mt-2 space-y-1">
                 {failures.map((f) => (

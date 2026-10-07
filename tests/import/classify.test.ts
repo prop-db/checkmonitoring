@@ -10,7 +10,7 @@ const row = (o: { checkNumber?: string | null; companyCode?: string | null } = {
 })
 
 describe('classifyImportOutcome', () => {
-  it('writes a row that has a cheque number and exactly one company', () => {
+  it('writes a row that has a check number and exactly one company', () => {
     expect(classifyImportOutcome(row(), ['STK'])).toEqual({
       write: true, checkNumber: '6000329924', companyCode: 'STK',
     })
@@ -24,7 +24,7 @@ describe('classifyImportOutcome', () => {
     })
   })
 
-  it('stages a row with no cheque number, which cannot be keyed at all', () => {
+  it('stages a row with no check number, which cannot be keyed at all', () => {
     expect(classifyImportOutcome(row({ checkNumber: null }))).toEqual({
       write: false, reason: 'NO_CHECK_NUMBER', conflictingCompanies: [],
     })
@@ -38,7 +38,7 @@ describe('classifyImportOutcome', () => {
     })
   })
 
-  it('stages every row of a contested cheque number as AMBIGUOUS_COMPANY', () => {
+  it('stages every row of a contested check number as AMBIGUOUS_COMPANY', () => {
     expect(classifyImportOutcome(row(), ['STK', 'A1+'])).toEqual({
       write: false, reason: 'AMBIGUOUS_COMPANY', conflictingCompanies: ['STK', 'A1+'],
     })

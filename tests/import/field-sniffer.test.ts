@@ -34,7 +34,7 @@ describe('sniff', () => {
     }
   })
 
-  it('does not mistake a round-number amount for a cheque number', () => {
+  it('does not mistake a round-number amount for a check number', () => {
     // The register carries 4200000 and 20000000 as amounts. A \d{6,10} rule
     // matched them, and appearing earlier in the row they became the cheque
     // number. 600089528 is a truncated BPI number and belongs in review.
@@ -89,7 +89,7 @@ describe('sniff', () => {
     }
   })
 
-  it('does not mistake a whole-number cheque number for an amount', () => {
+  it('does not mistake a whole-number check number for an amount', () => {
     expect(sniff('6000329924')).toBe('CHECK_NUMBER')
     expect(sniff('174602')).toBe('CHECK_NUMBER')
   })

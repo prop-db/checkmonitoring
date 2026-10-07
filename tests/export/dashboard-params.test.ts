@@ -75,7 +75,7 @@ describe('resolveDashboardQuery', () => {
     const r = resolveDashboardQuery({ scope: 'all' }, options)
     expect(r.filters.status).toBeUndefined()
     expect(r.filters.statusIn).toBeUndefined()
-    expect(r.viewLabel).toBe('ALL CHEQUES')
+    expect(r.viewLabel).toBe('ALL CHECKS')
   })
 
   // The parsers answer `undefined` for anything they do not recognise, which
@@ -163,7 +163,7 @@ describe('resolveDashboardQuery', () => {
       expect(to.selection.base).toEqual({ releasedTo: '2026-09-15' })
     })
 
-    it('applies on ALL CHEQUES too', () => {
+    it('applies on ALL CHECKS too', () => {
       const r = resolveDashboardQuery({ scope: 'all', releasedFrom: '2026-09-01' }, options)
       expect(r.filters.releasedFrom).toEqual(new Date('2026-08-31T16:00:00.000Z'))
       expect(r.selection.base).toEqual({ releasedFrom: '2026-09-01' })
@@ -273,7 +273,7 @@ describe('resolveDashboardQuery', () => {
       expect(r.selection.base).toEqual({ 'f.amountMax': '12x' })
     })
 
-    it('applies STATUS on ALL CHEQUES only, without changing the view', () => {
+    it('applies STATUS on ALL CHECKS only, without changing the view', () => {
       const all = resolveDashboardQuery({ scope: 'all', 'f.status': 'SIGNED' }, options)
       expect(all.filters.status).toBe('SIGNED')
       expect(all.selection.status).toBeNull()

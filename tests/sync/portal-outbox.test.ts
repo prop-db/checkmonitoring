@@ -62,7 +62,7 @@ describe('deliverPortalEvents', () => {
     expect(await testDb.auditLog.count({ where: { checkId: check.id, action: 'portal_event_synced' } })).toBe(1)
   })
 
-  it('latest wins per cheque: older non-terminal events are superseded, not sent', async () => {
+  it('latest wins per check: older non-terminal events are superseded, not sent', async () => {
     const check = await releasedCheck('AP-1')
     const old = await queue(check.id, 'MARK_AVAILABLE', new Date('2026-08-01T00:00:00Z'))
     const mid = await queue(check.id, 'REVERT', new Date('2026-08-02T00:00:00Z'), { status: 'FAILED', nextAttemptAt: new Date('2099-01-01') })
@@ -77,7 +77,7 @@ describe('deliverPortalEvents', () => {
     }
   })
 
-  it('a newest event not yet due is neither sent nor superseded; the cheque waits', async () => {
+  it('a newest event not yet due is neither sent nor superseded; the check waits', async () => {
     const check = await releasedCheck('AP-1')
     await queue(check.id, 'RELEASED', new Date('2026-08-03T00:00:00Z'), { status: 'FAILED', nextAttemptAt: new Date('2099-01-01') })
     const client = fakeClient(() => ok())
@@ -86,7 +86,7 @@ describe('deliverPortalEvents', () => {
     expect(client.sent).toHaveLength(0)
   })
 
-  it('a refused result parks the event and flags the cheque', async () => {
+  it('a refused result parks the event and flags the check', async () => {
     const check = await releasedCheck('AP-1')
     const ev = await queue(check.id, 'RELEASED', NOW)
     const client = fakeClient(() => ok({ results: [{ ref: 'AP-1', domain: 'local', releaseId: 41, outcome: 'refused', reason: 'cancelled in the portal' }] }))
@@ -138,7 +138,7 @@ describe('deliverPortalEvents', () => {
     }
   })
 
-  it('never sends an INTERNAL cheque: the event parks without a request', async () => {
+  it('never sends an INTERNAL check: the event parks without a request', async () => {
     const check = await makeCheck({ status: 'RELEASED', eligibility: 'INTERNAL', apvNumbers: ['AP-1'] })
     const ev = await queue(check.id, 'RELEASED', NOW)
     const client = fakeClient(() => ok())
@@ -186,7 +186,7 @@ describe('deliverPortalEvents', () => {
 
   // Review fixes 2026-09-26.
 
-  it('a live claim freezes its cheque: a newer PENDING event is neither sent nor supersedes it', async () => {
+  it('a live claim freezes its check: a newer PENDING event is neither sent nor supersedes it', async () => {
     const check = await releasedCheck('AP-1')
     const older = await queue(check.id, 'MARK_AVAILABLE', new Date('2026-08-01T00:00:00Z'), { status: 'IN_FLIGHT', claimedAt: LATER, claimedBy: 'live-run' })
     const newer = await queue(check.id, 'RELEASED', new Date('2026-08-02T00:00:00Z'))
@@ -326,7 +326,7 @@ describe('deliverPortalEvents', () => {
     expect(await testDb.portalEvent.count({ where: { status: 'PENDING' } })).toBe(2)
   })
 
-  it('RELEASED then RECEIPT for one cheque: both delivered, status first, neither superseded', async () => {
+  it('RELEASED then RECEIPT for one check: both delivered, status first, neither superseded', async () => {
     const check = await releasedCheck('AP-1')
     await testDb.check.update({ where: { id: check.id }, data: { orNumber: 'OR-1', receiptType: 'OR' } })
     await queue(check.id, 'RELEASED', NOW)
@@ -345,7 +345,7 @@ describe('deliverPortalEvents', () => {
     const out = await deliverPortalEvents(testDb, { now: LATER, deadline: new Date(LATER.getTime() + 60_000), client })
     expect(out).toMatchObject({ synced: 1, superseded: 1 })
   })
-  it('RECEIPT waits while its cheque has a status event that failed this run', async () => {
+  it('RECEIPT waits while its check has a status event that failed this run', async () => {
     const check = await releasedCheck('AP-3')
     await testDb.check.update({ where: { id: check.id }, data: { orNumber: 'OR-3', receiptType: 'OR' } })
     await queue(check.id, 'RELEASED', NOW)
@@ -357,7 +357,7 @@ describe('deliverPortalEvents', () => {
   })
   // Cross-run hold (review 2026-10-02): a RECEIPT waits while its cheque's
   // newest status-lane event is not SYNCED, PARKED included.
-  it('RECEIPT stays held on a later run while the cheque\'s newest status event is PARKED', async () => {
+  it('RECEIPT stays held on a later run while the check\'s newest status event is PARKED', async () => {
     const check = await releasedCheck('AP-4')
     await testDb.check.update({ where: { id: check.id }, data: { orNumber: 'OR-4', receiptType: 'OR' } })
     await queue(check.id, 'RELEASED', NOW, { status: 'PARKED', lastError: 'refused' })
@@ -368,7 +368,7 @@ describe('deliverPortalEvents', () => {
     const after = await testDb.portalEvent.findUniqueOrThrow({ where: { id: receipt.id } })
     expect(after.status).toBe('PENDING'); expect(after.attempts).toBe(0)
   })
-  it('RECEIPT goes out when the cheque\'s RELEASED was SYNCED on an earlier run', async () => {
+  it('RECEIPT goes out when the check\'s RELEASED was SYNCED on an earlier run', async () => {
     const check = await releasedCheck('AP-5')
     await testDb.check.update({ where: { id: check.id }, data: { orNumber: 'OR-5', receiptType: 'OR' } })
     await queue(check.id, 'RELEASED', NOW, { status: 'SYNCED' })
@@ -378,7 +378,7 @@ describe('deliverPortalEvents', () => {
     expect(client.sent.map(b => b.kind)).toEqual(['RECEIPT'])
     expect(out).toMatchObject({ synced: 1 })
   })
-  it('RECEIPT stays held while the cheque\'s status event is FAILED and not yet due', async () => {
+  it('RECEIPT stays held while the check\'s status event is FAILED and not yet due', async () => {
     const check = await releasedCheck('AP-6')
     await testDb.check.update({ where: { id: check.id }, data: { orNumber: 'OR-6', receiptType: 'OR' } })
     await queue(check.id, 'RELEASED', NOW, { status: 'FAILED', nextAttemptAt: new Date('2099-01-01') })
@@ -388,7 +388,7 @@ describe('deliverPortalEvents', () => {
     expect(client.sent).toHaveLength(0)
     expect((await testDb.portalEvent.findUniqueOrThrow({ where: { id: receipt.id } })).status).toBe('PENDING')
   })
-  it('a RECEIPT settle leaves the cheque-level portal state to the status lane (review 2026-10-02)', async () => {
+  it('a RECEIPT settle leaves the check-level portal state to the status lane (review 2026-10-02)', async () => {
     const check = await releasedCheck('AP-7')
     await testDb.check.update({ where: { id: check.id }, data: { orNumber: 'OR-7', receiptType: 'OR' } })
     const before = await testDb.check.findUniqueOrThrow({ where: { id: check.id } })
@@ -420,7 +420,7 @@ describe('deliverPortalEvents', () => {
     const after = await testDb.portalEvent.findUniqueOrThrow({ where: { id: receipt.id } })
     expect(after.status).toBe('PENDING'); expect(after.attempts).toBe(0); expect(after.claimedBy).toBeNull()
   })
-  it('kindMatchesStatus: RECEIPT only for a RELEASED cheque', () => {
+  it('kindMatchesStatus: RECEIPT only for a RELEASED check', () => {
     expect(kindMatchesStatus('RECEIPT', 'RELEASED')).toBe(true)
     expect(kindMatchesStatus('RECEIPT', 'READY_FOR_RELEASE')).toBe(false)
   })
@@ -431,7 +431,7 @@ describe('deliverPortalEvents - final review fixes', () => {
   const run = (client: PortalClient, db: typeof testDb = testDb) =>
     deliverPortalEvents(db, { now: LATER, deadline: new Date(LATER.getTime() + 10_000), client })
 
-  it('C1: MARK_AVAILABLE for a since-CANCELLED cheque is closed unsent as stale', async () => {
+  it('C1: MARK_AVAILABLE for a since-CANCELLED check is closed unsent as stale', async () => {
     const check = await makeCheck({ status: 'CANCELLED', apvNumbers: ['AP-1'], availablePickupDate: new Date('2026-09-30') })
     const ev = await queue(check.id, 'MARK_AVAILABLE', NOW)
     const client = fakeClient(() => ok())
@@ -439,7 +439,7 @@ describe('deliverPortalEvents - final review fixes', () => {
     expect(client.sent).toHaveLength(0)
     expect(out).toMatchObject({ stale: 1, delivered: 0, synced: 0, superseded: 0 })
     const after = await testDb.portalEvent.findUniqueOrThrow({ where: { id: ev.id } })
-    expect(after.status).toBe('SYNCED'); expect(after.lastError).toBe('stale: cheque is now CANCELLED')
+    expect(after.status).toBe('SYNCED'); expect(after.lastError).toBe('stale: check is now CANCELLED')
     const audits = await testDb.auditLog.findMany({ where: { checkId: check.id, action: 'portal_event_synced' } })
     expect(audits).toHaveLength(1)
     const d = audits[0].details as { stale?: boolean; superseded?: boolean }
@@ -448,16 +448,16 @@ describe('deliverPortalEvents - final review fixes', () => {
     expect((await testDb.check.findUniqueOrThrow({ where: { id: check.id } })).portalTradeId).toBeNull()
   })
 
-  it('C1: MARK_AVAILABLE for a since-VOIDED cheque is closed unsent as stale', async () => {
+  it('C1: MARK_AVAILABLE for a since-VOIDED check is closed unsent as stale', async () => {
     const check = await makeCheck({ status: 'VOIDED', apvNumbers: ['AP-1'], availablePickupDate: new Date('2026-09-30') })
     const ev = await queue(check.id, 'MARK_AVAILABLE', NOW)
     const client = fakeClient(() => ok())
     const out = await run(client)
     expect(client.sent).toHaveLength(0); expect(out.stale).toBe(1)
-    expect((await testDb.portalEvent.findUniqueOrThrow({ where: { id: ev.id } })).lastError).toBe('stale: cheque is now VOIDED')
+    expect((await testDb.portalEvent.findUniqueOrThrow({ where: { id: ev.id } })).lastError).toBe('stale: check is now VOIDED')
   })
 
-  it('C1: a retried (PENDING) MARK_AVAILABLE for a cheque now RELEASED is stale, not sent', async () => {
+  it('C1: a retried (PENDING) MARK_AVAILABLE for a check now RELEASED is stale, not sent', async () => {
     const check = await releasedCheck('AP-1')
     // The newer RELEASED already went out; RETRY put the old row back to PENDING.
     await queue(check.id, 'RELEASED', new Date('2026-08-01T00:00:00Z'), { status: 'SYNCED' })
@@ -466,10 +466,10 @@ describe('deliverPortalEvents - final review fixes', () => {
     const out = await run(client)
     expect(client.sent).toHaveLength(0)
     expect(out).toMatchObject({ stale: 1, delivered: 0 })
-    expect((await testDb.portalEvent.findUniqueOrThrow({ where: { id: old.id } })).lastError).toBe('stale: cheque is now RELEASED')
+    expect((await testDb.portalEvent.findUniqueOrThrow({ where: { id: old.id } })).lastError).toBe('stale: check is now RELEASED')
   })
 
-  it('C1 regression: RELEASED for a RELEASED cheque still delivers', async () => {
+  it('C1 regression: RELEASED for a RELEASED check still delivers', async () => {
     const check = await releasedCheck('AP-1')
     const ev = await queue(check.id, 'RELEASED', NOW)
     const client = fakeClient(() => ok())
@@ -478,7 +478,7 @@ describe('deliverPortalEvents - final review fixes', () => {
     expect(out).toMatchObject({ delivered: 1, synced: 1, stale: 0 })
   })
 
-  it('I1: a lost supersede freezes the cheque - the winner is not sent this run', async () => {
+  it('I1: a lost supersede freezes the check - the winner is not sent this run', async () => {
     const check = await releasedCheck('AP-1')
     const older = await queue(check.id, 'MARK_AVAILABLE', new Date('2026-08-01T00:00:00Z'))
     const newer = await queue(check.id, 'RELEASED', new Date('2026-08-02T00:00:00Z'))

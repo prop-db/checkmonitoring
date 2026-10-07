@@ -62,7 +62,7 @@ export function DetailsForm({
         <div>
           <label htmlFor="details-expectedOutflowDate" className={label}>EXPECTED OUT</label>
           <input id="details-expectedOutflowDate" name="expectedOutflowDate" type="date" defaultValue={values.expectedOutflowDate ?? ''} disabled={pending} className={field} />
-          <p className="mt-1 text-[11px] text-slate-500">The day the money is expected to leave the bank. The forecast places the cheque on it. Clear it to go back to the cheque date.</p>
+          <p className="mt-1 text-[11px] text-slate-500">The day the money is expected to leave the bank. The forecast places the check on it. Clear it to go back to the check date.</p>
         </div>
         <div className="md:col-span-2">
           <label htmlFor="details-remarks" className={label}>REMARKS</label>

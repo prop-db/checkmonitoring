@@ -58,7 +58,7 @@ export function AuditTrail({ rows }: { rows: Row[] }) {
         // out of the register import has a trail; one with none is a cheque
         // nothing has happened to yet, which is a fact worth stating.
         <p className="rounded-xl bg-ground px-4 py-6 text-center text-sm text-slate-500">
-          NOTHING HAS BEEN DONE TO THIS CHEQUE YET — no signature, no release, no correction.
+          NOTHING HAS BEEN DONE TO THIS CHECK YET — no signature, no release, no correction.
           Every action taken on it from here will be recorded on this list and can never be edited
           or removed.
         </p>

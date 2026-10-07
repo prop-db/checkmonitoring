@@ -29,7 +29,7 @@ describe('kickPortalDelivery', () => {
 // will always work"): every delivery first queues RELEASED for any cheque the
 // portal was told was available and was released by a path that queued
 // nothing (register catch-up, Acumatica reconcile, the older backfills).
-describe('kickPortalDelivery: released cheques the portal was never told', () => {
+describe('kickPortalDelivery: released checks the portal was never told', () => {
   it('queues and delivers RELEASED in the same kick', async () => {
     const check = await makeCheck({ status: 'RELEASED', apvNumbers: ['AP-A1034346'], statedReleaseDate: new Date('2026-09-30T00:00:00Z') })
     await testDb.portalEvent.create({ data: { checkId: check.id, direction: 'OUT', kind: 'MARK_AVAILABLE', status: 'SYNCED', idempotencyKey: 'avail', payload: {} } })

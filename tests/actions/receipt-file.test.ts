@@ -40,7 +40,7 @@ describe('recordReceipt with amount and file', () => {
     expect(JSON.stringify(audit)).not.toContain('JVBER') // no base64 of "%PDF"
     expect(audit[0].details).toMatchObject({ amount: '1000.50', file: { fileName: 'OR-1.pdf', contentType: 'application/pdf', sizeBytes: 32 } })
   })
-  it('a cheque with no APV stores the receipt but queues nothing (it could only park)', async () => {
+  it('a check with no APV stores the receipt but queues nothing (it could only park)', async () => {
     const { user, check } = await released()
     await testDb.check.update({ where: { id: check.id }, data: { apvNumbers: [] } })
     await recordReceipt(testDb, { checkId: check.id, userId: user.id, orNumber: 'OR-1', receiptType: 'OR', receiptFile: file(), now: LATER })
@@ -54,7 +54,7 @@ describe('recordReceipt with amount and file', () => {
     expect(await receiptEvents(check.id)).toHaveLength(0)
     expect(await testDb.checkReceiptFile.findUnique({ where: { checkId: check.id } })).not.toBeNull()
   })
-  it('an INTERNAL cheque stores the receipt but queues nothing', async () => {
+  it('an INTERNAL check stores the receipt but queues nothing', async () => {
     const { user, check } = await released('INTERNAL')
     await recordReceipt(testDb, { checkId: check.id, userId: user.id, orNumber: 'OR-1', receiptType: 'OR', receiptFile: file(), now: LATER })
     expect(await receiptEvents(check.id)).toHaveLength(0)

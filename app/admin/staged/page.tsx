@@ -112,11 +112,11 @@ export default async function StagedPage({
       </section>
 
       <p className="max-w-4xl rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">
-        These {n(summary.total)} rows were kept whole because they could not be written as cheques.
+        These {n(summary.total)} rows were kept whole because they could not be written as checks.
         Most of them are closed history — Finance reconciles those in the Supplier Portal or in
         Acumatica, and this system is not their system of record. The {n(summary.live)} still in the
         release workflow are the ones worth reading. Nothing here is deleted: a staged row is the
-        record of why a cheque was held, and the Acumatica sync places some of them automatically.
+        record of why a check was held, and the Acumatica sync places some of them automatically.
       </p>
 
       {/* The dashboard's filter bar, in a card, with the same field treatment —
@@ -163,8 +163,8 @@ export default async function StagedPage({
         // says so. A filtered one that matched nothing is just a filter.
         summary.total === 0 ? (
           <EmptyState tone="good" title="NOTHING IS HELD FOR REVIEW">
-            Every row of every workbook imported so far was written as a cheque. Rows land here
-            when the importer cannot tell whose cheque they are, or cannot find a cheque number
+            Every row of every workbook imported so far was written as a check. Rows land here
+            when the importer cannot tell whose check they are, or cannot find a check number
             on them — nothing is ever discarded.
           </EmptyState>
         ) : (
@@ -235,24 +235,24 @@ export default async function StagedPage({
           of two queues it landed in. */}
       <section className="space-y-3">
         <h2 className="text-[11px] font-semibold tracking-widest text-slate-400">
-          APPROVAL-FOR-RELEASE ROWS THAT ATTACHED TO NO CHEQUE
+          APPROVAL-FOR-RELEASE ROWS THAT ATTACHED TO NO CHECK
         </h2>
         {billRows.length === 0 ? (
           // Good news, and the reason this queue exists: voucher AP-ST042652
           // reached no cheque and nobody saw it. An empty list here means every
           // approved voucher found its cheque.
-          <EmptyState tone="good" title="EVERY APPROVAL ROW IS ATTACHED TO A CHEQUE">
+          <EmptyState tone="good" title="EVERY APPROVAL ROW IS ATTACHED TO A CHECK">
             No voucher from the approval-for-release workbook is stranded. A row appears here when
-            its <em>check No.</em> cell holds something that is not a cheque number and its voucher
-            matches no cheque — never silently, and never only in a terminal.
+            its <em>check No.</em> cell holds something that is not a check number and its voucher
+            matches no check — never silently, and never only in a terminal.
           </EmptyState>
         ) : (
           <>
             <p className="max-w-4xl rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">
-              These rows carry a voucher that reached no cheque, so nothing about them reaches the
+              These rows carry a voucher that reached no check, so nothing about them reaches the
               Supplier Portal either. NO CHECK NUMBER means the workbook&apos;s <em>check No.</em>{' '}
-              cell holds something that is not a cheque number — a date, usually — and the
-              row&apos;s voucher matched no cheque here; correct the cell, or import the register so
+              cell holds something that is not a check number — a date, usually — and the
+              row&apos;s voucher matched no check here; correct the cell, or import the register so
               the voucher can find it. Nothing is deleted, and re-importing the workbook clears a
               row that has since attached.
             </p>

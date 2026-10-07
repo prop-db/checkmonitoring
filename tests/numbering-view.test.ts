@@ -6,15 +6,15 @@ import {
 import type { SeriesEntry } from '@/lib/numbering/series'
 
 describe('Acumatica only (spec §G2)', () => {
-  it('the scope note says each series is built from Acumatica and register-only cheques are not shown', () => {
+  it('the scope note says each series is built from Acumatica and register-only checks are not shown', () => {
     expect(NUMBERING_SCOPE_NOTE).toContain(
-      "Each series is one cheque book, built from Acumatica's own cheque numbers and cash accounts (e.g. BPI-S-4636); cheques that exist only in the old register are not shown.")
+      "Each series is one check book, built from Acumatica's own check numbers and cash accounts (e.g. BPI-S-4636); checks that exist only in the old register are not shown.")
     expect(NUMBERING_SCOPE_NOTE).not.toContain('CashAccount column')
   })
   it('registerOnlyLine states the count, singular and plural', () => {
-    expect(registerOnlyLine(1)).toBe('1 REGISTER-ONLY CHEQUE (NOT IN ACUMATICA) IS NOT SHOWN.')
-    expect(registerOnlyLine(1102)).toBe('1,102 REGISTER-ONLY CHEQUES (NOT IN ACUMATICA) ARE NOT SHOWN.')
-    expect(registerOnlyLine(0)).toBe('0 REGISTER-ONLY CHEQUES (NOT IN ACUMATICA) ARE NOT SHOWN.')
+    expect(registerOnlyLine(1)).toBe('1 REGISTER-ONLY CHECK (NOT IN ACUMATICA) IS NOT SHOWN.')
+    expect(registerOnlyLine(1102)).toBe('1,102 REGISTER-ONLY CHECKS (NOT IN ACUMATICA) ARE NOT SHOWN.')
+    expect(registerOnlyLine(0)).toBe('0 REGISTER-ONLY CHECKS (NOT IN ACUMATICA) ARE NOT SHOWN.')
   })
 })
 
@@ -38,7 +38,7 @@ describe('isMissingOnly', () => {
 })
 
 describe('visibleEntries', () => {
-  const cheque: SeriesEntry = { kind: 'CHEQUE', duplicate: false, cheque: { id: 'x', checkNumber: '1', checkDate: null, payeeName: null, amount: null, currency: 'PHP', status: 'VOIDED', cv: null } }
+  const cheque: SeriesEntry = { kind: 'CHECK', duplicate: false, cheque: { id: 'x', checkNumber: '1', checkDate: null, payeeName: null, amount: null, currency: 'PHP', status: 'VOIDED', cv: null } }
   const gap: SeriesEntry = { kind: 'MISSING', from: '2', to: '3', count: '2' }
   it('keeps everything, or only the MISSING lines', () => {
     expect(visibleEntries([cheque, gap], false)).toEqual([cheque, gap])
@@ -49,13 +49,13 @@ describe('visibleEntries', () => {
 describe('labels', () => {
   it('describes the filters', () => {
     expect(describeNumberingFilters({})).toBe('No filters applied')
-    expect(describeNumberingFilters({ company: 'STK', account: 'BPI STK', missingOnly: true })).toBe('COMPANY: STK  ·  CHEQUE BOOK: BPI STK  ·  MISSING ONLY')
+    expect(describeNumberingFilters({ company: 'STK', account: 'BPI STK', missingOnly: true })).toBe('COMPANY: STK  ·  CHECK BOOK: BPI STK  ·  MISSING ONLY')
   })
   it('a missing run reads as a range, a single number as itself', () => {
     expect(missingLabel({ from: '6000354301', to: '6000354349', count: '49' })).toBe('6000354301 – 6000354349 · MISSING · 49')
     expect(missingLabel({ from: '102', to: '102', count: '1' })).toBe('102 · MISSING · 1')
   })
   it('names the file by the Manila day', () => {
-    expect(numberingFilename('2026-10-01')).toBe('cheque-numbering-2026-10-01.xlsx')
+    expect(numberingFilename('2026-10-01')).toBe('check-numbering-2026-10-01.xlsx')
   })
 })

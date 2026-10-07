@@ -190,9 +190,9 @@ export async function planFinanceVerdicts(db: Db, lines: readonly FinanceLine[])
       where: { acumaticaPaymentId: line.cv },
       select: { id: true, checkNumber: true, status: true, isStale: true },
     })
-    if (!check) { plan.refused.push({ line, reason: `no cheque here holds payment ${line.cv}` }); continue }
+    if (!check) { plan.refused.push({ line, reason: `no check here holds payment ${line.cv}` }); continue }
     if (check.checkNumber !== line.checkNumber) {
-      plan.refused.push({ line, reason: `${line.cv} is cheque ${check.checkNumber} here, not ${line.checkNumber}` }); continue
+      plan.refused.push({ line, reason: `${line.cv} is check ${check.checkNumber} here, not ${line.checkNumber}` }); continue
     }
     if (line.verdict === 'STALED') {
       if (check.isStale) plan.done.push(line)

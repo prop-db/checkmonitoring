@@ -63,7 +63,7 @@ describe('revertAction', () => {
     expect(result.ok).toBe(false)
   })
 
-  it('lets a Finance user revert a ready cheque', async () => {
+  it('lets a Finance user revert a ready check', async () => {
     const { readyForReleaseAction, revertAction } = await import('@/app/checks/actions')
     const check = await makeCheck({ status: 'SIGNED' })
     await readyForReleaseAction(fd({ checkId: check.id, availablePickupDate: '2026-09-03' }))
@@ -144,7 +144,7 @@ describe('recordReceiptAction', () => {
     return check
   }
 
-  it('adds the receipt to a cheque released without one', async () => {
+  it('adds the receipt to a check released without one', async () => {
     const { recordReceiptAction } = await import('@/app/checks/actions')
     const check = await released()
     const result = await recordReceiptAction(fd({
@@ -159,7 +159,7 @@ describe('recordReceiptAction', () => {
     expect(after.clearingStatus).toBe('NONE')
   })
 
-  it('refuses a cheque that has not been released', async () => {
+  it('refuses a check that has not been released', async () => {
     const { recordReceiptAction } = await import('@/app/checks/actions')
     const check = await makeCheck({ status: 'READY_FOR_RELEASE' })
     const result = await recordReceiptAction(fd({
@@ -301,7 +301,7 @@ describe('clearingAction', () => {
 })
 
 describe('revertSignatureAction', () => {
-  it('lets a FINANCE_USER revert a SIGNED cheque', async () => {
+  it('lets a FINANCE_USER revert a SIGNED check', async () => {
     const { revertSignatureAction } = await import('@/app/checks/actions')
     const c = await makeCheck({ status: 'SIGNED' })
     const result = await revertSignatureAction(fd({ checkId: c.id }))

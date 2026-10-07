@@ -67,9 +67,9 @@ export default async function ForecastPage({
           "presentable from" for "expected on" will carry a wrong number into a
           meeting, and the sentence that prevents it has to be on the page. */}
       <p className="rounded-xl bg-white px-4 py-3 text-sm leading-relaxed text-slate-600 ring-1 ring-hairline">
-        Dates are the cheque&apos;s own date — the day from which it can be presented. A cheque on which
+        Dates are the check&apos;s own date — the day from which it can be presented. A check on which
         Finance has typed an expected outflow date is placed on that date instead. Planned lines —
-        payroll, tax, transfers — sit on their own day. A cheque dated in
+        payroll, tax, transfers — sit on their own day. A check dated in
         the past can leave on any day; the buckets say how long it has been presentable. No pickup or
         release dates have been recorded yet; as Finance releases through this system, the RELEASED
         view will begin to show actual outflow by day.
@@ -105,7 +105,7 @@ export default async function ForecastPage({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="space-y-1">
           <p className="text-xs font-medium tracking-wide text-slate-600">
-            {cheques.length.toLocaleString('en-PH')} CHEQUE{cheques.length === 1 ? '' : 'S'} WRITTEN AND NOT YET HANDED OVER
+            {cheques.length.toLocaleString('en-PH')} CHECK{cheques.length === 1 ? '' : 'S'} WRITTEN AND NOT YET HANDED OVER
             {' AND '}{planned.length.toLocaleString('en-PH')} PLANNED LINE{planned.length === 1 ? '' : 'S'}
             {expectedCount > 0 && ` · ${expectedCount.toLocaleString('en-PH')} PLACED ON AN EXPECTED DATE`}
             {' · '}{describeForecastFilters({ bank, company: company?.code, stage })}
@@ -118,7 +118,7 @@ export default async function ForecastPage({
               were never candidates for this report in the first place. */}
           {incompleteCount > 0 && (
             <p className="text-xs font-medium tracking-wide text-slate-500">
-              EXCLUDES {incompleteCount.toLocaleString('en-PH')} CHEQUE{incompleteCount === 1 ? '' : 'S'} WITH NO
+              EXCLUDES {incompleteCount.toLocaleString('en-PH')} CHECK{incompleteCount === 1 ? '' : 'S'} WITH NO
               RECORDED AMOUNT that would otherwise be in these figures and in the file.{' '}
               <Link href="/?incomplete=1" className="underline underline-offset-2">Show them</Link>.
             </p>
@@ -141,8 +141,8 @@ export default async function ForecastPage({
       {rows.length === 0 ? (
         <EmptyState title={anyFilter ? 'NOTHING MATCHES' : 'NOTHING IS WAITING TO LEAVE THE BANK'} tone={anyFilter ? 'plain' : 'good'}>
           {anyFilter
-            ? 'No live cheque or planned line carries that bank, company and stage together.'
-            : 'Every cheque has been released, cancelled or voided, and no planned outflow is open.'}
+            ? 'No live check or planned line carries that bank, company and stage together.'
+            : 'Every check has been released, cancelled or voided, and no planned outflow is open.'}
         </EmptyState>
       ) : (
         <>

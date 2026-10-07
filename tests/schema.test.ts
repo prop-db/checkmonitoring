@@ -48,7 +48,7 @@ describe('schema', () => {
   // every total the cheque appears in and storing '' would read as a cheque
   // payable to nobody, so both columns are NULL-able and NULL means exactly
   // "the register does not record it".
-  it('stores a cheque whose amount and payee the register does not record', async () => {
+  it('stores a check whose amount and payee the register does not record', async () => {
     const company = await prisma.company.create({
       data: { code: `T${Date.now()}N`, name: 'Test Co', legalNames: [] },
     })

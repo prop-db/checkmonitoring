@@ -36,7 +36,7 @@ function stagedCandidate(overrides: Partial<StagedCandidate> & { voucher: string
 }
 
 describe('resolveVoucherRows — one row per voucher', () => {
-  it('answers a voucher naming a single live cheque', () => {
+  it('answers a voucher naming a single live check', () => {
     const [row] = resolveVoucherRows({
       checks: [candidate({ voucher: 'AP-ST042652' })],
       staged: [],
@@ -49,7 +49,7 @@ describe('resolveVoucherRows — one row per voucher', () => {
     expect(row.remarks).toBeNull()
   })
 
-  it('names the live cheque and lists its dead predecessors — 46 measured re-issues', () => {
+  it('names the live check and lists its dead predecessors — 46 measured re-issues', () => {
     const rows = resolveVoucherRows({
       checks: [
         candidate({ voucher: 'AP-A1033692', checkNumber: '6000300001', status: 'VOIDED' }),
@@ -63,7 +63,7 @@ describe('resolveVoucherRows — one row per voucher', () => {
     expect(rows[0].supersedes).toBe('6000300001 (VOIDED)')
   })
 
-  it('refuses to pick when two LIVE cheques name the voucher — 6 measured', () => {
+  it('refuses to pick when two LIVE checks name the voucher — 6 measured', () => {
     const rows = resolveVoucherRows({
       checks: [
         candidate({ voucher: 'AP-ST036567', checkNumber: '6000300003', status: 'SIGNED' }),
@@ -77,7 +77,7 @@ describe('resolveVoucherRows — one row per voucher', () => {
     expect(rows[0].remarks).toContain('6000300004')
   })
 
-  it('answers a voucher whose same cheque arrives twice, rather than reporting CONTESTED', () => {
+  it('answers a voucher whose same check arrives twice, rather than reporting CONTESTED', () => {
     const rows = resolveVoucherRows({
       checks: [
         candidate({ voucher: 'AP-DUP000001', checkNumber: '6000300007', company: 'STK', status: 'SIGNED' }),
@@ -106,7 +106,7 @@ describe('resolveVoucherRows — one row per voucher', () => {
     expect(rows[0].remarks).toContain('6000300008 · A1+ (SIGNED)')
   })
 
-  it('still answers when the only cheque was cancelled — 35 measured', () => {
+  it('still answers when the only check was cancelled — 35 measured', () => {
     const rows = resolveVoucherRows({
       checks: [candidate({ voucher: 'AP-HF000123', status: 'CANCELLED' })],
       staged: [],
@@ -115,7 +115,7 @@ describe('resolveVoucherRows — one row per voucher', () => {
     expect(rows[0].status).toBe('CANCELLED')
   })
 
-  it('blanks the number when EVERY cheque naming the voucher is dead — 2 measured', () => {
+  it('blanks the number when EVERY check naming the voucher is dead — 2 measured', () => {
     const rows = resolveVoucherRows({
       checks: [
         candidate({ voucher: 'AP-ST042976', checkNumber: '6000300005', status: 'VOIDED' }),
@@ -128,7 +128,7 @@ describe('resolveVoucherRows — one row per voucher', () => {
     expect(rows[0].remarks).toContain('6000300005')
   })
 
-  it('reports a staged voucher without giving a cheque number — 51 measured', () => {
+  it('reports a staged voucher without giving a check number — 51 measured', () => {
     const rows = resolveVoucherRows({
       checks: [],
       staged: [stagedCandidate({ voucher: 'AP-A1-02663' })],
@@ -139,7 +139,7 @@ describe('resolveVoucherRows — one row per voucher', () => {
     expect(rows[0].remarks).toContain('BPI STK row 412')
   })
 
-  it('prefers the cheque over a staged row naming the same voucher', () => {
+  it('prefers the check over a staged row naming the same voucher', () => {
     const rows = resolveVoucherRows({
       checks: [candidate({ voucher: 'AP-ST042652' })],
       staged: [stagedCandidate({ voucher: 'AP-ST042652' })],
@@ -159,7 +159,7 @@ describe('resolveVoucherRows — one row per voucher', () => {
     expect(rows.map((r) => r.voucher)).toEqual(['AP-A1000001', 'AP-ST000002'])
   })
 
-  it('carries the cheque id so a screen can link the number', () => {
+  it('carries the check id so a screen can link the number', () => {
     const [row] = resolveVoucherRows({
       checks: [candidate({ voucher: 'AP-ST042652', checkId: 'chk_link' })],
       staged: [],
@@ -167,7 +167,7 @@ describe('resolveVoucherRows — one row per voucher', () => {
     expect(row.checkId).toBe('chk_link')
   })
 
-  it('has no cheque id when it has no cheque number', () => {
+  it('has no check id when it has no check number', () => {
     const rows = resolveVoucherRows({
       checks: [
         candidate({ voucher: 'AP-ST036567', checkId: 'chk_a', checkNumber: '6000300003', status: 'SIGNED' }),

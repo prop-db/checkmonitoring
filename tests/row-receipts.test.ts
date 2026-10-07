@@ -7,14 +7,14 @@ import {
 const row = (o: Partial<RowFacts> = {}): RowFacts => ({ id: 'x', isCheque: true, status: 'SIGNED', hasReceipt: false, ...o })
 
 describe('isTickable', () => {
-  it('ticks a live cheque, and a released one that has no receipt yet', () => {
+  it('ticks a live check, and a released one that has no receipt yet', () => {
     for (const status of ['GENERATED', 'SIGNATURE_PENDING', 'SIGNED', 'READY_FOR_RELEASE', 'SCHEDULED'] as const) {
       expect(isTickable(row({ status })), status).toBe(true)
     }
     expect(isTickable(row({ status: 'RELEASED' }))).toBe(true)
   })
 
-  it('never ticks a released cheque with a receipt, a closed one, or a non-cheque', () => {
+  it('never ticks a released check with a receipt, a closed one, or a non-check', () => {
     expect(isTickable(row({ status: 'RELEASED', hasReceipt: true }))).toBe(false)
     expect(isTickable(row({ status: 'CANCELLED' }))).toBe(false)
     expect(isTickable(row({ status: 'VOIDED' }))).toBe(false)
@@ -56,7 +56,7 @@ describe('draftTypeMissing', () => {
 })
 
 describe('receiptEntries', () => {
-  it('keys each typed receipt to its own cheque, and sends nothing for a blank box or an unlisted id', () => {
+  it('keys each typed receipt to its own check, and sends nothing for a blank box or an unlisted id', () => {
     const drafts = {
       a: { orNumber: ' OR-1 ', receiptType: 'OR' as const },
       b: EMPTY_DRAFT,

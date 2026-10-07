@@ -54,7 +54,7 @@ export function ClearingPaste({ maxLines }: { maxLines: number }) {
     return (
       <div className="space-y-4">
         <p className="rounded-xl bg-success-bg px-4 py-3 text-sm text-success-ink">
-          {result.succeeded} cheque{result.succeeded === 1 ? '' : 's'} marked CLEARED
+          {result.succeeded} check{result.succeeded === 1 ? '' : 's'} marked CLEARED
           {result.failed > 0 ? `; ${result.failed} refused` : ''}.
         </p>
         <ul className="divide-y divide-hairline rounded-xl bg-white ring-1 ring-hairline">
@@ -76,7 +76,7 @@ export function ClearingPaste({ maxLines }: { maxLines: number }) {
   return (
     <div className="space-y-4">
       <label htmlFor="clearing-lines" className="block text-[11px] font-semibold tracking-widest text-slate-400">
-        ONE CHEQUE PER LINE — NUMBER, OR NUMBER, DATE, BANK REFERENCE
+        ONE CHECK PER LINE — NUMBER, OR NUMBER, DATE, BANK REFERENCE
       </label>
       <textarea id="clearing-lines" rows={10} value={text} disabled={pending}
         onChange={(e) => { setText(e.target.value); setPreview(null) }}
@@ -113,7 +113,7 @@ export function ClearingPaste({ maxLines }: { maxLines: number }) {
             <thead className="text-[11px] font-semibold tracking-widest text-slate-400">
               <tr>
                 <th className="px-4 py-2 text-left">LINE</th>
-                <th className="px-4 py-2 text-left">CHEQUE</th>
+                <th className="px-4 py-2 text-left">CHECK</th>
                 <th className="px-4 py-2 text-left">PAYEE</th>
                 <th className="px-4 py-2 text-left">DATE</th>
                 <th className="px-4 py-2 text-left">BANK REF</th>

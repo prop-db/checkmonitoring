@@ -254,7 +254,7 @@ describe('GET /api/cron/sync — auto-sign after the syncs', () => {
     })
   }
 
-  it('signs the due cheques and reports it', async () => {
+  it('signs the due checks and reports it', async () => {
     await watermarked('GOLIVE'); await watermarked('MANUFACTURING')
     const c = await duePending()
     const res = await get(`Bearer ${SECRET}`)

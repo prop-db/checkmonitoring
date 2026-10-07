@@ -305,7 +305,7 @@ describe('runSync — the incremental window', () => {
     )
   })
 
-  it('still scopes a full run — 2026 cheques only, never the whole feed', async () => {
+  it('still scopes a full run — 2026 checks only, never the whole feed', async () => {
     await seedBothTenantsST()
     const run = sync([feedRow()], { since: null })
     await run.result
@@ -535,7 +535,7 @@ describe('runSync — promoting staged rows', () => {
     })
   }
 
-  it('promotes a NO_COMPANY row once the sync supplies a company for its cheque number', async () => {
+  it('promotes a NO_COMPANY row once the sync supplies a company for its check number', async () => {
     await seedBothTenantsST()
     const staged = await stage({ reason: 'NO_COMPANY', checkNumber: '6000319079', sourceRow: 412 })
 
@@ -551,7 +551,7 @@ describe('runSync — promoting staged rows', () => {
     expect(after.reason).toBe('NO_COMPANY')
   })
 
-  it('links to the cheque of the company the sync supplied, never a sibling company’s same number', async () => {
+  it('links to the check of the company the sync supplied, never a sibling company’s same number', async () => {
     await seedBothTenantsST()
     const stpp = await testDb.company.findUniqueOrThrow({ where: { code: 'STPP' } })
     // Starkson Paper and Plastic holds 6000319079 — filed there from the
@@ -622,7 +622,7 @@ describe('runSync — promoting staged rows', () => {
     expect(after.promotedCheckId).toBeNull()
   })
 
-  it('promotes once — a second sync over the same cheque re-promotes nothing', async () => {
+  it('promotes once — a second sync over the same check re-promotes nothing', async () => {
     await seedBothTenantsST()
     const staged = await stage({ reason: 'NO_COMPANY', checkNumber: '6000319079', sourceRow: 412 })
 
@@ -638,7 +638,7 @@ describe('runSync — promoting staged rows', () => {
     expect(audits).toBe(1)
   })
 
-  it('records the promotion against the cheque, so the link is traceable', async () => {
+  it('records the promotion against the check, so the link is traceable', async () => {
     await seedBothTenantsST()
     const staged = await stage({ reason: 'NO_COMPANY', checkNumber: '6000319079', sourceRow: 412 })
     await sync([feedRow()]).result
@@ -652,7 +652,7 @@ describe('runSync — promoting staged rows', () => {
   })
 })
 
-describe('runSync — a voided cheque must never store its own reversal', () => {
+describe('runSync — a voided check must never store its own reversal', () => {
   // A void is TWO feed rows under one PaymentRef: the original (Type Payment,
   // positive, Status Voided) and the reversal (Type Voided Payment, negative).
   // Both map to the same (company, checkNumber), and BOTH carry an identical
@@ -717,7 +717,7 @@ describe('runSync — a voided cheque must never store its own reversal', () => 
     expect(check.status).toBe('VOIDED')
   })
 
-  it('collapses the pair without touching an unrelated cheque of the same number', async () => {
+  it('collapses the pair without touching an unrelated check of the same number', async () => {
     await seedBothTenantsST()
     const result = await sync([
       originalRow(),
@@ -743,8 +743,8 @@ describe('runSync — a voided cheque must never store its own reversal', () => 
   })
 })
 
-describe('runSync — the two sources must key one cheque one way', () => {
-  it('imports a bank-prefixed PaymentRef under the register’s bare cheque number', async () => {
+describe('runSync — the two sources must key one check one way', () => {
+  it('imports a bank-prefixed PaymentRef under the register’s bare check number', async () => {
     // 90.0% of live rows are bank-prefixed. The register writes the same cheque
     // bare, and the dedup key is (companyId, checkNumber) — so until these
     // matched, one physical cheque was stored twice, once per source.
@@ -755,7 +755,7 @@ describe('runSync — the two sources must key one cheque one way', () => {
     expect(check.checkNumber).toBe('6000319079')
   })
 
-  it('does not create a second cheque for the prefixed and bare forms', async () => {
+  it('does not create a second check for the prefixed and bare forms', async () => {
     await seedBothTenantsST()
     await sync([feedRow({ PaymentRef: '6000319079' })]).result
     const second = await sync([feedRow({ PaymentRef: 'BPI 6000319079' })]).result
@@ -785,7 +785,7 @@ describe('runSync — the two sources must key one cheque one way', () => {
   })
 })
 
-describe('runSync — a cheque whose reference is a memo', () => {
+describe('runSync — a check whose reference is a memo', () => {
   const memoRow = (o: Record<string, unknown> = {}) => feedRow({
     PaymentMethod: 'CHK', PaymentRef: 'Oct interest', ReferenceNbr: 'CV-MEMO', ...o,
   })
@@ -826,7 +826,7 @@ describe('runSync — a cheque whose reference is a memo', () => {
     expect(run.errors).toBe(0)
   })
 
-  it('never even fetches a non-cheque payment, because the feed filter excludes it', async () => {
+  it('never even fetches a non-check payment, because the feed filter excludes it', async () => {
     // Was 'imports a non-cheque payment normally' until 2026-09-04. DEBIT ADV
     // and CASH payments have no physical document, so a cheque monitoring
     // system has no use for them — Finance ruling, after a full sync imported
@@ -848,7 +848,7 @@ describe('runSync — a cheque whose reference is a memo', () => {
     expect(await testDb.check.count()).toBe(0)
   })
 
-  it('marks an ordinary CHK payment as a cheque', async () => {
+  it('marks an ordinary CHK payment as a check', async () => {
     await seedBothTenantsST()
     await sync([feedRow()]).result
     expect((await testDb.check.findFirstOrThrow()).isCheque).toBe(true)

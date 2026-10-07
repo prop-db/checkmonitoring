@@ -112,7 +112,7 @@ export default async function PrintPage({
         <p className="mt-2 text-xs tracking-wide text-slate-500">
           {/* Who printed it and when. A sheet of cheque numbers found on a desk
               with no date on it cannot be told from a current one. */}
-          {matching.toLocaleString('en-PH')} CHEQUE{matching === 1 ? '' : 'S'} · PRINTED{' '}
+          {matching.toLocaleString('en-PH')} CHECK{matching === 1 ? '' : 'S'} · PRINTED{' '}
           {new Date().toLocaleString('en-PH', {
             year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
           })} BY {user.name}
@@ -122,7 +122,7 @@ export default async function PrintPage({
           // indistinguishable from a complete one.
           <p className="mt-2 text-xs font-semibold tracking-wide text-warning-ink">
             THIS SHEET HOLDS THE FIRST {printed.length.toLocaleString('en-PH')} OF{' '}
-            {matching.toLocaleString('en-PH')} MATCHING CHEQUES. Narrow the filters and print again
+            {matching.toLocaleString('en-PH')} MATCHING CHECKS. Narrow the filters and print again
             for the rest.
           </p>
         )}
@@ -135,7 +135,7 @@ export default async function PrintPage({
       </header>
 
       {refused ? null : printed.length === 0 ? (
-        <p className="mt-8 text-sm text-slate-500">NO CHEQUES MATCH THIS SELECTION.</p>
+        <p className="mt-8 text-sm text-slate-500">NO CHECKS MATCH THIS SELECTION.</p>
       ) : (
         <table className="mt-4 w-full border-collapse text-xs">
           <thead>
@@ -185,8 +185,8 @@ export default async function PrintPage({
           this sheet can be printed from either. */}
       <p className="mt-4 text-[10px] tracking-wide text-slate-500">
         {incomplete
-          ? 'THESE ARE THE CHEQUES WITH NO RECORDED AMOUNT, WHICH IS WHY EVERY AMOUNT PRINTS AS “—”. THEY ARE REAL CHEQUES; THERE IS SIMPLY NO FIGURE OF THEIRS TO SHOW.'
-          : 'CHEQUES WITH NO RECORDED AMOUNT ARE NOT ON THIS SHEET. THEY ARE REAL CHEQUES AND ARE STILL IN THE SYSTEM — PRINT AGAIN WITH THE INCOMPLETE ONLY FILTER TO LIST THEM.'}
+          ? 'THESE ARE THE CHECKS WITH NO RECORDED AMOUNT, WHICH IS WHY EVERY AMOUNT PRINTS AS “—”. THEY ARE REAL CHECKS; THERE IS SIMPLY NO FIGURE OF THEIRS TO SHOW.'
+          : 'CHECKS WITH NO RECORDED AMOUNT ARE NOT ON THIS SHEET. THEY ARE REAL CHECKS AND ARE STILL IN THE SYSTEM — PRINT AGAIN WITH THE INCOMPLETE ONLY FILTER TO LIST THEM.'}
       </p>
     </main>
   )
