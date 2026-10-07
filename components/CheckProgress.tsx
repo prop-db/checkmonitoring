@@ -3,7 +3,7 @@ import { buildCheckProgress, type LadderId, type ProgressState } from '@/lib/rel
 /**
  * WHERE THIS CHEQUE IS, drawn.
  *
- * The dashboard's `ReleaseTimeline` shows five rungs with a count on each and
+ * The dashboard's `WorkflowRow` shows the rungs with a count on each and
  * answers "where is the queue jammed". This shows the same five rungs, in the
  * same order, at the same size, and answers "where is this one" — the reader
  * who learned the shape on the dashboard reads this one without being taught.

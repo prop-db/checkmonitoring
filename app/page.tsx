@@ -15,11 +15,10 @@ import {
   signAllOffered as isSignAllOffered,
 } from '@/lib/dashboard-view'
 import { AppHeader } from '@/components/AppHeader'
-import { SummaryCards } from '@/components/SummaryCards'
 import { TotalsFilterBar } from '@/components/TotalsFilterBar'
 import { StatusSelect } from '@/components/StatusSelect'
 import { buildStatusOptions } from '@/lib/status-options'
-import { ReleaseTimeline } from '@/components/ReleaseTimeline'
+import { WorkflowRow } from '@/components/WorkflowRow'
 import { TodaysReleasePanel } from '@/components/TodaysReleasePanel'
 import { DashboardHero } from '@/components/DashboardHero'
 import { ConfirmAllForm } from '@/components/ConfirmAllForm'
@@ -55,7 +54,7 @@ import { formatMoney } from '@/lib/money'
  *   4  the secondary row, the quick actions, the filters, the table.
  *
  * RELEASED (9,545) is the largest number in the system and the least
- * actionable. It is demoted into a small secondary row inside `SummaryCards` —
+ * actionable. It is the RELEASED step of `WorkflowRow` —
  * still a clickable view, because the cards ARE the view selector and that model
  * has not changed. ALL CHECKS (labelled TOTAL CHECKS until 2026-09-29) is not
  * demoted any more: it is the cheque inventory, and sits in the primary row.
@@ -166,12 +165,7 @@ export default async function DashboardPage({
             on them is only as current as this line says. */}
         <SyncStatusLine staleness={staleness} isAdmin={user.role === 'FINANCE_ADMIN'} />
 
-        <DashboardHero
-          name={user.name}
-          todays={todaysRelease}
-          pendingSignature={summary.pendingSignature}
-          signed={summary.signed}
-        />
+        <DashboardHero name={user.name} />
 
         <TotalsFilterBar
           options={options}
@@ -182,53 +176,36 @@ export default async function DashboardPage({
           statusOptions={buildStatusOptions(selection, { ...summary, total: summary.total })}
         />
 
-        {/* The cards ARE the view selector — which set of cheques the table shows
-            — and they carry the narrowing filters forward so choosing a view does
-            not widen the table back out. `base` deliberately excludes status,
-            scope and incomplete: those are the view and its toggle.
-
-            `todaysRelease` is handed to the READY FOR RELEASE card for its value
-            line rather than queried again, so the card and the panel below it
-            cannot report different money for the same set of cheques. */}
-        <SummaryCards summary={summary} todaysRelease={todaysRelease} selection={selection} />
-
-        {/* ── THE DISCLOSURE, TOTALS' COPY ──────────────────────────────────
-            See the LIST screen below for the full explanation of why this is
-            not optional. Here it sits directly under the cards themselves,
-            because TOTALS has no table to say "not listed below" about. */}
-        {summary.incomplete > 0 && (
-          <p className="text-xs font-medium tracking-wide text-slate-500">
-            EXCLUDING {summary.incomplete.toLocaleString('en-PH')} CHEQUE
-            {summary.incomplete === 1 ? '' : 'S'} WITH NO RECORDED AMOUNT — not counted in the
-            cards above.{' '}
-            <Link href={incompleteHref(selection)} className="underline underline-offset-2">
-              Show them
-            </Link>.
-          </p>
-        )}
-
-        {/* Directly under the cards and above everything to do with the table:
-            this is the answer to "what do I do today", and it is shown even when
-            the count is zero so that "nothing is ready" and "the panel broke" can
-            never look the same.
-
-            `confirming` is an exact string match, like every other parameter on
-            this page — an unrecognised value leaves the panel on its first step
-            rather than guessing its way into a confirmation. */}
-        <TodaysReleasePanel
+        {/* ONE ROW, every figure once (2026-10-07, "this looks redundant"): the
+            release ladder with each step linking to its list, READY carrying the
+            day's money and RELEASE ALL, then ALL CHECKS and the no-amount
+            disclosure as one line. Replaces the four cards, the RELEASED bar,
+            the TODAY'S RELEASE panel and the RELEASE WORKFLOW strip. */}
+        <WorkflowRow
+          summary={summary}
+          total={summary.total}
+          incomplete={summary.incomplete}
+          incompleteHref={incompleteHref(selection)}
           todays={todaysRelease}
+          selection={selection}
           canRelease={user.role === 'FINANCE_ADMIN'}
           confirming={params.confirm === 'release'}
           confirmHref={releaseConfirmHref(selection)}
-          cancelHref={releaseCancelHref(selection)}
-          narrow={{ company: companyId ?? '', cashAccount: cashAccountId ?? '', eligibility: eligibility ?? '' }}
         />
 
-        {/* Where the cheques are stuck. Five counts off the summary already
-            fetched, five links through `cardHref` — no query and no URL of its
-            own. SIGNED lives here rather than in the KPI row: it is a rung, and a
-            rung is what a timeline is for. */}
-        <ReleaseTimeline summary={summary} selection={selection} />
+        {/* The confirmation step only: an exact string match, so an unrecognised
+            value never guesses its way into a confirmation. Stays mounted while
+            confirming so the "N OF N RELEASED" report survives the revalidation. */}
+        {params.confirm === 'release' && (
+          <TodaysReleasePanel
+            todays={todaysRelease}
+            canRelease={user.role === 'FINANCE_ADMIN'}
+            confirming
+            confirmHref={releaseConfirmHref(selection)}
+            cancelHref={releaseCancelHref(selection)}
+            narrow={{ company: companyId ?? '', cashAccount: cashAccountId ?? '', eligibility: eligibility ?? '' }}
+          />
+        )}
 
         {/* Finding one cheque by its number is the commonest reason to open the
             list, so the totals keep one box for it. It submits to `/?q=…`, which
