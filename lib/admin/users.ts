@@ -55,8 +55,20 @@ export type AdminUserRow = {
   active: boolean
   lastLoginAt: Date | null
   createdAt: Date
-  /** Seeded by `prisma/seed.ts` with a password anyone can read in git. */
-  isSeededTestAccount: boolean
+  /**
+   * Set while a self-registered account waits for an admin. PENDING is
+   * `!active && pendingSince !== null` — `isPending` — and is neither ACTIVE
+   * nor DEACTIVATED on the screen.
+   */
+  pendingSince: Date | null
+  /**
+   * True when the most recent registration of this account re-opened a row
+   * that already existed (`user_reregistered`). The admin's one defence
+   * against somebody re-registering a deactivated colleague's address with
+   * their own password: the PENDING list says so against the row.
+   */
+  previouslyDeactivated: boolean
+  /** Seeded by `prisma/seed.ts` with a password anyone can read in git. */  isSeededTestAccount: boolean
   /**
    * Failed sign-ins against this address inside the throttle's counting window,
    * cleared by the account's own last successful sign-in. Zero for a quiet
@@ -75,14 +87,13 @@ export type AdminUserRow = {
 // widen itself to the whole row.
 const ROW_SELECT = {
   id: true, name: true, email: true, role: true,
-  active: true, lastLoginAt: true, createdAt: true,
+  active: true, lastLoginAt: true, createdAt: true, pendingSince: true,
 } as const
 
 type SelectedUser = {
   id: string; name: string; email: string; role: Role
-  active: boolean; lastLoginAt: Date | null; createdAt: Date
+  active: boolean; lastLoginAt: Date | null; createdAt: Date; pendingSince: Date | null
 }
-
 const SEEDED = new Set<string>(SEEDED_TEST_ACCOUNT_EMAILS)
 
 /**
@@ -96,15 +107,19 @@ const SEEDED = new Set<string>(SEEDED_TEST_ACCOUNT_EMAILS)
  */
 const NO_FAILURES: LoginFailureState = { recentFailures: 0, lockedUntil: null }
 
-function toRow(u: SelectedUser, failures: LoginFailureState = NO_FAILURES): AdminUserRow {
+function toRow(
+  u: SelectedUser,
+  failures: LoginFailureState = NO_FAILURES,
+  previouslyDeactivated = false,
+): AdminUserRow {
   return {
     ...u,
     isSeededTestAccount: SEEDED.has(u.email),
     recentFailedLogins: failures.recentFailures,
     lockedUntil: failures.lockedUntil,
+    previouslyDeactivated,
   }
 }
-
 /**
  * The address sign-in will look this account up by.
  *
@@ -117,6 +132,15 @@ function normaliseEmail(raw: string): string {
   return raw.toLowerCase().trim()
 }
 
+/**
+ * THE definition of a pending account. Inactive, with the registration flag
+ * set. An inactive account with the flag clear is DEACTIVATED, as it always
+ * was; approving or rejecting clears the flag. Every screen reads this, not
+ * the columns.
+ */
+export function isPending(u: { active: boolean; pendingSince: Date | null }): boolean {
+  return !u.active && u.pendingSince !== null
+}
 function requirePassword(plain: string): void {
   const strength = validatePasswordStrength(plain)
   // The policy's own wording, passed through verbatim: it names which class of
@@ -198,9 +222,32 @@ export async function listUsers(
   // own settings, read by the page and passed here so this screen agrees with
   // the gate about who is locked; a test that passes neither gets the default.
   const failures = await loginFailureSummary(db, { emails: rows.map((r) => r.email), now, limits })
-  return rows.map((u) => toRow(u, failures.get(u.email)))
+  const reopened = await reopenedPendingIds(db, rows.filter(isPending).map((r) => r.id))
+  return rows.map((u) => toRow(u, failures.get(u.email), reopened.has(u.id)))
 }
 
+/**
+ * Of these pending accounts, which were RE-OPENED by their latest
+ * registration rather than created by it. The latest `user_registered` /
+ * `user_reregistered` row per account decides; a pending account always has
+ * one, because only `registerUser` sets the flag.
+ */
+async function reopenedPendingIds(db: PrismaClient, ids: string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set()
+  const rows = await db.auditLog.findMany({
+    where: { action: { in: ['user_registered', 'user_reregistered'] } },
+    orderBy: { createdAt: 'desc' },
+    select: { action: true, details: true },
+  })
+  const wanted = new Set(ids)
+  const latest = new Map<string, string>()
+  for (const r of rows) {
+    const target = (r.details as { targetUserId?: unknown } | null)?.targetUserId
+    if (typeof target !== 'string' || !wanted.has(target) || latest.has(target)) continue
+    latest.set(target, r.action)
+  }
+  return new Set([...latest].filter(([, action]) => action === 'user_reregistered').map(([id]) => id))
+}
 /**
  * Create an account from a password **a human typed into the form**.
  *
@@ -262,6 +309,135 @@ export async function createUser(
   }
 }
 
+/**
+ * Self-registration from `/signup` (spec 2026-10-09).
+ *
+ * Creates an INACTIVE, PENDING account, or re-opens an inactive one under the
+ * same address. Nothing here can produce a signed-in account: `active` is
+ * never set true, and `authorize` refuses an inactive account at sign-in. An
+ * admin's `approveUser` is the only way in.
+ *
+ * **An inactive account's address re-registers; an active one's is refused.**
+ * The three accounts this was built for had been deactivated and their
+ * owners wanted to register again under the same email (user ruling
+ * 2026-10-09). The row keeps its id and every attribution it carries; its
+ * name and password are replaced with what was just typed. The PENDING list
+ * states that the account was re-opened, which is the admin's cue to check
+ * it is the colleague they think it is before approving.
+ *
+ * Returns nothing. There is no shape in which the hash can reach a browser.
+ * The audit row is SYSTEM: nobody is signed in.
+ */
+export async function registerUser(
+  db: PrismaClient,
+  args: { email: string; name: string; password: string },
+): Promise<void> {
+  const email = normaliseEmail(args.email)
+  const name = args.name.trim()
+  if (!email) throw new DomainError('EMAIL_REQUIRED', 'An email address is required.')
+  if (!name) throw new DomainError('NAME_REQUIRED', 'A name is required — it is shown against every action this account takes.')
+  requirePassword(args.password)
+
+  const passwordHash = await hashPassword(args.password)
+  const now = new Date()
+  const taken = new DomainError('EMAIL_TAKEN', 'An account for that address already exists.')
+
+  try {
+    await db.$transaction(async (tx) => {
+      const existing = await tx.user.findUnique({ where: { email }, select: ROW_SELECT })
+      if (existing && existing.active) throw taken
+
+      if (existing) {
+        await tx.user.update({
+          where: { id: existing.id },
+          data: { name, passwordHash, pendingSince: now },
+        })
+        await writeAudit(tx, {
+          actorType: 'SYSTEM',
+          action: 'user_reregistered',
+          details: { targetUserId: existing.id, email, name },
+          remarks: email,
+        })
+        return
+      }
+
+      const created = await tx.user.create({
+        data: { email, name, passwordHash, active: false, pendingSince: now },
+        select: { id: true },
+      })
+      await writeAudit(tx, {
+        actorType: 'SYSTEM',
+        action: 'user_registered',
+        details: { targetUserId: created.id, email, name },
+        remarks: email,
+      })
+    })
+  } catch (e) {
+    // Two registrations racing on one new address: the loser's create trips
+    // the unique index. Reported with the same sentence — the address exists.
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') throw taken
+    throw e
+  }
+}
+
+/**
+ * Approve a pending account: the role the admin chose, active, flag cleared.
+ * No last-admin guard applies — this can only add an active account.
+ */
+export async function approveUser(
+  db: PrismaClient,
+  args: { userId: string; role: Role; actorId: string },
+): Promise<AdminUserRow> {
+  return db.$transaction(async (tx) => {
+    const target = await loadTarget(tx, args.userId)
+    if (!isPending(target)) {
+      throw new DomainError('NOT_PENDING', `${target.name} is not waiting for approval.`)
+    }
+    const updated = await tx.user.update({
+      where: { id: target.id },
+      data: { role: args.role, active: true, pendingSince: null },
+      select: ROW_SELECT,
+    })
+    await writeAudit(tx, {
+      actorType: 'USER',
+      userId: args.actorId,
+      action: 'user_approved',
+      details: { targetUserId: target.id, email: target.email, role: args.role },
+      remarks: target.email,
+    })
+    return toRow(updated)
+  })
+}
+
+/**
+ * Reject a pending account: flag cleared, still inactive. The row stays — an
+ * ordinary DEACTIVATED account from here on — so the address cannot re-land on
+ * the list silently, and REACTIVATE is there if the rejection was a mistake.
+ */
+export async function rejectUser(
+  db: PrismaClient,
+  args: { userId: string; actorId: string },
+): Promise<AdminUserRow> {
+  return db.$transaction(async (tx) => {
+    const target = await loadTarget(tx, args.userId)
+    if (!isPending(target)) {
+      throw new DomainError('NOT_PENDING', `${target.name} is not waiting for approval.`)
+    }
+    const updated = await tx.user.update({
+      where: { id: target.id },
+      data: { pendingSince: null },
+      select: ROW_SELECT,
+    })
+    await writeAudit(tx, {
+      actorType: 'USER',
+      userId: args.actorId,
+      action: 'user_rejected',
+      details: { targetUserId: target.id, email: target.email },
+      remarks: target.email,
+    })
+    return toRow(updated)
+  })
+}
 export async function changeUserRole(
   db: PrismaClient,
   args: { userId: string; role: Role; actorId: string },
@@ -302,6 +478,16 @@ export async function setUserActive(
   return db.$transaction(async (tx) => {
     const target = await loadTarget(tx, args.userId)
     if (target.active === args.active) return toRow(target)
+
+    // A pending account is activated by APPROVE, which chooses its role.
+    // REACTIVATE would let it in under the schema default without anybody
+    // having decided that.
+    if (args.active && isPending(target)) {
+      throw new DomainError(
+        'PENDING',
+        `${target.name} is waiting for approval. Approve them with a role from the PENDING APPROVAL list instead.`,
+      )
+    }
 
     if (!args.active) await assertNotLastActiveAdmin(tx, target.id, 'DEACTIVATE')
 
