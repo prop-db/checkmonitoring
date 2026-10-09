@@ -580,6 +580,58 @@ describe('registerUser', () => {
     const actions = (await testDb.auditLog.findMany({ orderBy: { createdAt: 'asc' } })).map((r) => r.action)
     expect(actions).toEqual(['user_registered', 'user_reregistered'])
   })
+
+  it('requires an email', async () => {
+    await expect(registerUser(testDb, { email: '   ', name: 'X', password: STRONG }))
+      .rejects.toMatchObject({ code: 'EMAIL_REQUIRED' })
+    expect(await testDb.user.count()).toBe(0)
+  })
+
+  it('leaves an ACTIVE account untouched: hash, name, flag, active, and no audit row', async () => {
+    const before = await makeFinanceUser({ email: 'live@rcl.com.ph' })
+    await expect(registerUser(testDb, { email: 'live@rcl.com.ph', name: 'Intruder', password: STRONG }))
+      .rejects.toMatchObject({ code: 'EMAIL_TAKEN' })
+    const after = await testDb.user.findUniqueOrThrow({ where: { id: before.id } })
+    expect(after.passwordHash).toBe(before.passwordHash)
+    expect(after.name).toBe(before.name)
+    expect(after.pendingSince).toBeNull()
+    expect(after.active).toBe(true)
+    expect(await testDb.auditLog.count()).toBe(0)
+  })
+
+  it('never sets a password on an account an admin activates at the same moment', async () => {
+    // A property test, not a deterministic one: the interleaving is not
+    // controllable. Either activation wins (active, ORIGINAL hash) or the
+    // registration does (inactive and pending, NEW hash). Never active with
+    // the new hash - the UPDATE is conditional on `active = false`.
+    const admin = await makeAdmin()
+    const target = await testDb.user.create({
+      data: { email: 'race@rcl.com.ph', name: 'Old', passwordHash: 'original-hash', role: 'FINANCE_USER', active: false },
+    })
+    await Promise.allSettled([
+      registerUser(testDb, { email: 'race@rcl.com.ph', name: 'New', password: STRONG }),
+      setUserActive(testDb, { userId: target.id, active: true, actorId: admin.id }),
+    ])
+    const u = await testDb.user.findUniqueOrThrow({ where: { id: target.id } })
+    const hasNewHash = await verifyPassword(u.passwordHash, STRONG)
+    if (u.active) {
+      expect(hasNewHash).toBe(false)
+      expect(u.passwordHash).toBe('original-hash')
+    } else {
+      expect(hasNewHash).toBe(true)
+      expect(isPending(u)).toBe(true)
+    }
+  })
+
+  it('records whether the row it re-opened was already pending', async () => {
+    await testDb.user.create({
+      data: { email: 'd@rcl.com.ph', name: 'D', passwordHash: 'x', role: 'FINANCE_USER', active: false },
+    })
+    await registerUser(testDb, { email: 'd@rcl.com.ph', name: 'D', password: STRONG })
+    await registerUser(testDb, { email: 'd@rcl.com.ph', name: 'D', password: STRONG_TWO })
+    const rows = await testDb.auditLog.findMany({ where: { action: 'user_reregistered' }, orderBy: { createdAt: 'asc' } })
+    expect(rows.map((r) => (r.details as { wasPending?: boolean }).wasPending)).toEqual([false, true])
+  })
 })
 
 describe('approveUser', () => {
@@ -605,6 +657,30 @@ describe('approveUser', () => {
       await expect(approveUser(testDb, { userId: t.id, role: 'FINANCE_USER', actorId: actor.id }))
         .rejects.toMatchObject({ code: 'NOT_PENDING' })
     }
+  })
+
+  it('refuses when the registration was re-done after the page the admin is looking at loaded', async () => {
+    const actor = await makeAdmin()
+    await registerUser(testDb, { email: 'p@rcl.com.ph', name: 'First', password: STRONG })
+    const seen = (await testDb.user.findUniqueOrThrow({ where: { email: 'p@rcl.com.ph' } })).pendingSince!
+    await new Promise((r) => setTimeout(r, 15))
+    await registerUser(testDb, { email: 'p@rcl.com.ph', name: 'Second', password: STRONG_TWO })
+    const pending = await testDb.user.findUniqueOrThrow({ where: { email: 'p@rcl.com.ph' } })
+
+    const err = await approveUser(testDb, {
+      userId: pending.id, role: 'FINANCE_USER', actorId: actor.id, seenPendingSince: seen,
+    }).catch((e) => e)
+    expect(err).toBeInstanceOf(DomainError)
+    expect(err.code).toBe('REREGISTERED')
+    expect(err.message).toBe('Second was re-registered after this page loaded. Reload and check the new registration before approving.')
+    expect(isPending(await testDb.user.findUniqueOrThrow({ where: { id: pending.id } }))).toBe(true)
+    expect(await testDb.auditLog.count({ where: { action: 'user_approved' } })).toBe(0)
+
+    // The value the page actually displayed now is accepted.
+    const ok = await approveUser(testDb, {
+      userId: pending.id, role: 'FINANCE_USER', actorId: actor.id, seenPendingSince: pending.pendingSince!,
+    })
+    expect(ok.active).toBe(true)
   })
 })
 
@@ -663,5 +739,32 @@ describe('a pending account on the existing controls', () => {
     expect(back.previouslyDeactivated).toBe(true)
     expect(active.pendingSince).toBeNull()
     expect(active.previouslyDeactivated).toBe(false)
+  })
+
+  it('does not call a pending account "previously deactivated" because it re-registered while pending', async () => {
+    await registerUser(testDb, { email: 'twice@rcl.com.ph', name: 'Twice', password: STRONG })
+    await registerUser(testDb, { email: 'twice@rcl.com.ph', name: 'Twice', password: STRONG_TWO })
+    const row = (await listUsers(testDb)).find((r) => r.email === 'twice@rcl.com.ph')!
+    expect(row.previouslyDeactivated).toBe(false)
+  })
+
+  it('keeps previouslyDeactivated through a later re-registration while still pending', async () => {
+    await testDb.user.create({
+      data: { email: 'again@rcl.com.ph', name: 'Was Here', passwordHash: 'x', role: 'FINANCE_USER', active: false },
+    })
+    await registerUser(testDb, { email: 'again@rcl.com.ph', name: 'Again', password: STRONG })
+    await registerUser(testDb, { email: 'again@rcl.com.ph', name: 'Again', password: STRONG_TWO })
+    const row = (await listUsers(testDb)).find((r) => r.email === 'again@rcl.com.ph')!
+    expect(row.previouslyDeactivated).toBe(true)
+  })
+
+  it('deactivating a pending account is a no-op: still pending, no audit row', async () => {
+    const actor = await makeAdmin()
+    await registerUser(testDb, { email: 'p@rcl.com.ph', name: 'Pending Person', password: STRONG })
+    const pending = await testDb.user.findUniqueOrThrow({ where: { email: 'p@rcl.com.ph' } })
+    const row = await setUserActive(testDb, { userId: pending.id, active: false, actorId: actor.id })
+    expect(row.pendingSince).not.toBeNull()
+    expect(isPending(await testDb.user.findUniqueOrThrow({ where: { id: pending.id } }))).toBe(true)
+    expect(await testDb.auditLog.count({ where: { action: 'user_deactivated' } })).toBe(0)
   })
 })

@@ -62,13 +62,19 @@ export type AdminUserRow = {
    */
   pendingSince: Date | null
   /**
-   * True when the most recent registration of this account re-opened a row
-   * that already existed (`user_reregistered`). The admin's one defence
-   * against somebody re-registering a deactivated colleague's address with
-   * their own password: the PENDING list says so against the row.
+   * True when a registration re-opened a DEACTIVATED (not pending) account and
+   * the account has been pending ever since. Walking the account's registration
+   * rows newest-first, the first `user_registered` (false) or `user_reregistered`
+   * with `wasPending === false` (true) decides; a `user_reregistered` with
+   * `wasPending === true` (a pending account registered again) is skipped, so a
+   * pending-to-pending re-registration carries the earlier verdict forward. The
+   * admin's one defence against somebody re-registering a deactivated
+   * colleague's address with their own password: the PENDING list says so
+   * against the row.
    */
   previouslyDeactivated: boolean
-  /** Seeded by `prisma/seed.ts` with a password anyone can read in git. */  isSeededTestAccount: boolean
+  /** Seeded by `prisma/seed.ts` with a password anyone can read in git. */
+  isSeededTestAccount: boolean
   /**
    * Failed sign-ins against this address inside the throttle's counting window,
    * cleared by the account's own last successful sign-in. Zero for a quiet
@@ -94,6 +100,7 @@ type SelectedUser = {
   id: string; name: string; email: string; role: Role
   active: boolean; lastLoginAt: Date | null; createdAt: Date; pendingSince: Date | null
 }
+
 const SEEDED = new Set<string>(SEEDED_TEST_ACCOUNT_EMAILS)
 
 /**
@@ -120,6 +127,7 @@ function toRow(
     previouslyDeactivated,
   }
 }
+
 /**
  * The address sign-in will look this account up by.
  *
@@ -141,6 +149,7 @@ function normaliseEmail(raw: string): string {
 export function isPending(u: { active: boolean; pendingSince: Date | null }): boolean {
   return !u.active && u.pendingSince !== null
 }
+
 function requirePassword(plain: string): void {
   const strength = validatePasswordStrength(plain)
   // The policy's own wording, passed through verbatim: it names which class of
@@ -227,27 +236,37 @@ export async function listUsers(
 }
 
 /**
- * Of these pending accounts, which were RE-OPENED by their latest
- * registration rather than created by it. The latest `user_registered` /
- * `user_reregistered` row per account decides; a pending account always has
- * one, because only `registerUser` sets the flag.
+ * Of these pending accounts, which were RE-OPENED from a DEACTIVATED account
+ * rather than created fresh. Walks each account's registration rows
+ * newest-first and takes the first that decides: `user_registered` means no,
+ * `user_reregistered` with `wasPending === false` means yes. A
+ * `user_reregistered` with `wasPending === true` (a pending account registered
+ * again) decides nothing and is skipped, so the earlier verdict carries
+ * forward. A pending account always has such a row, because only
+ * `registerUser` sets the flag.
  */
 async function reopenedPendingIds(db: PrismaClient, ids: string[]): Promise<Set<string>> {
   if (ids.length === 0) return new Set()
   const rows = await db.auditLog.findMany({
-    where: { action: { in: ['user_registered', 'user_reregistered'] } },
+    where: {
+      action: { in: ['user_registered', 'user_reregistered'] },
+      OR: ids.map((id) => ({ details: { path: ['targetUserId'], equals: id } })),
+    },
     orderBy: { createdAt: 'desc' },
     select: { action: true, details: true },
   })
   const wanted = new Set(ids)
-  const latest = new Map<string, string>()
+  const verdict = new Map<string, boolean>()
   for (const r of rows) {
-    const target = (r.details as { targetUserId?: unknown } | null)?.targetUserId
-    if (typeof target !== 'string' || !wanted.has(target) || latest.has(target)) continue
-    latest.set(target, r.action)
+    const details = r.details as { targetUserId?: unknown; wasPending?: unknown } | null
+    const target = details?.targetUserId
+    if (typeof target !== 'string' || !wanted.has(target) || verdict.has(target)) continue
+    if (r.action === 'user_registered') verdict.set(target, false)
+    else if (details?.wasPending === false) verdict.set(target, true)
   }
-  return new Set([...latest].filter(([, action]) => action === 'user_reregistered').map(([id]) => id))
+  return new Set([...verdict].filter(([, reopened]) => reopened).map(([id]) => id))
 }
+
 /**
  * Create an account from a password **a human typed into the form**.
  *
@@ -348,14 +367,20 @@ export async function registerUser(
       if (existing && existing.active) throw taken
 
       if (existing) {
-        await tx.user.update({
-          where: { id: existing.id },
+        // `active: false` in the WHERE is load-bearing. The read above is
+        // READ COMMITTED: an approval or reactivation can commit between it
+        // and this write, and an unconditional update would then replace the
+        // password of an account that is now ACTIVE with a stranger's. Zero
+        // rows matched means exactly that happened - refuse, change nothing.
+        const { count } = await tx.user.updateMany({
+          where: { id: existing.id, active: false },
           data: { name, passwordHash, pendingSince: now },
         })
+        if (count === 0) throw taken
         await writeAudit(tx, {
           actorType: 'SYSTEM',
           action: 'user_reregistered',
-          details: { targetUserId: existing.id, email, name },
+          details: { targetUserId: existing.id, email, name, wasPending: isPending(existing) },
           remarks: email,
         })
         return
@@ -386,12 +411,20 @@ export async function registerUser(
  */
 export async function approveUser(
   db: PrismaClient,
-  args: { userId: string; role: Role; actorId: string },
+  args: { userId: string; role: Role; actorId: string; seenPendingSince?: Date },
 ): Promise<AdminUserRow> {
   return db.$transaction(async (tx) => {
     const target = await loadTarget(tx, args.userId)
     if (!isPending(target)) {
       throw new DomainError('NOT_PENDING', `${target.name} is not waiting for approval.`)
+    }
+    // The registration the admin looked at is not the one on file: it was
+    // redone (new name, new password) after their page loaded.
+    if (args.seenPendingSince && args.seenPendingSince.getTime() !== target.pendingSince!.getTime()) {
+      throw new DomainError(
+        'REREGISTERED',
+        `${target.name} was re-registered after this page loaded. Reload and check the new registration before approving.`,
+      )
     }
     const updated = await tx.user.update({
       where: { id: target.id },
@@ -438,6 +471,7 @@ export async function rejectUser(
     return toRow(updated)
   })
 }
+
 export async function changeUserRole(
   db: PrismaClient,
   args: { userId: string; role: Role; actorId: string },
