@@ -157,6 +157,9 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           </p>
 
           <p className="px-2 text-center text-xs text-slate-400">
+            Need an account?{' '}
+            <Link href="/signup" className="underline underline-offset-2 hover:text-navy">Create one</Link>
+            {' · '}
             <Link href="/welcome" className="underline underline-offset-2 hover:text-navy">Back to the front page</Link>
           </p>
         </div>
