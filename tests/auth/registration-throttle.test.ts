@@ -88,6 +88,32 @@ describe('recordRegistrationAttempt', () => {
   })
 })
 
+describe('recordRegistrationAttempt under a held lock', () => {
+  it('gives up on the lock within the lock timeout instead of queueing to the transaction deadline', async () => {
+    let release!: () => void
+    const held = new Promise<void>((r) => { release = r })
+    let locked!: () => void
+    const lockTaken = new Promise<void>((r) => { locked = r })
+    const holder = testDb.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${IP}))`
+      locked()
+      await held
+    }, { timeout: 20_000 })
+    await lockTaken
+    const started = Date.now()
+    try {
+      await expect(
+        recordRegistrationAttempt(testDb, { ip: IP, email: 'queued@example.com', now: NOW }),
+      ).rejects.toThrow()
+      expect(Date.now() - started).toBeLessThan(5_000)
+    } finally {
+      release()
+      await holder
+    }
+    expect(await testDb.registrationAttempt.count()).toBe(0)
+  }, 15_000)
+})
+
 describe('pruneRegistrationAttempts', () => {
   it('drops only rows past retention and says how many', async () => {
     await attempt({ at: new Date(NOW.getTime() - (RETENTION_DAYS + 1) * 24 * 60 * 60_000) })

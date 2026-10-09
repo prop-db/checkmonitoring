@@ -151,4 +151,30 @@ describe('registerAction', () => {
     const result = await registerAction(good({ email, name: 'n'.repeat(200) }))
     expect(result).toEqual({ ok: true, email })
   })
+
+  it('refuses, and creates nothing, when the attempt cannot be recorded (the throttle fails closed)', async () => {
+    const { registerAction } = await import('@/app/signup/actions')
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    let release!: () => void
+    const held = new Promise<void>((r) => { release = r })
+    let locked!: () => void
+    const lockTaken = new Promise<void>((r) => { locked = r })
+    // Hold the address's advisory lock past the 3 s lock timeout.
+    const holder = testDb.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'203.0.113.9'}))`
+      locked()
+      await held
+    }, { timeout: 20_000 })
+    await lockTaken
+    try {
+      const result = await registerAction(good())
+      expect(result).toEqual({ ok: false, message: 'Could not register right now. Try again in a minute.' })
+    } finally {
+      release()
+      await holder
+      err.mockRestore()
+    }
+    expect(await testDb.user.count()).toBe(0)
+    expect(await testDb.registrationAttempt.count({ where: { ip: '203.0.113.9' } })).toBe(0)
+  }, 15_000)
 })

@@ -28,9 +28,11 @@ import { loadSettings } from '@/lib/settings/read'
  * entry are refused before any database work and are not attempts against
  * anything.
  *
- * Recording is best-effort: a failed write is logged and never replaces the
- * person's result. A database that cannot take the insert would not take the
- * registration either, so failing open there is accepted.
+ * A submission that cannot be counted is refused: if recording throws (a lock
+ * timeout, a transaction timeout, a database fault) the failure is logged and
+ * the person is told to try again; nothing is registered. The lock queue is
+ * something a burst can cause on purpose, so an uncounted submission must not
+ * pass unthrottled.
  *
  * On success the result carries the address and nothing else; on failure a
  * sentence. A domain error's wording is for the person at the form (the
@@ -42,6 +44,7 @@ export type SignupResult = { ok: true; email: string } | { ok: false; message: s
 
 const THROTTLED = 'Too many accounts have been created from this connection. Try again later.'
 const TOO_LONG = 'That entry is too long.'
+const CANNOT_RECORD = 'Could not register right now. Try again in a minute.'
 
 // Not exported: a 'use server' module may export only async functions and types.
 /** RFC 5321's path limit. */
@@ -68,16 +71,6 @@ function logUnexpected(e: unknown): void {
   )
 }
 
-/** Best-effort: the count, or null when the write failed (logged). */
-async function recordAttempt(ip: string, email: string, now: Date): Promise<{ recent: number } | null> {
-  try {
-    return await recordRegistrationAttempt(prisma, { ip, email, now })
-  } catch (e) {
-    logUnexpected(e)
-    return null
-  }
-}
-
 export async function registerAction(formData: FormData): Promise<SignupResult> {
   const name = str(formData, 'name')
   const email = str(formData, 'email').toLowerCase()
@@ -94,8 +87,14 @@ export async function registerAction(formData: FormData): Promise<SignupResult> 
   const settings = await loadSettings(prisma)
   const limit = settings.values['signup.ipPerHour']
 
-  const recorded = await recordAttempt(ip, email, now)
-  if (recorded && recorded.recent > limit) return { ok: false, message: THROTTLED }
+  let recorded: { recent: number }
+  try {
+    recorded = await recordRegistrationAttempt(prisma, { ip, email, now })
+  } catch (e) {
+    logUnexpected(e)
+    return { ok: false, message: CANNOT_RECORD }
+  }
+  if (recorded.recent > limit) return { ok: false, message: THROTTLED }
 
   try {
     await registerUser(prisma, { email, name, password })

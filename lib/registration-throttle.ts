@@ -26,7 +26,9 @@ import { RETENTION_DAYS } from '@/lib/login-throttle'
  * address, taken as the transaction's first statement, makes same-address
  * submissions queue, so each one's count includes every earlier commit and the
  * counts are exactly 1..N. Different addresses hash to different locks and do
- * not wait for each other; the lock is released at commit or rollback.
+ * not wait for each other; the lock is released at commit or rollback. The wait
+ * is bounded by `SET LOCAL lock_timeout = '3s'`, so a queued submission fails
+ * rather than hold a connection; the caller refuses it (see `app/signup/actions.ts`).
  *
  * The allowance is the setting `signup.ipPerHour`; callers read it through
  * `loadSettings` at request time and pass it in. Nothing here reads a
@@ -57,7 +59,12 @@ export async function recordRegistrationAttempt(
   args: { ip: string; email: string; now: Date },
 ): Promise<{ recent: number }> {
   return db.$transaction(async (tx) => {
-    // First statement: serialise same-address submissions (see the header).
+    // Bound the wait for the lock. A submission queued behind a burst gives up
+    // here, with an error the caller turns into a refusal, rather than holding
+    // a connection until the transaction deadline (P2028) or starving the pool
+    // (P2024). A lock timeout is a refused submission, not an error to swallow.
+    await tx.$executeRaw`SET LOCAL lock_timeout = '3s'`
+    // Then serialise same-address submissions (see the header).
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${args.ip}))`
     await tx.registrationAttempt.create({
       data: { ip: args.ip, email: args.email, createdAt: args.now },
