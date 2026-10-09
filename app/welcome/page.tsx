@@ -23,7 +23,7 @@ export default async function WelcomePage() {
 
   return (
     <main className="flex min-h-screen flex-col">
-      <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-6">
+      <header className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-6">
         <div className="flex items-center gap-3">
           <span
             aria-hidden="true"

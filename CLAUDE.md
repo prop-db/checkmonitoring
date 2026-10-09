@@ -133,6 +133,7 @@ It follows that:
 
 ```bash
 npm run dev                    # local dev server
+node scripts/dev-test-db.mjs      # dev server on the TEST database (the repo .env is PRODUCTION); outward integrations blanked
 npm test                       # full suite (Vitest, hits the TEST database)
 npx tsc --noEmit               # REQUIRED before claiming done - see below
 npx next build

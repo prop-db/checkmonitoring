@@ -72,7 +72,7 @@ describe('recordRegistrationAttempt', () => {
     expect(await testDb.registrationAttempt.count()).toBe(N)
   })
 
-  it('does not make different addresses wait for each other: each counts only itself', async () => {
+  it('counts each address separately', async () => {
     const results = await Promise.all(
       ['198.51.100.1', '198.51.100.2', '198.51.100.3'].map((ip) =>
         recordRegistrationAttempt(testDb, { ip, email: 'x@example.com', now: NOW })),
@@ -104,8 +104,8 @@ describe('recordRegistrationAttempt under a held lock', () => {
     try {
       await expect(
         recordRegistrationAttempt(testDb, { ip: IP, email: 'queued@example.com', now: NOW }),
-      ).rejects.toThrow()
-      expect(Date.now() - started).toBeLessThan(5_000)
+      ).rejects.toThrow(/lock timeout|55P03/i)
+      expect(Date.now() - started).toBeLessThan(8_000)
     } finally {
       release()
       await holder

@@ -24,9 +24,9 @@ import { loadSettings } from '@/lib/settings/read'
  * `lib/registration-throttle.ts`), so it includes the caller's own row and
  * every earlier same-address commit: parallel submissions from one address
  * queue and count exactly 1..N, with no count-then-insert window to burst
- * through. The caller is refused when that count is greater than the allowance. A mismatched pair and an over-long
- * entry are refused before any database work and are not attempts against
- * anything.
+ * through. The caller is refused when that count is greater than the
+ * allowance. A mismatched pair and an over-long entry are refused before any
+ * database work and are not attempts against anything.
  *
  * A submission that cannot be counted is refused: if recording throws (a lock
  * timeout, a transaction timeout, a database fault) the failure is logged and
