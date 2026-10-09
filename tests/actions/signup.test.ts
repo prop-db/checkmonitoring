@@ -85,6 +85,53 @@ describe('registerAction', () => {
     const { registerAction } = await import('@/app/signup/actions')
     await testDb.setting.create({ data: { key: 'signup.ipPerHour', value: '1' } })
     expect((await registerAction(good())).ok).toBe(true)
-    expect((await registerAction(good({ email: 'second@rcl.com.ph' }))).ok).toBe(false)
+    expect(await registerAction(good({ email: 'second@rcl.com.ph' }))).toEqual({
+      ok: false,
+      message: 'Too many accounts have been created from this connection. Try again later.',
+    })
+  })
+
+  it('stores the name trimmed and the address trimmed and lowercased, and records the normalised address', async () => {
+    const { registerAction } = await import('@/app/signup/actions')
+    const result = await registerAction(good({ name: '  New Person  ', email: '  New@RCL.com.ph ' }))
+    expect(result).toEqual({ ok: true, email: 'new@rcl.com.ph' })
+    const u = await testDb.user.findUniqueOrThrow({ where: { email: 'new@rcl.com.ph' } })
+    expect(u.name).toBe('New Person')
+    const attempt = await testDb.registrationAttempt.findFirstOrThrow()
+    expect(attempt.email).toBe('new@rcl.com.ph')
+  })
+
+  it('lets a deactivated account register again: still inactive, pending, under the new name', async () => {
+    const { registerAction } = await import('@/app/signup/actions')
+    await testDb.user.create({
+      data: { email: 'gone@rcl.com.ph', name: 'Old Name', passwordHash: 'x', role: 'FINANCE_USER', active: false },
+    })
+    const result = await registerAction(good({ email: 'gone@rcl.com.ph', name: 'Fresh Name' }))
+    expect(result).toEqual({ ok: true, email: 'gone@rcl.com.ph' })
+    const u = await testDb.user.findUniqueOrThrow({ where: { email: 'gone@rcl.com.ph' } })
+    expect(u.active).toBe(false)
+    expect(u.pendingSince).not.toBeNull()
+    expect(u.name).toBe('Fresh Name')
+    expect(await verifyPassword(u.passwordHash, STRONG)).toBe(true)
+  })
+
+  it.each([
+    ['email', { email: 'a'.repeat(244) + '@rcl.com.ph' }],
+    ['name', { name: 'n'.repeat(201) }],
+    ['password', { password: 'p'.repeat(1025), confirm: 'p'.repeat(1025) }],
+  ])('refuses an over-long %s before any database work and records nothing', async (_field, over) => {
+    const { registerAction } = await import('@/app/signup/actions')
+    const result = await registerAction(good(over))
+    expect(result).toEqual({ ok: false, message: 'That entry is too long.' })
+    expect(await testDb.user.count()).toBe(0)
+    expect(await testDb.registrationAttempt.count()).toBe(0)
+  })
+
+  it('accepts entries exactly at the caps', async () => {
+    const { registerAction } = await import('@/app/signup/actions')
+    const email = 'a'.repeat(254 - '@rcl.com.ph'.length) + '@rcl.com.ph'
+    expect(email.length).toBe(254)
+    const result = await registerAction(good({ email, name: 'n'.repeat(200) }))
+    expect(result).toEqual({ ok: true, email })
   })
 })
