@@ -370,10 +370,13 @@ export async function registerUser(
         // `active: false` in the WHERE is load-bearing. The read above is
         // READ COMMITTED: an approval or reactivation can commit between it
         // and this write, and an unconditional update would then replace the
-        // password of an account that is now ACTIVE with a stranger's. Zero
-        // rows matched means exactly that happened - refuse, change nothing.
+        // password of an account that is now ACTIVE with a stranger's.
+        // `pendingSince` is in the WHERE for the audit row: `wasPending`
+        // below is exactly the state this write saw, not a state the row has
+        // since left. Zero rows matched means the row moved - refuse, change
+        // nothing.
         const { count } = await tx.user.updateMany({
-          where: { id: existing.id, active: false },
+          where: { id: existing.id, active: false, pendingSince: existing.pendingSince },
           data: { name, passwordHash, pendingSince: now },
         })
         if (count === 0) throw taken
@@ -409,6 +412,29 @@ function reRegisteredMessage(name: string, verb: 'approving' | 'rejecting' = 'ap
   return `${name} was re-registered after this page loaded. Reload and check the new registration before ${verb}.`
 }
 
+function notPendingMessage(name: string): string {
+  return `${name} is not waiting for approval.`
+}
+
+function pendingMessage(name: string): string {
+  return `${name} is waiting for approval. Approve them with a role from the PENDING APPROVAL list instead.`
+}
+
+/**
+ * A conditional approve/reject wrote nothing: the row moved after it was read.
+ * Say which way. No longer pending (someone else approved or rejected it first)
+ * is NOT_PENDING; still pending under a different registration is REREGISTERED.
+ */
+async function explainLostPendingWrite(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  verb: 'approving' | 'rejecting',
+): Promise<DomainError> {
+  const current = await loadTarget(tx, userId)
+  if (!isPending(current)) return new DomainError('NOT_PENDING', notPendingMessage(current.name))
+  return new DomainError('REREGISTERED', reRegisteredMessage(current.name, verb))
+}
+
 /**
  * Approve a pending account: the role the admin chose, active, flag cleared.
  * No last-admin guard applies — this can only add an active account.
@@ -420,7 +446,7 @@ export async function approveUser(
   return db.$transaction(async (tx) => {
     const target = await loadTarget(tx, args.userId)
     if (!isPending(target)) {
-      throw new DomainError('NOT_PENDING', `${target.name} is not waiting for approval.`)
+      throw new DomainError('NOT_PENDING', notPendingMessage(target.name))
     }
     // The registration the admin looked at is not the one on file: it was
     // redone (new name, new password) after their page loaded.
@@ -435,7 +461,7 @@ export async function approveUser(
       where: { id: target.id, active: false, pendingSince: target.pendingSince },
       data: { role: args.role, active: true, pendingSince: null },
     })
-    if (count === 0) throw new DomainError('REREGISTERED', reRegisteredMessage(target.name))
+    if (count === 0) throw await explainLostPendingWrite(tx, target.id, 'approving')
     const updated = await loadTarget(tx, target.id)
     await writeAudit(tx, {
       actorType: 'USER',
@@ -460,14 +486,14 @@ export async function rejectUser(
   return db.$transaction(async (tx) => {
     const target = await loadTarget(tx, args.userId)
     if (!isPending(target)) {
-      throw new DomainError('NOT_PENDING', `${target.name} is not waiting for approval.`)
+      throw new DomainError('NOT_PENDING', notPendingMessage(target.name))
     }
     // Conditional on the registration this function read, as in approveUser.
     const { count } = await tx.user.updateMany({
       where: { id: target.id, active: false, pendingSince: target.pendingSince },
       data: { pendingSince: null },
     })
-    if (count === 0) throw new DomainError('REREGISTERED', reRegisteredMessage(target.name, 'rejecting'))
+    if (count === 0) throw await explainLostPendingWrite(tx, target.id, 'rejecting')
     const updated = await loadTarget(tx, target.id)
     await writeAudit(tx, {
       actorType: 'USER',
@@ -525,10 +551,7 @@ export async function setUserActive(
     // REACTIVATE would let it in under the schema default without anybody
     // having decided that.
     if (args.active && isPending(target)) {
-      throw new DomainError(
-        'PENDING',
-        `${target.name} is waiting for approval. Approve them with a role from the PENDING APPROVAL list instead.`,
-      )
+      throw new DomainError('PENDING', pendingMessage(target.name))
     }
 
     if (!args.active) await assertNotLastActiveAdmin(tx, target.id, 'DEACTIVATE')
@@ -540,7 +563,10 @@ export async function setUserActive(
       // write, and an unconditional update would then activate an account that
       // now carries a stranger's password and no approval. `active = false AND
       // pendingSince IS NULL` is the state the check above saw, so zero rows
-      // means the row moved: pending now is refused, active now is a no-op.
+      // means the row moved: pending now is refused, active now is a no-op,
+      // and anything else (rejected meanwhile - inactive, no flag) is a
+      // change the admin must be told about, not an inactive row returned as
+      // if it had been activated.
       const { count } = await tx.user.updateMany({
         where: { id: target.id, active: false, pendingSince: null },
         data: { active: true },
@@ -548,12 +574,13 @@ export async function setUserActive(
       if (count === 0) {
         const current = await loadTarget(tx, target.id)
         if (isPending(current)) {
-          throw new DomainError(
-            'PENDING',
-            `${current.name} is waiting for approval. Approve them with a role from the PENDING APPROVAL list instead.`,
-          )
+          throw new DomainError('PENDING', pendingMessage(current.name))
         }
-        return toRow(current)
+        if (current.active) return toRow(current)
+        throw new DomainError(
+          'CHANGED',
+          `${current.name}'s account changed while you were looking at it. Reload and try again.`,
+        )
       }
       updated = await loadTarget(tx, target.id)
     } else {

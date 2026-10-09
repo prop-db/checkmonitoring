@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import type { Role } from '@prisma/client'
+import type { Prisma, Role } from '@prisma/client'
 import { testDb, resetDb } from '../helpers/db'
 import { DomainError } from '@/lib/domain/errors'
 import { verifyPassword } from '@/lib/password'
@@ -771,36 +771,44 @@ describe('a pending account on the existing controls', () => {
 
 describe('writes conditional on the row they read', () => {
   /**
-   * Deterministic interleaving: `holder` re-registers the row inside a
-   * transaction that keeps the row locked. `call` reads the row (plain SELECT,
-   * not blocked by the lock) and then blocks on its conditional write; once
-   * Postgres reports a lock waiter, the holder commits, and the write
-   * re-evaluates its WHERE against the re-registered row.
+   * Deterministic interleaving: `holder` writes the row inside a transaction
+   * that keeps it locked. `call` reads the row (plain SELECT, not blocked by
+   * the lock) and then blocks on its conditional write; once Postgres reports
+   * a session blocked BY THE HOLDER'S backend, the holder commits, and the
+   * write re-evaluates its WHERE against what the holder left.
    */
-  async function callWhileReRegistering<T>(userId: string, call: () => Promise<T>): Promise<T | unknown> {
+  async function callWhileHolding<T>(
+    holder: (tx: Prisma.TransactionClient) => Promise<unknown>,
+    call: () => Promise<T>,
+  ): Promise<T | unknown> {
     let outcome: Promise<T | unknown> = Promise.resolve()
     await testDb.$transaction(async (tx) => {
-      await tx.user.update({
-        where: { id: userId },
-        data: { name: 'Re-registered', passwordHash: 'new-hash', pendingSince: new Date(Date.now() + 1000) },
-      })
+      const [{ pid }] = await tx.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`
+      await holder(tx)
       outcome = call().catch((e) => e)
-      for (let i = 0; i < 100; i++) {
+      const deadline = Date.now() + 10_000
+      while (Date.now() < deadline) {
         const [{ n }] = await tx.$queryRaw<{ n: bigint }[]>`
           SELECT count(*) AS n FROM pg_stat_activity
-          WHERE wait_event_type = 'Lock' AND datname = current_database()`
+          WHERE pg_blocking_pids(pid) @> ARRAY[${pid}]::int[]`
         if (n > 0n) return
         await new Promise((r) => setTimeout(r, 100))
       }
-      throw new Error('the call never blocked on the row lock')
+      throw new Error('the call never blocked on the holder row lock within 10 s')
     }, { timeout: 30000, maxWait: 30000 })
     return outcome
   }
 
+  const reRegistering = (userId: string) => (tx: Prisma.TransactionClient) =>
+    tx.user.update({
+      where: { id: userId },
+      data: { name: 'Re-registered', passwordHash: 'new-hash', pendingSince: new Date(Date.now() + 1000) },
+    })
+
   it('REACTIVATE refuses a deactivated account that was re-registered between its read and its write', async () => {
     const admin = await makeAdmin()
     const target = await makeFinanceUser({ active: false })
-    const err = await callWhileReRegistering(target.id, () =>
+    const err = await callWhileHolding(reRegistering(target.id), () =>
       setUserActive(testDb, { userId: target.id, active: true, actorId: admin.id }))
     expect(err).toBeInstanceOf(DomainError)
     expect((err as DomainError).code).toBe('PENDING')
@@ -812,22 +820,26 @@ describe('writes conditional on the row they read', () => {
   it('REACTIVATE of a row an admin already activated meanwhile is a no-op and writes no audit row', async () => {
     const admin = await makeAdmin()
     const target = await makeFinanceUser({ active: false })
-    let outcome: Promise<unknown> = Promise.resolve()
-    await testDb.$transaction(async (tx) => {
-      await tx.user.update({ where: { id: target.id }, data: { active: true } })
-      outcome = setUserActive(testDb, { userId: target.id, active: true, actorId: admin.id }).catch((e) => e)
-      for (let i = 0; i < 100; i++) {
-        const [{ n }] = await tx.$queryRaw<{ n: bigint }[]>`
-          SELECT count(*) AS n FROM pg_stat_activity
-          WHERE wait_event_type = 'Lock' AND datname = current_database()`
-        if (n > 0n) return
-        await new Promise((r) => setTimeout(r, 100))
-      }
-      throw new Error('the call never blocked on the row lock')
-    }, { timeout: 30000, maxWait: 30000 })
-    const row = (await outcome) as { active: boolean }
+    const row = (await callWhileHolding(
+      (tx) => tx.user.update({ where: { id: target.id }, data: { active: true } }),
+      () => setUserActive(testDb, { userId: target.id, active: true, actorId: admin.id }),
+    )) as { active: boolean }
     expect(row.active).toBe(true)
     expect(await testDb.auditLog.count({ where: { action: 'user_reactivated' } })).toBe(0)
+  })
+
+  it('a registration over a pending account refuses when that account was re-registered between its read and its write', async () => {
+    // The audit row's wasPending must be the state the write saw, so the
+    // write is conditional on pendingSince as well as active.
+    await registerUser(testDb, { email: 'p@rcl.com.ph', name: 'Pending', password: STRONG })
+    const pending = await testDb.user.findUniqueOrThrow({ where: { email: 'p@rcl.com.ph' } })
+    const err = await callWhileHolding(reRegistering(pending.id), () =>
+      registerUser(testDb, { email: 'p@rcl.com.ph', name: 'Third', password: STRONG_TWO }))
+    expect(err).toBeInstanceOf(DomainError)
+    expect((err as DomainError).code).toBe('EMAIL_TAKEN')
+    const u = await testDb.user.findUniqueOrThrow({ where: { id: pending.id } })
+    expect(u).toMatchObject({ name: 'Re-registered', passwordHash: 'new-hash' })
+    expect(await testDb.auditLog.count({ where: { action: 'user_reregistered' } })).toBe(0)
   })
 
   it('APPROVE without seenPendingSince refuses a registration redone between its read and its write', async () => {
@@ -836,7 +848,7 @@ describe('writes conditional on the row they read', () => {
     const admin = await makeAdmin()
     await registerUser(testDb, { email: 'p@rcl.com.ph', name: 'Pending', password: STRONG })
     const pending = await testDb.user.findUniqueOrThrow({ where: { email: 'p@rcl.com.ph' } })
-    const err = await callWhileReRegistering(pending.id, () =>
+    const err = await callWhileHolding(reRegistering(pending.id), () =>
       approveUser(testDb, { userId: pending.id, role: 'FINANCE_USER', actorId: admin.id }))
     expect(err).toBeInstanceOf(DomainError)
     expect((err as DomainError).code).toBe('REREGISTERED')
@@ -846,15 +858,44 @@ describe('writes conditional on the row they read', () => {
     expect(await testDb.auditLog.count({ where: { action: 'user_approved' } })).toBe(0)
   })
 
+  it('APPROVE of an account another admin rejected meanwhile says it is not waiting, not that it was re-registered', async () => {
+    const admin = await makeAdmin()
+    await registerUser(testDb, { email: 'p@rcl.com.ph', name: 'Pending', password: STRONG })
+    const pending = await testDb.user.findUniqueOrThrow({ where: { email: 'p@rcl.com.ph' } })
+    const err = await callWhileHolding(
+      (tx) => tx.user.update({ where: { id: pending.id }, data: { pendingSince: null } }),
+      () => approveUser(testDb, { userId: pending.id, role: 'FINANCE_USER', actorId: admin.id }),
+    )
+    expect(err).toBeInstanceOf(DomainError)
+    expect((err as DomainError).code).toBe('NOT_PENDING')
+    expect((err as DomainError).message).toBe('Pending is not waiting for approval.')
+    expect((await testDb.user.findUniqueOrThrow({ where: { id: pending.id } })).active).toBe(false)
+    expect(await testDb.auditLog.count({ where: { action: 'user_approved' } })).toBe(0)
+  })
+
   it('REJECT refuses a registration redone between its read and its write', async () => {
     const admin = await makeAdmin()
     await registerUser(testDb, { email: 'p@rcl.com.ph', name: 'Pending', password: STRONG })
     const pending = await testDb.user.findUniqueOrThrow({ where: { email: 'p@rcl.com.ph' } })
-    const err = await callWhileReRegistering(pending.id, () =>
+    const err = await callWhileHolding(reRegistering(pending.id), () =>
       rejectUser(testDb, { userId: pending.id, actorId: admin.id }))
     expect(err).toBeInstanceOf(DomainError)
     expect((err as DomainError).code).toBe('REREGISTERED')
     expect((await testDb.user.findUniqueOrThrow({ where: { id: pending.id } })).pendingSince).not.toBeNull()
+    expect(await testDb.auditLog.count({ where: { action: 'user_rejected' } })).toBe(0)
+  })
+
+  it('REJECT of an account another admin approved meanwhile says it is not waiting, and does not touch it', async () => {
+    const admin = await makeAdmin()
+    await registerUser(testDb, { email: 'p@rcl.com.ph', name: 'Pending', password: STRONG })
+    const pending = await testDb.user.findUniqueOrThrow({ where: { email: 'p@rcl.com.ph' } })
+    const err = await callWhileHolding(
+      (tx) => tx.user.update({ where: { id: pending.id }, data: { active: true, pendingSince: null } }),
+      () => rejectUser(testDb, { userId: pending.id, actorId: admin.id }),
+    )
+    expect(err).toBeInstanceOf(DomainError)
+    expect((err as DomainError).code).toBe('NOT_PENDING')
+    expect((await testDb.user.findUniqueOrThrow({ where: { id: pending.id } })).active).toBe(true)
     expect(await testDb.auditLog.count({ where: { action: 'user_rejected' } })).toBe(0)
   })
 
