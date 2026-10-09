@@ -678,6 +678,13 @@ export async function setUserActive(
  *
  * No last-admin guard: setting a password neither deactivates nor demotes
  * anybody, and a sole admin must always be able to change their own.
+ *
+ * A re-registered account may hold a typed password aside
+ * (`pendingPasswordHash`) for APPROVE to apply. The admin's password
+ * supersedes it, so it is discarded here; otherwise a later APPROVE would
+ * silently replace the one the admin just set. `pendingName` and
+ * `pendingSince` are left alone: the registration is still pending, only its
+ * password has been overtaken.
  */
 export async function setUserPassword(
   db: PrismaClient,
@@ -689,7 +696,7 @@ export async function setUserPassword(
   return db.$transaction(async (tx) => {
     const target = await loadTarget(tx, args.userId)
     const updated = await tx.user.update({
-      where: { id: target.id }, data: { passwordHash }, select: ROW_SELECT,
+      where: { id: target.id }, data: { passwordHash, pendingPasswordHash: null }, select: ROW_SELECT,
     })
     await writeAudit(tx, {
       actorType: 'USER',
@@ -698,7 +705,10 @@ export async function setUserPassword(
       // The target and the fact, and nothing else. Neither the plaintext nor
       // the hash goes in here: the audit trail is readable by every admin and
       // is append-only, so anything written to it is written permanently.
-      details: { targetUserId: target.id, email: target.email },
+      details: {
+        targetUserId: target.id, email: target.email,
+        ...(target.pendingPasswordHash !== null ? { heldPasswordDiscarded: true } : {}),
+      },
       remarks: target.email,
     })
     return toRow(updated)

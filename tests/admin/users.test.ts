@@ -489,6 +489,36 @@ describe('setUserPassword', () => {
     expect(await verifyPassword(row.passwordHash, STRONG)).toBe(false)
   })
 
+  it('on a re-registered account, discards the held password: a later APPROVE keeps the admin password, and still applies the held name', async () => {
+    const actor = await makeAdmin()
+    await deactivatedWithOldPassword()
+    await registerUser(testDb, { email: 'ayessa@rcl.com.ph', name: 'Ayessa Morinne', password: STRONG })
+    const pending = await testDb.user.findUniqueOrThrow({ where: { email: 'ayessa@rcl.com.ph' } })
+
+    await setUserPassword(testDb, { userId: pending.id, password: STRONG_TWO, actorId: actor.id })
+
+    const held = await testDb.user.findUniqueOrThrow({ where: { id: pending.id } })
+    expect(held.pendingPasswordHash).toBeNull()
+    expect(held.pendingName).toBe('Ayessa Morinne')
+    expect(held.pendingSince).not.toBeNull()
+    const audit = await testDb.auditLog.findFirstOrThrow({ where: { action: 'user_password_set' } })
+    expect(audit.details).toMatchObject({ targetUserId: pending.id, heldPasswordDiscarded: true })
+
+    await approveUser(testDb, { userId: pending.id, role: 'FINANCE_USER', actorId: actor.id })
+    const u = await testDb.user.findUniqueOrThrow({ where: { id: pending.id } })
+    expect(await verifyPassword(u.passwordHash, STRONG_TWO)).toBe(true)
+    expect(await verifyPassword(u.passwordHash, STRONG)).toBe(false)
+    expect(u.name).toBe('Ayessa Morinne')
+  })
+
+  it('does not mark heldPasswordDiscarded when no password was held', async () => {
+    const actor = await makeAdmin()
+    const target = await makeFinanceUser()
+    await setUserPassword(testDb, { userId: target.id, password: STRONG, actorId: actor.id })
+    const audit = await testDb.auditLog.findFirstOrThrow({ where: { action: 'user_password_set' } })
+    expect(audit.details).not.toHaveProperty('heldPasswordDiscarded')
+  })
+
   it('records that a password was set without recording the password', async () => {
     const actor = await makeAdmin()
     const target = await makeFinanceUser()
