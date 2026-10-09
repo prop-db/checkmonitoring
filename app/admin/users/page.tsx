@@ -1,10 +1,11 @@
 import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/db'
-import { listUsers } from '@/lib/admin/users'
+import { isPending, listUsers } from '@/lib/admin/users'
 import { BACKOFF_MINUTES, type ThrottleLimits } from '@/lib/login-throttle'
 import { loadSettings } from '@/lib/settings/read'
 import { CreateUserForm } from '@/components/CreateUserForm'
 import { UserRowActions } from '@/components/UserRowActions'
+import { PendingUserActions } from '@/components/PendingUserActions'
 
 /**
  * `/admin/users` (spec §13). FINANCE_ADMIN only — gated by
@@ -39,6 +40,12 @@ export default async function UsersPage() {
     ipFreeFailures: settings.values['login.ipFreeFailures'],
   }
   const users = await listUsers(prisma, new Date(), limits)
+  const pendingUsers = users
+    .filter(isPending)
+    .sort((a, b) => (b.pendingSince?.getTime() ?? 0) - (a.pendingSince?.getTime() ?? 0))
+  // Pending accounts are neither ACTIVE nor DEACTIVATED and have their own
+  // section; in the table they would carry a REACTIVATE button that refuses.
+  const tableUsers = users.filter((u) => !isPending(u))
 
   const activeAdmins = users.filter((u) => u.active && u.role === 'FINANCE_ADMIN')
   const liveSeeded = users.filter((u) => u.isSeededTestAccount && u.active)
@@ -71,6 +78,58 @@ export default async function UsersPage() {
         </section>
       )}
 
+      {pendingUsers.length > 0 && (
+        <section className="overflow-x-auto rounded-2xl bg-white ring-1 ring-warning-ink/30">
+          <div className="flex flex-wrap items-baseline justify-between gap-3 px-6 pb-4 pt-6">
+            <h2 className="text-[11px] font-semibold tracking-widest text-warning-ink">
+              PENDING APPROVAL — {pendingUsers.length} ACCOUNT{pendingUsers.length === 1 ? '' : 'S'} WAITING
+            </h2>
+            <p className="text-xs text-slate-500">
+              Created on the sign-up page. Nothing can sign in until you approve it with a role.
+            </p>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="border-b border-hairline text-left text-[11px] font-semibold tracking-widest text-slate-400">
+              <tr>
+                <th className="px-4 py-3">NAME</th>
+                <th className="px-4 py-3">EMAIL</th>
+                <th className="px-4 py-3">REGISTERED</th>
+                <th className="px-4 py-3">ORIGIN</th>
+                <th className="px-4 py-3">ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pendingUsers.map((u) => (
+                <tr key={u.id} className="border-b border-slate-100 last:border-0">
+                  <td className="px-4 py-3 font-medium">{u.name}</td>
+                  <td className="px-4 py-3 text-slate-600">{u.email}</td>
+                  <td className="px-4 py-3 text-slate-600">{fmtDateTime(u.pendingSince)}</td>
+                  <td className="px-4 py-3">
+                    {u.previouslyDeactivated ? (
+                      <span className="rounded bg-warning-bg px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-warning-ink">
+                        RE-REGISTERED — PREVIOUSLY DEACTIVATED
+                      </span>
+                    ) : (
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-slate-600">
+                        NEW ACCOUNT
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <PendingUserActions userId={u.id} name={u.name} pendingSince={u.pendingSince!.toISOString()} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="px-6 pb-5 text-xs leading-relaxed text-slate-500">
+            A re-registered account kept its history and had its name and password replaced by whoever
+            filled in the form — check it is the colleague you expect before approving. REJECT leaves the
+            account deactivated; it can be reactivated from the table later.
+          </p>
+        </section>
+      )}
+
       <CreateUserForm />
 
       <div className="overflow-x-auto rounded-2xl bg-white ring-1 ring-hairline">
@@ -94,7 +153,7 @@ export default async function UsersPage() {
             </tr>
           </thead>
           <tbody>
-            {users.map((u) => (
+            {tableUsers.map((u) => (
               <tr
                 key={u.id}
                 className={`border-b border-slate-100 last:border-0 ${u.active ? 'hover:bg-navy-bg' : 'bg-ground text-slate-500'}`}
