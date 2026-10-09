@@ -7,7 +7,7 @@ import { SETTINGS, type SettingGroup } from '@/lib/settings/registry'
 
 /**
  * `/admin/settings`. FINANCE_ADMIN only — gated by the layout and again here.
- * Eleven knobs, grouped; every one bounded by the registry; every change on the
+ * Twelve knobs, grouped; every one bounded by the registry; every change on the
  * audit trail. The LOGIN group can be tightened freely and loosened only to
  * the floor — the client's guardrail of 2026-09-12.
  */
