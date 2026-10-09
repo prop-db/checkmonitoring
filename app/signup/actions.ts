@@ -20,10 +20,11 @@ import { loadSettings } from '@/lib/settings/read'
  * refused by the domain, so hammering a refused form extends the wait. The
  * attempt is recorded BEFORE the registration runs (which hashes a password
  * and is the slow part), and the count that decides is taken in the same
- * transaction as that insert, so it includes the caller's own row: parallel
- * submissions from one address each see their own row and there is no
- * count-then-insert window to burst through. The caller is refused when that
- * count is greater than the allowance. A mismatched pair and an over-long
+ * transaction as that insert and under a per-address advisory lock (see
+ * `lib/registration-throttle.ts`), so it includes the caller's own row and
+ * every earlier same-address commit: parallel submissions from one address
+ * queue and count exactly 1..N, with no count-then-insert window to burst
+ * through. The caller is refused when that count is greater than the allowance. A mismatched pair and an over-long
  * entry are refused before any database work and are not attempts against
  * anything.
  *

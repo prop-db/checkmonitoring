@@ -16,11 +16,17 @@ import { RETENTION_DAYS } from '@/lib/login-throttle'
  * login throttle supplies the address, with the same rightmost-entry rule and
  * the same shared `unknown` bucket, which is deliberately NOT exempt.
  *
- * **The count is taken after the insert, in the same transaction.** A caller
- * records its own submission first and is told how many rows this address now
- * has in the window, its own included, so parallel submissions from one
- * address each see their own row and the caller refuses when `recent` is
- * greater than the limit. There is no count-then-insert gap to burst through.
+ * **The count is taken after the insert, in the same transaction, under a
+ * per-address advisory lock.** A caller records its own submission first and is
+ * told how many rows this address now has in the window, its own included, and
+ * refuses when `recent` is greater than the limit. Insert-then-count alone is
+ * NOT enough: Prisma's interactive transactions run READ COMMITTED, so N
+ * parallel submissions each count only the rows already committed and every one
+ * of them can see a count within the limit. `pg_advisory_xact_lock` on the
+ * address, taken as the transaction's first statement, makes same-address
+ * submissions queue, so each one's count includes every earlier commit and the
+ * counts are exactly 1..N. Different addresses hash to different locks and do
+ * not wait for each other; the lock is released at commit or rollback.
  *
  * The allowance is the setting `signup.ipPerHour`; callers read it through
  * `loadSettings` at request time and pass it in. Nothing here reads a
@@ -51,6 +57,8 @@ export async function recordRegistrationAttempt(
   args: { ip: string; email: string; now: Date },
 ): Promise<{ recent: number }> {
   return db.$transaction(async (tx) => {
+    // First statement: serialise same-address submissions (see the header).
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${args.ip}))`
     await tx.registrationAttempt.create({
       data: { ip: args.ip, email: args.email, createdAt: args.now },
     })

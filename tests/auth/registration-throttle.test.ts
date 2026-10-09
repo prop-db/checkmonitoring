@@ -59,6 +59,27 @@ describe('recordRegistrationAttempt', () => {
     expect((await recordRegistrationAttempt(testDb, { ip: UNKNOWN_IP, email: 'new@example.com', now: NOW })).recent).toBe(LIMIT + 1)
   })
 
+  // Prisma's interactive transactions run READ COMMITTED: without serialising, N parallel
+  // inserts each count only the rows already committed and all of them can pass the limit.
+  // The advisory lock on the address makes the count exact: 1..N, each value once.
+  it('serialises parallel submissions from one address: the counts are exactly 1..N', async () => {
+    const N = 6
+    const results = await Promise.all(
+      Array.from({ length: N }, (_, i) =>
+        recordRegistrationAttempt(testDb, { ip: IP, email: `p${i}@example.com`, now: NOW })),
+    )
+    expect(results.map((r) => r.recent).sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6])
+    expect(await testDb.registrationAttempt.count()).toBe(N)
+  })
+
+  it('does not make different addresses wait for each other: each counts only itself', async () => {
+    const results = await Promise.all(
+      ['198.51.100.1', '198.51.100.2', '198.51.100.3'].map((ip) =>
+        recordRegistrationAttempt(testDb, { ip, email: 'x@example.com', now: NOW })),
+    )
+    expect(results.map((r) => r.recent)).toEqual([1, 1, 1])
+  })
+
   it('keeps a recent row through the prune and deletes one past retention', async () => {
     await attempt({ at: minutesBefore(5) })
     await attempt({ at: new Date(NOW.getTime() - (RETENTION_DAYS + 1) * 24 * 60 * 60_000) })
