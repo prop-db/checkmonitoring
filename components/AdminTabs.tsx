@@ -50,12 +50,12 @@ export function AdminTabs({
               // Pending registrations waiting on USERS. A count, not a
               // permission: the gate is still requireAdmin() in the layout.
               <span
-                aria-label={`${badge} waiting for approval`}
                 className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                   active ? 'bg-white text-navy' : 'bg-warning-bg text-warning-ink'
                 }`}
               >
-                {badge}
+                <span aria-hidden="true">{badge}</span>
+                <span className="sr-only">{`${badge} waiting for approval`}</span>
               </span>
             )}
           </Link>

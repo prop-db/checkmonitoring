@@ -13,7 +13,7 @@ import type { AdminActionResult } from '@/app/admin/actions'
  * The six user-administration actions (spec §12: "manage users" is
  * FINANCE_ADMIN only).
  *
- * **All four refuse a FINANCE_USER by RETURNING a result, never by
+ * **All six refuse a FINANCE_USER by RETURNING a result, never by
  * redirecting.** `requireAdmin` redirects, Next implements a redirect by
  * throwing, and `run()` below would catch that throw and report it as
  * "Something went wrong. Please try again." on a page the user is not entitled

@@ -36,7 +36,10 @@ export function PendingUserActions({
     startTransition(async () => {
       const r = await action(f)
       setResult(r)
-      if (r.ok) router.refresh()
+      // Refresh on EVERY result: a refused APPROVE (re-registered, or no
+      // longer pending) means the row on screen is stale, and the new
+      // REGISTERED time and ORIGIN should sit beside the message.
+      router.refresh()
     })
   }
 

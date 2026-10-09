@@ -288,6 +288,13 @@ describe('approveUserAction and rejectUserAction', () => {
     expect((await testDb.user.findUniqueOrThrow({ where: { id: p.id } })).active).toBe(false)
   })
 
+  it('treats an unreadable pendingSince as absent: the approval still goes through', async () => {
+    const { approveUserAction } = await import('@/app/admin/users/actions')
+    const p = await pendingAccount()
+    expect(await approveUserAction(fd({ userId: p.id, role: 'FINANCE_USER', pendingSince: 'garbage' }))).toEqual({ ok: true })
+    expect(await testDb.user.findUniqueOrThrow({ where: { id: p.id } })).toMatchObject({ active: true, pendingSince: null })
+  })
+
   it('reports a domain refusal in its own words', async () => {
     const { approveUserAction } = await import('@/app/admin/users/actions')
     const notPending = await testDb.user.create({

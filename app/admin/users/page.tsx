@@ -122,11 +122,15 @@ export default async function UsersPage() {
               ))}
             </tbody>
           </table>
-          <p className="px-6 pb-5 text-xs leading-relaxed text-slate-500">
-            A re-registered account kept its history and had its name and password replaced by whoever
-            filled in the form — check it is the colleague you expect before approving. REJECT leaves the
-            account deactivated; it can be reactivated from the table later.
-          </p>
+          <div className="space-y-2 px-6 pb-5 text-xs leading-relaxed text-slate-500">
+            {pendingUsers.some((u) => u.previouslyDeactivated) && (
+              <p>
+                A re-registered account kept its history and had its name and password replaced by whoever
+                filled in the form — check it is the colleague you expect before approving.
+              </p>
+            )}
+            <p>REJECT leaves the account deactivated; it can be reactivated from the table later.</p>
+          </div>
         </section>
       )}
 
