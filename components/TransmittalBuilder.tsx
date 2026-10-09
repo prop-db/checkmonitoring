@@ -12,11 +12,11 @@ export type TransmittalCandidate = {
   payee: string
   amount: string | null
   currency: string
-  status: 'SIGNATURE_PENDING' | 'SIGNED'
+  status: 'SIGNATURE_PENDING' | 'SIGNED' | 'RELEASED'
   company: string
 }
 
-type StatusFilter = 'ALL' | 'SIGNATURE_PENDING' | 'SIGNED'
+type StatusFilter = 'ALL' | 'SIGNATURE_PENDING' | 'SIGNED' | 'RELEASED'
 
 /** Remembered between visits, per browser: who a transmittal usually goes to and who checks and approves it. */
 const STORAGE_KEY = 'check-monitoring.transmittal.v1'
@@ -38,8 +38,8 @@ const line =
   'w-full bg-transparent px-1 py-0.5 outline-none border-b border-dotted border-slate-400 focus:border-navy print:border-transparent'
 
 export function TransmittalBuilder({
-  candidates, preparedBy: defaultPreparedBy, truncated,
-}: { candidates: TransmittalCandidate[]; preparedBy: string; truncated: boolean }) {
+  candidates, preparedBy: defaultPreparedBy, truncated, includeReleased,
+}: { candidates: TransmittalCandidate[]; preparedBy: string; truncated: boolean; includeReleased: boolean }) {
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [status, setStatus] = useState<StatusFilter>('ALL')
   const [query, setQuery] = useState('')
@@ -97,15 +97,16 @@ export function TransmittalBuilder({
       {/* ── PICKER (screen only) ─────────────────────────────────────── */}
       <section className="print-hide space-y-3 rounded-2xl bg-white p-4 ring-1 ring-hairline">
         <p className="text-sm leading-relaxed text-slate-600">
-          Tick the checks to put on the transmittal. The list holds checks still at SIGNATURE PENDING or SIGNED
+          Tick the checks to put on the transmittal. The list holds checks at SIGNATURE PENDING or SIGNED{includeReleased ? ' and RELEASED' : ''}
           with a recorded amount. Fill in the sheet below, then press PRINT — choose <strong>Save as PDF</strong> in
           the print window to keep a copy. Nothing here changes a check’s status.
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)} className={field}>
-            <option value="ALL">SIGNATURE PENDING + SIGNED</option>
+            <option value="ALL">{includeReleased ? 'ALL STATUSES' : 'SIGNATURE PENDING + SIGNED'}</option>
             <option value="SIGNATURE_PENDING">SIGNATURE PENDING</option>
             <option value="SIGNED">SIGNED</option>
+            {includeReleased && <option value="RELEASED">RELEASED</option>}
           </select>
           <select aria-label="Company" value={company} onChange={(e) => setCompany(e.target.value)} className={field}>
             <option value="">ANY COMPANY</option>
@@ -127,6 +128,14 @@ export function TransmittalBuilder({
           >
             CLEAR
           </button>
+          {/* A link, not a toggle in place: the RELEASED checks are ~10,000 rows the
+              server only loads when asked. Switching reloads the list and clears the ticks. */}
+          <a
+            href={includeReleased ? '/transmittal' : '/transmittal?released=1'}
+            className="h-9 rounded-lg bg-white px-3 text-sm font-medium leading-9 tracking-wide text-navy ring-1 ring-hairline hover:bg-navy-bg"
+          >
+            {includeReleased ? 'HIDE RELEASED CHECKS' : 'INCLUDE RELEASED CHECKS'}
+          </a>
           <span className="ml-auto text-xs font-medium tracking-wide text-slate-600">
             {picked.length.toLocaleString('en-PH')} SELECTED
           </span>

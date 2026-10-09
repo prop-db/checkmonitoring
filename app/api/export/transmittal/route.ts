@@ -8,7 +8,7 @@ import { buildTransmittalWorkbook } from '@/lib/export/transmittal-workbook'
  * EXPORT THE TRANSMITTAL. A POST from the page's form: the ticked ids and the
  * typed names ride in the body, because a picked set of a thousand cheques does
  * not fit a URL. The rows are re-read here by id and re-checked — still
- * SIGNATURE PENDING or SIGNED, still a cheque, still with an amount — so the
+ * SIGNATURE PENDING, SIGNED or RELEASED, still a cheque, still with an amount — so the
  * file can never hold more than the page's list could. Authenticates on its
  * first line (401, not a redirect), like every export route; read-only.
  */
@@ -30,7 +30,7 @@ export async function POST(request: Request): Promise<Response> {
   if (ids.length === 0) return new Response('NO CHECKS SELECTED', { status: 400, headers: { 'content-type': 'text/plain; charset=utf-8' } })
 
   const rows = (await listChecksByIds(prisma, ids))
-    .filter((r) => (r.status === 'SIGNATURE_PENDING' || r.status === 'SIGNED') && r.isCheque && r.amount !== null)
+    .filter((r) => (r.status === 'SIGNATURE_PENDING' || r.status === 'SIGNED' || r.status === 'RELEASED') && r.isCheque && r.amount !== null)
     .map(toTableRow)
     .sort((a, b) => compareCheckNumbers(a.checkNumber, b.checkNumber))
 
