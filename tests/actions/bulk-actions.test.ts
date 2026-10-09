@@ -332,7 +332,7 @@ describe('bulkReleaseAction', () => {
 
     const result = await bulkReleaseAction(fd([a.id, b.id], { [`orNumber:${a.id}`]: '4471' }))
 
-    expect(result).toEqual({ ok: false, message: 'Choose OR or CR for every receipt reference you typed. Nothing was saved.' })
+    expect(result).toEqual({ ok: false, message: 'Choose the receipt type (OR, CR, AR, PR or SI) for every reference you typed. Nothing was saved.' })
     for (const id of [a.id, b.id]) {
       expect((await testDb.check.findUniqueOrThrow({ where: { id } })).status).toBe('READY_FOR_RELEASE')
     }
