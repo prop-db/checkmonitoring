@@ -39,13 +39,13 @@ export default async function WelcomePage() {
         <div className="flex shrink-0 items-center gap-2">
           <Link
             href="/signup"
-            className="whitespace-nowrap rounded-lg bg-white px-5 py-2.5 text-sm font-medium tracking-wide text-navy shadow-sm ring-1 ring-hairline transition hover:bg-navy-bg"
+            className="whitespace-nowrap rounded-lg bg-white px-3 sm:px-5 py-2.5 text-sm font-medium tracking-wide text-navy shadow-sm ring-1 ring-hairline transition hover:bg-navy-bg"
           >
             CREATE ACCOUNT
           </Link>
           <Link
             href="/login"
-            className="whitespace-nowrap rounded-lg bg-navy px-5 py-2.5 text-sm font-medium tracking-wide text-white shadow-sm transition hover:bg-navy/90"
+            className="whitespace-nowrap rounded-lg bg-navy px-3 sm:px-5 py-2.5 text-sm font-medium tracking-wide text-white shadow-sm transition hover:bg-navy/90"
           >
             SIGN IN
           </Link>

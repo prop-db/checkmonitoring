@@ -43,7 +43,15 @@ export function SignupForm() {
       onSubmit={(e) => {
         e.preventDefault()
         const formData = new FormData(e.currentTarget)
-        startTransition(async () => setResult(await registerAction(formData)))
+        startTransition(async () => {
+          try {
+            setResult(await registerAction(formData))
+          } catch {
+            // A thrown action (network drop, server fault) would otherwise
+            // leave the form silent with nothing said to the person.
+            setResult({ ok: false, message: 'Something went wrong. Please try again.' })
+          }
+        })
       }}
     >
       <p className="mb-5 text-sm text-slate-500">
@@ -51,14 +59,14 @@ export function SignupForm() {
       </p>
 
       {result && !result.ok && (
-        <p className="mb-5 rounded-lg bg-danger-bg px-4 py-3 text-sm text-danger-ink">{result.message}</p>
+        <p role="alert" className="mb-5 rounded-lg bg-danger-bg px-4 py-3 text-sm text-danger-ink">{result.message}</p>
       )}
 
       <label htmlFor="signup-name" className={label}>NAME</label>
       <input id="signup-name" name="name" required autoComplete="name" className={`${field} mb-4`} />
 
       <label htmlFor="signup-email" className={label}>EMAIL</label>
-      <input id="signup-email" name="email" type="email" required autoComplete="username" className={`${field} mb-4`} />
+      <input id="signup-email" name="email" type="email" required autoComplete="email" className={`${field} mb-4`} />
 
       <label htmlFor="signup-password" className={label}>PASSWORD</label>
       <input id="signup-password" name="password" type="password" required autoComplete="new-password" className={`${field} mb-1.5`} />
