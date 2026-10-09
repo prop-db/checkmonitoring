@@ -114,7 +114,7 @@ describe('registerAction', () => {
     expect(attempt.email).toBe('new@rcl.com.ph')
   })
 
-  it('lets a deactivated account register again: still inactive, pending, under the new name', async () => {
+  it('lets a deactivated account register again: still inactive, pending, the typed name held aside', async () => {
     const { registerAction } = await import('@/app/signup/actions')
     await testDb.user.create({
       data: { email: 'gone@rcl.com.ph', name: 'Old Name', passwordHash: 'x', role: 'FINANCE_USER', active: false },
@@ -124,8 +124,11 @@ describe('registerAction', () => {
     const u = await testDb.user.findUniqueOrThrow({ where: { email: 'gone@rcl.com.ph' } })
     expect(u.active).toBe(false)
     expect(u.pendingSince).not.toBeNull()
-    expect(u.name).toBe('Fresh Name')
-    expect(await verifyPassword(u.passwordHash, STRONG)).toBe(true)
+    // Nothing on the existing row changes until an admin approves.
+    expect(u.name).toBe('Old Name')
+    expect(u.passwordHash).toBe('x')
+    expect(u.pendingName).toBe('Fresh Name')
+    expect(await verifyPassword(u.pendingPasswordHash!, STRONG)).toBe(true)
   })
 
   it.each([

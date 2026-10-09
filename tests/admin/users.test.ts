@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { Prisma, Role } from '@prisma/client'
 import { testDb, resetDb } from '../helpers/db'
 import { DomainError } from '@/lib/domain/errors'
-import { verifyPassword } from '@/lib/password'
+import { hashPassword, verifyPassword } from '@/lib/password'
 import { BACKOFF_MINUTES, EMAIL_FREE_FAILURES, loginLockout } from '@/lib/login-throttle'
 import {
   SEEDED_TEST_ACCOUNT_EMAILS,
@@ -15,6 +15,7 @@ import {
 // distinctive string that could not appear in a row by coincidence.
 const STRONG = 'Zq7!vantablack-Ledger'
 const STRONG_TWO = 'Xw4?permafrost-Ledger'
+const STRONG_OLD = 'Rm3#granite-Daybook'
 
 beforeEach(resetDb)
 
@@ -39,6 +40,13 @@ async function makeFinanceUser(overrides: { email?: string; active?: boolean } =
       role: 'FINANCE_USER',
       active: overrides.active ?? true,
     },
+  })
+}
+
+/** A deactivated colleague whose genuine password is STRONG_OLD. */
+async function deactivatedWithOldPassword(email = 'ayessa@rcl.com.ph') {
+  return testDb.user.create({
+    data: { email, name: 'Old Name', passwordHash: await hashPassword(STRONG_OLD), role: 'FINANCE_ADMIN', active: false },
   })
 }
 
@@ -103,8 +111,29 @@ describe('listUsers', () => {
     const rows = await listUsers(testDb)
     for (const row of rows) {
       expect(Object.keys(row)).not.toContain('passwordHash')
+      expect(Object.keys(row)).not.toContain('pendingPasswordHash')
     }
     expect(JSON.stringify(rows)).not.toContain(STRONG)
+  })
+
+  it('reports a held registration as hasPendingCredentials and carries no hash for it', async () => {
+    await deactivatedWithOldPassword('held@rcl.com.ph')
+    await registerUser(testDb, { email: 'held@rcl.com.ph', name: 'Held Name', password: STRONG })
+    await registerUser(testDb, { email: 'fresh@rcl.com.ph', name: 'Fresh', password: STRONG })
+    await makeFinanceUser({ email: 'plain@rcl.com.ph' })
+
+    const rows = await listUsers(testDb)
+    const by = (e: string) => rows.find((r) => r.email === e)!
+    expect(by('held@rcl.com.ph')).toMatchObject({ name: 'Old Name', pendingName: 'Held Name', hasPendingCredentials: true })
+    expect(by('fresh@rcl.com.ph')).toMatchObject({ pendingName: null, hasPendingCredentials: false })
+    expect(by('plain@rcl.com.ph')).toMatchObject({ pendingName: null, hasPendingCredentials: false })
+    for (const row of rows) {
+      expect(Object.keys(row)).not.toContain('passwordHash')
+      expect(Object.keys(row)).not.toContain('pendingPasswordHash')
+    }
+    const text = JSON.stringify(rows)
+    expect(text).not.toContain(STRONG)
+    expect(text).not.toContain('argon2')
   })
 
   it('flags the seeded test accounts and nothing else', async () => {
@@ -552,30 +581,43 @@ describe('registerUser', () => {
     expect(await testDb.auditLog.count()).toBe(0)
   })
 
-  it('re-opens a DEACTIVATED account: same id, new name and password, pending, still inactive', async () => {
-    const old = await testDb.user.create({
-      data: { email: 'ayessa@rcl.com.ph', name: 'Old Name', passwordHash: 'x', role: 'FINANCE_ADMIN', active: false },
-    })
+  it('re-opens a DEACTIVATED account: same id, pending, still inactive - and name and password UNCHANGED', async () => {
+    // The row's name and password are read live (SIGNED BY, RELEASED BY, the portal's
+    // releasedBy, sign-in after a reactivation), so an anonymous submission naming its
+    // address changes NEITHER: what was typed is held aside until approval.
+    const old = await deactivatedWithOldPassword()
     await registerUser(testDb, { email: 'ayessa@rcl.com.ph', name: 'Ayessa Morinne', password: STRONG })
 
     const u = await testDb.user.findUniqueOrThrow({ where: { email: 'ayessa@rcl.com.ph' } })
     expect(u.id).toBe(old.id)
-    expect(u).toMatchObject({ name: 'Ayessa Morinne', active: false, role: 'FINANCE_ADMIN' })
+    expect(u).toMatchObject({ name: 'Old Name', active: false, role: 'FINANCE_ADMIN', pendingName: 'Ayessa Morinne' })
     expect(u.pendingSince).not.toBeNull()
-    expect(await verifyPassword(u.passwordHash, STRONG)).toBe(true)
+    expect(u.passwordHash).toBe(old.passwordHash)
+    expect(await verifyPassword(u.passwordHash, STRONG_OLD)).toBe(true)
+    expect(await verifyPassword(u.passwordHash, STRONG)).toBe(false)
+    expect(await verifyPassword(u.pendingPasswordHash!, STRONG)).toBe(true)
     expect(await testDb.user.count()).toBe(1)
 
     const row = await testDb.auditLog.findFirstOrThrow()
     expect(row).toMatchObject({ actorType: 'SYSTEM', userId: null, action: 'user_reregistered' })
-    expect(row.details).toMatchObject({ targetUserId: old.id, email: 'ayessa@rcl.com.ph', name: 'Ayessa Morinne' })
+    expect(row.details).toMatchObject({
+      targetUserId: old.id, email: 'ayessa@rcl.com.ph', name: 'Ayessa Morinne',
+      currentName: 'Old Name', wasPending: false,
+    })
+    const trail = await auditText()
+    expect(trail).not.toContain(STRONG)
+    expect(trail).not.toContain(u.pendingPasswordHash!)
   })
 
-  it('re-opens an account that is already pending (a forgotten password before approval)', async () => {
+  it('re-opens an account that is already pending: the typed name and password replace only the held ones', async () => {
     await registerUser(testDb, { email: 'p@rcl.com.ph', name: 'First Try', password: STRONG })
     await registerUser(testDb, { email: 'p@rcl.com.ph', name: 'Second Try', password: STRONG_TWO })
     const u = await testDb.user.findUniqueOrThrow({ where: { email: 'p@rcl.com.ph' } })
-    expect(u.name).toBe('Second Try')
-    expect(await verifyPassword(u.passwordHash, STRONG_TWO)).toBe(true)
+    // The first registration created the row, so it still carries that name and password.
+    expect(u.name).toBe('First Try')
+    expect(await verifyPassword(u.passwordHash, STRONG)).toBe(true)
+    expect(u.pendingName).toBe('Second Try')
+    expect(await verifyPassword(u.pendingPasswordHash!, STRONG_TWO)).toBe(true)
     expect(isPending(u)).toBe(true)
     const actions = (await testDb.auditLog.findMany({ orderBy: { createdAt: 'asc' } })).map((r) => r.action)
     expect(actions).toEqual(['user_registered', 'user_reregistered'])
@@ -613,13 +655,16 @@ describe('registerUser', () => {
       setUserActive(testDb, { userId: target.id, active: true, actorId: admin.id }),
     ])
     const u = await testDb.user.findUniqueOrThrow({ where: { id: target.id } })
-    const hasNewHash = await verifyPassword(u.passwordHash, STRONG)
+    // Whoever wins, the row's own name and password are never the stranger's, and
+    // an ACTIVE row carries no held credentials.
+    expect(u.name).toBe('Old')
+    expect(u.passwordHash).toBe('original-hash')
     if (u.active) {
-      expect(hasNewHash).toBe(false)
-      expect(u.passwordHash).toBe('original-hash')
+      expect(u.pendingName).toBeNull()
+      expect(u.pendingPasswordHash).toBeNull()
     } else {
-      expect(hasNewHash).toBe(true)
       expect(isPending(u)).toBe(true)
+      expect(await verifyPassword(u.pendingPasswordHash!, STRONG)).toBe(true)
     }
   })
 
@@ -649,6 +694,48 @@ describe('approveUser', () => {
     expect(audit.details).toMatchObject({ targetUserId: pending.id, email: 'p@rcl.com.ph', role: 'FINANCE_ADMIN' })
   })
 
+  it('approving a re-registered account applies the typed name and password, and clears the held ones', async () => {
+    const actor = await makeAdmin()
+    await deactivatedWithOldPassword()
+    await registerUser(testDb, { email: 'ayessa@rcl.com.ph', name: 'Ayessa Morinne', password: STRONG })
+    const pending = await testDb.user.findUniqueOrThrow({ where: { email: 'ayessa@rcl.com.ph' } })
+
+    const row = await approveUser(testDb, { userId: pending.id, role: 'FINANCE_USER', actorId: actor.id })
+    expect(row).toMatchObject({ name: 'Ayessa Morinne', active: true, pendingSince: null, pendingName: null, hasPendingCredentials: false })
+
+    const u = await testDb.user.findUniqueOrThrow({ where: { id: pending.id } })
+    expect(u).toMatchObject({ name: 'Ayessa Morinne', active: true, pendingName: null, pendingPasswordHash: null })
+    expect(await verifyPassword(u.passwordHash, STRONG)).toBe(true)
+    expect(await verifyPassword(u.passwordHash, STRONG_OLD)).toBe(false)
+
+    const audit = await testDb.auditLog.findFirstOrThrow({ where: { action: 'user_approved' } })
+    expect(audit.details).toMatchObject({ targetUserId: pending.id, nameChangedFrom: 'Old Name' })
+    expect(await auditText()).not.toContain(u.passwordHash)
+  })
+
+  it('approving a NEW pending account (nothing held) still works and keeps its password', async () => {
+    const actor = await makeAdmin()
+    await registerUser(testDb, { email: 'new@rcl.com.ph', name: 'New Person', password: STRONG })
+    const pending = await testDb.user.findUniqueOrThrow({ where: { email: 'new@rcl.com.ph' } })
+    await approveUser(testDb, { userId: pending.id, role: 'FINANCE_USER', actorId: actor.id })
+    const u = await testDb.user.findUniqueOrThrow({ where: { id: pending.id } })
+    expect(u).toMatchObject({ name: 'New Person', active: true })
+    expect(await verifyPassword(u.passwordHash, STRONG)).toBe(true)
+    const audit = await testDb.auditLog.findFirstOrThrow({ where: { action: 'user_approved' } })
+    expect(audit.details).not.toHaveProperty('nameChangedFrom')
+  })
+
+  it('approving a NEW account registered again while pending applies the second registration', async () => {
+    const actor = await makeAdmin()
+    await registerUser(testDb, { email: 'p@rcl.com.ph', name: 'First Try', password: STRONG })
+    await registerUser(testDb, { email: 'p@rcl.com.ph', name: 'Second Try', password: STRONG_TWO })
+    const pending = await testDb.user.findUniqueOrThrow({ where: { email: 'p@rcl.com.ph' } })
+    await approveUser(testDb, { userId: pending.id, role: 'FINANCE_USER', actorId: actor.id })
+    const u = await testDb.user.findUniqueOrThrow({ where: { id: pending.id } })
+    expect(u.name).toBe('Second Try')
+    expect(await verifyPassword(u.passwordHash, STRONG_TWO)).toBe(true)
+  })
+
   it('refuses an account that is not pending', async () => {
     const actor = await makeAdmin()
     const deactivated = await makeFinanceUser({ active: false })
@@ -672,7 +759,7 @@ describe('approveUser', () => {
     }).catch((e) => e)
     expect(err).toBeInstanceOf(DomainError)
     expect(err.code).toBe('REREGISTERED')
-    expect(err.message).toBe('Second was re-registered after this page loaded. Reload and check the new registration before approving.')
+    expect(err.message).toBe('First was re-registered after this page loaded. Reload and check the new registration before approving.')
     expect(isPending(await testDb.user.findUniqueOrThrow({ where: { id: pending.id } }))).toBe(true)
     expect(await testDb.auditLog.count({ where: { action: 'user_approved' } })).toBe(0)
 
@@ -700,6 +787,26 @@ describe('rejectUser', () => {
     // A rejected account is an ordinary deactivated one: REACTIVATE works on it.
     await setUserActive(testDb, { userId: pending.id, active: true, actorId: actor.id })
     expect((await testDb.user.findUniqueOrThrow({ where: { id: pending.id } })).active).toBe(true)
+  })
+
+  it('discards what was typed at a re-registration: name and password intact, then REACTIVATE restores the genuine account', async () => {
+    const actor = await makeAdmin()
+    await deactivatedWithOldPassword()
+    await registerUser(testDb, { email: 'ayessa@rcl.com.ph', name: 'Stranger', password: STRONG })
+    const pending = await testDb.user.findUniqueOrThrow({ where: { email: 'ayessa@rcl.com.ph' } })
+
+    const row = await rejectUser(testDb, { userId: pending.id, actorId: actor.id })
+    expect(row).toMatchObject({ name: 'Old Name', pendingSince: null, pendingName: null, hasPendingCredentials: false })
+    const rejected = await testDb.user.findUniqueOrThrow({ where: { id: pending.id } })
+    expect(rejected).toMatchObject({ name: 'Old Name', active: false, pendingName: null, pendingPasswordHash: null })
+    expect(await verifyPassword(rejected.passwordHash, STRONG_OLD)).toBe(true)
+    expect(await verifyPassword(rejected.passwordHash, STRONG)).toBe(false)
+
+    await setUserActive(testDb, { userId: pending.id, active: true, actorId: actor.id })
+    const back = await testDb.user.findUniqueOrThrow({ where: { id: pending.id } })
+    expect(back).toMatchObject({ active: true, name: 'Old Name', role: 'FINANCE_ADMIN' })
+    expect(await verifyPassword(back.passwordHash, STRONG_OLD)).toBe(true)
+    expect(await verifyPassword(back.passwordHash, STRONG)).toBe(false)
   })
 
   it('refuses an account that is not pending', async () => {
@@ -802,7 +909,7 @@ describe('writes conditional on the row they read', () => {
   const reRegistering = (userId: string) => (tx: Prisma.TransactionClient) =>
     tx.user.update({
       where: { id: userId },
-      data: { name: 'Re-registered', passwordHash: 'new-hash', pendingSince: new Date(Date.now() + 1000) },
+      data: { pendingName: 'Re-registered', pendingPasswordHash: 'new-hash', pendingSince: new Date(Date.now() + 1000) },
     })
 
   it('REACTIVATE refuses a deactivated account that was re-registered between its read and its write', async () => {
@@ -813,7 +920,7 @@ describe('writes conditional on the row they read', () => {
     expect(err).toBeInstanceOf(DomainError)
     expect((err as DomainError).code).toBe('PENDING')
     const u = await testDb.user.findUniqueOrThrow({ where: { id: target.id } })
-    expect(u).toMatchObject({ active: false, passwordHash: 'new-hash' })
+    expect(u).toMatchObject({ active: false, pendingPasswordHash: 'new-hash' })
     expect(await testDb.auditLog.count({ where: { action: 'user_reactivated' } })).toBe(0)
   })
 
@@ -838,7 +945,7 @@ describe('writes conditional on the row they read', () => {
     expect(err).toBeInstanceOf(DomainError)
     expect((err as DomainError).code).toBe('EMAIL_TAKEN')
     const u = await testDb.user.findUniqueOrThrow({ where: { id: pending.id } })
-    expect(u).toMatchObject({ name: 'Re-registered', passwordHash: 'new-hash' })
+    expect(u).toMatchObject({ pendingName: 'Re-registered', pendingPasswordHash: 'new-hash' })
     expect(await testDb.auditLog.count({ where: { action: 'user_reregistered' } })).toBe(0)
   })
 
@@ -912,11 +1019,14 @@ describe('writes conditional on the row they read', () => {
     ])
     const u = await testDb.user.findUniqueOrThrow({ where: { id: pending.id } })
     if (u.active) {
+      // Approved the registration the admin saw; the later one never got in.
       expect(await verifyPassword(u.passwordHash, STRONG)).toBe(true)
       expect(u.pendingSince).toBeNull()
+      expect(u.pendingPasswordHash).toBeNull()
     } else {
       expect(isPending(u)).toBe(true)
-      expect(await verifyPassword(u.passwordHash, STRONG_TWO)).toBe(true)
+      expect(await verifyPassword(u.passwordHash, STRONG)).toBe(true)
+      expect(await verifyPassword(u.pendingPasswordHash!, STRONG_TWO)).toBe(true)
     }
   })
 })

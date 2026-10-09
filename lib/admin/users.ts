@@ -62,6 +62,17 @@ export type AdminUserRow = {
    */
   pendingSince: Date | null
   /**
+   * The name typed at a re-registration of an EXISTING account, held aside until
+   * an admin approves (`name` stays what it was - it is read live wherever a
+   * check says who signed or released it). Null when nothing is held.
+   */
+  pendingName: string | null
+  /**
+   * True when a password typed at a re-registration is held aside for approval.
+   * The hash itself never leaves this module: `toRow` reduces it to this flag.
+   */
+  hasPendingCredentials: boolean
+  /**
    * True when a registration re-opened a DEACTIVATED (not pending) account and
    * the account has been pending ever since. Walking the account's registration
    * rows newest-first, the first `user_registered` (false) or `user_reregistered`
@@ -91,14 +102,18 @@ export type AdminUserRow = {
 
 // Stated once, as a Prisma select, so no query in this module can accidentally
 // widen itself to the whole row.
+// `pendingPasswordHash` is selected so `toRow` can reduce it to a boolean; it is
+// destructured OUT there and never reaches a row.
 const ROW_SELECT = {
   id: true, name: true, email: true, role: true,
   active: true, lastLoginAt: true, createdAt: true, pendingSince: true,
+  pendingName: true, pendingPasswordHash: true,
 } as const
 
 type SelectedUser = {
   id: string; name: string; email: string; role: Role
   active: boolean; lastLoginAt: Date | null; createdAt: Date; pendingSince: Date | null
+  pendingName: string | null; pendingPasswordHash: string | null
 }
 
 const SEEDED = new Set<string>(SEEDED_TEST_ACCOUNT_EMAILS)
@@ -119,8 +134,10 @@ function toRow(
   failures: LoginFailureState = NO_FAILURES,
   previouslyDeactivated = false,
 ): AdminUserRow {
+  const { pendingPasswordHash, ...rest } = u
   return {
-    ...u,
+    ...rest,
+    hasPendingCredentials: pendingPasswordHash !== null,
     isSeededTestAccount: SEEDED.has(u.email),
     recentFailedLogins: failures.recentFailures,
     lockedUntil: failures.lockedUntil,
@@ -339,10 +356,20 @@ export async function createUser(
  * **An inactive account's address re-registers; an active one's is refused.**
  * The three accounts this was built for had been deactivated and their
  * owners wanted to register again under the same email (user ruling
- * 2026-10-09). The row keeps its id and every attribution it carries; its
- * name and password are replaced with what was just typed. The PENDING list
- * states that the account was re-opened, which is the admin's cue to check
- * it is the colleague they think it is before approving.
+ * 2026-10-09). The row keeps its id and every attribution it carries.
+ *
+ * **Nothing on an EXISTING row changes except the pending marker and the
+ * held-aside `pendingName` / `pendingPasswordHash`.** `name` is read live by
+ * the check page (SIGNED BY, READY BY, RELEASED BY), the receipts page, the
+ * audit screen and the portal's `releasedBy`, and `passwordHash` is what a
+ * REACTIVATE would let in. This function is reachable by anyone who can load
+ * /signup, so writing either at submission would let a stranger rewrite who
+ * appears to have released money, and leave their password on the row after a
+ * reject. The typed values are copied across by `approveUser` and discarded
+ * by `rejectUser`. The PENDING list shows both names and says the account was
+ * re-opened, which is the admin's cue to check it is the colleague they think
+ * it is before approving. (A brand-new row has nothing to protect and takes
+ * the typed name and hash directly.)
  *
  * Returns nothing. There is no shape in which the hash can reach a browser.
  * The audit row is SYSTEM: nobody is signed in.
@@ -377,13 +404,16 @@ export async function registerUser(
         // nothing.
         const { count } = await tx.user.updateMany({
           where: { id: existing.id, active: false, pendingSince: existing.pendingSince },
-          data: { name, passwordHash, pendingSince: now },
+          data: { pendingName: name, pendingPasswordHash: passwordHash, pendingSince: now },
         })
         if (count === 0) throw taken
         await writeAudit(tx, {
           actorType: 'SYSTEM',
           action: 'user_reregistered',
-          details: { targetUserId: existing.id, email, name, wasPending: isPending(existing) },
+          details: {
+            targetUserId: existing.id, email, name, currentName: existing.name,
+            wasPending: isPending(existing),
+          },
           remarks: email,
         })
         return
@@ -438,6 +468,12 @@ async function explainLostPendingWrite(
 /**
  * Approve a pending account: the role the admin chose, active, flag cleared.
  * No last-admin guard applies — this can only add an active account.
+ *
+ * A re-registration's held name and password are applied HERE and nowhere
+ * earlier: `name` becomes `pendingName` and `passwordHash` becomes
+ * `pendingPasswordHash`, both held columns are cleared, and the audit row
+ * records the name it replaced (`nameChangedFrom`). The held hash is read
+ * inside the transaction and never returned or audited.
  */
 export async function approveUser(
   db: PrismaClient,
@@ -453,13 +489,23 @@ export async function approveUser(
     if (args.seenPendingSince && args.seenPendingSince.getTime() !== target.pendingSince!.getTime()) {
       throw new DomainError('REREGISTERED', reRegisteredMessage(target.name))
     }
+    // The held hash, read here and used only inside the conditional write
+    // below: if a re-registration commits after this read it moves
+    // `pendingSince`, the WHERE fails, and nothing is applied.
+    const pendingHash = target.pendingPasswordHash
+    const nameChanged = target.pendingName !== null && target.pendingName !== target.name
     // Conditional on the registration this function read: a re-registration
     // that commits between the read and this write moves `pendingSince`, the
     // WHERE no longer matches, and the admin is told rather than approving a
     // password they never saw.
     const { count } = await tx.user.updateMany({
       where: { id: target.id, active: false, pendingSince: target.pendingSince },
-      data: { role: args.role, active: true, pendingSince: null },
+      data: {
+        role: args.role, active: true, pendingSince: null,
+        pendingName: null, pendingPasswordHash: null,
+        ...(target.pendingName !== null ? { name: target.pendingName } : {}),
+        ...(pendingHash !== null ? { passwordHash: pendingHash } : {}),
+      },
     })
     if (count === 0) throw await explainLostPendingWrite(tx, target.id, 'approving')
     const updated = await loadTarget(tx, target.id)
@@ -467,7 +513,10 @@ export async function approveUser(
       actorType: 'USER',
       userId: args.actorId,
       action: 'user_approved',
-      details: { targetUserId: target.id, email: target.email, role: args.role },
+      details: {
+        targetUserId: target.id, email: target.email, role: args.role,
+        ...(nameChanged ? { nameChangedFrom: target.name } : {}),
+      },
       remarks: target.email,
     })
     return toRow(updated)
@@ -478,6 +527,11 @@ export async function approveUser(
  * Reject a pending account: flag cleared, still inactive. The row stays — an
  * ordinary DEACTIVATED account from here on — so the address cannot re-land on
  * the list silently, and REACTIVATE is there if the rejection was a mistake.
+ *
+ * Whatever a re-registration typed is DISCARDED (`pendingName`,
+ * `pendingPasswordHash`), and the row keeps the name and password it had
+ * before. REACTIVATE after a reject therefore restores the genuine account,
+ * never one that answers to a stranger's password.
  */
 export async function rejectUser(
   db: PrismaClient,
@@ -491,7 +545,7 @@ export async function rejectUser(
     // Conditional on the registration this function read, as in approveUser.
     const { count } = await tx.user.updateMany({
       where: { id: target.id, active: false, pendingSince: target.pendingSince },
-      data: { pendingSince: null },
+      data: { pendingSince: null, pendingName: null, pendingPasswordHash: null },
     })
     if (count === 0) throw await explainLostPendingWrite(tx, target.id, 'rejecting')
     const updated = await loadTarget(tx, target.id)
@@ -567,8 +621,10 @@ export async function setUserActive(
       // and anything else (rejected meanwhile - inactive, no flag) is a
       // change the admin must be told about, not an inactive row returned as
       // if it had been activated.
+      // `pendingPasswordHash: null` is belt and braces: a row holding a typed
+      // password is pending, and pending is refused above.
       const { count } = await tx.user.updateMany({
-        where: { id: target.id, active: false, pendingSince: null },
+        where: { id: target.id, active: false, pendingSince: null, pendingPasswordHash: null },
         data: { active: true },
       })
       if (count === 0) {

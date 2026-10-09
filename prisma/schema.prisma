@@ -803,6 +803,15 @@ model User {
   /// NULL`. An inactive account with this null is DEACTIVATED, as before.
   /// `isPending` in lib/admin/users.ts is the one definition.
   pendingSince DateTime?
+  /// The name typed on /signup when an EXISTING inactive account was re-registered. Held
+  /// here, not in `name`, until an admin approves: `name` is read live by every page and
+  /// portal event that says who released a check, and an anonymous submission must not be
+  /// able to rewrite that. Copied into `name` by `approveUser`, cleared by `rejectUser`.
+  pendingName         String?
+  /// The argon2id hash typed at the same re-registration, held aside for the same reason:
+  /// the row's own `passwordHash` stays what it was, so REACTIVATE after a reject restores
+  /// the genuine account. Copied into `passwordHash` by `approveUser`, cleared by `rejectUser`.
+  pendingPasswordHash String?
   createdAt    DateTime  @default(now())
 
   auditLogs         AuditLog[]
