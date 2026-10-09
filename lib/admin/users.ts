@@ -158,6 +158,18 @@ function normaliseEmail(raw: string): string {
 }
 
 /**
+ * A minimal shape check, not RFC 5322: something, one `@`, something, a dot,
+ * something, no whitespace. It catches a typed name or a missing domain - an
+ * account nobody could ever sign in to or be told about - without pretending to
+ * decide what a deliverable address is.
+ */
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+function requireEmailShape(email: string): void {
+  if (!EMAIL_SHAPE.test(email)) throw new DomainError('EMAIL_INVALID', 'Enter a valid email address.')
+}
+
+/**
  * THE definition of a pending account. Inactive, with the registration flag
  * set. An inactive account with the flag clear is DEACTIVATED, as it always
  * was; approving or rejecting clears the flag. Every screen reads this, not
@@ -305,6 +317,7 @@ export async function createUser(
   const email = normaliseEmail(args.email)
   const name = args.name.trim()
   if (!email) throw new DomainError('EMAIL_REQUIRED', 'An email address is required.')
+  requireEmailShape(email)
   if (!name) throw new DomainError('NAME_REQUIRED', 'A name is required — the audit trail shows it against every action this person takes.')
   requirePassword(args.password)
 
@@ -381,6 +394,7 @@ export async function registerUser(
   const email = normaliseEmail(args.email)
   const name = args.name.trim()
   if (!email) throw new DomainError('EMAIL_REQUIRED', 'An email address is required.')
+  requireEmailShape(email)
   if (!name) throw new DomainError('NAME_REQUIRED', 'A name is required — it is shown against every action this account takes.')
   requirePassword(args.password)
 

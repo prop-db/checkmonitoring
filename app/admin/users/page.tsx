@@ -101,13 +101,25 @@ export default async function UsersPage() {
             <tbody>
               {pendingUsers.map((u) => (
                 <tr key={u.id} className="border-b border-slate-100 last:border-0">
-                  <td className="px-4 py-3 font-medium">{u.name}</td>
+                  <td className="px-4 py-3 font-medium">
+                    {u.name}
+                    {u.pendingName !== null && u.pendingName !== u.name && (
+                      <div className="mt-0.5 text-xs font-normal text-warning-ink">
+                        <span className="mr-1 text-[10px] font-semibold tracking-wide">NAME ON APPROVAL</span>
+                        {`→ ${u.pendingName}`}
+                      </div>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-slate-600">{u.email}</td>
                   <td className="px-4 py-3 text-slate-600">{fmtDateTime(u.pendingSince)}</td>
                   <td className="px-4 py-3">
                     {u.previouslyDeactivated ? (
                       <span className="rounded bg-warning-bg px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-warning-ink">
                         RE-REGISTERED — PREVIOUSLY DEACTIVATED
+                      </span>
+                    ) : u.hasPendingCredentials ? (
+                      <span className="rounded bg-warning-bg px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-warning-ink">
+                        REGISTERED AGAIN WHILE PENDING
                       </span>
                     ) : (
                       <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-slate-600">
@@ -123,10 +135,11 @@ export default async function UsersPage() {
             </tbody>
           </table>
           <div className="space-y-2 px-6 pb-5 text-xs leading-relaxed text-slate-500">
-            {pendingUsers.some((u) => u.previouslyDeactivated) && (
+            {pendingUsers.some((u) => u.hasPendingCredentials) && (
               <p>
-                A re-registered account kept its history and had its name and password replaced by whoever
-                filled in the form — check it is the colleague you expect before approving.
+                A re-registered account keeps its current name and password until you approve; the typed name
+                is shown beside it. REJECT discards what was typed and leaves the account exactly as it was, so
+                REACTIVATE restores it. Confirm with the person before approving.
               </p>
             )}
             <p>REJECT leaves the account deactivated; it can be reactivated from the table later.</p>

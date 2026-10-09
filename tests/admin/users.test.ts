@@ -272,6 +272,17 @@ describe('createUser', () => {
     })).rejects.toThrow(DomainError)
   })
 
+  it('refuses something that is not shaped like an email address', async () => {
+    const actorId = (await makeAdmin()).id
+    const before = await testDb.user.count()
+    for (const bad of ['plain', 'a@b', 'a b@rcl.com.ph', '@rcl.com.ph']) {
+      const err = await createUser(testDb, { email: bad, name: 'X', password: STRONG, role: 'FINANCE_USER', actorId }).catch((e) => e)
+      expect(err, bad).toBeInstanceOf(DomainError)
+      expect(err.code, bad).toBe('EMAIL_INVALID')
+    }
+    expect(await testDb.user.count()).toBe(before)
+  })
+
   it('refuses a blank name rather than creating a nameless account', async () => {
     const actor = await makeAdmin()
     await expect(createUser(testDb, {
@@ -627,6 +638,17 @@ describe('registerUser', () => {
     await expect(registerUser(testDb, { email: '   ', name: 'X', password: STRONG }))
       .rejects.toMatchObject({ code: 'EMAIL_REQUIRED' })
     expect(await testDb.user.count()).toBe(0)
+  })
+
+  it('refuses something that is not shaped like an email address, and writes nothing', async () => {
+    for (const bad of ['plain', 'no-at.rcl.com.ph', '@rcl.com.ph', 'a@b', 'a b@rcl.com.ph', 'a@@rcl.com.ph', 'a@rcl .com']) {
+      const err = await registerUser(testDb, { email: bad, name: 'X', password: STRONG }).catch((e) => e)
+      expect(err, bad).toBeInstanceOf(DomainError)
+      expect(err.code, bad).toBe('EMAIL_INVALID')
+      expect(err.message).toBe('Enter a valid email address.')
+    }
+    expect(await testDb.user.count()).toBe(0)
+    expect(await testDb.auditLog.count()).toBe(0)
   })
 
   it('leaves an ACTIVE account untouched: hash, name, flag, active, and no audit row', async () => {
