@@ -405,6 +405,10 @@ export async function registerUser(
   }
 }
 
+function reRegisteredMessage(name: string, verb: 'approving' | 'rejecting' = 'approving'): string {
+  return `${name} was re-registered after this page loaded. Reload and check the new registration before ${verb}.`
+}
+
 /**
  * Approve a pending account: the role the admin chose, active, flag cleared.
  * No last-admin guard applies — this can only add an active account.
@@ -421,16 +425,18 @@ export async function approveUser(
     // The registration the admin looked at is not the one on file: it was
     // redone (new name, new password) after their page loaded.
     if (args.seenPendingSince && args.seenPendingSince.getTime() !== target.pendingSince!.getTime()) {
-      throw new DomainError(
-        'REREGISTERED',
-        `${target.name} was re-registered after this page loaded. Reload and check the new registration before approving.`,
-      )
+      throw new DomainError('REREGISTERED', reRegisteredMessage(target.name))
     }
-    const updated = await tx.user.update({
-      where: { id: target.id },
+    // Conditional on the registration this function read: a re-registration
+    // that commits between the read and this write moves `pendingSince`, the
+    // WHERE no longer matches, and the admin is told rather than approving a
+    // password they never saw.
+    const { count } = await tx.user.updateMany({
+      where: { id: target.id, active: false, pendingSince: target.pendingSince },
       data: { role: args.role, active: true, pendingSince: null },
-      select: ROW_SELECT,
     })
+    if (count === 0) throw new DomainError('REREGISTERED', reRegisteredMessage(target.name))
+    const updated = await loadTarget(tx, target.id)
     await writeAudit(tx, {
       actorType: 'USER',
       userId: args.actorId,
@@ -456,11 +462,13 @@ export async function rejectUser(
     if (!isPending(target)) {
       throw new DomainError('NOT_PENDING', `${target.name} is not waiting for approval.`)
     }
-    const updated = await tx.user.update({
-      where: { id: target.id },
+    // Conditional on the registration this function read, as in approveUser.
+    const { count } = await tx.user.updateMany({
+      where: { id: target.id, active: false, pendingSince: target.pendingSince },
       data: { pendingSince: null },
-      select: ROW_SELECT,
     })
+    if (count === 0) throw new DomainError('REREGISTERED', reRegisteredMessage(target.name, 'rejecting'))
+    const updated = await loadTarget(tx, target.id)
     await writeAudit(tx, {
       actorType: 'USER',
       userId: args.actorId,
@@ -525,9 +533,34 @@ export async function setUserActive(
 
     if (!args.active) await assertNotLastActiveAdmin(tx, target.id, 'DEACTIVATE')
 
-    const updated = await tx.user.update({
-      where: { id: target.id }, data: { active: args.active }, select: ROW_SELECT,
-    })
+    let updated: SelectedUser
+    if (args.active) {
+      // The other half of the guard in `registerUser`. The pending check above
+      // read the row; a re-registration can commit between that read and this
+      // write, and an unconditional update would then activate an account that
+      // now carries a stranger's password and no approval. `active = false AND
+      // pendingSince IS NULL` is the state the check above saw, so zero rows
+      // means the row moved: pending now is refused, active now is a no-op.
+      const { count } = await tx.user.updateMany({
+        where: { id: target.id, active: false, pendingSince: null },
+        data: { active: true },
+      })
+      if (count === 0) {
+        const current = await loadTarget(tx, target.id)
+        if (isPending(current)) {
+          throw new DomainError(
+            'PENDING',
+            `${current.name} is waiting for approval. Approve them with a role from the PENDING APPROVAL list instead.`,
+          )
+        }
+        return toRow(current)
+      }
+      updated = await loadTarget(tx, target.id)
+    } else {
+      updated = await tx.user.update({
+        where: { id: target.id }, data: { active: false }, select: ROW_SELECT,
+      })
+    }
     // Two distinct actions rather than one carrying a boolean: every audit
     // query, filter and screen that groups by action then separates a removal
     // from a restoration for free. `voidCheck` splits `voided_after_release`

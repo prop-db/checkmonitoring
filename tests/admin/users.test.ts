@@ -768,3 +768,114 @@ describe('a pending account on the existing controls', () => {
     expect(await testDb.auditLog.count({ where: { action: 'user_deactivated' } })).toBe(0)
   })
 })
+
+describe('writes conditional on the row they read', () => {
+  /**
+   * Deterministic interleaving: `holder` re-registers the row inside a
+   * transaction that keeps the row locked. `call` reads the row (plain SELECT,
+   * not blocked by the lock) and then blocks on its conditional write; once
+   * Postgres reports a lock waiter, the holder commits, and the write
+   * re-evaluates its WHERE against the re-registered row.
+   */
+  async function callWhileReRegistering<T>(userId: string, call: () => Promise<T>): Promise<T | unknown> {
+    let outcome: Promise<T | unknown> = Promise.resolve()
+    await testDb.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: { name: 'Re-registered', passwordHash: 'new-hash', pendingSince: new Date(Date.now() + 1000) },
+      })
+      outcome = call().catch((e) => e)
+      for (let i = 0; i < 100; i++) {
+        const [{ n }] = await tx.$queryRaw<{ n: bigint }[]>`
+          SELECT count(*) AS n FROM pg_stat_activity
+          WHERE wait_event_type = 'Lock' AND datname = current_database()`
+        if (n > 0n) return
+        await new Promise((r) => setTimeout(r, 100))
+      }
+      throw new Error('the call never blocked on the row lock')
+    }, { timeout: 30000, maxWait: 30000 })
+    return outcome
+  }
+
+  it('REACTIVATE refuses a deactivated account that was re-registered between its read and its write', async () => {
+    const admin = await makeAdmin()
+    const target = await makeFinanceUser({ active: false })
+    const err = await callWhileReRegistering(target.id, () =>
+      setUserActive(testDb, { userId: target.id, active: true, actorId: admin.id }))
+    expect(err).toBeInstanceOf(DomainError)
+    expect((err as DomainError).code).toBe('PENDING')
+    const u = await testDb.user.findUniqueOrThrow({ where: { id: target.id } })
+    expect(u).toMatchObject({ active: false, passwordHash: 'new-hash' })
+    expect(await testDb.auditLog.count({ where: { action: 'user_reactivated' } })).toBe(0)
+  })
+
+  it('REACTIVATE of a row an admin already activated meanwhile is a no-op and writes no audit row', async () => {
+    const admin = await makeAdmin()
+    const target = await makeFinanceUser({ active: false })
+    let outcome: Promise<unknown> = Promise.resolve()
+    await testDb.$transaction(async (tx) => {
+      await tx.user.update({ where: { id: target.id }, data: { active: true } })
+      outcome = setUserActive(testDb, { userId: target.id, active: true, actorId: admin.id }).catch((e) => e)
+      for (let i = 0; i < 100; i++) {
+        const [{ n }] = await tx.$queryRaw<{ n: bigint }[]>`
+          SELECT count(*) AS n FROM pg_stat_activity
+          WHERE wait_event_type = 'Lock' AND datname = current_database()`
+        if (n > 0n) return
+        await new Promise((r) => setTimeout(r, 100))
+      }
+      throw new Error('the call never blocked on the row lock')
+    }, { timeout: 30000, maxWait: 30000 })
+    const row = (await outcome) as { active: boolean }
+    expect(row.active).toBe(true)
+    expect(await testDb.auditLog.count({ where: { action: 'user_reactivated' } })).toBe(0)
+  })
+
+  it('APPROVE without seenPendingSince refuses a registration redone between its read and its write', async () => {
+    // (With seenPendingSince it is the earlier, deterministic check; the
+    // unseen-path interleaving can only be forced with the lock above.)
+    const admin = await makeAdmin()
+    await registerUser(testDb, { email: 'p@rcl.com.ph', name: 'Pending', password: STRONG })
+    const pending = await testDb.user.findUniqueOrThrow({ where: { email: 'p@rcl.com.ph' } })
+    const err = await callWhileReRegistering(pending.id, () =>
+      approveUser(testDb, { userId: pending.id, role: 'FINANCE_USER', actorId: admin.id }))
+    expect(err).toBeInstanceOf(DomainError)
+    expect((err as DomainError).code).toBe('REREGISTERED')
+    const u = await testDb.user.findUniqueOrThrow({ where: { id: pending.id } })
+    expect(u.active).toBe(false)
+    expect(u.pendingSince).not.toBeNull()
+    expect(await testDb.auditLog.count({ where: { action: 'user_approved' } })).toBe(0)
+  })
+
+  it('REJECT refuses a registration redone between its read and its write', async () => {
+    const admin = await makeAdmin()
+    await registerUser(testDb, { email: 'p@rcl.com.ph', name: 'Pending', password: STRONG })
+    const pending = await testDb.user.findUniqueOrThrow({ where: { email: 'p@rcl.com.ph' } })
+    const err = await callWhileReRegistering(pending.id, () =>
+      rejectUser(testDb, { userId: pending.id, actorId: admin.id }))
+    expect(err).toBeInstanceOf(DomainError)
+    expect((err as DomainError).code).toBe('REREGISTERED')
+    expect((await testDb.user.findUniqueOrThrow({ where: { id: pending.id } })).pendingSince).not.toBeNull()
+    expect(await testDb.auditLog.count({ where: { action: 'user_rejected' } })).toBe(0)
+  })
+
+  it('a registration racing an approval never leaves an active account with the new password and no approval', async () => {
+    // Property test over a real race, as for registerUser above.
+    const admin = await makeAdmin()
+    await registerUser(testDb, { email: 'p@rcl.com.ph', name: 'Pending', password: STRONG })
+    const pending = await testDb.user.findUniqueOrThrow({ where: { email: 'p@rcl.com.ph' } })
+    const seen = pending.pendingSince!
+    await new Promise((r) => setTimeout(r, 15))
+    await Promise.allSettled([
+      registerUser(testDb, { email: 'p@rcl.com.ph', name: 'New', password: STRONG_TWO }),
+      approveUser(testDb, { userId: pending.id, role: 'FINANCE_USER', actorId: admin.id, seenPendingSince: seen }),
+    ])
+    const u = await testDb.user.findUniqueOrThrow({ where: { id: pending.id } })
+    if (u.active) {
+      expect(await verifyPassword(u.passwordHash, STRONG)).toBe(true)
+      expect(u.pendingSince).toBeNull()
+    } else {
+      expect(isPending(u)).toBe(true)
+      expect(await verifyPassword(u.passwordHash, STRONG_TWO)).toBe(true)
+    }
+  })
+})
