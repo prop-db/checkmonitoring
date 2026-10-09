@@ -16,6 +16,12 @@ import { RETENTION_DAYS } from '@/lib/login-throttle'
  * login throttle supplies the address, with the same rightmost-entry rule and
  * the same shared `unknown` bucket, which is deliberately NOT exempt.
  *
+ * **The count is taken after the insert, in the same transaction.** A caller
+ * records its own submission first and is told how many rows this address now
+ * has in the window, its own included, so parallel submissions from one
+ * address each see their own row and the caller refuses when `recent` is
+ * greater than the limit. There is no count-then-insert gap to burst through.
+ *
  * The allowance is the setting `signup.ipPerHour`; callers read it through
  * `loadSettings` at request time and pass it in. Nothing here reads a
  * constant as the limit.
@@ -34,36 +40,26 @@ function retentionCutoff(now: Date): Date {
 }
 
 /**
- * Whether this address has used up its hour. `recent` is the count the
- * decision was taken on, for a log line or a test.
- */
-export async function registrationLockout(
-  db: PrismaClient,
-  args: { ip: string; now: Date; limit: number },
-): Promise<{ locked: boolean; recent: number }> {
-  const recent = await db.registrationAttempt.count({
-    where: { ip: args.ip, createdAt: { gte: windowStart(args.now) } },
-  })
-  return { locked: recent >= args.limit, recent }
-}
-
-/**
  * Record one submission — accepted, refused by this throttle, or refused by
- * the domain — and prune the table as we go. Every submission counts, so
- * hammering a refused form extends the wait rather than resetting it. The
- * prune rides in the write path because this project has no cron for it, as
- * `recordLoginAttempt` does.
+ * the domain — and say how many this address has in the last hour, the one
+ * just written included. Every submission counts, so hammering a refused form
+ * extends the wait rather than resetting it. The prune rides in the write path
+ * because this project has no cron for it, as `recordLoginAttempt` does.
  */
 export async function recordRegistrationAttempt(
   db: PrismaClient,
   args: { ip: string; email: string; now: Date },
-): Promise<void> {
-  await db.$transaction([
-    db.registrationAttempt.create({
+): Promise<{ recent: number }> {
+  return db.$transaction(async (tx) => {
+    await tx.registrationAttempt.create({
       data: { ip: args.ip, email: args.email, createdAt: args.now },
-    }),
-    db.registrationAttempt.deleteMany({ where: { createdAt: { lt: retentionCutoff(args.now) } } }),
-  ])
+    })
+    const recent = await tx.registrationAttempt.count({
+      where: { ip: args.ip, createdAt: { gte: windowStart(args.now) } },
+    })
+    await tx.registrationAttempt.deleteMany({ where: { createdAt: { lt: retentionCutoff(args.now) } } })
+    return { recent }
+  })
 }
 
 /** A one-off clear-out, so nobody invents a raw DELETE against this table. */

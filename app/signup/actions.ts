@@ -5,7 +5,7 @@ import { prisma } from '@/lib/db'
 import { DomainError } from '@/lib/domain/errors'
 import { isNextControlFlowError } from '@/lib/next-errors'
 import { clientIp } from '@/lib/login-throttle'
-import { recordRegistrationAttempt, registrationLockout } from '@/lib/registration-throttle'
+import { recordRegistrationAttempt } from '@/lib/registration-throttle'
 import { registerUser } from '@/lib/admin/users'
 import { loadSettings } from '@/lib/settings/read'
 
@@ -14,19 +14,22 @@ import { loadSettings } from '@/lib/settings/read'
  * none is created. The account it makes is inactive and pending; an admin's
  * APPROVE on /admin/users is the only way it becomes usable.
  *
- * Order: passwords match → length caps → throttle check → record the attempt
- * → domain. Every submission that reaches the throttle counts, whether the
- * registration is then accepted, refused by the throttle or refused by the
- * domain, so hammering a refused form extends the wait. The attempt is
- * recorded BEFORE the registration runs (which hashes a password and is the
- * slow part), so a burst of parallel submissions from one address is counted
- * as it arrives rather than after each finishes; the window that remains is
- * the count-to-insert round trip. A mismatched pair and an over-long entry
- * are refused before any database work and are not attempts against anything.
+ * Order: passwords match → length caps → record the attempt and count →
+ * throttle → domain. Every submission that reaches the throttle counts,
+ * whether the registration is then accepted, refused by the throttle or
+ * refused by the domain, so hammering a refused form extends the wait. The
+ * attempt is recorded BEFORE the registration runs (which hashes a password
+ * and is the slow part), and the count that decides is taken in the same
+ * transaction as that insert, so it includes the caller's own row: parallel
+ * submissions from one address each see their own row and there is no
+ * count-then-insert window to burst through. The caller is refused when that
+ * count is greater than the allowance. A mismatched pair and an over-long
+ * entry are refused before any database work and are not attempts against
+ * anything.
  *
  * Recording is best-effort: a failed write is logged and never replaces the
- * person's result. On a database fault the count read would be failing too,
- * so failing open there is accepted.
+ * person's result. A database that cannot take the insert would not take the
+ * registration either, so failing open there is accepted.
  *
  * On success the result carries the address and nothing else; on failure a
  * sentence. A domain error's wording is for the person at the form (the
@@ -53,17 +56,24 @@ const raw = (f: FormData, k: string) => String(f.get(k) ?? '')
 /**
  * Log an unexpected failure without the form. A Prisma validation error
  * embeds the invocation's arguments (email, name, password hash) in its
- * message body; the first line alone names the operation.
+ * message body, and begins with a newline; the first non-empty line alone
+ * names the operation.
  */
 function logUnexpected(e: unknown): void {
-  console.error(e instanceof Error ? `${e.name}: ${e.message.split('\n')[0]}` : String(e))
+  console.error(
+    e instanceof Error
+      ? `${e.name}: ${e.message.split('\n').find((line) => line.trim() !== '') ?? ''}`
+      : String(e),
+  )
 }
 
-async function recordAttempt(ip: string, email: string, now: Date): Promise<void> {
+/** Best-effort: the count, or null when the write failed (logged). */
+async function recordAttempt(ip: string, email: string, now: Date): Promise<{ recent: number } | null> {
   try {
-    await recordRegistrationAttempt(prisma, { ip, email, now })
+    return await recordRegistrationAttempt(prisma, { ip, email, now })
   } catch (e) {
     logUnexpected(e)
+    return null
   }
 }
 
@@ -83,13 +93,8 @@ export async function registerAction(formData: FormData): Promise<SignupResult> 
   const settings = await loadSettings(prisma)
   const limit = settings.values['signup.ipPerHour']
 
-  const { locked } = await registrationLockout(prisma, { ip, now, limit })
-  if (locked) {
-    await recordAttempt(ip, email, now)
-    return { ok: false, message: THROTTLED }
-  }
-
-  await recordAttempt(ip, email, now)
+  const recorded = await recordAttempt(ip, email, now)
+  if (recorded && recorded.recent > limit) return { ok: false, message: THROTTLED }
 
   try {
     await registerUser(prisma, { email, name, password })

@@ -91,6 +91,19 @@ describe('registerAction', () => {
     })
   })
 
+  // Insert-then-count in one transaction: each submission counts its own row, so a burst
+  // cannot all read "0 so far". At least one of two parallel submissions sees both rows.
+  it('lets at most one of two parallel submissions through when the allowance is 1', async () => {
+    const { registerAction } = await import('@/app/signup/actions')
+    await testDb.setting.create({ data: { key: 'signup.ipPerHour', value: '1' } })
+    const results = await Promise.all([
+      registerAction(good({ email: 'one@rcl.com.ph' })),
+      registerAction(good({ email: 'two@rcl.com.ph' })),
+    ])
+    expect(results.filter((r) => r.ok).length).toBeLessThanOrEqual(1)
+    expect(await testDb.registrationAttempt.count()).toBe(2)
+  })
+
   it('stores the name trimmed and the address trimmed and lowercased, and records the normalised address', async () => {
     const { registerAction } = await import('@/app/signup/actions')
     const result = await registerAction(good({ name: '  New Person  ', email: '  New@RCL.com.ph ' }))
