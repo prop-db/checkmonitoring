@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
+import { AuthError } from 'next-auth'
 import { getSessionUser, signIn } from '@/lib/auth'
 import { MoneyMachines } from '@/components/MoneyMachines'
 
@@ -12,8 +13,9 @@ import { MoneyMachines } from '@/components/MoneyMachines'
  * and a visitor who already has a session is sent to the dashboard rather than
  * shown a form for a thing they have already done.
  *
- * **Presentation only.** Nothing about authentication changed here and nothing
- * about it should: the `signIn` call, the field names, the generic error and
+ * **Presentation only.** Nothing about authentication changed here except that,
+ * since 2026-10-09, a refused sign-in returns to this page with its own message
+ * instead of throwing a 500, and nothing else about it should: the `signIn` call, the field names, the generic error and
  * the throttle note below are all load-bearing and are reproduced exactly as
  * they were. In particular the error says the same thing whatever went wrong —
  * see the comment on the throttle note.
@@ -83,11 +85,21 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             className="rounded-2xl bg-white p-8 shadow-md ring-1 ring-hairline"
             action={async (formData: FormData) => {
               'use server'
-              await signIn('credentials', {
-                email: formData.get('email'),
-                password: formData.get('password'),
-                redirectTo: '/',
-              })
+              try {
+                await signIn('credentials', {
+                  email: formData.get('email'),
+                  password: formData.get('password'),
+                  redirectTo: '/',
+                })
+              } catch (e) {
+                // A refused sign-in is an AuthError (CredentialsSignin) thrown by next-auth's
+                // server-action signIn; it is not an exception, it is the answer. Send the
+                // visitor back to this page with the flag the generic message renders on.
+                // Everything else — including the NEXT_REDIRECT next-auth throws on SUCCESS to
+                // send the user to `redirectTo` — must propagate.
+                if (e instanceof AuthError) redirect('/login?error=CredentialsSignin')
+                throw e
+              }
             }}
           >
             <p className="mb-5 text-sm text-slate-500">Sign in with your Finance account to continue.</p>
