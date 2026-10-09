@@ -413,7 +413,7 @@ export function CheckTable({
                         onChange={(e) => setDrafts((d) => ({ ...d, [r.id]: { ...(d[r.id] ?? EMPTY_DRAFT), receiptType: e.target.value as ReceiptDraft['receiptType'] } }))}
                         className={`rounded-lg border px-2 py-1 text-sm ${draftTypeMissing(drafts[r.id] ?? EMPTY_DRAFT) ? 'border-amber-500' : 'border-slate-300'}`}
                       >
-                        <option value="">OR / CR</option>
+                        <option value="">TYPE</option>
                         {RECEIPT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                       </select>
                       <input

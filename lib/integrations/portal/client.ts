@@ -9,6 +9,7 @@
 // supplier-facing system. Two checks on purpose.
 import type { Check, PortalEventKind } from '@prisma/client'
 import { portalRoute, type Eligibility } from '@/lib/domain/eligibility'
+import { portalAcceptsReceiptType } from '@/lib/domain/receipt'
 import { portalApvs } from './apvs'
 
 export type PortalFetch = (
@@ -145,14 +146,14 @@ export function buildPortalEventBody(event: { id: string; kind: PortalEventKind 
     if (check.releasedBy?.name) body.releasedBy = check.releasedBy.name
   }
   if (event.kind === 'RECEIPT') {
-    if (!check.orNumber || !check.receiptType) {
+    if (!check.orNumber || !portalAcceptsReceiptType(check.receiptType)) {
       throw new PortalPayloadError('INVALID_PAYLOAD', `RECEIPT check ${check.id} has no receipt reference and type`)
     }
     // The portal files a receipt against the cheque number (review 2026-10-02).
     if (!check.checkNumber.trim()) {
       throw new PortalPayloadError('INVALID_PAYLOAD', `RECEIPT check ${check.id} has no check number; the portal requires checkNo`)
     }
-    body.receiptType = check.receiptType
+    body.receiptType = check.receiptType as 'OR' | 'CR'
     body.orNumber = check.orNumber
     if (check.orDate) body.orDate = manilaDay(check.orDate)
     if (check.receiptAmount) body.amount = check.receiptAmount.toFixed(2)

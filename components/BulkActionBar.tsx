@@ -206,8 +206,11 @@ export function BulkActionBar({
               // leaves the building and RELEASED leads only to VOIDED.
               const entries = receiptEntries(live, drafts)
               const withReceipt = entries.length > 0 ? ` (${entries.length / 2} with a supplier receipt)` : ''
+              // A SIGNED check is readied and released in one go (client, 2026-10-09).
+              const direct = selectedRows.filter((r) => r.status === 'SIGNED').length
+              const fromSigned = direct > 0 ? ` ${direct} SIGNED check(s) are marked ready and released together.` : ''
               if (!confirm(
-                `Mark ${live.length} check(s) RELEASED${withReceipt}? This records that the checks ` +
+                `Mark ${live.length} check(s) RELEASED${withReceipt}?${fromSigned} This records that the checks ` +
                 'have been physically handed over and cannot be undone.',
               )) return
               submit(bulkReleaseAction, live, entries)
@@ -241,7 +244,7 @@ export function BulkActionBar({
 
       {missingType && (
         <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
-          Choose OR or CR for the receipt on {invalidRows.map((r) => r.checkNumber).join(', ')}.
+          Choose the receipt type (OR, CR, AR, PR or SI) for {invalidRows.map((r) => r.checkNumber).join(', ')}.
         </p>
       )}
 

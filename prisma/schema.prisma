@@ -55,6 +55,12 @@ enum ClearingStatus {
 enum ReceiptType {
   OR
   CR
+  // Added 2026-10-09 (client): AR Acknowledgement Receipt, PR Provisional
+  // Receipt, SI Sales Invoice. Recorded here only; the portal accepts OR and
+  // CR (lib/domain/receipt.ts, PORTAL_RECEIPT_TYPES).
+  AR
+  PR
+  SI
 }
 
 enum Eligibility {

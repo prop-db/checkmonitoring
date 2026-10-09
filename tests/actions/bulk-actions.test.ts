@@ -233,7 +233,7 @@ describe('bulkReleaseAction', () => {
     currentUser.role = 'FINANCE_ADMIN'
     const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
     const b = await makeCheck({ status: 'SCHEDULED' })
-    const notReady = await makeCheck({ status: 'SIGNED' })
+    const notReady = await makeCheck({ status: 'SIGNATURE_PENDING' })
 
     const result = await bulkReleaseAction(fd([a.id, b.id, notReady.id]))
 
@@ -243,7 +243,58 @@ describe('bulkReleaseAction', () => {
     expect(result.failed).toBe(1)
     expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('RELEASED')
     expect((await testDb.check.findUniqueOrThrow({ where: { id: b.id } })).status).toBe('RELEASED')
-    expect(outcomeFor(result, notReady.id).message).toBe('Cannot move a check from SIGNED to RELEASED.')
+    expect(outcomeFor(result, notReady.id).message).toBe('Cannot move a check from SIGNATURE_PENDING to RELEASED.')
+  })
+
+  /**
+   * A SIGNED check handed over directly (client, 2026-10-09). It is readied and
+   * then released, each through its own domain action — so the READY guards
+   * still apply, the audit shows both steps, and the receipt rides the release.
+   */
+  it('releases a SIGNED check directly, readying it first, with an AR receipt recorded here and no portal RECEIPT', async () => {
+    const { bulkReleaseAction } = await import('@/app/checks/bulk-actions')
+    currentUser.role = 'FINANCE_ADMIN'
+    const signed = await makeCheck({ status: 'SIGNED', apvNumbers: ['AP-ST000001'] })
+
+    const result = await bulkReleaseAction(fd([signed.id], rk(signed.id, 'AR-0042', 'AR')))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.succeeded).toBe(1)
+    const after = await testDb.check.findUniqueOrThrow({ where: { id: signed.id } })
+    expect(after.status).toBe('RELEASED')
+    expect(after.orNumber).toBe('AR-0042')
+    expect(after.receiptType).toBe('AR')
+    expect(after.readyAt).not.toBeNull()
+    expect(after.remarks).toBe('Released directly from SIGNED')
+    const actions = (await testDb.auditLog.findMany({ where: { checkId: signed.id }, orderBy: { createdAt: 'asc' } })).map((r) => r.action)
+    expect(actions).toEqual(expect.arrayContaining(['ready_for_release', 'released', 'receipt_recorded']))
+    // The portal accepts OR and CR only: an AR is kept here and never queued.
+    expect(await testDb.portalEvent.count({ where: { checkId: signed.id, kind: 'RECEIPT' } })).toBe(0)
+  })
+
+  it('still queues a RECEIPT for a SIGNED check released directly with an OR', async () => {
+    const { bulkReleaseAction } = await import('@/app/checks/bulk-actions')
+    currentUser.role = 'FINANCE_ADMIN'
+    const signed = await makeCheck({ status: 'SIGNED', apvNumbers: ['AP-ST000002'] })
+
+    await bulkReleaseAction(fd([signed.id], rk(signed.id, 'OR-77', 'OR')))
+
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: signed.id } })).status).toBe('RELEASED')
+    expect(await testDb.portalEvent.count({ where: { checkId: signed.id, kind: 'RECEIPT' } })).toBe(1)
+  })
+
+  it('refuses a SIGNED check the READY guards refuse, leaving it SIGNED', async () => {
+    const { bulkReleaseAction } = await import('@/app/checks/bulk-actions')
+    currentUser.role = 'FINANCE_ADMIN'
+    const noPayee = await makeCheck({ status: 'SIGNED', payeeName: null })
+
+    const result = await bulkReleaseAction(fd([noPayee.id]))
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.failed).toBe(1)
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: noPayee.id } })).status).toBe('SIGNED')
   })
 
   /**

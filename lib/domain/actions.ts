@@ -10,7 +10,7 @@ import { DomainError } from './errors'
 import { portalRoute, type Eligibility } from './eligibility'
 import { checkDeletable } from './incomplete'
 import {
-  checkReceipt, normaliseReceipt, hasReceipt, checkReceiptAmount, checkReceiptFile,
+  checkReceipt, normaliseReceipt, hasReceipt, checkReceiptAmount, checkReceiptFile, portalAcceptsReceiptType,
   type Receipt, type ReceiptType, type ReceiptFileInput,
 } from './receipt'
 import { checkReleaseReversible } from './reversal'
@@ -124,8 +124,9 @@ async function queueReceipt(
   args: { orNumber: string | null; receiptType: string | null; amount: string | null; hasFile: boolean; now: Date },
 ): Promise<void> {
   // A legacy receipt with no OR/CR type would only park (the portal requires
-  // the type; final review 2026-10-02).
-  if (!args.orNumber || !args.receiptType) return
+  // the type; final review 2026-10-02), and so would an AR, PR or SI, which
+  // the portal does not accept yet: those stay recorded here only.
+  if (!args.orNumber || !portalAcceptsReceiptType(args.receiptType)) return
   // Same guard as CANCELLED (review 2026-10-02): the portal matches on APV, so
   // a cheque with none could only ever park; the receipt stays recorded here.
   if (!(await portalCanMatch(tx, check))) return
@@ -536,6 +537,9 @@ export async function applyPickupConfirmation(
 const RECEIPT_REMARK_LABELS: Record<ReceiptType | 'UNSTATED', string> = {
   OR: 'Official Receipt',
   CR: 'Collection Receipt',
+  AR: 'Acknowledgement Receipt',
+  PR: 'Provisional Receipt',
+  SI: 'Sales Invoice',
   UNSTATED: 'Receipt of unstated kind',
 }
 

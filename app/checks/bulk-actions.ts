@@ -3,6 +3,8 @@
 import { prisma } from '@/lib/db'
 import { requireUser } from '@/lib/auth'
 import { markSigned, markReadyForRelease, markReleased, recordReceipt, revertAvailability, revertSignature } from '@/lib/domain/actions'
+import { DomainError } from '@/lib/domain/errors'
+import { checkReceipt } from '@/lib/domain/receipt'
 import { parseSelection, chunkSelection } from '@/lib/bulk'
 import {
   listTodaysReleaseIds, listPendingSignatureIds, getFilterOptions, parseOptionId, parseEligibilityParam,
@@ -208,13 +210,30 @@ export async function bulkReleaseAction(formData: FormData): Promise<BulkActionR
   const read = readRowReceipts(formData, selection.checkIds)
   if (!read.ok) return { ok: false, message: read.message }
 
+  // A SIGNED check can be handed over without first being marked ready (client,
+  // 2026-10-09). The ladder keeps its shape: such a check is readied (every
+  // READY guard, the portal's MARK_AVAILABLE) and then released, each through
+  // its own domain action, so nothing is skipped — and a check the guards refuse
+  // stays SIGNED and is named in the result. The receipt is checked up front, so
+  // a refusal there can never strand a check at READY FOR RELEASE.
+  const statuses = new Map(
+    (await prisma.check.findMany({ where: { id: { in: selection.checkIds } }, select: { id: true, status: true } }))
+      .map((c) => [c.id, c.status]),
+  )
+
   const now = new Date()
-  return runEach(prisma, selection.checkIds, (checkId) => {
+  return runEach(prisma, selection.checkIds, async (checkId) => {
     const receipt = read.receipts.get(checkId)
-    return markReleased(prisma, {
+    const release = {
       checkId, userId: user.id, now,
       orNumber: receipt?.orNumber, orDate: undefined, receiptType: receipt?.receiptType ?? null,
-    })
+    }
+    if (statuses.get(checkId) !== 'SIGNED') return markReleased(prisma, release)
+
+    const guard = checkReceipt(release)
+    if (!guard.ok) throw new DomainError(guard.code, guard.message)
+    await markReadyForRelease(prisma, { checkId, userId: user.id, availablePickupDate: now, now })
+    return markReleased(prisma, { ...release, remarks: 'Released directly from SIGNED' })
   })
 }
 
