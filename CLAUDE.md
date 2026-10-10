@@ -133,6 +133,7 @@ It follows that:
 
 ```bash
 npm run dev                    # local dev server
+node scripts/dev-test-db.mjs      # dev server on the TEST database (the repo .env is PRODUCTION); outward integrations blanked
 npm test                       # full suite (Vitest, hits the TEST database)
 npx tsc --noEmit               # REQUIRED before claiming done - see below
 npx next build
@@ -318,6 +319,27 @@ EXPORT EXCEL reorders the file's columns and never drops one. The preference sta
 default order); a column forced visible because a filter is set on it is shown but never
 persisted. Print keeps its fixed columns.
 
+**`/signup` is public and creates INACTIVE accounts only** (2026-10-09, spec
+`2026-10-09-self-registration-design.md`, §11 for what changed in review). A registration sets
+`User.pendingSince`; PENDING is `!active && pendingSince !== null` (`isPending`, `lib/admin/users.ts`,
+the one definition) and is shown on `/admin/users` under PENDING APPROVAL, where APPROVE picks the role
+and REJECT leaves it deactivated. **Registering with an INACTIVE account's address re-opens it** —
+user ruling 2026-10-09, so the three deactivated accounts Finance asked to delete could register again
+— but **nothing on the row changes until approval**: the typed name and password wait in
+`pendingName` / `pendingPasswordHash`, because `name` is read live wherever a check says who released
+it and an anonymous `/signup` submission must not rewrite that. APPROVE copies them in; REJECT discards
+them, so REACTIVATE after a reject restores the genuine account; SET PASSWORD discards a held hash. An
+ACTIVE address is refused. REACTIVATE refuses a pending account (approve instead). Every
+read-then-write is a conditional `updateMany` on the state it read (`REREGISTERED` / `NOT_PENDING` /
+`CHANGED`), and the page passes the `pendingSince` it displayed. Throttle: `signup.ipPerHour`
+(default 5) over `RegistrationAttempt` in Postgres (`lib/registration-throttle.ts`) — an advisory
+xact lock per address, insert then count, refused when the count including this row exceeds the
+allowance, and **refused, not let through, when the attempt cannot be recorded**. Length caps and a
+minimal email shape check sit on the public action. The sign-in error stays generic, and `/login` now
+redirects a refused sign-in to `?error=CredentialsSignin` instead of letting next-auth's throw become a
+500 (pre-existing). No mail path, no domain restriction, no delete (rule 6). `node
+scripts/dev-test-db.mjs` runs the dev server on the TEST database for a browser check.
+
 **`/welcome` is the public front door, and it is public by name** (2026-09-27, spec
 `2026-09-27-landing-login-and-theme-design.md`). The landing page and `/login` both render
 `components/MoneyMachines.tsx` — a cash register and a check register, inline SVG moved by the
@@ -449,7 +471,7 @@ category not on it.
 | `lib/list-sort.ts` | The list's order: params, the `cm_sort` cookie, database and in-app keys. Pure. |
 | `lib/column-filters.ts` | The filter row's `f.*` parameters: parsing, refusal, description. Pure. |
 | `lib/normalised-row.ts` | The one shape both ingestion paths converge on. |
-| `lib/settings/` | The eleven settings: `registry.ts` (pure — defaults from the constants, bounds, parsing), `read.ts` (one query per request, never cached), `actions.ts` (admin-only writes, audited). `/admin/settings`. |
+| `lib/settings/` | The twelve settings: `registry.ts` (pure — defaults from the constants, bounds, parsing), `read.ts` (one query per request, never cached), `actions.ts` (admin-only writes, audited). `/admin/settings`. |
 | `docs/superpowers/specs/` | The approved design, and the Supplier Portal API evidence. |
 | `docs/superpowers/plans/` | Plans 1–3. Plan 4 (reports, notifications) not yet written. |
 | `docs/deployment.md` | Vercel procedure and blockers. |
@@ -683,7 +705,7 @@ Plans 1 and 2 complete. Plan 3 is superseded by `docs/superpowers/plans/2026-09-
 `lib/sync/portal-outbox.ts` to the portal's `POST /api/integrations/check-monitoring/events`
 with `PORTAL_BASE_URL` / `PORTAL_TOKEN` (a bearer, no session), latest event per check wins,
 `/admin/portal` shows what parked. Pickup confirmations back (old Task 6) remain a follow-up.
-**1,918 tests across 130 files** (measured, full run 2026-10-05, 52.0 minutes, 0 failures, on
+**2,065 tests across 137 files** (measured, full run 2026-10-10, 53.9 minutes, on `feature/self-registration-wt` before its merge: 2,063 passed and 2 failed on a Neon connection drop in `sync/portal-kick`, which passed 7/7 when re-run alone; self-registration added `auth/registration-throttle` and `actions/signup`, and extended `admin/users`, `admin/user-actions`, `settings/registry`, `public-paths`)  **1,918 tests across 130 files** (measured, full run 2026-10-05, 52.0 minutes, 0 failures, on
 `feature/shared-books` after merging master 7591c6d — shared check books on top of the PO work; the
 meta-tags commit 3b341f7 merged after it touches no tested module and passed tsc and the pure tests)
 — 1,913 across 130 (measured 2026-10-05 on `feature/po-from-acumatica` after merging

@@ -32,9 +32,17 @@ describe('the registry imports only leaves', () => {
 })
 
 describe('the registry', () => {
-  it('declares eleven settings, each key once', () => {
-    expect(SETTINGS).toHaveLength(11)
-    expect(new Set(SETTING_KEYS).size).toBe(11)
+  it('declares twelve settings, each key once', () => {
+    expect(SETTINGS).toHaveLength(12)
+    expect(new Set(SETTING_KEYS).size).toBe(12)
+  })
+
+  it('declares the registration allowance as a LOGIN setting, five an hour by default', () => {
+    const def = settingDef('signup.ipPerHour')
+    expect(def).toMatchObject({ kind: 'int', group: 'LOGIN', default: 5, min: 1, max: 100 })
+    expect(DEFAULTS['signup.ipPerHour']).toBe(5)
+    expect(parseSettingText(def!, '0').ok).toBe(false)
+    expect(parseSettingText(def!, '101').ok).toBe(false)
   })
 
   it('declares Monday auto-sign as a WORKFLOW ON/OFF switch, on by default', () => {

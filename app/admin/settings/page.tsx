@@ -7,14 +7,14 @@ import { SETTINGS, type SettingGroup } from '@/lib/settings/registry'
 
 /**
  * `/admin/settings`. FINANCE_ADMIN only — gated by the layout and again here.
- * Eleven knobs, grouped; every one bounded by the registry; every change on the
+ * Twelve knobs, grouped; every one bounded by the registry; every change on the
  * audit trail. The LOGIN group can be tightened freely and loosened only to
  * the floor — the client's guardrail of 2026-09-12.
  */
 const GROUPS: { group: SettingGroup; title: string; note?: string }[] = [
   { group: 'SYNC', title: 'ACUMATICA SYNC' },
   { group: 'CAPS', title: 'CAPS' },
-  { group: 'LOGIN', title: 'SIGN-IN THROTTLE', note: 'These can be tightened freely; they cannot be loosened past the bound shown — a shorter window, or more free failures, is as far as it goes.' },
+  { group: 'LOGIN', title: 'SIGN-IN AND SIGN-UP THROTTLES', note: 'Sign-in limits can be tightened freely and cannot be loosened past the bound shown. Registrations per address is how many accounts the sign-up page accepts from one connection in an hour.' },
   { group: 'WORKFLOW', title: 'WORKFLOW', note: 'Auto-signing runs once a day at 18:00 Manila, after the Acumatica sync. Set 0 to pause it.' },
   { group: 'CATEGORIES', title: 'CATEGORIES', note: 'Removing a category does not change what is already recorded; it stops it being chosen from now on.' },
 ]

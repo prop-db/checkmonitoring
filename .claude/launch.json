@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 3000
+    },
+    {
+      "name": "check-monitoring-dev-testdb",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["scripts/dev-test-db.mjs", "--port", "3100"],
+      "port": 3100
     }
   ]
 }
