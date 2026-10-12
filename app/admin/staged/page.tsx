@@ -1,3 +1,4 @@
+import { FilterForm } from '@/components/FilterForm'
 import type { CheckStatus, StagedReason } from '@prisma/client'
 import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/db'
@@ -123,7 +124,7 @@ export default async function StagedPage({
           a plain `method="get"` form, so every filter is in the URL and a
           narrowed queue stays linkable. There is no auto-submit enhancement
           here and the APPLY button is therefore real and stays visible. */}
-      <form className="flex flex-wrap items-center gap-2 rounded-2xl bg-white p-3 ring-1 ring-hairline" method="get">
+      <FilterForm className="flex flex-wrap items-center gap-2 rounded-2xl bg-white p-3 ring-1 ring-hairline">
         <input
           name="q" defaultValue={params.q ?? ''}
           placeholder="SEARCH CHECK NO., WHAT THE CELL SAID, OR PAYEE"
@@ -148,7 +149,7 @@ export default async function StagedPage({
         >
           APPLY
         </button>
-      </form>
+      </FilterForm>
 
       {matching > rows.length && (
         <p className="rounded-lg bg-warning-bg px-4 py-2 text-sm text-warning-ink">

@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
+import { useExternalNavEpoch } from './filter-nav'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { formatMoney } from '@/lib/money'
@@ -148,6 +149,9 @@ function DataCell({ column, r }: { column: DataColumn; r: CheckTableRow }) {
   }
 }
 
+/** Runs before paint on the client; an ordinary effect on the server, where layout effects warn. */
+const useBeforePaint = typeof window === 'undefined' ? useEffect : useLayoutEffect
+
 export function CheckTable({
   rows, canRelease, bulkCap, sort, sortLinks, filters,
 }: {
@@ -161,6 +165,7 @@ export function CheckTable({
   filters: FilterRowState
 }) {
   const router = useRouter()
+  const filterEpoch = useExternalNavEpoch()
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   // Keyed by check id. A row's draft is read back on release and on SAVE
   // RECEIPTS (`lib/row-receipts.ts`'s `receiptEntries`), which is what lets a
@@ -181,7 +186,11 @@ export function CheckTable({
    */
   const [preference, setPreference] = useState<readonly ColumnKey[]>(DEFAULT_COLUMNS)
 
-  useEffect(() => {
+  // A LAYOUT effect: on a soft navigation this component mounts on the client,
+  // and an ordinary effect would paint the full column set first and narrow it
+  // a frame later — a visible flash each time the screen switches to the list.
+  // On the server it is a no-op (`useEffect` there), so nothing warns.
+  useBeforePaint(() => {
     try {
       const stored = parseColumnPreference(window.localStorage.getItem(COLUMN_STORAGE_KEY))
       // Null means no usable preference — absent, empty or corrupt — and the
@@ -329,10 +338,12 @@ export function CheckTable({
               <th className="px-2 py-2">OR / CR</th>
               <th className="px-2 py-2">{COLUMN_LABELS.action}</th>
             </tr>
-            {/* THE FILTER ROW (part C2). Keyed on the dropdown values for the
-                reason FilterBar's form is: a soft navigation that changes them
-                from elsewhere leaves a mounted <select> showing the old one. */}
-            <tr key={`${filters.values.company ?? ''}|${filters.values.cashAccount ?? ''}|${filters.values['f.status'] ?? ''}`} className="align-top">
+            {/* THE FILTER ROW (part C2). Keyed on the external-navigation epoch, as
+                FilterBar's form is: a soft navigation from elsewhere (Back, a card)
+                leaves a mounted <select> showing the old value. NOT on the values —
+                that rebuilt every box on each change the reader made (the
+                blinking, 2026-10-12). */}
+            <tr key={filterEpoch} className="align-top">
               <th className="px-2 pb-2" />
               {shown.map((key) => (
                 <th key={key} className="px-2 pb-2 font-normal">

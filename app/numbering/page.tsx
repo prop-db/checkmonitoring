@@ -1,4 +1,5 @@
 // app/numbering/page.tsx
+import { FilterForm } from '@/components/FilterForm'
 import Link from 'next/link'
 import { requireUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
@@ -61,7 +62,7 @@ export default async function NumberingPage({
       </p>
 
       {!account && (
-        <form className="flex flex-wrap items-center gap-2 rounded-2xl bg-white p-3 ring-1 ring-hairline" method="get">
+        <FilterForm className="flex flex-wrap items-center gap-2 rounded-2xl bg-white p-3 ring-1 ring-hairline">
           <label className="sr-only" htmlFor="numbering-company">COMPANY</label>
           <select id="numbering-company" name="company" defaultValue={company?.id ?? ''} className={field}>
             <option value="">ANY COMPANY</option>
@@ -69,7 +70,7 @@ export default async function NumberingPage({
           </select>
           <button type="submit" className="h-10 rounded-lg bg-navy px-4 text-sm font-medium tracking-wide text-white transition hover:bg-navy/90">APPLY</button>
           {company && <Link href={NUMBERING_PATH} className="text-sm text-slate-500 underline underline-offset-2">RESET</Link>}
-        </form>
+        </FilterForm>
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-3">

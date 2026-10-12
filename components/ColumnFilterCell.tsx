@@ -13,7 +13,7 @@ import { LIVE_STATUSES, CLOSED_STATUSES } from '@/lib/domain/check-status'
  * Every control belongs to the bar's form by `form={LIST_FILTER_FORM}` — it is
  * rendered in the table head, outside the form element, and the attribute is
  * what makes a native GET submit (no JavaScript) still send it.
- * Uncontrolled (`defaultValue`): `FilterAutoSubmit` soft-navigates and the DOM
+ * Uncontrolled (`defaultValue`): `FilterForm` soft-navigates and the DOM
  * survives, which is what keeps the caret in a box while typing.
  * Amounts are TEXT boxes: an amount is a decimal string (rule 8), and a
  * `type="number"` box would hide an unreadable value instead of letting the
