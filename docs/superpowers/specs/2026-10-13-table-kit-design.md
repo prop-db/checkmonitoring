@@ -26,8 +26,10 @@ second click on the same header, Escape or a click outside closes it):
     Date / From + To picker. OK applies, Enter in a picker applies, Cancel discards.
   - **amount** — the same operators as date, typed amounts instead of dates (no Today / This
     Month). Amounts are compared as decimal strings, never JS numbers (rule 8).
-  - **enum** (status, company, bank and similar) — one box; typing a whole known value matches it
-    exactly, so `SIGNED` does not also match `SIGNATURE_PENDING`. Anything else is "contains".
+  - **enum** (status, company, bank and similar) — a dropdown of the known values (ALL + each
+    value); the match is exact, so `SIGNED` never also matches `SIGNATURE_PENDING`. A dropdown, not
+    Supplier's typed box: on the main list COMPANY and BANK are ids on the server, so a typed
+    "contains" could not be honoured there, and one control everywhere is simpler to read.
   - **text** — one "contains" box, case-insensitive, thousands commas and `₱` ignored on both sides.
 - A column marked `noSort` omits the sort items; one marked `noFilter` omits the filter. A column
   with neither (a buttons column, the select-all checkbox) has no menu at all.
@@ -105,27 +107,33 @@ replaced by the kit's.
 
 The menu writes the screen's existing filters: WHEN → its Manila from/to days (same operator
 mapping as §3, no Does Not Equal), WHO → user, ACTION → action, CHECK → check number. Keyset
-pagination on `(createdAt, id)` stays, so **only WHEN sorts** (newest / oldest first); the other
-headers are `noSort`. REMARKS and DETAILS are `noFilter`. The SYSTEM ROWS toggle and the Excel
+pagination on `(createdAt, id)` walks newest first only, so **no Audit column sorts** — every header
+is `noSort` and the order stays newest first (amended 2026-10-13 while planning: an oldest-first
+keyset is a server change this request did not ask for). REMARKS and DETAILS are `noFilter`. The SYSTEM ROWS toggle and the Excel
 extract are unchanged.
 
 ## 6. Every other table (client mode)
 
-`/vouchers`; NUMBERING's series table and its detail table; OUTSTANDING (`/recon` per account) and
-the RECON account table; CLEARING paste preview; PLANNED OUTFLOW list; `/admin/portal`;
+`/vouchers`; NUMBERING's series table, its detail table and its NOT NUMERIC / OUT OF PATTERN tables
+(which gain a header row); OUTSTANDING (`/recon` per account) and the RECON account table; CLEARING
+paste preview; `/admin/portal`;
 `/admin/staged` (checks and bills); `/admin/sync` runs; `/admin/users`; the import preview report's
 tables.
 
 - Where a page caps its rows — Staged (200 per list), Portal (200), Sync (25), Vouchers
   (`VOUCHER_SCREEN_ROW_LIMIT`), Import preview (`ROWS_SHOWN`) — the status line reads
   `N of the M rows shown`, so a filtered capped table never reads as the whole set.
-- Totals and footer rows (RECON, NUMBERING) render in `<tfoot>`, are never sorted or filtered, and
-  are not recomputed from the filtered rows.
+- Totals rows (RECON) render in `<tfoot>`, are never sorted or filtered, and are not recomputed
+  from the filtered rows.
+- NUMBERING's detail table interleaves MISSING lines (full-width bands) with checks in number
+  order. A band means something only in that order, so while any filter or sort is in force the
+  bands are left out and the status line says so; clearing them brings the bands back.
 - Buttons and form columns (USERS' ACTIONS, PORTAL's retry, CLEARING's confirm column) have no menu
   and are `locked`.
 
-**Left alone:** the PRINT sheet (CLAUDE.md: "Print keeps its fixed columns") and the FORECAST
-matrix (bucket × bank cells, not a list of records).
+**Left alone:** the PRINT sheet (CLAUDE.md: "Print keeps its fixed columns"), the FORECAST matrix
+(bucket × bank cells, not a list of records) and the PLANNED OUTFLOW list on `/forecast/planned`
+(a list of cards with their own forms, not a table).
 
 ## 7. Units
 
