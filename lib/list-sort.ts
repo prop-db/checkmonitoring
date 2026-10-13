@@ -81,17 +81,6 @@ export function readCookie(header: string | null | undefined, name: string): str
   return undefined
 }
 
-/**
- * The header cycle: ascending, descending, back to the default (`null`).
- * `active` is the sort the URL or the cookie put in force — null under the
- * default, so the first click on CHECK DATE sorts it ascending rather than
- * computing "descending → default" and doing nothing.
- */
-export function nextSort(active: SortSpec | null, key: SortKey): SortSpec | null {
-  if (!active || active.key !== key) return { key, dir: 'asc' }
-  return active.dir === 'asc' ? { key, dir: 'desc' } : null
-}
-
 export function sameSort(a: SortSpec, b: SortSpec): boolean {
   return a.key === b.key && a.dir === b.dir
 }

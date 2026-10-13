@@ -157,7 +157,7 @@ export function CheckTable({
   // (the hidden inputs below are controlled), so the filter bar is not remounted.
   const navigate = useUrlUpdate({ markOwn: true })
   // On NEEDS ACTION (no `status`, no `scope`) every change also writes
-  // `scope=live`, as `sortHref` and the filter bar's hidden field do: clearing
+  // `scope=live`, as the filter bar's hidden field do: clearing
   // the last filter or sort must not land on `/` or `/?company=…`, which are
   // the TOTALS screen (`dashboardScreen`).
   const update = (updates: Readonly<Record<string, string>>) =>

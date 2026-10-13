@@ -1,7 +1,6 @@
 import type { CheckStatus } from '@prisma/client'
 import type { ColumnFilters } from './queries'
 import type { SortKey } from './list-sort'
-import { COLUMN_KEYS, type ColumnKey } from './table-columns'
 import { isIsoDay } from './domain/details'
 import { manilaDayStart, manilaDayEnd } from './audit-view'
 import { LIVE_STATUSES, CLOSED_STATUSES } from './domain/check-status'
@@ -11,8 +10,8 @@ import { LIVE_STATUSES, CLOSED_STATUSES } from './domain/check-status'
  *
  * Pure and BROWSER-SAFE: the filter row's controls import it, so it must never
  * import a server-only module or the database client. From `./queries` and
- * `@prisma/client` it takes types only; its runtime imports (`./table-columns`,
- * `./domain/details`, `./audit-view`, `./domain/check-status`) are pure modules.
+ * `@prisma/client` it takes types only; its runtime imports (`./domain/details`,
+ * `./audit-view`, `./domain/check-status`) are pure modules.
  *
  * AN UNREADABLE VALUE REFUSES. An amount `12x` or a day that is not a day is
  * reported against its box and the list shows nothing until it is corrected —
@@ -50,12 +49,6 @@ export const COLUMN_FILTER_PARAMS = {
   scheduledPickupDate: ['f.scheduledPickupDateFrom', 'f.scheduledPickupDateTo'],
   releasedAt: ['releasedFrom', 'releasedTo'],
 } as const satisfies Record<SortKey, readonly string[]>
-
-/** The columns a box is in force on — kept on screen whatever the preference says. */
-export function activeFilterColumns(values: Readonly<Record<string, string>>): ColumnKey[] {
-  return COLUMN_KEYS.filter((k): k is keyof typeof COLUMN_FILTER_PARAMS =>
-    k !== 'action' && COLUMN_FILTER_PARAMS[k as keyof typeof COLUMN_FILTER_PARAMS].some((p) => Boolean(values[p])))
-}
 
 export const FILTER_MESSAGES = {
   day: 'NOT A DAY — TYPE YYYY-MM-DD',
