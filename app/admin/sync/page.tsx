@@ -6,6 +6,9 @@ import { BILLS_MODE } from '@/lib/sync/bills'
 import { BILL_REFS_MODE } from '@/lib/sync/modes'
 import { EmptyState } from '@/components/EmptyState'
 import { SyncNowButton } from '@/components/SyncNowButton'
+import { KitTable, type KitRow } from '@/components/table-kit/KitTable'
+import type { KitColumn } from '@/lib/table-kit/types'
+import { instantValue } from '@/lib/table-kit/match'
 import { loadSettings } from '@/lib/settings/read'
 
 // Spec §11's wording: "Last Sync: September 1, 2026 — 10:45 AM".
@@ -167,6 +170,54 @@ export default async function SyncPage() {
     getLastAutoSign(prisma),
   ])
 
+  const distinct = (vals: string[]) => [...new Set(vals)].sort().map((v) => ({ value: v, label: v }))
+  const columns: KitColumn[] = [
+    { key: 'started', label: 'STARTED', kind: 'date', locked: true, className: 'text-slate-600' },
+    { key: 'tenant', label: 'TENANT', kind: 'enum', options: distinct(recent.flatMap((r) => (r.tenant ? [r.tenant] : []))) },
+    { key: 'mode', label: 'MODE', kind: 'enum', options: distinct(recent.map((r) => r.mode)), className: 'text-slate-600' },
+    { key: 'trigger', label: 'TRIGGER', kind: 'enum', options: distinct(recent.map((r) => r.trigger)), className: 'text-slate-600' },
+    { key: 'imported', label: 'IMPORTED', kind: 'amount', align: 'right', className: 'tabular-nums' },
+    { key: 'updated', label: 'UPDATED', kind: 'amount', align: 'right', className: 'tabular-nums' },
+    { key: 'staged', label: 'STAGED', kind: 'amount', align: 'right', className: 'tabular-nums' },
+    { key: 'errors', label: 'ERRORS', kind: 'amount', align: 'right', className: 'tabular-nums' },
+    { key: 'finished', label: 'FINISHED', kind: 'date', className: 'text-slate-600' },
+    { key: 'message', label: 'MESSAGE', kind: 'text', className: 'max-w-md text-slate-600' },
+  ]
+  const rows: KitRow[] = recent.map((r) => {
+    const cap = COUNT_CAPTIONS[r.mode]
+    return {
+      key: r.id,
+      values: {
+        started: instantValue(r.startedAt), tenant: r.tenant, mode: r.mode, trigger: r.trigger,
+        imported: String(r.imported), updated: String(r.updated), staged: String(r.staged), errors: String(r.errors),
+        finished: instantValue(r.finishedAt), message: r.message,
+      },
+      cells: {
+        started: fmtDateTime(r.startedAt),
+        // An em dash rather than a blank: a run with no tenant is a run recorded
+        // before the column existed, not a rendering fault.
+        tenant: r.tenant ?? '—',
+        // A BILLS or BILL_REFS row reuses the three count columns for different
+        // things; the caption names them in column order.
+        mode: (
+          <>
+            {r.mode}
+            {cap && (
+              <span className="block whitespace-nowrap text-[11px] text-slate-400">{cap.short}</span>
+            )}
+          </>
+        ),
+        trigger: r.trigger,
+        imported: <span title={cap?.titles[0]}>{n(r.imported)}</span>,
+        updated: <span title={cap?.titles[1]}>{n(r.updated)}</span>,
+        staged: <span title={cap?.titles[2]}>{n(r.staged)}</span>,
+        errors: <span className={r.errors > 0 ? 'font-semibold text-danger-ink' : 'text-slate-600'}>{n(r.errors)}</span>,
+        finished: fmtDateTime(r.finishedAt) ?? 'NOT FINISHED',
+        message: r.message ?? '—',
+      },
+    }
+  })
+
   return (
     <div className="space-y-6">
       {/* One card per tenant, never one pooled figure. `SyncRun.tenant` exists
@@ -236,54 +287,11 @@ export default async function SyncPage() {
           terminal for the first full read — it is far too long for a web request.
         </EmptyState>
       ) : (
-        <section className="overflow-x-auto rounded-2xl bg-white ring-1 ring-hairline">
+        <section className="rounded-2xl bg-white ring-1 ring-hairline">
           <h2 className="px-6 pb-4 pt-6 text-[11px] font-semibold tracking-widest text-slate-400">SYNC LOG</h2>
-          <table className="w-full text-sm">
-            <thead className="border-b border-hairline text-left text-[11px] font-semibold tracking-widest text-slate-400">
-              <tr>
-                <th className="px-4 py-3">STARTED</th>
-                <th className="px-4 py-3">TENANT</th>
-                <th className="px-4 py-3">MODE</th>
-                <th className="px-4 py-3">TRIGGER</th>
-                <th className="px-4 py-3 text-right">IMPORTED</th>
-                <th className="px-4 py-3 text-right">UPDATED</th>
-                <th className="px-4 py-3 text-right">STAGED</th>
-                <th className="px-4 py-3 text-right">ERRORS</th>
-                <th className="px-4 py-3">FINISHED</th>
-                <th className="px-4 py-3">MESSAGE</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recent.map((r) => { const cap = COUNT_CAPTIONS[r.mode]; return (
-                <tr key={r.id} className="border-b border-slate-100 last:border-0 odd:bg-white even:bg-ground">
-                  <td className="px-4 py-3 text-slate-600">{fmtDateTime(r.startedAt)}</td>
-                  {/* An em dash rather than a blank: a run with no tenant is a
-                      run recorded before the column existed, not a rendering
-                      fault. */}
-                  <td className="px-4 py-3">{r.tenant ?? '—'}</td>
-                  {/* A BILLS or BILL_REFS row reuses the three count columns for
-                      different things; the caption names them in column order. */}
-                  <td className="px-4 py-3 text-slate-600">
-                    {r.mode}
-                    {cap && (
-                      <span className="block whitespace-nowrap text-[11px] text-slate-400">{cap.short}</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">{r.trigger}</td>
-                  <td className="px-4 py-3 text-right tabular-nums" title={cap?.titles[0]}>{n(r.imported)}</td>
-                  <td className="px-4 py-3 text-right tabular-nums" title={cap?.titles[1]}>{n(r.updated)}</td>
-                  <td className="px-4 py-3 text-right tabular-nums" title={cap?.titles[2]}>{n(r.staged)}</td>
-                  <td className={`px-4 py-3 text-right tabular-nums ${r.errors > 0 ? 'font-semibold text-danger-ink' : 'text-slate-600'}`}>
-                    {n(r.errors)}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
-                    {fmtDateTime(r.finishedAt) ?? 'NOT FINISHED'}
-                  </td>
-                  <td className="max-w-md px-4 py-3 text-slate-600">{r.message ?? '—'}</td>
-                </tr>
-              ) })}
-            </tbody>
-          </table>
+          <div className="px-4 pb-4">
+            <KitTable tableId="sync-runs" columns={columns} rows={rows} capped={recent.length >= 25} />
+          </div>
         </section>
       )}
     </div>
