@@ -1,3 +1,4 @@
+import { isIsoDay } from '@/lib/domain/details'
 import { parseRangeNeedle, rangeNeedle, shiftDay } from './match'
 import type { RangeOp } from './types'
 
@@ -31,7 +32,8 @@ export function needleToParams(b: Binding, needle: string): Record<string, strin
   let from = ''
   let to = ''
   if (r) {
-    const next = (d: string, by: number) => (b.unit === 'day' && d ? shiftDay(d, by) : d)
+    // Only a real ISO day is shifted; anything else passes through for the server to refuse.
+    const next = (d: string, by: number) => (b.unit === 'day' && isIsoDay(d) ? shiftDay(d, by) : d)
     switch (r.op) {
       case 'eq': from = r.a; to = r.a; break
       case 'ge': from = r.a; break

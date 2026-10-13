@@ -27,6 +27,14 @@ describe('needleToParams', () => {
     expect(needleToParams(amt, '~eq:1,250.50')).toEqual({ 'f.amountMin': '1,250.50', 'f.amountMax': '1,250.50' })
     expect(needleToParams(amt, '~between:100:12x')).toEqual({ 'f.amountMin': '100', 'f.amountMax': '12x' })
   })
+
+  it('passes an unreadable day under gt through untouched, without throwing', () => {
+    expect(needleToParams(day, '~gt:abc')).toEqual({ 'f.checkDateFrom': 'abc', 'f.checkDateTo': '' })
+  })
+
+  it('passes an impossible day under lt through untouched rather than rolling it to another day', () => {
+    expect(needleToParams(day, '~lt:2026-02-30')).toEqual({ 'f.checkDateFrom': '', 'f.checkDateTo': '2026-02-30' })
+  })
 })
 
 describe('paramsToNeedle', () => {
