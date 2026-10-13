@@ -290,7 +290,7 @@ export default async function SyncPage() {
         <section className="rounded-2xl bg-white ring-1 ring-hairline">
           <h2 className="px-6 pb-4 pt-6 text-[11px] font-semibold tracking-widest text-slate-400">SYNC LOG</h2>
           <div className="px-4 pb-4">
-            <KitTable tableId="sync-runs" columns={columns} rows={rows} capped={recent.length >= 25} />
+            <KitTable tableId="sync-runs" frameClassName="overflow-x-auto" columns={columns} rows={rows} capped={recent.length >= 25} />
           </div>
         </section>
       )}

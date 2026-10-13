@@ -100,11 +100,9 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
         </div>
       </div>
 
-      {page.rows.length === 0 ? (
-        <EmptyState title={anyFilter ? 'NO ROWS MATCH' : 'NOBODY HAS DONE ANYTHING YET'}>
-          {anyFilter
-            ? filteredEmptyMessage
-            : "No signature, release, reversal or user change has been recorded by a person. Tick SYSTEM ROWS to see what the imports and the sync have done."}
+      {page.rows.length === 0 && !anyFilter ? (
+        <EmptyState title="NOBODY HAS DONE ANYTHING YET">
+          No signature, release, reversal or user change has been recorded by a person. Tick SYSTEM ROWS to see what the imports and the sync have done.
         </EmptyState>
       ) : (
         <AuditTable
@@ -115,6 +113,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
             action: filters.action ?? '', user: filters.userId ?? '', check: filters.checkNumber ?? '',
             from: raw.from ?? '', to: raw.to ?? '',
           }}
+          empty={filteredEmptyMessage}
         />
       )}
 

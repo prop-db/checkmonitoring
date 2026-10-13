@@ -211,7 +211,7 @@ export default async function UsersPage() {
             </p>
           </div>
           <div className="px-4 pb-4">
-            <KitTable tableId="users-pending" columns={pendingColumns} rows={pendingRows} />
+            <KitTable tableId="users-pending" frameClassName="overflow-x-auto" columns={pendingColumns} rows={pendingRows} />
           </div>
           <div className="space-y-2 px-6 pb-5 text-xs leading-relaxed text-slate-500">
             {pendingUsers.some((u) => u.hasPendingCredentials) && (
@@ -237,7 +237,7 @@ export default async function UsersPage() {
         </div>
 
         <div className="px-4 pb-4">
-          <KitTable tableId="users" columns={userColumns} rows={userRows} />
+          <KitTable tableId="users" frameClassName="overflow-x-auto" columns={userColumns} rows={userRows} />
         </div>
       </div>
 

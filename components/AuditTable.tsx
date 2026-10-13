@@ -40,13 +40,15 @@ function Details({ details }: { details: unknown }) {
  * column says SYSTEM in words. The year is in every timestamp deliberately.
  */
 export function AuditTable({
-  rows, actions, users, values,
+  rows, actions, users, values, empty,
 }: {
   rows: readonly AuditRow[]
   actions: readonly string[]
   users: readonly { id: string; name: string }[]
   /** The page's raw parameters: action, user, check, from, to. */
   values: Readonly<Record<string, string>>
+  /** Shown in the table body when no row matches. */
+  empty?: string
 }) {
   const kitRows: KitRow[] = rows.map((r) => {
     const system = r.actorType === 'SYSTEM'
@@ -79,7 +81,7 @@ export function AuditTable({
   return (
     <UrlKitTable
       tableId={AUDIT_TABLE_ID} columns={auditColumns({ actions, users })} rows={kitRows}
-      bindings={AUDIT_BINDINGS} values={values} drop={['before']} markOwn={false}
+      bindings={AUDIT_BINDINGS} values={values} drop={['before']} markOwn={false} empty={empty}
     />
   )
 }
