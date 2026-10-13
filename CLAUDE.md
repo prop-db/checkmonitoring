@@ -319,6 +319,18 @@ EXPORT EXCEL reorders the file's columns and never drops one. The preference sta
 default order); a column forced visible because a filter is set on it is shown but never
 persisted. Print keeps its fixed columns.
 
+**Every table is on the table kit** (2026-10-13, spec `2026-10-13-table-kit-design.md`, the Supplier
+Portal's header menu). Click a header: Sort Ascending / Descending, Clear Filter, the filter (date
+and amount: Equals … Is Between, Today, This Month; enum: a dropdown; text: contains). Chips above
+the table; ⚙ CUSTOMIZE COLUMNS opens Column Configuration; drag a header edge to resize. Layout is
+per browser under `check-monitoring.table.<id>.v1`. Two modes: `KitTable` filters the rows the page
+drew (a capped page says "N OF THE M ROWS SHOWN"); the main list and Audit are URL mode — the menu
+writes the parameters they already parse (`lib/table-kit/url-binding.ts`), so on the main list
+`lib/column-filters.ts` still refuses, and "Does Not Equal" / strict amount bounds are not offered
+there. The filter-box row and COLUMNS chooser are gone; their values ride as hidden inputs on the
+bar's form. Audit does not sort (its keyset is newest first). Left alone: print, the forecast
+matrix, the planned-outflow list.
+
 **`/signup` is public and creates INACTIVE accounts only** (2026-10-09, spec
 `2026-10-09-self-registration-design.md`, §11 for what changed in review). A registration sets
 `User.pendingSince`; PENDING is `!active && pendingSince !== null` (`isPending`, `lib/admin/users.ts`,
@@ -339,18 +351,6 @@ minimal email shape check sit on the public action. The sign-in error stays gene
 redirects a refused sign-in to `?error=CredentialsSignin` instead of letting next-auth's throw become a
 500 (pre-existing). No mail path, no domain restriction, no delete (rule 6). `node
 scripts/dev-test-db.mjs` runs the dev server on the TEST database for a browser check.
-
-**Every table is on the table kit** (2026-10-13, spec `2026-10-13-table-kit-design.md`, the Supplier
-Portal's header menu). Click a header: Sort Ascending / Descending, Clear Filter, the filter (date
-and amount: Equals … Is Between, Today, This Month; enum: a dropdown; text: contains). Chips above
-the table; ⚙ CUSTOMIZE COLUMNS opens Column Configuration; drag a header edge to resize. Layout is
-per browser under `check-monitoring.table.<id>.v1`. Two modes: `KitTable` filters the rows the page
-drew (a capped page says "N OF THE M ROWS SHOWN"); the main list and Audit are URL mode — the menu
-writes the parameters they already parse (`lib/table-kit/url-binding.ts`), so on the main list
-`lib/column-filters.ts` still refuses, and "Does Not Equal" / strict amount bounds are not offered
-there. The filter-box row and COLUMNS chooser are gone; their values ride as hidden inputs on the
-bar's form. Audit does not sort (its keyset is newest first). Left alone: print, the forecast
-matrix, the planned-outflow list.
 
 **`/welcome` is the public front door, and it is public by name** (2026-09-27, spec
 `2026-09-27-landing-login-and-theme-design.md`). The landing page and `/login` both render
