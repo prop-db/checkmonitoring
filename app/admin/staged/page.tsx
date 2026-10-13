@@ -266,7 +266,7 @@ export default async function StagedPage({
           </EmptyState>
         )
       ) : (
-        <KitTable tableId="staged-checks" columns={checkColumns} rows={checkRows} capped={rows.length >= 200} />
+        <KitTable tableId="staged-checks" columns={checkColumns} rows={checkRows} capped={matching > rows.length} />
       )}
 
       {/* The approval-for-release workbook's refused rows.

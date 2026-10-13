@@ -7,25 +7,29 @@ import { clampWidth } from '@/lib/table-kit/layout'
  * Drag a header's right edge to size its column; double-click forgets the
  * width. Pointer capture keeps the drag alive once the pointer leaves the grip.
  */
-export function ResizeGrip({ label, width, onResize }: { label: string; width?: number; onResize: (width: number | null) => void }) {
-  const drag = useRef<{ x: number; w: number } | null>(null)
+export function ResizeGrip({ label, width, onResize, onCommit }: { label: string; width?: number; onResize: (width: number | null) => void; onCommit?: (width: number | null) => void }) {
+  const drag = useRef<{ x: number; w: number; last: number | null } | null>(null)
   return (
     <div
       role="separator" aria-orientation="vertical" aria-label={`Resize ${label}`}
       onPointerDown={(e) => {
         const th = e.currentTarget.parentElement
-        drag.current = { x: e.clientX, w: width ?? th?.getBoundingClientRect().width ?? 120 }
+        drag.current = { x: e.clientX, w: width ?? th?.getBoundingClientRect().width ?? 120, last: null }
         e.currentTarget.setPointerCapture(e.pointerId)
         e.preventDefault()
         e.stopPropagation()
       }}
       onPointerMove={(e) => {
         const d = drag.current
-        if (d) onResize(clampWidth(d.w + e.clientX - d.x))
+        if (d) { d.last = clampWidth(d.w + e.clientX - d.x); onResize(d.last) }
       }}
-      onPointerUp={() => { drag.current = null }}
+      onPointerUp={() => {
+        const d = drag.current
+        drag.current = null
+        if (d && d.last !== null) onCommit?.(d.last)
+      }}
       onPointerCancel={() => { drag.current = null }}
-      onDoubleClick={(e) => { e.stopPropagation(); onResize(null) }}
+      onDoubleClick={(e) => { e.stopPropagation(); onResize(null); onCommit?.(null) }}
       onClick={(e) => e.stopPropagation()}
       className="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none hover:bg-navy/20"
     />

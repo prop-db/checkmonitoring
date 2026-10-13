@@ -28,6 +28,8 @@ export function useTableLayout(
     // Columns are rebuilt every render; the layout is read once per table.
   }, [tableId])
 
+  /** Live state only (a drag in progress); `save` is what persists. */
+  const preview = (next: Layout) => setLayout(next)
   const save = (next: Layout) => {
     setLayout(next)
     try { window.localStorage.setItem(layoutStorageKey(tableId), JSON.stringify(next)) } catch { /* not remembered */ }
@@ -36,5 +38,5 @@ export function useTableLayout(
     setLayout(defaultLayout(columns))
     try { window.localStorage.removeItem(layoutStorageKey(tableId)) } catch { /* nothing stored */ }
   }
-  return { layout, save, reset }
+  return { layout, preview, save, reset }
 }

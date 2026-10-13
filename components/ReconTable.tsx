@@ -20,9 +20,10 @@ function Totals({ totals }: { totals: AccountTotal[] }) {
 
 /**
  * One row per cash account, in the Cash Balance sheet's order; each links to its list.
- * On the table kit since 2026-10-13. The OUTSTANDING column filters and sorts on
- * the count of outstanding checks, because a money figure is per currency and an
- * account can hold several; the cell still lists every currency's count and total.
+ * On the table kit since 2026-10-13. The OUTSTANDING column sorts by the number of
+ * outstanding checks and offers no filter, because an account's money is per currency
+ * and a typed amount would silently mean a count; the cell still lists every
+ * currency's count and total.
  */
 export function ReconTable({ summary, params }: { summary: ReconSummary; params: ReconParams }) {
   const opts = (xs: (string | null)[]) => [...new Set(xs.filter((x): x is string => Boolean(x)))].sort().map((v) => ({ value: v, label: v }))
@@ -30,8 +31,8 @@ export function ReconTable({ summary, params }: { summary: ReconSummary; params:
     { key: 'account', label: 'ACCOUNT', kind: 'text', locked: true, className: 'font-medium' },
     { key: 'bank', label: 'BANK', kind: 'enum', options: opts(summary.accounts.map((a) => a.bank)) },
     { key: 'company', label: 'COMPANY', kind: 'enum', options: opts(summary.accounts.map((a) => a.company)) },
-    // Several currencies per account: the cell lists them; the filter and sort read the count.
-    { key: 'outstanding', label: 'OUTSTANDING · AMOUNT', kind: 'amount', align: 'right' },
+    // Several currencies per account: the cell lists them; the sort reads the count and there is no filter.
+    { key: 'outstanding', label: 'OUTSTANDING · AMOUNT', kind: 'amount', align: 'right', noFilter: true },
   ]
   const rows: KitRow[] = summary.accounts.map((a) => ({
     key: a.accountId ?? a.account,

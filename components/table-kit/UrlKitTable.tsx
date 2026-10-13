@@ -30,7 +30,7 @@ export function UrlKitTable({
   markOwn: boolean
   empty?: string
 }) {
-  const { layout, save, reset } = useTableLayout(tableId, columns)
+  const { layout, preview, save, reset } = useTableLayout(tableId, columns)
   const update = useUrlUpdate({ markOwn, drop })
   const needles: Record<string, string> = {}
   for (const c of columns) if (bindings[c.key]) needles[c.key] = paramsToNeedle(bindings[c.key], values)
@@ -52,7 +52,8 @@ export function UrlKitTable({
           <thead className="border-b border-hairline text-left text-[11px] font-semibold tracking-widest text-slate-400">
             <KitHeaderRow
               columns={visible} widths={layout.widths} sort={null} filters={needles}
-              onSort={() => {}} onFilter={apply} onResize={(key, w) => save(setWidth(layout, key, w))}
+              onSort={() => {}} onFilter={apply} onResize={(key, w) => preview(setWidth(layout, key, w))}
+              onResizeEnd={(key, w) => save(setWidth(layout, key, w))}
             />
           </thead>
           <tbody>

@@ -7,7 +7,7 @@ import { HeaderMenu } from './HeaderMenu'
 import { ResizeGrip } from './ResizeGrip'
 
 function HeaderCell({
-  column, width, sortDir, needle, error, onSort, onFilter, onResize, className,
+  column, width, sortDir, needle, error, onSort, onFilter, onResize, onResizeEnd, className,
 }: {
   column: KitColumn
   width?: number
@@ -17,6 +17,7 @@ function HeaderCell({
   onSort: (dir: 'asc' | 'desc' | null) => void
   onFilter: (needle: string) => void
   onResize: (width: number | null) => void
+  onResizeEnd: (width: number | null) => void
   className: string
 }) {
   const ref = useRef<HTMLTableCellElement>(null)
@@ -44,7 +45,7 @@ function HeaderCell({
       ) : (
         <span>{column.label}</span>
       )}
-      <ResizeGrip label={column.label} width={width} onResize={onResize} />
+      <ResizeGrip label={column.label} width={width} onResize={onResize} onCommit={onResizeEnd} />
       {open && ref.current && (
         <HeaderMenu
           anchor={ref.current} column={column} sortDir={sortDir} needle={needle}
@@ -57,7 +58,7 @@ function HeaderCell({
 
 /** One header row: `leading` and `trailing` cells (checkboxes, actions) around the kit's columns. */
 export function KitHeaderRow({
-  columns, widths, sort, filters, errors = {}, onSort, onFilter, onResize, leading, trailing, cellClassName = 'px-4 py-3',
+  columns, widths, sort, filters, errors = {}, onSort, onFilter, onResize, onResizeEnd, leading, trailing, cellClassName = 'px-4 py-3',
 }: {
   columns: readonly KitColumn[]
   widths: Readonly<Record<string, number>>
@@ -67,6 +68,7 @@ export function KitHeaderRow({
   onSort: (key: string, dir: 'asc' | 'desc' | null) => void
   onFilter: (key: string, needle: string) => void
   onResize: (key: string, width: number | null) => void
+  onResizeEnd: (key: string, width: number | null) => void
   leading?: ReactNode
   trailing?: ReactNode
   cellClassName?: string
@@ -78,7 +80,7 @@ export function KitHeaderRow({
         <HeaderCell
           key={c.key} column={c} width={widths[c.key]} className={cellClassName}
           sortDir={sort?.key === c.key ? sort.dir : null} needle={filters[c.key] ?? ''} error={errors[c.key]}
-          onSort={(dir) => onSort(c.key, dir)} onFilter={(n) => onFilter(c.key, n)} onResize={(w) => onResize(c.key, w)}
+          onSort={(dir) => onSort(c.key, dir)} onFilter={(n) => onFilter(c.key, n)} onResize={(w) => onResize(c.key, w)} onResizeEnd={(w) => onResizeEnd(c.key, w)}
         />
       ))}
       {trailing}

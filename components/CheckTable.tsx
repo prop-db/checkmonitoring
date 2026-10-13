@@ -152,7 +152,7 @@ export function CheckTable({
     () => mainListColumns({ options: filters.options, showStatus: filters.showStatus, showReleasedRange: filters.showReleasedRange }),
     [filters.options, filters.showStatus, filters.showReleasedRange],
   )
-  const { layout, save, reset } = useTableLayout(MAIN_LIST_TABLE_ID, columns, legacyMainList)
+  const { layout, preview, save, reset } = useTableLayout(MAIN_LIST_TABLE_ID, columns, legacyMainList)
   // The menu changes only parameters nothing else on the page draws uncontrolled
   // (the hidden inputs below are controlled), so the filter bar is not remounted.
   const navigate = useUrlUpdate({ markOwn: true })
@@ -267,7 +267,8 @@ export function CheckTable({
               columns={visibleKitColumns} widths={layout.widths} sort={sort} filters={needles} errors={errors}
               cellClassName="px-2 py-2"
               onSort={applySort} onFilter={applyFilter}
-              onResize={(key, w) => save(setWidth(layout, key, w))}
+              onResize={(key, w) => preview(setWidth(layout, key, w))}
+              onResizeEnd={(key, w) => save(setWidth(layout, key, w))}
               leading={
                 <th className="px-2 py-2">
                   <input

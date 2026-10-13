@@ -46,7 +46,7 @@ export function KitTable({
   cellClassName?: string
   headClassName?: string
 }) {
-  const { layout, save, reset } = useTableLayout(tableId, columns)
+  const { layout, preview, save, reset } = useTableLayout(tableId, columns)
   const [filters, setFilters] = useState<Record<string, string>>({})
   const [sort, setSort] = useState<KitSort>(null)
 
@@ -84,7 +84,8 @@ export function KitTable({
               columns={visible} widths={layout.widths} sort={sort} filters={filters} errors={errors} cellClassName={cellClassName}
               onSort={(key, dir) => setSort(dir ? { key, dir } : null)}
               onFilter={(key, n) => setFilters((f) => ({ ...f, [key]: n }))}
-              onResize={(key, w) => save(setWidth(layout, key, w))}
+              onResize={(key, w) => preview(setWidth(layout, key, w))}
+              onResizeEnd={(key, w) => save(setWidth(layout, key, w))}
             />
           </thead>
           <tbody>

@@ -42,7 +42,7 @@ export function TransmittalPicker({
 }) {
   const companies = useMemo(() => [...new Set(candidates.map((c) => c.company))].sort(), [candidates])
   const columns = useMemo(() => pickColumns(companies), [companies])
-  const { layout, save, reset } = useTableLayout(TRANSMITTAL_TABLE_ID, columns, legacy)
+  const { layout, preview, save, reset } = useTableLayout(TRANSMITTAL_TABLE_ID, columns, legacy)
   const [filters, setFilters] = useState<Record<string, string>>({})
   const [sort, setSort] = useState<KitSort>({ key: 'checkNumber', dir: 'asc' })
 
@@ -121,7 +121,8 @@ export function TransmittalPicker({
               columns={visible} widths={layout.widths} sort={sort} filters={filters} errors={errors} cellClassName="px-2 py-2 font-semibold"
               onSort={(key, dir) => setSort(dir ? { key, dir } : null)}
               onFilter={(key, n) => setFilters((f) => ({ ...f, [key]: n }))}
-              onResize={(key, w) => save(setWidth(layout, key, w))}
+              onResize={(key, w) => preview(setWidth(layout, key, w))}
+              onResizeEnd={(key, w) => save(setWidth(layout, key, w))}
               leading={<th className="w-9 px-2 py-2" />}
             />
           </thead>
