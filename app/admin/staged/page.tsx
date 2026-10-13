@@ -298,7 +298,7 @@ export default async function StagedPage({
               the voucher can find it. Nothing is deleted, and re-importing the workbook clears a
               row that has since attached.
             </p>
-            <KitTable tableId="staged-bills" columns={billColumns} rows={billKitRows} capped={billRows.length >= 200} />
+            <KitTable tableId="staged-bills" columns={billColumns} rows={billKitRows} capped={billSummary.total > billRows.length} />
           </>
         )}
       </section>
