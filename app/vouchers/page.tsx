@@ -178,7 +178,7 @@ export default async function VouchersPage({
             {describeEmptyVoucherState(q, status)}
           </EmptyState>
         )
-        : <VoucherTable rows={rows} />}
+        : <VoucherTable rows={rows} capped={matching.length > rows.length} />}
 
       <Panel title="WHEN THE CHECK NUMBER IS BLANK">
         <p className="text-sm leading-relaxed text-slate-600">
