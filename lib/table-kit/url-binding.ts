@@ -28,21 +28,25 @@ export function needleToParams(b: Binding, needle: string): Record<string, strin
   const n = needle.trim()
   if (b.kind === 'text') return { [b.param]: n }
   if (b.kind === 'enum') return { [b.param]: n.replace(/^=/, '') }
+  if (!n) return { [b.from]: '', [b.to]: '' }
   const r = parseRangeNeedle(n)
+  const offered = b.unit === 'day' ? SERVER_DAY_OPS : SERVER_AMOUNT_OPS
+  // A needle the parameters cannot express — unreadable, an operator the menu
+  // never offers here, or a single-bound operator without exactly one bound —
+  // is written whole into From for the server to refuse. Clearing both would
+  // widen the list to every check, which reads as a filter applied.
+  if (!r || !offered.includes(r.op) || (r.op !== 'between' && (!r.a || r.b))) return { [b.from]: n, [b.to]: '' }
   let from = ''
   let to = ''
-  if (r) {
-    // Only a real ISO day is shifted; anything else passes through for the server to refuse.
-    const next = (d: string, by: number) => (b.unit === 'day' && isIsoDay(d) ? shiftDay(d, by) : d)
-    switch (r.op) {
-      case 'eq': from = r.a; to = r.a; break
-      case 'ge': from = r.a; break
-      case 'le': to = r.a; break
-      case 'gt': from = next(r.a, 1); break
-      case 'lt': to = next(r.a, -1); break
-      case 'between': from = r.a; to = r.b; break
-      case 'ne': break
-    }
+  // Only a real ISO day is shifted; anything else passes through for the server to refuse.
+  const next = (d: string, by: number) => (b.unit === 'day' && isIsoDay(d) ? shiftDay(d, by) : d)
+  switch (r.op) {
+    case 'eq': from = r.a; to = r.a; break
+    case 'ge': from = r.a; break
+    case 'le': to = r.a; break
+    case 'gt': from = next(r.a, 1); break
+    case 'lt': to = next(r.a, -1); break
+    case 'between': from = r.a; to = r.b; break
   }
   return { [b.from]: from, [b.to]: to }
 }

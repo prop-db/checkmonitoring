@@ -33,6 +33,16 @@ describe('needles', () => {
     expect(needleError(text, 'anything')).toBeNull()
     expect(needleError(date, '')).toBeNull()
   })
+
+  it('refuses a one-bound operator without exactly one bound, rather than reading it as no filter', () => {
+    expect(needleError(date, '~ge:')).not.toBeNull()
+    expect(needleError(amount, '~eq::5')).not.toBeNull()
+    expect(needleError(amount, '~le:1:2')).not.toBeNull()
+    expect(applyKit([{ amount: '1.00' }], [amount], (r, k) => r[k as 'amount'], { amount: '~ge:' }, null)).toEqual([])
+    // An open side of a range is still a range.
+    expect(needleError(date, '~between:2026-10-01:')).toBeNull()
+    expect(needleError(amount, '~between::5')).toBeNull()
+  })
 })
 
 describe('matches', () => {

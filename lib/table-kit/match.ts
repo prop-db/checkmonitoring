@@ -43,7 +43,10 @@ export function needleError(column: KitColumn, needle: string): string | null {
   const n = needle.trim()
   if (!n || !isRange(column)) return null
   const r = parseRangeNeedle(n)
-  if (!r) return column.kind === 'date' ? FILTER_MESSAGES.day : FILTER_MESSAGES.amount
+  const message = column.kind === 'date' ? FILTER_MESSAGES.day : FILTER_MESSAGES.amount
+  if (!r) return message
+  // `~ge:` or `~eq::5`: a one-bound operator with no bound is unreadable, not "no filter".
+  if (r.op !== 'between' && (!r.a || r.b)) return message
   for (const v of [r.a, r.b]) {
     if (!v) continue
     if (column.kind === 'date' && !isIsoDay(v)) return FILTER_MESSAGES.day

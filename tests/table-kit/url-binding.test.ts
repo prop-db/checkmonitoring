@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { bindingError, needleToParams, paramsToNeedle, type Binding } from '@/lib/table-kit/url-binding'
+import { parseColumnFilters } from '@/lib/column-filters'
 
 const text: Binding = { kind: 'text', param: 'f.payee' }
 const enm: Binding = { kind: 'enum', param: 'company' }
@@ -34,6 +35,27 @@ describe('needleToParams', () => {
 
   it('passes an impossible day under lt through untouched rather than rolling it to another day', () => {
     expect(needleToParams(day, '~lt:2026-02-30')).toEqual({ 'f.checkDateFrom': '', 'f.checkDateTo': '2026-02-30' })
+  })
+
+  // Review follow-up: these used to clear both parameters, i.e. widen the list
+  // to every check while the chip said a filter was set.
+  it('refuses, never widens, a needle the parameters cannot express', () => {
+    const refused = [
+      [day, '~ne:2026-10-05'],
+      [amt, '~ne:100'],
+      [amt, '~gt:100'],
+      [amt, '~lt:100'],
+      [day, '~ge:'],
+      [amt, '~eq::5'],
+      [day, '~ge:2026-10-01:2026-10-13'],
+      [day, 'oct'],
+    ] as const
+    for (const [b, n] of refused) {
+      const params = needleToParams(b, n)
+      expect(params[b.kind === 'range' ? b.from : '']).toBe(n)
+      const parsed = parseColumnFilters((name) => params[name], { statusApplies: false })
+      expect(Object.keys(parsed.errors), n).not.toHaveLength(0)
+    }
   })
 })
 
