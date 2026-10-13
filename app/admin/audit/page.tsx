@@ -107,7 +107,15 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
             : "No signature, release, reversal or user change has been recorded by a person. Tick SYSTEM ROWS to see what the imports and the sync have done."}
         </EmptyState>
       ) : (
-        <AuditTable rows={page.rows} />
+        <AuditTable
+          rows={page.rows}
+          actions={actions}
+          users={users.map((u) => ({ id: u.id, name: u.name }))}
+          values={{
+            action: filters.action ?? '', user: filters.userId ?? '', check: filters.checkNumber ?? '',
+            from: raw.from ?? '', to: raw.to ?? '',
+          }}
+        />
       )}
 
       <div className="flex items-center justify-between text-sm">
