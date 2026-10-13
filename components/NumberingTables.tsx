@@ -5,79 +5,109 @@ import { StatusPill } from '@/components/StatusPill'
 import { missingLabel, numberingHref } from '@/lib/numbering-view'
 import type { NumberingAccount } from '@/lib/numbering/query'
 import type { SeriesCheque, SeriesEntry, SeriesStaged } from '@/lib/numbering/series'
+import { KitTable, type KitRow } from './table-kit/KitTable'
+import type { KitColumn } from '@/lib/table-kit/types'
+import { dateValue } from '@/lib/table-kit/match'
 
 const fmtDay = (d: Date | null) =>
   d ? d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : '—'
 const fmtCount = (s: string) => (s.length <= 15 ? Number(s).toLocaleString('en-PH') : s)
 const th = 'px-4 py-3'
 
-/** One row per cheque book. The cheque book links to its own series. */
+const CHECK_COLUMNS: KitColumn[] = [
+  { key: 'checkNumber', label: 'CHECK NUMBER', kind: 'text', locked: true, className: 'tabular-nums' },
+  { key: 'checkDate', label: 'CHECK DATE', kind: 'date' },
+  { key: 'payee', label: 'PAYEE', kind: 'text' },
+  { key: 'amount', label: 'AMOUNT', kind: 'amount', align: 'right', className: 'tabular-nums' },
+  { key: 'status', label: 'STATUS', kind: 'text' },
+]
+
+function checkRow(c: SeriesCheque, note?: string): KitRow {
+  return {
+    key: c.id,
+    values: {
+      checkNumber: c.checkNumber, checkDate: dateValue(c.checkDate), payee: c.payeeName,
+      amount: c.amount === null ? null : String(c.amount), status: `${c.status.replace(/_/g, ' ')}${note ? ` ${note}` : ''}`,
+    },
+    cells: {
+      checkNumber: <Link prefetch={false} href={`/checks/${c.id}`} className="underline underline-offset-2">{c.checkNumber}</Link>,
+      checkDate: fmtDay(c.checkDate),
+      payee: c.payeeName ?? '—',
+      amount: formatMoney(c.amount, c.currency),
+      status: <><StatusPill status={c.status} />{note && <span className="ml-2 text-xs font-semibold text-amber-700">{note}</span>}</>,
+    },
+  }
+}
+
+function stagedRow(s: SeriesStaged): KitRow {
+  return {
+    key: `s-${s.acumaticaTenant}-${s.acumaticaRef}`,
+    className: 'border-b border-slate-100 bg-slate-50 text-slate-600',
+    values: {
+      checkNumber: s.statedCheckRef, checkDate: dateValue(s.checkDate), payee: s.payeeName,
+      amount: s.currency && s.amount !== null ? String(s.amount) : null, status: `STAGED ${s.acumaticaRef}`,
+    },
+    cells: {
+      checkNumber: s.statedCheckRef,
+      checkDate: fmtDay(s.checkDate),
+      payee: s.payeeName ?? '—',
+      amount: s.currency ? formatMoney(s.amount, s.currency) : '—',
+      status: (
+        <>
+          <span className="inline-block whitespace-nowrap rounded-full bg-slate-200 px-2.5 py-1 text-xs font-semibold tracking-wide text-slate-700">STAGED</span>
+          <span className="ml-2 text-xs text-slate-500">Acumatica {s.acumaticaRef}</span>
+        </>
+      ),
+    },
+  }
+}
+
+function entryRows(entries: readonly SeriesEntry[]): KitRow[] {
+  return entries.map((e): KitRow => e.kind === 'MISSING'
+    ? {
+        key: `m-${e.from}`, className: 'border-b border-amber-200 bg-amber-50',
+        band: <div className={`${th} font-semibold tabular-nums text-amber-800`}>{missingLabel(e)}</div>,
+      }
+    : e.kind === 'STAGED' ? stagedRow(e.staged) : checkRow(e.cheque, e.duplicate ? 'DUPLICATE NUMBER' : undefined))
+}
+
+/** One row per check book. The check book links to its own series. */
 export function NumberingSummaryTable({ accounts, company }: { accounts: readonly NumberingAccount[]; company?: string }) {
-  return (
-    <section className="overflow-x-auto rounded-2xl bg-white ring-1 ring-hairline">
-      <table className="w-full text-sm">
-        <thead className="border-b border-hairline text-left text-[11px] font-semibold tracking-widest text-slate-400">
-          <tr>
-            <th className={th}>CHECK BOOK</th><th className={th}>BANK</th><th className={th}>COMPANY</th>
-            <th className={th}>FIRST</th><th className={th}>LAST</th>
-            <th className={`${th} text-right`}>HELD</th><th className={`${th} text-right`}>VOIDED</th>
-            <th className={`${th} text-right`}>CANCELLED</th><th className={`${th} text-right`}>STAGED</th><th className={`${th} text-right`}>MISSING</th>
-            <th className={`${th} text-right`}>NOT NUMERIC</th><th className={`${th} text-right`}>OUT OF PATTERN</th>
-          </tr>
-        </thead>
-        <tbody>
-          {accounts.map((a) => {
-            const s = a.series.summary
-            return (
-              <tr key={a.accountId} className="border-b border-slate-100 odd:bg-white even:bg-ground">
-                <td className={th}><Link prefetch={false} href={numberingHref({ company, account: a.accountId })} className="underline underline-offset-2">{a.account}</Link></td>
-                <td className={th}>{a.bank}</td>
-                <td className={th}>{a.company}</td>
-                <td className={`${th} tabular-nums`}>{s.first ?? '—'}</td>
-                <td className={`${th} tabular-nums`}>{s.last ?? '—'}</td>
-                <td className={`${th} text-right tabular-nums`}>{s.held.toLocaleString('en-PH')}</td>
-                <td className={`${th} text-right tabular-nums`}>{s.voided.toLocaleString('en-PH')}</td>
-                <td className={`${th} text-right tabular-nums`}>{s.cancelled.toLocaleString('en-PH')}</td>
-                <td className={`${th} text-right tabular-nums`}>{s.staged.toLocaleString('en-PH')}</td>
-                <td className={`${th} text-right tabular-nums ${s.missingRuns ? 'font-semibold text-amber-700' : ''}`}>
-                  {fmtCount(s.missingNumbers)}{s.missingRuns ? ` (${s.missingRuns.toLocaleString('en-PH')})` : ''}
-                </td>
-                <td className={`${th} text-right tabular-nums`}>{s.notNumeric.toLocaleString('en-PH')}</td>
-                <td className={`${th} text-right tabular-nums`}>{s.outOfPattern.toLocaleString('en-PH')}</td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-    </section>
-  )
-}
-
-function ChequeRow({ c, note }: { c: SeriesCheque; note?: string }) {
-  return (
-    <tr className="border-b border-slate-100 odd:bg-white even:bg-ground">
-      <td className={`${th} tabular-nums`}><Link prefetch={false} href={`/checks/${c.id}`} className="underline underline-offset-2">{c.checkNumber}</Link></td>
-      <td className={th}>{fmtDay(c.checkDate)}</td>
-      <td className={th}>{c.payeeName ?? '—'}</td>
-      <td className={`${th} text-right tabular-nums`}>{formatMoney(c.amount, c.currency)}</td>
-      <td className={th}><StatusPill status={c.status} />{note && <span className="ml-2 text-xs font-semibold text-amber-700">{note}</span>}</td>
-    </tr>
-  )
-}
-
-function StagedRow({ s }: { s: SeriesStaged }) {
-  return (
-    <tr className="border-b border-slate-100 bg-slate-50 text-slate-600">
-      <td className={`${th} tabular-nums`}>{s.statedCheckRef}</td>
-      <td className={th}>{fmtDay(s.checkDate)}</td>
-      <td className={th}>{s.payeeName ?? '—'}</td>
-      <td className={`${th} text-right tabular-nums`}>{s.currency ? formatMoney(s.amount, s.currency) : '—'}</td>
-      <td className={th}>
-        <span className="inline-block whitespace-nowrap rounded-full bg-slate-200 px-2.5 py-1 text-xs font-semibold tracking-wide text-slate-700">STAGED</span>
-        <span className="ml-2 text-xs text-slate-500">Acumatica {s.acumaticaRef}</span>
-      </td>
-    </tr>
-  )
+  const count = (key: string, label: string): KitColumn => ({ key, label, kind: 'amount', align: 'right', className: 'tabular-nums' })
+  const opts = (xs: string[]) => [...new Set(xs)].sort().map((v) => ({ value: v, label: v }))
+  const columns: KitColumn[] = [
+    { key: 'account', label: 'CHECK BOOK', kind: 'text', locked: true },
+    { key: 'bank', label: 'BANK', kind: 'enum', options: opts(accounts.map((a) => a.bank)) },
+    { key: 'company', label: 'COMPANY', kind: 'enum', options: opts(accounts.map((a) => a.company)) },
+    { key: 'first', label: 'FIRST', kind: 'text', className: 'tabular-nums' },
+    { key: 'last', label: 'LAST', kind: 'text', className: 'tabular-nums' },
+    count('held', 'HELD'), count('voided', 'VOIDED'), count('cancelled', 'CANCELLED'), count('staged', 'STAGED'),
+    count('missing', 'MISSING'), count('notNumeric', 'NOT NUMERIC'), count('outOfPattern', 'OUT OF PATTERN'),
+  ]
+  const rows: KitRow[] = accounts.map((a) => {
+    const s = a.series.summary
+    return {
+      key: a.accountId,
+      values: {
+        account: a.account, bank: a.bank, company: a.company, first: s.first ?? null, last: s.last ?? null,
+        held: String(s.held), voided: String(s.voided), cancelled: String(s.cancelled), staged: String(s.staged),
+        missing: s.missingNumbers, notNumeric: String(s.notNumeric), outOfPattern: String(s.outOfPattern),
+      },
+      cells: {
+        account: <Link prefetch={false} href={numberingHref({ company, account: a.accountId })} className="underline underline-offset-2">{a.account}</Link>,
+        bank: a.bank, company: a.company, first: s.first ?? '—', last: s.last ?? '—',
+        held: s.held.toLocaleString('en-PH'), voided: s.voided.toLocaleString('en-PH'),
+        cancelled: s.cancelled.toLocaleString('en-PH'), staged: s.staged.toLocaleString('en-PH'),
+        missing: (
+          <span className={s.missingRuns ? 'font-semibold text-amber-700' : ''}>
+            {fmtCount(s.missingNumbers)}{s.missingRuns ? ` (${s.missingRuns.toLocaleString('en-PH')})` : ''}
+          </span>
+        ),
+        notNumeric: s.notNumeric.toLocaleString('en-PH'), outOfPattern: s.outOfPattern.toLocaleString('en-PH'),
+      },
+    }
+  })
+  return <KitTable tableId="numbering-books" columns={columns} rows={rows} />
 }
 
 /**
@@ -86,51 +116,17 @@ function StagedRow({ s }: { s: SeriesStaged }) {
  */
 export function NumberingEntriesTable({ entries }: { entries: readonly SeriesEntry[] }) {
   return (
-    <section className="overflow-x-auto rounded-2xl bg-white ring-1 ring-hairline">
-      <table className="w-full text-sm">
-        <thead className="border-b border-hairline text-left text-[11px] font-semibold tracking-widest text-slate-400">
-          <tr><th className={th}>CHECK NUMBER</th><th className={th}>CHECK DATE</th><th className={th}>PAYEE</th><th className={`${th} text-right`}>AMOUNT</th><th className={th}>STATUS</th></tr>
-        </thead>
-        <tbody>
-          {entries.map((e) => e.kind === 'MISSING'
-            ? (
-              <tr key={`m-${e.from}`} className="border-b border-amber-200 bg-amber-50">
-                <td colSpan={5} className={`${th} font-semibold tabular-nums text-amber-800`}>{missingLabel(e)}</td>
-              </tr>
-            )
-            : e.kind === 'STAGED'
-            ? <StagedRow key={`s-${e.staged.acumaticaTenant}-${e.staged.acumaticaRef}`} s={e.staged} />
-            : <ChequeRow key={e.cheque.id} c={e.cheque} note={e.duplicate ? 'DUPLICATE NUMBER' : undefined} />)}
-        </tbody>
-      </table>
-    </section>
+    <KitTable tableId="numbering-entries" columns={CHECK_COLUMNS} rows={entryRows(entries)}
+      bandsNote="MISSING LINES ARE HIDDEN WHILE A FILTER OR SORT IS IN FORCE." />
   )
 }
 
-/** Cheques whose number cannot be placed in the sequence. */
+/** Checks whose number cannot be placed in the sequence. */
 export function NotNumericTable({ cheques }: { cheques: readonly SeriesCheque[] }) {
-  return (
-    <section className="overflow-x-auto rounded-2xl bg-white ring-1 ring-hairline">
-      <table className="w-full text-sm">
-        <tbody>{cheques.map((c) => <ChequeRow key={c.id} c={c} />)}</tbody>
-      </table>
-    </section>
-  )
+  return <KitTable tableId="numbering-not-numeric" columns={CHECK_COLUMNS} rows={cheques.map((c) => checkRow(c))} />
 }
 
-/** Cheques and staged lines whose number breaks the book's pattern (spec §F): listed, not in the sequence. */
+/** Checks and staged lines whose number breaks the book's pattern (spec §F): listed, not in the sequence. */
 export function OutOfPatternTable({ entries }: { entries: readonly SeriesEntry[] }) {
-  return (
-    <section className="overflow-x-auto rounded-2xl bg-white ring-1 ring-hairline">
-      <table className="w-full text-sm">
-        <tbody>
-          {entries.map((e) => e.kind === 'CHECK'
-            ? <ChequeRow key={e.cheque.id} c={e.cheque} note={e.duplicate ? 'DUPLICATE NUMBER' : undefined} />
-            : e.kind === 'STAGED'
-            ? <StagedRow key={`s-${e.staged.acumaticaTenant}-${e.staged.acumaticaRef}`} s={e.staged} />
-            : null)}
-        </tbody>
-      </table>
-    </section>
-  )
+  return <KitTable tableId="numbering-out-of-pattern" columns={CHECK_COLUMNS} rows={entryRows(entries.filter((e) => e.kind !== 'MISSING'))} />
 }
