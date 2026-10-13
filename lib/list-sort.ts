@@ -43,7 +43,7 @@ export function isAppSorted(key: SortKey): key is AppSortKey {
 export const SORT_COOKIE = 'cm_sort'
 export const SORT_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 
-const isSortKey = (v: unknown): v is SortKey =>
+export const isSortKey = (v: unknown): v is SortKey =>
   typeof v === 'string' && (SORT_KEYS as readonly string[]).includes(v)
 const isSortDir = (v: unknown): v is SortDir => v === 'asc' || v === 'desc'
 

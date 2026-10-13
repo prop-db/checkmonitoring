@@ -8,10 +8,10 @@ import {
 } from '@/lib/queries'
 import { resolveDashboardQuery, type RawDashboardSearchParams } from '@/lib/dashboard-params'
 import { SORT_COOKIE } from '@/lib/list-sort'
-import { activeFilterColumns, columnParamsOf } from '@/lib/column-filters'
+import { columnParamsOf } from '@/lib/column-filters'
 import {
   clearFiltersHref, dashboardScreen, describeView, incompleteHref,
-  cardHref, releaseConfirmHref, releaseCancelHref, signAllConfirmHref, signAllCancelHref, sortLinks, totalsHref,
+  cardHref, releaseConfirmHref, releaseCancelHref, signAllConfirmHref, signAllCancelHref, totalsHref,
   signAllOffered as isSignAllOffered,
 } from '@/lib/dashboard-view'
 import { AppHeader } from '@/components/AppHeader'
@@ -421,14 +421,12 @@ export default async function DashboardPage({
         canRelease={user.role === 'FINANCE_ADMIN'}
         bulkCap={settings.values['caps.bulkSelection']}
         sort={sort}
-        sortLinks={sortLinks(selection, activeSort)}
         filters={{
           options,
           values: columnValues,
           errors: filterErrors,
           showStatus: showAll && !status,
           showReleasedRange: status === 'RELEASED' || showAll,
-          filteredColumns: activeFilterColumns(columnValues),
         }}
       />
     </main>

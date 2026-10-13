@@ -9,8 +9,8 @@ const APPLY_ID = 'filter-apply'
 
 /**
  * The dashboard's filter bar: SEARCH · ELIGIBILITY · INCOMPLETE · RESET. Every
- * other filter is a box in the table's filter row (components/ColumnFilterCell.tsx),
- * joined to this form by `form="list-filters"` — a native submit still sends it.
+ * other filter is set from the table's header menus (components/CheckTable.tsx),
+ * carried into this form by hidden `form="list-filters"` inputs — a native submit still sends them.
  *
  * A plain `<form method="get">`, deliberately, and still one. Every control
  * writes a URL parameter, which is what makes a filtered view linkable,
