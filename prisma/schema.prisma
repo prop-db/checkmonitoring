@@ -656,6 +656,25 @@ model AcumaticaBill {
   updatedAt      DateTime  @updatedAt
 }
 
+/// A bill's due date and terms, from Acumatica's AP-Bills and Adjustments
+/// (spec 2026-10-15-aging-module-design.md). Reference data like
+/// AcumaticaBill: no Check relation, no audit row. Written by the BILL_REFS
+/// read for EVERY in-scope Bill / Prepayment, blank Vendor Ref included, and
+/// never deleted. A separate table because every AcumaticaBill row reads as
+/// "this bill names a PO".
+model AcumaticaBillTerms {
+  // `ReferenceNbr`, trimmed and upper-cased — the APV.
+  apvNumber      String    @id
+  // GOLIVE or MANUFACTURING: the tenant whose read last wrote the row.
+  tenant         String
+  // `DueDate`, a calendar day (UTC midnight).
+  dueDate        DateTime?
+  // `Terms`, trimmed, otherwise verbatim.
+  termsCode      String?
+  lastModifiedOn DateTime?
+  updatedAt      DateTime  @updatedAt
+}
+
 model AuditLog {
   id        String    @id @default(cuid())
   checkId   String?
