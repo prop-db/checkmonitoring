@@ -29,6 +29,9 @@ export const BILL_REF_COLUMNS = {
   date: 'Date',
   vendorRef: 'VendorRef',
   lastModified: 'LastModifiedOn',
+  // AGING (2026-10-15): measured on both tenants by scripts/probe-bill-terms.ts.
+  dueDate: 'DueDate',
+  terms: 'Terms',
 } as const
 
 /**
@@ -83,6 +86,10 @@ export type BillRef = {
   /** `extractPoNumbers(vendorRef)`; empty when the ref names no PO. */
   poNumbers: string[]
   lastModifiedOn: Date | null
+  /** `DueDate` as a calendar day (UTC midnight); null when the feed states none. */
+  dueDate: Date | null
+  /** `Terms`, trimmed; null when blank. */
+  termsCode: string | null
 }
 
 const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
@@ -101,5 +108,7 @@ export function mapBillRef(raw: unknown): BillRef | null {
     vendorRef,
     poNumbers: extractPoNumbers(vendorRef),
     lastModifiedOn: naiveDate(r[BILL_REF_COLUMNS.lastModified], { dayOnly: false }),
+    dueDate: naiveDate(r[BILL_REF_COLUMNS.dueDate], { dayOnly: true }),
+    termsCode: text(r[BILL_REF_COLUMNS.terms]) || null,
   }
 }
