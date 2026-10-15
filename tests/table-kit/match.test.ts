@@ -10,6 +10,7 @@ const status: KitColumn = {
   key: 'status', label: 'STATUS', kind: 'enum',
   options: [{ value: 'SIGNED', label: 'SIGNED' }, { value: 'SIGNATURE_PENDING', label: 'SIGNATURE PENDING' }],
 }
+const statuses: KitColumn = { ...status, multi: true }
 const date: KitColumn = { key: 'checkDate', label: 'CHECK DATE', kind: 'date' }
 const amount: KitColumn = { key: 'amount', label: 'AMOUNT', kind: 'amount' }
 
@@ -56,6 +57,12 @@ describe('matches', () => {
     expect(matches(status, 'SIGNED', '=SIGNED')).toBe(true)
     expect(matches(status, 'SIGNATURE_PENDING', '=SIGNED')).toBe(false)
     expect(matches(status, 'signed', '=SIGNED')).toBe(true)
+  })
+
+  it('a multi enum matches any ticked value; a single enum reads the comma literally', () => {
+    expect(matches(statuses, 'SIGNED', '=SIGNATURE_PENDING,SIGNED')).toBe(true)
+    expect(matches(statuses, 'RELEASED', '=SIGNATURE_PENDING,SIGNED')).toBe(false)
+    expect(matches(status, 'SIGNED', '=SIGNATURE_PENDING,SIGNED')).toBe(false)
   })
 
   it('dates honour every operator; an empty date never matches', () => {
@@ -148,6 +155,7 @@ describe('humanNeedle', () => {
     expect(humanNeedle(date, '~between::2026-10-01')).toBe('UNTIL 2026-10-01')
     expect(humanNeedle(amount, '~ge:1000')).toBe('≥ 1000')
     expect(humanNeedle(status, '=SIGNATURE_PENDING')).toBe('SIGNATURE PENDING')
+    expect(humanNeedle(statuses, '=SIGNED,SIGNATURE_PENDING')).toBe('SIGNED, SIGNATURE PENDING')
     expect(humanNeedle(text, 'acme')).toBe('acme')
   })
 })

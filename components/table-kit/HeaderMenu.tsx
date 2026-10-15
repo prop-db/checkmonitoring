@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { RANGE_OPS, type KitColumn, type RangeOp } from '@/lib/table-kit/types'
-import { manilaToday, parseRangeNeedle, rangeNeedle, thisMonth } from '@/lib/table-kit/match'
+import { enumValues, manilaToday, parseRangeNeedle, rangeNeedle, thisMonth } from '@/lib/table-kit/match'
 
 const OP_LABELS: Record<RangeOp, string> = {
   eq: 'Equals', ne: 'Does Not Equal', gt: 'Is Greater Than', ge: 'Is Greater Than or Equal To',
@@ -39,6 +39,14 @@ export function HeaderMenu({
   const [a, setA] = useState(parsed?.a ?? '')
   const [b, setB] = useState(parsed?.b ?? '')
   const [text, setText] = useState(isRange ? '' : needle.trim().replace(/^=/, ''))
+  const multi = column.kind === 'enum' && column.multi === true
+  const [ticked, setTicked] = useState<ReadonlySet<string>>(() => new Set(multi ? enumValues(column, needle) : []))
+  const toggle = (v: string) => setTicked((prev) => {
+    const next = new Set(prev)
+    if (next.has(v)) next.delete(v)
+    else next.add(v)
+    return next
+  })
 
   useLayoutEffect(() => {
     const r = anchor.getBoundingClientRect()
@@ -68,7 +76,11 @@ export function HeaderMenu({
   const apply = (v: string) => { onClose(); onFilter(v) }
   const ok = () => {
     if (isRange) apply(rangeNeedle(op, a.trim(), op === 'between' ? b.trim() : ''))
-    else if (column.kind === 'enum') apply(text ? `=${text}` : '')
+    else if (multi) {
+      // In the options' order, so the same ticks always make the same URL.
+      const picked = (column.options ?? []).map((o) => o.value).filter((v) => ticked.has(v))
+      apply(picked.length > 0 ? `=${picked.join(',')}` : '')
+    } else if (column.kind === 'enum') apply(text ? `=${text}` : '')
     else apply(text.trim())
   }
   const enter = (e: React.KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); ok() } }
@@ -122,7 +134,18 @@ export function HeaderMenu({
               )}
             </>
           )}
-          {column.kind === 'enum' && (
+          {multi && (
+            <fieldset className="max-h-72 overflow-y-auto px-3 py-1" aria-label={`Filter ${column.label}`}>
+              {(column.options ?? []).map((o, i) => (
+                <label key={o.value} className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-sm hover:bg-navy-bg">
+                  <input autoFocus={i === 0} type="checkbox" checked={ticked.has(o.value)} onChange={() => toggle(o.value)}
+                    onKeyDown={enter} className="h-4 w-4 accent-navy" />
+                  {o.label}
+                </label>
+              ))}
+            </fieldset>
+          )}
+          {column.kind === 'enum' && !multi && (
             <div className="px-3 py-1">
               <select autoFocus value={text} onChange={(e) => setText(e.target.value)} onKeyDown={enter} className={field} aria-label={`Filter ${column.label}`}>
                 <option value="">ALL</option>

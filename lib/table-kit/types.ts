@@ -17,6 +17,11 @@ export type KitColumn = {
   kind: ColumnKind
   /** enum: the dropdown's values. `value` is what the filter stores; `label` what it shows. */
   options?: readonly KitOption[]
+  /**
+   * enum: ticked boxes instead of a dropdown, any of them matching. The needle
+   * is "=<v1>,<v2>", so a multi column's values must never contain a comma.
+   */
+  multi?: boolean
   /** date / amount: the operators the menu offers. Default: all of RANGE_OPS. */
   ops?: readonly RangeOp[]
   /** Cannot be moved to Available Columns. */

@@ -86,8 +86,11 @@ export function parseAmountBound(raw: string): string | null {
 
 export type ParsedColumnFilters = {
   filters: ColumnFilters
-  /** STATUS, on ALL CHEQUES only — it narrows `CheckFilters.status`, not a column filter of its own. */
-  status: CheckStatus | undefined
+  /**
+   * STATUS, on ALL CHEQUES only: the ticked statuses, at least one. It narrows
+   * `CheckFilters.status` (one) or `statusIn` (several), not a column filter of its own.
+   */
+  status: CheckStatus[] | undefined
   /** Every non-empty box as typed (valid or not), for `base` and to render back. */
   values: Record<string, string>
   /** Parameter name → message, for each box that could not be read. */
@@ -101,7 +104,7 @@ export function parseColumnFilters(
   const filters: ColumnFilters = {}
   const values: Record<string, string> = {}
   const errors: Record<string, string> = {}
-  let status: CheckStatus | undefined
+  let status: CheckStatus[] | undefined
 
   const take = (name: FParam): string => {
     const v = read(name)?.trim() ?? ''
@@ -142,9 +145,11 @@ export function parseColumnFilters(
   }
 
   if (opts.statusApplies) {
-    const v = take('f.status')
-    if (v) {
-      if ((STATUSES as readonly string[]).includes(v)) status = v as CheckStatus
+    // The ticked boxes, comma separated. One unreadable value refuses the box
+    // whole: dropping it would list more statuses than the reader asked for.
+    const picked = [...new Set(take('f.status').split(',').map((s) => s.trim()).filter(Boolean))]
+    if (picked.length > 0) {
+      if (picked.every((s) => (STATUSES as readonly string[]).includes(s))) status = picked as CheckStatus[]
       else errors['f.status'] = FILTER_MESSAGES.status
     }
   }
@@ -169,7 +174,9 @@ export function describeColumnFilters(values: Readonly<Record<string, string>>):
   contains('f.payee', 'SUPPLIER')
   range('f.checkDateFrom', 'f.checkDateTo', 'CHECK DATE')
   range('f.amountMin', 'f.amountMax', 'AMOUNT')
-  if (values['f.status']) parts.push(`STATUS: ${values['f.status'].replace(/_/g, ' ')}`)
+  if (values['f.status']) {
+    parts.push(`STATUS: ${values['f.status'].split(',').map((s) => s.trim().replace(/_/g, ' ')).filter(Boolean).join(', ')}`)
+  }
   range('f.availablePickupDateFrom', 'f.availablePickupDateTo', 'AVAILABLE DATE')
   range('f.scheduledPickupDateFrom', 'f.scheduledPickupDateTo', 'PICKUP SCHEDULE')
   return parts

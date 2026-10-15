@@ -40,6 +40,13 @@ describe('mainListColumns', () => {
     expect(off.find((c) => c.key === 'releasedAt')!.noFilter).toBe(true)
   })
 
+  it('STATUS is ticked boxes (several at once); COMPANY and BANK stay one choice', () => {
+    const cols = mainListColumns({ options: OPTIONS, showStatus: true, showReleasedRange: true })
+    expect(cols.find((c) => c.key === 'status')!.multi).toBe(true)
+    expect(cols.find((c) => c.key === 'companyCode')!.multi).toBeUndefined()
+    expect(cols.find((c) => c.key === 'bank')!.multi).toBeUndefined()
+  })
+
   it('offers no operator the server cannot honour', () => {
     const cols = mainListColumns({ options: OPTIONS, showStatus: true, showReleasedRange: true })
     expect(cols.find((c) => c.key === 'checkDate')!.ops).not.toContain('ne')

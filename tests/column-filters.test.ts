@@ -59,11 +59,27 @@ describe('parseColumnFilters', () => {
   })
 
   it('reads STATUS only where it applies, and refuses an unknown one there', () => {
-    expect(parseColumnFilters(read({ 'f.status': 'SIGNED' }), { statusApplies: true }).status).toBe('SIGNED')
+    expect(parseColumnFilters(read({ 'f.status': 'SIGNED' }), { statusApplies: true }).status).toEqual(['SIGNED'])
     const off = parseColumnFilters(read({ 'f.status': 'SIGNED' }), { statusApplies: false })
     expect(off).toEqual({ filters: {}, status: undefined, values: {}, errors: {} })
     expect(parseColumnFilters(read({ 'f.status': 'PAID' }), { statusApplies: true }).errors)
       .toEqual({ 'f.status': FILTER_MESSAGES.status })
+  })
+
+  it('reads several ticked STATUS boxes, comma separated, once each', () => {
+    const r = parseColumnFilters(read({ 'f.status': 'SIGNED, RELEASED,SIGNED' }), { statusApplies: true })
+    expect(r.status).toEqual(['SIGNED', 'RELEASED'])
+    expect(r.errors).toEqual({})
+  })
+
+  it('refuses the whole STATUS box when one ticked value is not a status', () => {
+    const r = parseColumnFilters(read({ 'f.status': 'SIGNED,PAID' }), { statusApplies: true })
+    expect(r.status).toBeUndefined()
+    expect(r.errors).toEqual({ 'f.status': FILTER_MESSAGES.status })
+  })
+
+  it('describes several statuses in one phrase', () => {
+    expect(describeColumnFilters({ 'f.status': 'SIGNED,READY_FOR_RELEASE' })).toEqual(['STATUS: SIGNED, READY FOR RELEASE'])
   })
 })
 
