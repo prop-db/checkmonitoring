@@ -1,4 +1,4 @@
-import { listChecks, toTableRow, displayApvNumbers } from '@/lib/queries'
+import { listChecks, toTableRow } from '@/lib/queries'
 import { compareCheckNumbers } from '@/lib/transmittal'
 import { ageCheck, type AgingBucket, type BillTerms } from '@/lib/aging/buckets'
 
@@ -35,19 +35,23 @@ const ymd = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null)
  * Acumatica states no date, the approval workbook's (`CheckBill`).
  */
 export async function loadAgingRows(db: Db, now: Date): Promise<{ rows: AgingRow[]; truncated: boolean }> {
-  const checks = (await listChecks(
+  const listed = await listChecks(
     db, { statusIn: ['SIGNED'], incomplete: false }, AGING_LIMIT, { key: 'checkNumber', dir: 'asc' },
-  )).filter((c) => c.isCheque)
+  )
+  // Measured before the isCheque filter: listChecks takes AGING_LIMIT rows in
+  // the database, so the limit was hit by what the database returned, not by
+  // what survives the filter.
+  const truncated = listed.length >= AGING_LIMIT
+  const tabled = listed.filter((c) => c.isCheque).map((c) => ({ c, table: toTableRow(c) }))
 
-  const apvs = [...new Set(checks.flatMap((c) => displayApvNumbers(c)))]
+  const apvs = [...new Set(tabled.flatMap(({ table }) => table.apvNumbers))]
   const terms = apvs.length === 0 ? [] : await db.acumaticaBillTerms.findMany({
     where: { apvNumber: { in: apvs } },
     select: { apvNumber: true, dueDate: true, termsCode: true },
   })
   const byApv = new Map(terms.map((t) => [t.apvNumber, t]))
 
-  const rows = checks.map((c): AgingRow => {
-    const table = toTableRow(c)
+  const rows = tabled.map(({ c, table }): AgingRow => {
     const bills: BillTerms[] = table.apvNumbers.map((apv) => {
       const acu = byApv.get(apv)
       const local = c.bills.find((b) => b.apvNumber === apv)
@@ -74,5 +78,5 @@ export async function loadAgingRows(db: Db, now: Date): Promise<{ rows: AgingRow
     }
   })
   rows.sort((a, b) => compareCheckNumbers(a.checkNumber, b.checkNumber))
-  return { rows, truncated: checks.length >= AGING_LIMIT }
+  return { rows, truncated }
 }

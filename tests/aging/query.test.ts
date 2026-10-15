@@ -58,6 +58,19 @@ describe('loadAgingRows', () => {
     expect(row.daysPastDue).toBe(-5)
   })
 
+  it('keeps Acumatica\'s never-aging terms when it states no date, even beside a CheckBill date', async () => {
+    const c = await makeCheck({ checkNumber: '6000000050', apvNumbers: ['AP-ST000005'] })
+    await testDb.checkBill.create({ data: {
+      checkId: c.id, apvNumber: 'AP-ST000005', amount: '100.00', dueDate: day('2026-01-01'), termsCode: '30D',
+    } })
+    await testDb.acumaticaBillTerms.create({ data: { apvNumber: 'AP-ST000005', tenant: 'GOLIVE', termsCode: 'COD' } })
+    const [row] = (await loadAgingRows(testDb, NOW)).rows
+    // Acumatica says COD (never ages) and gives no date; the workbook's date is used,
+    // but Acumatica's terms win, so the bill never ages: CURRENT, no due date.
+    expect(row.bucket).toBe('current')
+    expect(row.dueDate).toBeNull()
+  })
+
   it('a check with no APV, or no known date, is NO DUE DATE', async () => {
     await makeCheck({ checkNumber: '6000000040' })
     await makeCheck({ checkNumber: '6000000041', apvNumbers: ['AP-ST000099'] })
