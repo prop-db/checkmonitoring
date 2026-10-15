@@ -7,7 +7,10 @@ import type { AgingRow } from '@/lib/aging/query'
  * AGING's picker, the pure parts (spec 2026-10-15). The table kit filters,
  * sorts and lays out the rows, as on TRANSMITTAL; this module describes the
  * columns, and adds the bucket strip and the selection in centavos (rule 8).
- * The strip shows PHP only: totals are never mixed across currencies.
+ * Counts cover every check passed in, whatever its currency or amount, so a
+ * card's count is the number of rows its table shows. Peso amounts cover PHP
+ * checks with a readable amount only (totals are never mixed across
+ * currencies); `nonPhp` and `unpriced` say what those amounts leave out.
  */
 
 export const AGING_TABLE_ID = 'aging'
@@ -57,17 +60,21 @@ export type StripTotal = { count: number; amount: string }
 
 const ZERO = BigInt(0)
 
+/** Every row is counted; only PHP rows with a readable amount add to the sum. */
 function total(rows: readonly AgingRow[]): StripTotal {
   let sum = ZERO
-  let count = 0
   for (const r of rows) {
     if (r.currency !== 'PHP' || r.amount === null) continue
     const c = amountToCentavos(r.amount)
     if (c === null) continue
     sum += c
-    count++
   }
-  return { count, amount: formatAmount(centavosText(sum)) }
+  return { count: rows.length, amount: formatAmount(centavosText(sum)) }
+}
+
+/** True when a row's amount is left out of the peso sums. */
+function unpricedPhp(r: AgingRow): boolean {
+  return r.currency === 'PHP' && (r.amount === null || amountToCentavos(r.amount) === null)
 }
 
 /** Centavos back to a plain decimal string (`"-1234.05"`) for `formatAmount`. */
@@ -86,6 +93,7 @@ export function stripTotals(rows: readonly AgingRow[]) {
     overdue: total(rows.filter((r) => OVERDUE_BUCKETS.includes(r.bucket))),
     all: total(rows),
     nonPhp: rows.filter((r) => r.currency !== 'PHP').length,
+    unpriced: rows.filter(unpricedPhp).length,
   }
 }
 
