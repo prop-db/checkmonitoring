@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { agingColumns, agingValue, stripTotals, inBucket, selectionTotal } from '@/lib/aging-picker'
+import { agingColumns, agingValue, stripTotals, inBucket, selectionTotal, effectiveSelection } from '@/lib/aging-picker'
 import type { AgingRow } from '@/lib/aging/query'
 
 const row = (o: Partial<AgingRow>): AgingRow => ({
@@ -93,5 +93,14 @@ describe('agingColumns / agingValue', () => {
     }
     expect(agingValue(r, 'checkDate')).toBe('2026-09-01')
     expect(agingValue(r, 'amount')).toBe('1000.10')
+  })
+})
+
+describe('effectiveSelection', () => {
+  it('keeps only ids still on the page, in the rows\' order', () => {
+    expect(effectiveSelection(ROWS, new Set(['c', 'gone', 'a'])).map((r) => r.id)).toEqual(['a', 'c'])
+  })
+  it('an empty selection submits nothing', () => {
+    expect(effectiveSelection(ROWS, new Set())).toEqual([])
   })
 })

@@ -9,7 +9,7 @@ import type { BulkActionResult, BulkOutcome } from '@/lib/bulk-run'
 import { AGING_BUCKETS, AGING_LABELS } from '@/lib/aging/buckets'
 import type { AgingRow } from '@/lib/aging/query'
 import {
-  AGING_TABLE_ID, agingColumns, agingValue, inBucket, selectionTotal, stripTotals, type BucketChoice,
+  AGING_TABLE_ID, agingColumns, agingValue, effectiveSelection, inBucket, selectionTotal, stripTotals, type BucketChoice,
 } from '@/lib/aging-picker'
 import type { KitSort } from '@/lib/table-kit/types'
 import { applyKit, needleError } from '@/lib/table-kit/match'
@@ -33,7 +33,7 @@ export function AgingPicker({ rows, cap, truncated }: { rows: readonly AgingRow[
   const banks = useMemo(() => [...new Set(rows.map((r) => r.bank).filter((b): b is string => b !== null))].sort(), [rows])
   const columns = useMemo(() => agingColumns(companies, banks), [companies, banks])
   const { layout, preview, save, reset } = useTableLayout(AGING_TABLE_ID, columns)
-  const [choice, setChoice] = useState<BucketChoice>('OVERDUE')
+  const [choice, setChoice] = useState<BucketChoice | 'SELECTED'>('OVERDUE')
   const [filters, setFilters] = useState<Record<string, string>>({})
   const [sort, setSort] = useState<KitSort>({ key: 'daysPastDue', dir: 'desc' })
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -53,31 +53,43 @@ export function AgingPicker({ rows, cap, truncated }: { rows: readonly AgingRow[
   // count is the row count its table shows.
   const filtered = useMemo(() => applyKit(rows, columns, agingValue, filters, null), [rows, columns, filters])
   const strip = useMemo(() => stripTotals(filtered), [filtered])
+  // What can be submitted: only ticked rows still on the page (see effectiveSelection).
+  const chosen = useMemo(() => effectiveSelection(rows, selected), [rows, selected])
+  const chosenIds = useMemo(() => new Set(chosen.map((r) => r.id)), [chosen])
+  const picked = selectionTotal(rows, chosenIds)
+  const overCap = chosen.length > cap
+  // The SELECTED view lists every chosen check, deliberately not narrowed by the column filters.
   const matching = useMemo(
-    () => applyKit(inBucket(filtered, choice), columns, agingValue, {}, sort),
-    [filtered, choice, columns, sort],
+    () => choice === 'SELECTED'
+      ? applyKit(chosen, columns, agingValue, {}, sort)
+      : applyKit(inBucket(filtered, choice), columns, agingValue, {}, sort),
+    [filtered, choice, chosen, columns, sort],
   )
-  const picked = selectionTotal(rows, selected)
-  const overCap = selected.size > cap
+  const matchingIds = useMemo(() => new Set(matching.map((r) => r.id)), [matching])
+  const offScreen = chosen.filter((r) => !matchingIds.has(r.id)).length
 
-  const toggle = (id: string) => setSelected((s) => {
-    const n = new Set(s)
-    if (n.has(id)) n.delete(id); else n.add(id)
-    return n
-  })
+  const toggle = (id: string) => {
+    setResult(null)
+    setSelected((s) => {
+      const n = new Set(s)
+      if (n.has(id)) n.delete(id); else n.add(id)
+      return n
+    })
+  }
 
   const ready = () => {
-    // selected.size, not picked.count: a ticked non-PHP check is readied too, it is only left out of the peso total.
-    if (!confirm(`Mark ${selected.size} check(s), PHP ${picked.amount}, READY FOR RELEASE?`)) return
+    // chosen.length, not picked.count: a ticked non-PHP check is readied too, it is only left out of the peso total.
+    if (!confirm(`Mark ${chosen.length} check(s), PHP ${picked.amount}, READY FOR RELEASE?`)) return
     const fd = new FormData()
-    for (const id of selected) fd.append('checkId', id)
+    for (const r of chosen) fd.append('checkId', r.id)
     fd.append('availablePickupDate', pickupDate)
     startTransition(async () => {
       const r = await bulkReadyForReleaseAction(fd)
       setResult(r)
-      if (r.ok && r.succeeded > 0) {
-        setSelected(new Set())
-        router.refresh()
+      if (r.ok) {
+        // A refused check stays ticked for a retry; readied ones are cleared.
+        setSelected(new Set(r.outcomes.filter((o) => !o.ok).map((o) => o.checkId)))
+        if (r.succeeded > 0) router.refresh()
       }
     })
   }
@@ -86,7 +98,7 @@ export function AgingPicker({ rows, cap, truncated }: { rows: readonly AgingRow[
     ? result.outcomes.filter((o): o is Extract<BulkOutcome, { ok: false }> => !o.ok)
     : []
 
-  const card = (key: BucketChoice, label: string, t: { count: number; amount: string }, tone: string) => (
+  const card = (key: BucketChoice | 'SELECTED', label: string, t: { count: number; amount: string }, tone: string) => (
     <button
       key={key} type="button" onClick={() => setChoice(key)} aria-pressed={choice === key}
       className={`rounded-xl bg-white px-3 py-2 text-left ring-1 ${tone} ${choice === key ? 'ring-2 ring-navy' : ''}`}
@@ -115,22 +127,28 @@ export function AgingPicker({ rows, cap, truncated }: { rows: readonly AgingRow[
         {strip.unpriced > 0 && <> {strip.unpriced} WITH NO READABLE AMOUNT ARE COUNTED BUT NOT IN THE PESO AMOUNTS.</>}
       </p>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-9">
         {AGING_BUCKETS.map((b) => card(b, AGING_LABELS[b], strip.buckets[b], BUCKET_TONE[b]))}
         {card('OVERDUE', 'OVERDUE', strip.overdue, 'ring-rose-300')}
         {card('ALL', 'ALL', strip.all, 'ring-slate-300')}
+        {card('SELECTED', 'SELECTED', { count: chosen.length, amount: picked.amount }, 'ring-navy')}
       </div>
+      {filters.bucket?.trim() && (
+        <p className="text-xs font-medium tracking-wide text-slate-600">
+          THE BUCKET COLUMN FILTER IS SET — CARDS OUTSIDE IT SHOW 0.
+        </p>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <ColumnConfigButton columns={columns} layout={layout} onSave={save} onReset={reset} />
         <button
-          type="button" onClick={() => setSelected(new Set(matching.map((r) => r.id)))} disabled={matching.length === 0}
+          type="button" onClick={() => { setResult(null); setSelected(new Set(matching.map((r) => r.id))) }} disabled={matching.length === 0}
           className="h-9 rounded-lg bg-navy px-3 text-sm font-medium tracking-wide text-white disabled:opacity-40"
         >
           SELECT ALL SHOWN ({matching.length.toLocaleString('en-PH')})
         </button>
         <button
-          type="button" onClick={() => setSelected(new Set())} disabled={selected.size === 0}
+          type="button" onClick={() => { setResult(null); setSelected(new Set()) }} disabled={chosen.length === 0}
           className="h-9 rounded-lg bg-white px-3 text-sm font-medium tracking-wide text-slate-600 ring-1 ring-hairline disabled:opacity-40"
         >
           CLEAR
@@ -145,6 +163,12 @@ export function AgingPicker({ rows, cap, truncated }: { rows: readonly AgingRow[
         onClear={(k) => setFilters((f) => ({ ...f, [k]: '' }))} onClearAll={() => setFilters({})}
         count={{ shown: matching.length, total: rows.length, capped: truncated }}
       />
+
+      {choice === 'SELECTED' && (
+        <p className="text-xs font-semibold tracking-wide text-slate-700">
+          SHOWING EVERY SELECTED CHECK — COLUMN FILTERS DO NOT APPLY HERE.
+        </p>
+      )}
 
       <div className="max-h-[60vh] overflow-auto rounded-lg ring-1 ring-hairline">
         <table className="w-full text-xs">
@@ -165,7 +189,7 @@ export function AgingPicker({ rows, cap, truncated }: { rows: readonly AgingRow[
             {matching.slice(0, DRAW_LIMIT).map((r) => (
               <tr key={r.id} className="cursor-pointer border-t border-slate-100 hover:bg-navy-bg" onClick={() => toggle(r.id)}>
                 <td className="px-2 py-1.5">
-                  <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)}
+                  <input type="checkbox" checked={chosenIds.has(r.id)} onChange={() => toggle(r.id)}
                     onClick={(e) => e.stopPropagation()} aria-label={`Select ${r.checkNumber}`} />
                 </td>
                 {visible.map((col) => (
@@ -188,8 +212,14 @@ export function AgingPicker({ rows, cap, truncated }: { rows: readonly AgingRow[
       <div className="sticky bottom-0 z-10 rounded-2xl bg-white p-4 shadow-lg ring-1 ring-slate-300">
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm font-semibold tracking-wide text-slate-900">
-            {selected.size.toLocaleString('en-PH')} SELECTED · ₱{picked.amount}
+            {chosen.length.toLocaleString('en-PH')} SELECTED · ₱{picked.amount}
           </span>
+          {offScreen > 0 && (
+            <span className="text-xs font-semibold tracking-wide text-warning-ink">
+              ({offScreen.toLocaleString('en-PH')} NOT IN THIS VIEW —{' '}
+              <button type="button" onClick={() => setChoice('SELECTED')} className="underline">SHOW SELECTED</button>)
+            </span>
+          )}
           {overCap && (
             <span className="text-xs font-semibold tracking-wide text-warning-ink">
               AT MOST {cap.toLocaleString('en-PH')} AT A TIME — UNTICK SOME.
@@ -200,7 +230,7 @@ export function AgingPicker({ rows, cap, truncated }: { rows: readonly AgingRow[
             className="rounded-lg border border-slate-300 px-2 py-1 text-sm" />
           <button
             type="button" onClick={ready}
-            disabled={pending || selected.size === 0 || overCap || pickupDate === ''}
+            disabled={pending || chosen.length === 0 || overCap || pickupDate === ''}
             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             {pending ? 'WORKING…' : 'MARK READY FOR RELEASE'}

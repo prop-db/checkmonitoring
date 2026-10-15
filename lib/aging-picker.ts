@@ -108,3 +108,12 @@ export function inBucket(rows: readonly AgingRow[], choice: BucketChoice): Aging
 export function selectionTotal(rows: readonly AgingRow[], selected: ReadonlySet<string>): StripTotal {
   return total(rows.filter((r) => selected.has(r.id)))
 }
+
+/**
+ * The selection as it can be submitted: only ids of rows still on the page, in
+ * the rows' order. An id whose check has left the list (readied, voided,
+ * refreshed away) is dropped, never submitted.
+ */
+export function effectiveSelection(rows: readonly AgingRow[], selected: ReadonlySet<string>): AgingRow[] {
+  return rows.filter((r) => selected.has(r.id))
+}
