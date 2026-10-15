@@ -359,3 +359,42 @@ describe('recordBillRefsTimeBudgetSkip', () => {
     expect(await lastBillRefsWatermark(testDb, 'GOLIVE')).toEqual(new Date('2026-09-29T08:00:00Z'))
   })
 })
+
+describe('AcumaticaBillTerms (AGING, 2026-10-15)', () => {
+  it('writes every in-scope bill, blank Vendor Ref included, and leaves AcumaticaBill as it was', async () => {
+    const { result } = read([
+      docRow({ ReferenceNbr: 'AP-ST000001', DueDate: '2026-10-29T00:00:00', Terms: '30D' }),
+      docRow({ ReferenceNbr: 'AP-ST000002', VendorRef: '', DueDate: '2026-11-15T00:00:00', Terms: 'COD' }),
+    ])
+    const res = await result
+    expect(res.termsWritten).toBe(2)
+    const terms = await testDb.acumaticaBillTerms.findMany({ orderBy: { apvNumber: 'asc' } })
+    expect(terms.map((t) => [t.apvNumber, t.tenant, t.dueDate?.toISOString().slice(0, 10), t.termsCode])).toEqual([
+      ['AP-ST000001', 'GOLIVE', '2026-10-29', '30D'],
+      ['AP-ST000002', 'GOLIVE', '2026-11-15', 'COD'],
+    ])
+    expect((await testDb.acumaticaBill.findMany()).map((b) => b.apvNumber)).toEqual(['AP-ST000001'])
+  })
+
+  it('updates a changed bill, counts an unchanged one as not written, never deletes', async () => {
+    await (read([docRow({ ReferenceNbr: 'AP-ST000001', DueDate: '2026-10-29T00:00:00', Terms: '30D' })]).result)
+    const again = await (read([docRow({ ReferenceNbr: 'AP-ST000001', DueDate: '2026-10-29T00:00:00', Terms: '30D' })]).result)
+    expect(again.termsWritten).toBe(0)
+    const changed = await (read([docRow({ ReferenceNbr: 'AP-ST000001', DueDate: '2026-11-28T00:00:00', Terms: '60D' })]).result)
+    expect(changed.termsWritten).toBe(1)
+    const row = await testDb.acumaticaBillTerms.findUniqueOrThrow({ where: { apvNumber: 'AP-ST000001' } })
+    expect(row.dueDate?.toISOString().slice(0, 10)).toBe('2026-11-28')
+    expect(row.termsCode).toBe('60D')
+    // A Vendor Ref going blank deletes the AcumaticaBill row, never the terms.
+    await (read([docRow({ ReferenceNbr: 'AP-ST000001', VendorRef: '', DueDate: '2026-11-28T00:00:00', Terms: '60D' })]).result)
+    expect(await testDb.acumaticaBill.count()).toBe(0)
+    expect(await testDb.acumaticaBillTerms.count()).toBe(1)
+  })
+
+  it('a bill the feed gives neither value is still recorded, as nulls', async () => {
+    await (read([docRow({ ReferenceNbr: 'AP-ST000003' })]).result)
+    const row = await testDb.acumaticaBillTerms.findUniqueOrThrow({ where: { apvNumber: 'AP-ST000003' } })
+    expect(row.dueDate).toBeNull()
+    expect(row.termsCode).toBeNull()
+  })
+})

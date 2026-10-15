@@ -35,6 +35,8 @@ import { SYNC_OVERLAP_MINUTES, SyncInProgressError, type SyncTrigger } from '@/l
  * so the next run reads those bills again; re-writing an unchanged bill is a
  * no-op (the upsert's IS DISTINCT FROM guard).
  *
+ * Since 2026-10-15 it also writes every in-scope bill's DueDate and Terms to AcumaticaBillTerms (AGING), blank Vendor Ref included, never deleted.
+ *
  * A first read (no watermark) is a terminal job, never the cron.
  */
 
@@ -70,6 +72,8 @@ export type BillRefsRunResult = {
   deleted: number
   /** Distinct bills with a non-empty VendorRef that names no PO (kept; shown as a reference). */
   noPo: number
+  /** AcumaticaBillTerms rows actually written (inserted, or changed). AGING, 2026-10-15. */
+  termsWritten: number
   errors: number
   watermark: Date | null
 }
@@ -109,6 +113,7 @@ export async function runBillRefsSync(db: Db, args: BillRefsSyncArgs): Promise<B
   let upserted = 0
   let deleted = 0
   let noPo = 0
+  let termsWritten = 0
   let errors = 0
   const problems: string[] = []
 
@@ -200,6 +205,20 @@ export async function runBillRefsSync(db: Db, args: BillRefsSyncArgs): Promise<B
     }
   }
 
+  // AGING (2026-10-15): every in-scope bill's due date and terms, blank Vendor
+  // Ref or not, into their own table. Never deleted. A failed batch holds the
+  // watermark like any other.
+  const allRefs = [...byApv.values()]
+  for (let i = 0; i < allRefs.length; i += WRITE_BATCH) {
+    const batch = allRefs.slice(i, i + WRITE_BATCH)
+    try {
+      termsWritten += await upsertTermsBatch(db, tenant, batch)
+    } catch (error) {
+      errors++
+      problems.push(`terms ${batch[0].apvNumber}…${batch[batch.length - 1].apvNumber}: ${describe(error)}`)
+    }
+  }
+
   // HELD when any batch failed: the previous watermark stays, so the failed
   // bills are re-read next run (an incremental read only looks forward).
   const watermark =
@@ -209,7 +228,7 @@ export async function runBillRefsSync(db: Db, args: BillRefsSyncArgs): Promise<B
 
   await finish(watermark)
 
-  return { syncRunId: run.id, tenant, fetched, ignored, withPo, upserted, deleted, noPo, errors, watermark }
+  return { syncRunId: run.id, tenant, fetched, ignored, withPo, upserted, deleted, noPo, termsWritten, errors, watermark }
 }
 
 /**
@@ -244,6 +263,30 @@ async function upsertBatch(db: Db, tenant: AcumaticaTenant, batch: readonly Bill
            "updatedAt" = EXCLUDED."updatedAt"
      WHERE ("AcumaticaBill"."tenant", "AcumaticaBill"."vendorRef", "AcumaticaBill"."poNumbers", "AcumaticaBill"."lastModifiedOn")
            IS DISTINCT FROM (EXCLUDED."tenant", EXCLUDED."vendorRef", EXCLUDED."poNumbers", EXCLUDED."lastModifiedOn")`)
+}
+
+/** `upsertBatch`'s shape for AcumaticaBillTerms: one statement, a no-op for an unchanged bill. */
+async function upsertTermsBatch(db: Db, tenant: AcumaticaTenant, batch: readonly BillRef[]): Promise<number> {
+  const payload = JSON.stringify(batch.map((b) => ({
+    apvNumber: b.apvNumber,
+    tenant,
+    dueDate: b.dueDate?.toISOString() ?? null,
+    termsCode: b.termsCode,
+    lastModifiedOn: b.lastModifiedOn?.toISOString() ?? null,
+  })))
+  return db.$executeRaw(Prisma.sql`
+    INSERT INTO "AcumaticaBillTerms" ("apvNumber", "tenant", "dueDate", "termsCode", "lastModifiedOn", "updatedAt")
+    SELECT x."apvNumber", x."tenant", x."dueDate", x."termsCode", x."lastModifiedOn", (now() AT TIME ZONE 'UTC')
+      FROM jsonb_to_recordset(${payload}::jsonb)
+        AS x("apvNumber" text, "tenant" text, "dueDate" timestamp(3), "termsCode" text, "lastModifiedOn" timestamp(3))
+    ON CONFLICT ("apvNumber") DO UPDATE
+       SET "tenant" = EXCLUDED."tenant",
+           "dueDate" = EXCLUDED."dueDate",
+           "termsCode" = EXCLUDED."termsCode",
+           "lastModifiedOn" = EXCLUDED."lastModifiedOn",
+           "updatedAt" = EXCLUDED."updatedAt"
+     WHERE ("AcumaticaBillTerms"."tenant", "AcumaticaBillTerms"."dueDate", "AcumaticaBillTerms"."termsCode", "AcumaticaBillTerms"."lastModifiedOn")
+           IS DISTINCT FROM (EXCLUDED."tenant", EXCLUDED."dueDate", EXCLUDED."termsCode", EXCLUDED."lastModifiedOn")`)
 }
 
 function describe(error: unknown): string {

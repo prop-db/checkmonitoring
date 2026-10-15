@@ -29,7 +29,7 @@ export const BILL_REF_COLUMNS = {
   date: 'Date',
   vendorRef: 'VendorRef',
   lastModified: 'LastModifiedOn',
-  // AGING (2026-10-15): measured on both tenants by scripts/probe-bill-terms.ts.
+  // AGING (2026-10-15): measured on both tenants with a read-only $top=5 probe.
   dueDate: 'DueDate',
   terms: 'Terms',
 } as const
