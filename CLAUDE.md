@@ -321,7 +321,9 @@ persisted. Print keeps its fixed columns.
 
 **Every table is on the table kit** (2026-10-13, spec `2026-10-13-table-kit-design.md`, the Supplier
 Portal's header menu). Click a header: Sort Ascending / Descending, Clear Filter, the filter (date
-and amount: Equals … Is Between, Today, This Month; enum: a dropdown; text: contains). Chips above
+and amount: Equals … Is Between, Today, This Month; enum: a dropdown, or ticked boxes for a `multi` column — the main list's STATUS since 2026-10-15,
+needle `=A,B`, URL `f.status=SIGNED,RELEASED`, one bad value refuses the box, one status is
+`CheckFilters.status` and several `statusIn`; text: contains). Chips above
 the table; ⚙ CUSTOMIZE COLUMNS opens Column Configuration; drag a header edge to resize. Layout is
 per browser under `check-monitoring.table.<id>.v1`. Two modes: `KitTable` filters the rows the page
 drew (a capped page says "N OF THE M ROWS SHOWN"); the main list and Audit are URL mode — the menu

@@ -60,6 +60,7 @@ export function mainListColumns(opts: {
     }
     if (key === 'status') {
       col.options = STATUSES.map((s) => ({ value: s, label: s.replace(/_/g, ' ') }))
+      col.multi = true
       if (!opts.showStatus) col.noFilter = true
     }
     if (key === 'releasedAt' && !opts.showReleasedRange) col.noFilter = true

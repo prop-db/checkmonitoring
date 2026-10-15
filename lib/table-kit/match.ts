@@ -25,6 +25,13 @@ export function parseRangeNeedle(needle: string): RangeNeedle | null {
   return { op: m[1] as RangeOp, a: m[2] ?? '', b: m[3] ?? '' }
 }
 
+/** The values an "=…" needle picks: one, or (a `multi` column) each ticked box. */
+export function enumValues(column: Pick<KitColumn, 'multi'>, needle: string): string[] {
+  const v = needle.trim().replace(/^=/, '')
+  if (!column.multi) return v ? [v] : []
+  return v.split(',').map((s) => s.trim()).filter(Boolean)
+}
+
 /** '' when nothing was picked: an empty range is no filter. */
 export function rangeNeedle(op: RangeOp, a: string, b = ''): string {
   if (!a && !b) return ''
@@ -91,7 +98,7 @@ export function matches(column: KitColumn, value: string | null, needle: string)
     return compareBy(r.op, x, a, b, (p, q) => p < q)
   }
   if (value === null) return false
-  if (n.startsWith('=')) return norm(value) === norm(n.slice(1))
+  if (n.startsWith('=')) return enumValues(column, n).some((v) => norm(value) === norm(v))
   return norm(value).includes(norm(n))
 }
 
@@ -174,8 +181,7 @@ export function humanNeedle(column: KitColumn, needle: string): string {
     return r.a ? `FROM ${r.a}` : `UNTIL ${r.b}`
   }
   if (n.startsWith('=')) {
-    const v = n.slice(1)
-    return column.options?.find((o) => o.value === v)?.label ?? v
+    return enumValues(column, n).map((v) => column.options?.find((o) => o.value === v)?.label ?? v).join(', ')
   }
   return n
 }
