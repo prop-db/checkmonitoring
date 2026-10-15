@@ -374,6 +374,22 @@ user with `--apply`: closed 2 of 2 (`6000354350`, `1791259553`), 0 left, snapsho
 day's deploy rather than after a cron delivery, so a no-APV CANCELLED still PENDING then could park
 once more on the next run; if `/admin/portal` shows one, run the script again.
 
+**AGING (`/aging`) picks SIGNED checks for release in the Supplier Portal's buckets** (2026-10-15,
+spec `2026-10-15-aging-module-design.md`). CURRENT / 1–30 / 31–60 / 61–90 / OVER 90 / NO DUE DATE,
+on days past the EARLIEST due date of the bills a check pays (`lib/aging/buckets.ts`; COD, PDC,
+dated-check and 100PBD terms never age, as in the portal). The due date and terms come from
+`AP-Bills and Adjustments` into `AcumaticaBillTerms` (written by the BILL_REFS read for every
+in-scope bill, blank Vendor Ref included, never deleted; `CheckBill.dueDate` only where Acumatica
+states none). MARK READY FOR RELEASE calls `bulkReadyForReleaseAction` unchanged — no new write
+path — and submits only `effectiveSelection`: ticked checks still on the page, with a SELECTED view
+listing every one of them, so nothing hidden is readied. A card counts every check in its bucket;
+its amount is PHP only, and the page says how many it leaves out. The totals do not match the
+portal's aging and are not meant to: the portal ages open bill balances, this ages SIGNED check
+amounts. Migration `20261015000100_acumatica_bill_terms` must reach production BEFORE the deploy.
+**The first fill is `npx tsx scripts/sync.ts <TENANT> --bill-refs --full` on each tenant, run by
+the user after the deploy;** until then every check is NO DUE DATE except those with a `CheckBill`
+due date.
+
 **NUMBERING (`/numbering`) checks check consecutives per check book.** Every check of every
 status — VOIDED, CANCELLED and no-amount included — in BigInt order; each unused number between a
 book's first and last is one MISSING line, however large (user ruling 2026-10-01: "every number
@@ -479,6 +495,7 @@ category not on it.
 | `lib/sync/portal-kick.ts` | Best-effort delivery within a time budget, from an action (`afterResponse`), the cron and `/admin/portal`; never throws, `{ skipped }` when the env is unset. |
 | `lib/admin/portal-backlog.ts` | Backlog dry run for `scripts/portal-backlog.ts` (winners, superseded, `stale`) and `queueCancelledForStale` (`--queue-cancelled [--apply]`). |
 | `lib/forecast/` | Cash outflow by check date: `buckets.ts` (the ageing buckets, pure), `query.ts` (the population — live, real, with an amount), `matrix.ts` (bucket × bank and bucket × stage, centavo-exact, pure). `/forecast` and `/api/export/forecast` sit on it. Since 2026-09-12 a check's typed `expectedOutflowDate` wins over its check date, and `PlannedOutflow` lines (`lib/planned-outflow/`, `/forecast/planned`) join the population as their own PLANNED column. |
+| `lib/aging/` | AGING: `buckets.ts` (the portal's buckets, pure), `query.ts` (SIGNED, aged). `lib/aging-picker.ts` (strip, selection, pure). `/aging` and `/api/export/aging` sit on it. |
 | `lib/recon/` | Outstanding checks: `outstanding.ts` (the as-of rule, pure), `summary.ts` (per account, centavo-exact, pure), `query.ts` (the released population). `/recon` and `/api/export/recon` sit on it. |
 | `lib/list-sort.ts` | The list's order: params, the `cm_sort` cookie, database and in-app keys. Pure. |
 | `lib/column-filters.ts` | The filter row's `f.*` parameters: parsing, refusal, description. Pure. |
