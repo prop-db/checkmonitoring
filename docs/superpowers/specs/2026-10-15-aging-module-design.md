@@ -171,7 +171,7 @@ production BEFORE the deploy — `/aging` queries the table on every request.
   update on change; dry run writes nothing.
 - `aging/query`: only SIGNED + isCheque + amount; filters; `CheckBill` fallback used only when
   Acumatica has no date; strip totals equal the table's rows, centavo-exact.
-- `aging-view`: unknown bucket / company / account refuses.
+- `aging/picker`: strip totals centavo-exact and PHP only; bucket choice; selection total.
 - `export/aging-route`: auth, refusal answers 400, sheet per bucket.
 - `module-nav`: AGING entry.
 - Readying goes through `bulkReadyForReleaseAction`, whose tests already cover the write.
