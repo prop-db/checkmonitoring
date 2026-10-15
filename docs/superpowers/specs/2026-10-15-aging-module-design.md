@@ -43,8 +43,7 @@ ruling there 2026-10-08): a bill whose terms code, with every space removed and 
 with `COD`, `PDC`, `DATCHECK`, `DATEDCHECK`, `100PBD` or `100BPD` is CURRENT for as long as it is
 open, whatever its due date says.
 
-The rule lives in one pure module, `lib/aging/buckets.ts` — `agingBucketFor(dueDate, termsCode,
-today)` and `checkDueDate(bills)`. It is a separate module from `lib/forecast/buckets.ts`: the
+The rule lives in one pure module, `lib/aging/buckets.ts` — `ageCheck(bills, now)`. It is a separate module from `lib/forecast/buckets.ts`: the
 forecast's buckets answer a different question (how long a check has been presentable) and stay.
 
 ### A check's due date
@@ -111,9 +110,10 @@ Every Finance user (`requireUser()`), like the other modules; module id `AGING`.
 **Population:** `status = SIGNED`, `isCheque = true`, an amount recorded (`isIncomplete = false`),
 narrowed by the filters. Nothing else — a check at any other status is never listed or totalled.
 
-**Filters (URL parameters):** `company`, `cashAccount` (the check-book-first ACCOUNT rule,
-`accountWhere` in `lib/queries.ts`), `q` (check number, CV, APV, PO, payee), `bucket`. An
-unrecognised value refuses — no rows, the box marked — never widens (the dashboard's rule).
+**Filters:** the table kit's per-column filters, held in the browser as on TRANSMITTAL (COMPANY,
+BANK and BUCKET are dropdowns; CHECK NO., CV, APV, PO, PAYEE text; dates and AMOUNT ranges). An
+unreadable box is marked red and matches nothing; it never widens. The population is about 1,400
+checks and is loaded whole.
 
 **Top: the bucket strip.** One card per bucket — label, check count, amount (decimal strings,
 centavo-exact, rule 8) — plus OVERDUE (the four overdue buckets) and ALL. A card sets `bucket`;
@@ -127,8 +127,8 @@ AMOUNT. Default order: days past due descending (NO DUE DATE last), then check n
 the check page.
 
 **Selection and release:**
-- Tick rows, or SELECT ALL IN VIEW (the filtered rows, capped by `caps.bulkSelection`; beyond the cap
-  the button says so and selects nothing).
+- Tick rows, or SELECT ALL SHOWN (every filtered row of the bucket in view). Beyond
+  `caps.bulkSelection` the SELECTED bar says so and MARK READY FOR RELEASE is disabled.
 - A SELECTED bar shows count and amount, so a run can be built to a budget.
 - MARK READY FOR RELEASE asks for the AVAILABLE PICKUP DATE and confirms
   (`Mark N check(s), PHP X, READY FOR RELEASE?`), then calls the existing
@@ -137,8 +137,9 @@ the check page.
   same MARK_AVAILABLE outbox event and kick, the same per-check refusal report. **No new write path.**
 - After the run the page shows the result report and re-reads: readied checks leave the list.
 
-**Export:** EXPORT EXCEL (`/api/export/aging`, same parameters): a SUMMARY sheet (bucket × count ×
-amount, and by bank) and one sheet per non-empty bucket with the table's columns. Read-only.
+**Export:** EXPORT EXCEL (`/api/export/aging`): every SIGNED check in the population, no filters.
+A SUMMARY sheet (bucket × count × amount, then bucket × bank) and one sheet per non-empty bucket
+with the table's columns. The title block says "ALL SIGNED CHECKS". Read-only.
 
 **Stated on screen:** "SIGNED checks only. Aged by the earliest due date of the bills each check
 pays, as in the Supplier Portal." and the NO DUE DATE count with a link to that bucket.
@@ -147,12 +148,12 @@ pays, as in the Supplier Portal." and the NO DUE DATE count with a link to that 
 
 | Unit | Does | Depends on |
 | --- | --- | --- |
-| `lib/aging/buckets.ts` | `neverAges`, `daysPastDue`, `agingBucketFor`, `checkDueDate`. Pure. | `manilaDay` |
+| `lib/aging/buckets.ts` | `neverAges`, `daysPastDue`, `bucketOfDays`, `ageCheck`. Pure. | `manilaToday` |
 | `lib/integrations/acumatica/bill-refs.ts` | `BILL_REF_COLUMNS` gains `dueDate`, `terms`; `mapBillRef` returns them. Pure. | — |
 | `lib/sync/bill-refs.ts` | Also upserts `AcumaticaBillTerms`; snapshot covers it. | Prisma |
 | `lib/aging/query.ts` | The population, each check's bills' terms (`AcumaticaBillTerms` ∪ `CheckBill` fallback), bucketed rows, the strip's totals. | Prisma, `buckets.ts`, `accountWhere`, `displayPoNumbers` |
-| `lib/aging-view.ts` | URL parameters → filters, refusal; pure. | — |
-| `app/aging/page.tsx`, `components/AgingTable.tsx` | The screen; selection; calls `bulkReadyForReleaseAction`. | table kit |
+| `lib/aging-picker.ts` | Kit columns, row values, strip totals (PHP only), selection total. Pure. | table kit types |
+| `app/aging/page.tsx`, `components/AgingPicker.tsx` | The screen; selection; calls `bulkReadyForReleaseAction`. | table kit |
 | `app/api/export/aging/route.ts`, `lib/export/aging-workbook.ts` | The extract. | `query.ts` |
 | `lib/module-nav.ts` | `AGING` entry. | — |
 
