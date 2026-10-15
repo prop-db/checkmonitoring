@@ -186,7 +186,7 @@ describe('runBillRefsSync — the run record', () => {
     expect(a.calls[0].feed).toBe(BILL_REFS_FEED)
     expect(a.calls[0].opts?.filter).toBe(billRefsSinceFilter(since))
     expect(a.calls[0].opts?.orderby).toBe('LastModifiedOn asc')
-    expect(a.calls[0].opts?.select).toEqual(['Type', 'ReferenceNbr', 'Date', 'VendorRef', 'LastModifiedOn'])
+    expect(a.calls[0].opts?.select).toEqual(['Type', 'ReferenceNbr', 'Date', 'VendorRef', 'LastModifiedOn', 'DueDate', 'Terms'])
 
     const b = read([])
     await b.result
