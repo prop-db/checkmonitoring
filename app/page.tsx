@@ -29,6 +29,7 @@ import { CheckTable } from '@/components/CheckTable'
 import { getSyncOverview } from '@/lib/admin/sync-overview'
 import { describeStaleness } from '@/lib/sync/staleness'
 import { SyncStatusLine } from '@/components/SyncStatusLine'
+import { DashboardSyncControls } from '@/components/DashboardSyncControls'
 import { loadSettings } from '@/lib/settings/read'
 import { formatMoney } from '@/lib/money'
 
@@ -163,7 +164,8 @@ export default async function DashboardPage({
 
         {/* When Acumatica was last read. Above the cards, because every number
             on them is only as current as this line says. */}
-        <SyncStatusLine staleness={staleness} isAdmin={user.role === 'FINANCE_ADMIN'} />
+        <SyncStatusLine staleness={staleness} />
+        <DashboardSyncControls />
 
         {/* The day's job, and the ONE place READY FOR RELEASE is shown. */}
         <DashboardHero
