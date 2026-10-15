@@ -9,14 +9,26 @@ const row = (o: Partial<AgingRow>): AgingRow => ({
   daysPastDue: 14, bucket: 'b30', amount: '1000.10', currency: 'PHP', ...o,
 })
 
-async function load(rows: AgingRow[]) {
-  const buf = await buildAgingWorkbook({ rows, generatedAt: new Date('2026-10-15T10:00:00+08:00'), generatedBy: 'Paolo Parcon' })
+async function load(rows: AgingRow[], truncated?: boolean) {
+  const buf = await buildAgingWorkbook({ truncated, rows, generatedAt: new Date('2026-10-15T10:00:00+08:00'), generatedBy: 'Paolo Parcon' })
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.load(new Uint8Array(buf).buffer)
   return wb
 }
 
 describe('buildAgingWorkbook', () => {
+  it('writes an unreadable amount as an empty cell, not 0', async () => {
+    const wb = await load([row({ amount: '1,000.00' })])
+    expect(wb.getWorksheet('1–30 DAYS')!.getRow(2).getCell(13).value).toBe('')
+  })
+
+  it('says CAPPED on SUMMARY only when the list was truncated', async () => {
+    const text = async (t: boolean) => (await load([row({})], t)).getWorksheet(SUMMARY_SHEET)!
+      .getSheetValues().flat().filter((v) => typeof v === 'string').join(' ')
+    expect(await text(true)).toContain('CAPPED')
+    expect(await text(false)).not.toContain('CAPPED')
+  })
+
   it('has SUMMARY and one sheet per non-empty bucket, in bucket order', async () => {
     const wb = await load([row({ id: 'a', bucket: 'b90plus' }), row({ id: 'b', bucket: 'current' })])
     expect(wb.worksheets.map((w) => w.name)).toEqual([SUMMARY_SHEET, 'CURRENT', 'OVER 90 DAYS'])

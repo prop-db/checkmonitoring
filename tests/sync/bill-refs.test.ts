@@ -238,6 +238,31 @@ describe('runBillRefsSync — the run record', () => {
   })
 })
 
+describe('runBillRefsSync — a failed terms batch', () => {
+  it('holds the watermark and names the terms batch while the bill write lands', async () => {
+    const flaky = new Proxy(testDb, {
+      get(target, prop, receiver) {
+        if (prop === '$executeRaw') {
+          return (...a: unknown[]) => {
+            const q = a[0] as { sql?: string } | undefined
+            if ((q?.sql ?? '').includes('"AcumaticaBillTerms"')) return Promise.reject(new Error('terms write refused'))
+            return (target.$executeRaw as (...x: unknown[]) => unknown).apply(target, a)
+          }
+        }
+        return Reflect.get(target, prop, receiver)
+      },
+    })
+    const result = await read([docRow({ ReferenceNbr: 'AP-ST044591' })], { db: flaky }).result
+    expect(result.errors).toBeGreaterThan(0)
+    expect(result.upserted).toBe(1)
+    expect(result.watermark).toBeNull()
+    const run = await testDb.syncRun.findUniqueOrThrow({ where: { id: result.syncRunId } })
+    expect(run.watermark).toBeNull()
+    expect(run.message).toContain('terms AP-ST044591')
+    expect(run.message).toContain('terms write refused')
+  })
+})
+
 describe('runBillRefsSync — one run at a time', () => {
   const unfinished = (mode: string, minutesAgo: number) =>
     testDb.syncRun.create({

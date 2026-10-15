@@ -24,8 +24,8 @@ export async function GET(_request: Request): Promise<Response> {
   }
 
   const now = new Date()
-  const { rows } = await loadAgingRows(prisma, now)
-  const workbook = await buildAgingWorkbook({ rows, generatedAt: now, generatedBy: user.name })
+  const { rows, truncated } = await loadAgingRows(prisma, now)
+  const workbook = await buildAgingWorkbook({ rows, generatedAt: now, generatedBy: user.name, truncated })
 
   return new Response(new Uint8Array(workbook), {
     status: 200,

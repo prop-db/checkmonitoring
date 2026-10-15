@@ -36,7 +36,7 @@
  *
  * THE PO READ (`--bill-refs`). Acumatica's AP-Bills and Adjustments, mirrored
  * into AcumaticaBill and AcumaticaBillTerms (due date and terms, AGING) (lib/sync/bill-refs.ts): each Bill dated 2024 or later whose VendorRef
- * names a real PO, keyed by APV; a bill whose ref no longer does is deleted.
+ * names a real PO, keyed by APV; a bill whose ref no longer does is deleted from AcumaticaBill only; AcumaticaBillTerms rows are never deleted.
  * Reference data — no Check column, no audit row per bill. The cron runs it
  * incrementally once a tenant has a BILL_REFS watermark; the FIRST read, and
  * any `--full` re-read, is this script's job. Before writing it snapshots the

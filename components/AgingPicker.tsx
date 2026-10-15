@@ -79,7 +79,8 @@ export function AgingPicker({ rows, cap, truncated }: { rows: readonly AgingRow[
 
   const ready = () => {
     // chosen.length, not picked.count: a ticked non-PHP check is readied too, it is only left out of the peso total.
-    if (!confirm(`Mark ${chosen.length} check(s), PHP ${picked.amount}, READY FOR RELEASE?`)) return
+    const nonPhpChosen = chosen.filter((r) => r.currency !== 'PHP').length
+    if (!confirm(`Mark ${chosen.length} check(s), PHP ${picked.amount}${nonPhpChosen > 0 ? ` (+${nonPhpChosen} non-PHP, not in the peso amount)` : ''}, READY FOR RELEASE?`)) return
     const fd = new FormData()
     for (const r of chosen) fd.append('checkId', r.id)
     fd.append('availablePickupDate', pickupDate)
@@ -122,7 +123,7 @@ export function AgingPicker({ rows, cap, truncated }: { rows: readonly AgingRow[
     <div className="space-y-4">
       <p className="text-xs font-medium tracking-wide text-slate-600">
         SIGNED CHECKS ONLY. AGED BY THE EARLIEST DUE DATE OF THE BILLS EACH CHECK PAYS, AS IN THE SUPPLIER PORTAL.
-        {strip.buckets.noDue.count > 0 && <> {strip.buckets.noDue.count.toLocaleString('en-PH')} HAVE NO DUE DATE.</>}
+        {strip.buckets.noDue.count > 0 && <> <button type="button" className="underline" onClick={() => setChoice('noDue')}>{strip.buckets.noDue.count.toLocaleString('en-PH')} HAVE NO DUE DATE.</button></>}
         {strip.nonPhp > 0 && <> {strip.nonPhp} NON-PHP CHECK(S) ARE COUNTED BUT NOT IN THE PESO AMOUNTS.</>}
         {strip.unpriced > 0 && <> {strip.unpriced} WITH NO READABLE AMOUNT ARE COUNTED BUT NOT IN THE PESO AMOUNTS.</>}
       </p>

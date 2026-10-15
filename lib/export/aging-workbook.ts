@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs'
 import { amountToCentavos } from '@/lib/transmittal'
 import { manilaToday } from '@/lib/manila-day'
 import { AGING_BUCKETS, AGING_LABELS, type AgingBucket } from '@/lib/aging/buckets'
-import type { AgingRow } from '@/lib/aging/query'
+import { AGING_LIMIT, type AgingRow } from '@/lib/aging/query'
 import { COUNT_FORMAT, styleHeaderCell } from './sheet-style'
 import { currencyNumberFormat } from './report'
 
@@ -32,6 +32,13 @@ function phpCentavos(rows: readonly AgingRow[]): bigint {
   return sum
 }
 
+// An unreadable amount is blank, never 0: a zero would read as a recorded figure.
+function amountCell(amount: string | null): number | '' {
+  if (amount === null) return ''
+  const c = amountToCentavos(amount)
+  return c === null ? '' : asNumber(c)
+}
+
 // Centavos -> an Excel number. Safe: a sum of SIGNED checks is far below 2^53 centavos.
 const asNumber = (c: bigint) => Number(c) / 100
 
@@ -43,14 +50,16 @@ export async function buildAgingWorkbook(args: {
   rows: readonly AgingRow[]
   generatedAt: Date
   generatedBy: string
+  truncated?: boolean
 }): Promise<Buffer> {
-  const { rows, generatedAt, generatedBy } = args
+  const { rows, generatedAt, generatedBy, truncated } = args
   const wb = new ExcelJS.Workbook()
   const byBucket = new Map<AgingBucket, AgingRow[]>(AGING_BUCKETS.map((b) => [b, rows.filter((r) => r.bucket === b)]))
 
   const summary = wb.addWorksheet(SUMMARY_SHEET)
   summary.addRow(['AGING — ALL SIGNED CHECKS'])
   summary.addRow([`Aged by the earliest due date of the bills each check pays, as in the Supplier Portal. Generated ${manilaToday(generatedAt)} by ${generatedBy}. Peso totals only.`])
+  if (truncated) summary.addRow([`CAPPED: the list holds the first ${AGING_LIMIT.toLocaleString('en-US')} SIGNED checks by check number; the rest are not in this file.`])
   summary.addRow([])
   const head = summary.addRow([])
   ;['BUCKET', 'CHECKS', 'AMOUNT (PHP)'].forEach((h, i) => styleHeaderCell(head.getCell(i + 1), h, i === 0 ? 'left' : 'right'))
@@ -84,7 +93,7 @@ export async function buildAgingWorkbook(args: {
       const line = sheet.addRow([
         r.checkNumber, r.cvNumber ?? '', r.apvNumbers.join(', '), r.poNumbers.join(', '), r.payee ?? '',
         r.company, r.bank ?? '', r.checkDate ?? '', r.dueDate ?? '', r.daysPastDue ?? '', AGING_LABELS[r.bucket],
-        r.currency, r.amount === null ? '' : asNumber(amountToCentavos(r.amount) ?? ZERO),
+        r.currency, amountCell(r.amount),
       ])
       line.getCell(13).numFmt = currencyNumberFormat(r.currency)
     }

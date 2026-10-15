@@ -50,6 +50,13 @@ describe('neverAges — COD, PDC, dated check, 100PBD', () => {
 })
 
 describe('ageCheck — the earliest due date of the bills a check pays', () => {
+  it("a never-aging bill beside an undated one is CURRENT (the spec's rule)", () => {
+    expect(ageCheck([
+      { dueDate: null, termsCode: '30D' },
+      { dueDate: null, termsCode: 'COD' },
+    ], NOW)).toEqual({ dueDate: null, daysPastDue: 0, bucket: 'current' })
+  })
+
   it('takes the earliest dated bill', () => {
     const a = ageCheck([
       { dueDate: day('2026-09-30'), termsCode: '30D' },
