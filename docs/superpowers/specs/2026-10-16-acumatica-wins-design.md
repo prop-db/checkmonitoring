@@ -56,7 +56,7 @@ or in both. Adding an import-writable column then forces a decision, as the exis
 
 ## Making a disagreement visible
 
-For a held check, every `ACUMATICA_OWNED` field (except the derived three, `isIncomplete`,
+For a held check, every `ACUMATICA_OWNED` field (except the four derived ones, `isIncomplete`,
 `eligibility`, `portalDomain`, `portalSyncStatus`) where the register row offers a **non-null value
 that differs from the stored one** is a *refused* value. When a row has any, `upsertCheck` writes one
 audit row in the same transaction:
