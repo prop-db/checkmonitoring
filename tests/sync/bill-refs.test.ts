@@ -154,7 +154,7 @@ describe('runBillRefsSync — the table', () => {
 })
 
 describe('runBillRefsSync — the run record', () => {
-  it('records mode BILL_REFS, the counts, watermark = max − 120 min, finishedAt, no message', async () => {
+  it('records mode BILL_REFS, the counts, watermark = max − 120 min, finishedAt, due-date message', async () => {
     await testDb.acumaticaBill.create({
       data: { apvNumber: 'AP-GONE', tenant: 'GOLIVE', vendorRef: 'PO-ST-000009', poNumbers: ['PO-ST-000009'] },
     })
@@ -174,7 +174,7 @@ describe('runBillRefsSync — the run record', () => {
     expect(run.updated).toBe(1)
     expect(run.staged).toBe(1)
     expect(run.errors).toBe(0)
-    expect(run.message).toBeNull()
+    expect(run.message).toBe(`due dates: ${result.termsWritten} bills written`)
     expect(run.watermark).toEqual(new Date('2026-09-29T07:00:00Z'))
   })
 
@@ -202,6 +202,8 @@ describe('runBillRefsSync — the run record', () => {
     expect(run.errors).toBe(1)
     expect(run.watermark).toBeNull()
     expect(run.message).toContain('inquiry down')
+    expect(run.message).not.toContain('due dates')
+
   })
 
   it('a failed write is an error, the other writes still land, and the watermark is held', async () => {
@@ -238,6 +240,22 @@ describe('runBillRefsSync — the run record', () => {
   })
 })
 
+describe('runBillRefsSync — due-date activity in the message', () => {
+  it('a clean run of two bills records how many were written', async () => {
+    const result = await read([docRow({ ReferenceNbr: 'AP-1' }), docRow({ ReferenceNbr: 'AP-2' })]).result
+    const run = await testDb.syncRun.findUniqueOrThrow({ where: { id: result.syncRunId } })
+    expect(run.message).toBe('due dates: 2 bills written')
+  })
+
+  it('a re-run of the same unchanged bills records none written', async () => {
+    const rows = [docRow({ ReferenceNbr: 'AP-1' }), docRow({ ReferenceNbr: 'AP-2' })]
+    await read(rows).result
+    const again = await read(rows).result
+    const run = await testDb.syncRun.findUniqueOrThrow({ where: { id: again.syncRunId } })
+    expect(run.message).toBe('due dates: 0 bills written')
+  })
+})
+
 describe('runBillRefsSync — a failed terms batch', () => {
   it('holds the watermark and names the terms batch while the bill write lands', async () => {
     const flaky = new Proxy(testDb, {
@@ -258,6 +276,8 @@ describe('runBillRefsSync — a failed terms batch', () => {
     expect(result.watermark).toBeNull()
     const run = await testDb.syncRun.findUniqueOrThrow({ where: { id: result.syncRunId } })
     expect(run.watermark).toBeNull()
+    expect(run.message?.startsWith('due dates: ')).toBe(true)
+    expect(run.message).toContain(' | terms ')
     expect(run.message).toContain('terms AP-ST044591')
     expect(run.message).toContain('terms write refused')
   })
@@ -345,7 +365,7 @@ describe('runScheduledBillRefsSync', () => {
     const feed = fakeFeed([docRow(), docRow({ ReferenceNbr: 'AP-2', VendorRef: 'SI#1' })])
     const outcome = await runScheduledBillRefsSync(testDb, { tenant: 'GOLIVE', now: NOW, client: () => feed.client })
     expect(outcome).toMatchObject({
-      tenant: 'GOLIVE', outcome: 'RAN', fetched: 2, ignored: 0, upserted: 2, deleted: 0, noPo: 1, errors: 0,
+      tenant: 'GOLIVE', outcome: 'RAN', fetched: 2, ignored: 0, upserted: 2, deleted: 0, noPo: 1, termsWritten: 2, errors: 0,
     })
     expect(feed.calls[0].opts?.filter).toBe(billRefsSinceFilter(new Date('2026-09-29T08:00:00Z')))
     if (outcome.outcome !== 'RAN') throw new Error('unreachable')

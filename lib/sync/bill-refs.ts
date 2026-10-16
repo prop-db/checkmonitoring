@@ -26,6 +26,9 @@ import { SYNC_OVERLAP_MINUTES, SyncInProgressError, type SyncTrigger } from '@/l
  * 2026-10-06). A bill whose VendorRef is now blank has its row deleted (this
  * tenant's only).
  *
+ * Once the write phase is reached the run's message opens `due dates: N bills
+ * written` (AGING's terms writes, visible on /admin/sync), problems after ` | `.
+ *
  * Reference data, not a record: no AuditLog row per bill (rule 7 untouched);
  * the run's own SyncRun row is the trace. Never touches `Check` (rule 4) and
  * never writes a PortalEvent. Acumatica is read through `fetchAll` only (rule 3).
@@ -117,7 +120,7 @@ export async function runBillRefsSync(db: Db, args: BillRefsSyncArgs): Promise<B
   let errors = 0
   const problems: string[] = []
 
-  const finish = async (watermark: Date | null): Promise<void> => {
+  const finish = async (watermark: Date | null, wrote: boolean): Promise<void> => {
     await db.syncRun.update({
       where: { id: run.id },
       data: {
@@ -127,7 +130,9 @@ export async function runBillRefsSync(db: Db, args: BillRefsSyncArgs): Promise<B
         staged: noPo,
         errors,
         watermark,
-        message: problems.length > 0 ? summarise(problems) : null,
+        message: wrote
+          ? [`due dates: ${termsWritten.toLocaleString('en-US')} bills written`, ...(problems.length > 0 ? [summarise(problems)] : [])].join(' | ')
+          : problems.length > 0 ? summarise(problems) : null,
       },
     })
   }
@@ -145,7 +150,7 @@ export async function runBillRefsSync(db: Db, args: BillRefsSyncArgs): Promise<B
     // Nothing was read, so the watermark must not move.
     errors = 1
     problems.push(describe(error))
-    await finish(null)
+    await finish(null, false)
     throw error
   }
 
@@ -226,7 +231,7 @@ export async function runBillRefsSync(db: Db, args: BillRefsSyncArgs): Promise<B
       ? null
       : new Date(maxSeen.getTime() - SYNC_OVERLAP_MINUTES * 60_000)
 
-  await finish(watermark)
+  await finish(watermark, true)
 
   return { syncRunId: run.id, tenant, fetched, ignored, withPo, upserted, deleted, noPo, termsWritten, errors, watermark }
 }
@@ -319,6 +324,7 @@ export type ScheduledBillRefsOutcome =
       upserted: number
       deleted: number
       noPo: number
+      termsWritten: number
       errors: number
     }
   | { tenant: AcumaticaTenant; outcome: 'REFUSED_NO_WATERMARK'; syncRunId: string }
@@ -393,7 +399,7 @@ export async function runScheduledBillRefsSync(
     return {
       tenant, outcome: 'RAN', syncRunId: result.syncRunId,
       fetched: result.fetched, ignored: result.ignored, upserted: result.upserted,
-      deleted: result.deleted, noPo: result.noPo, errors: result.errors,
+      deleted: result.deleted, noPo: result.noPo, termsWritten: result.termsWritten, errors: result.errors,
     }
   } catch (error) {
     if (error instanceof SyncInProgressError) {
