@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import type { CheckStatus, Prisma, PrismaClient, PortalEvent, PortalEventKind } from '@prisma/client'
 import { writeAudit } from '@/lib/audit'
+import { notify } from '@/lib/notifications/notify'
+import { parkedNotice } from '@/lib/notifications/messages'
 import {
   buildPortalEventBody, PortalPayloadError, type PortalClient, type PortalDeliveryResult,
 } from '@/lib/integrations/portal/client'
@@ -183,6 +185,20 @@ async function settle(
       checkId: ev.checkId, actorType: 'SYSTEM', action: `portal_event_${status.toLowerCase()}`,
       details: { eventId: ev.id, kind: ev.kind, attempts, lastError },
     })
+    // The admins are told in the same transaction (spec 2026-10-16
+    // notifications, "Portal event parked"): the notice exists exactly when
+    // the parked state does. Once per event (dedupeKey), so RETRY then parked
+    // again does not repeat it. checkId only when the check still exists, or
+    // the FK would refuse the row.
+    if (status === 'PARKED') {
+      const parkedCheck = await tx.check.findUnique({ where: { id: ev.checkId }, select: { checkNumber: true } })
+      await notify(tx, parkedNotice({
+        eventId: ev.id, kind: ev.kind,
+        checkId: parkedCheck ? ev.checkId : null,
+        checkNumber: parkedCheck?.checkNumber ?? null,
+        error: lastError,
+      }))
+    }
     return true
   })
   return held ? status : null

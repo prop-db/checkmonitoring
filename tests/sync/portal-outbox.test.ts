@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { testDb, resetDb } from '../helpers/db'
-import { makeCheck } from '../helpers/factory'
+import { makeCheck, makeUser } from '../helpers/factory'
 import { deliverPortalEvents, kindMatchesStatus, RETRY_DELAYS_MS, MAX_ATTEMPTS, UNMATCHED_MAX_ATTEMPTS } from '@/lib/sync/portal-outbox'
 import type { PortalClient, PortalDeliveryResult, PortalEventBody } from '@/lib/integrations/portal/client'
 
@@ -577,5 +577,36 @@ describe('kindMatchesStatus', () => {
     expect(allowed('RELEASED')).toEqual(['RELEASED'])
     expect(allowed('REVERT')).toEqual(['GENERATED', 'SIGNATURE_PENDING', 'SIGNED'])
     expect(allowed('CANCELLED')).toEqual(['CANCELLED', 'VOIDED'])
+  })
+})
+
+describe('deliverPortalEvents: a parked event notifies the admins', () => {
+  it('writes one PORTAL_PARKED per active admin, once per event', async () => {
+    const admin = await makeUser('FINANCE_ADMIN')
+    await makeUser('FINANCE_USER')
+    const check = await releasedCheck('AP-1')
+    const ev = await queue(check.id, 'RELEASED', NOW)
+    const client = fakeClient(() => ({ status: 400, body: null }))
+    await deliverPortalEvents(testDb, { now: LATER, deadline: new Date(LATER.getTime() + 10_000), client })
+
+    const rows = await testDb.notification.findMany()
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      userId: admin.id, kind: 'PORTAL_PARKED', link: '/admin/portal', checkId: check.id, dedupeKey: `parked:${ev.id}`,
+    })
+    expect(rows[0].message).toContain(`check ${check.checkNumber}`)
+
+    // Re-queued by RETRY and parked again: no second notification for the same event.
+    await testDb.portalEvent.update({ where: { id: ev.id }, data: { status: 'PENDING', nextAttemptAt: LATER } })
+    await deliverPortalEvents(testDb, { now: LATER, deadline: new Date(LATER.getTime() + 10_000), client })
+    expect(await testDb.notification.count()).toBe(1)
+  })
+
+  it('a FAILED delivery that will retry notifies nobody', async () => {
+    await makeUser('FINANCE_ADMIN')
+    const check = await releasedCheck('AP-1')
+    await queue(check.id, 'RELEASED', NOW)
+    await deliverPortalEvents(testDb, { now: LATER, deadline: new Date(LATER.getTime() + 10_000), client: fakeClient(() => ({ status: 503, body: null })) })
+    expect(await testDb.notification.count()).toBe(0)
   })
 })
