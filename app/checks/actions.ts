@@ -13,6 +13,7 @@ import {
   reverseRelease, updateDetails, revertSignature, restoreCancelled, attachReceiptFile,
 } from '@/lib/domain/actions'
 import { readReceiptFields } from '@/lib/receipt-form'
+import { notifyReady } from '@/lib/notifications/ready'
 
 export type ActionResult = { ok: true } | { ok: false; message: string }
 
@@ -68,11 +69,14 @@ export async function signAction(formData: FormData): Promise<ActionResult> {
 export async function readyForReleaseAction(formData: FormData): Promise<ActionResult> {
   const user = await requireUser()
   const checkId = str(formData, 'checkId')
-  return run(checkId, () => markReadyForRelease(prisma, {
+  const result = await run(checkId, () => markReadyForRelease(prisma, {
     checkId, userId: user.id,
     availablePickupDate: date(formData, 'availablePickupDate'),
     now: new Date(),
   }))
+  // The others are told after the check moved; never fails the action.
+  if (result.ok) await notifyReady(prisma, user, [checkId])
+  return result
 }
 
 export async function revertAction(formData: FormData): Promise<ActionResult> {

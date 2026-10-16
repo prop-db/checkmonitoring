@@ -12,6 +12,7 @@ import { parseColumnFilters, F_PARAMS } from '@/lib/column-filters'
 import { readRowReceipts } from '@/lib/receipt-form'
 import { runEach, type BulkOutcome, type BulkActionResult } from '@/lib/bulk-run'
 import { loadSettings } from '@/lib/settings/read'
+import { notifyReady } from '@/lib/notifications/ready'
 
 export type { BulkOutcome, BulkActionResult }
 
@@ -128,8 +129,11 @@ export async function bulkReadyForReleaseAction(formData: FormData): Promise<Bul
   }
 
   const now = new Date()
-  return runEach(prisma, selection.checkIds, (checkId) =>
+  const result = await runEach(prisma, selection.checkIds, (checkId) =>
     markReadyForRelease(prisma, { checkId, userId: user.id, availablePickupDate, now }))
+  // One notification for the batch, over the checks that moved (spec 2026-10-16).
+  if (result.ok) await notifyReady(prisma, user, result.outcomes.filter((o) => o.ok).map((o) => o.checkId))
+  return result
 }
 
 /**

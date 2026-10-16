@@ -988,3 +988,29 @@ describe('bulkRevertToPendingAction', () => {
     expect(await testDb.auditLog.count({ where: { action: 'signature_reverted' } })).toBe(0)
   })
 })
+
+describe('bulkReadyForReleaseAction: notifications', () => {
+  it('notifies every other active user once for the batch, counting only checks that moved', async () => {
+    const { bulkReadyForReleaseAction } = await import('@/app/checks/bulk-actions')
+    const other = await makeUser('FINANCE_ADMIN')
+    const a = await makeCheck({ status: 'SIGNED' })
+    const b = await makeCheck({ status: 'SIGNED' })
+    const refused = await makeCheck({ status: 'SIGNATURE_PENDING' })
+
+    const result = await bulkReadyForReleaseAction(fd([a.id, b.id, refused.id], { availablePickupDate: '2026-09-10' }))
+    expect(result.ok && result.succeeded).toBe(2)
+
+    const rows = await testDb.notification.findMany()
+    expect(rows.map((r) => r.userId)).toEqual([other.id]) // the actor is not told of their own action
+    expect(rows[0]).toMatchObject({ kind: 'READY_FOR_RELEASE', link: '/?status=READY_FOR_RELEASE' })
+    expect(rows[0].message).toBe('Finance User marked 2 checks READY FOR RELEASE: ₱395,430.84')
+  })
+
+  it('sends nothing when no check moved', async () => {
+    const { bulkReadyForReleaseAction } = await import('@/app/checks/bulk-actions')
+    await makeUser('FINANCE_ADMIN')
+    const refused = await makeCheck({ status: 'SIGNATURE_PENDING' })
+    await bulkReadyForReleaseAction(fd([refused.id], { availablePickupDate: '2026-09-10' }))
+    expect(await testDb.notification.count()).toBe(0)
+  })
+})
