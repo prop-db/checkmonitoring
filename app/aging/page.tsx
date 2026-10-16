@@ -6,10 +6,11 @@ import { AppHeader } from '@/components/AppHeader'
 import { AgingPicker } from '@/components/AgingPicker'
 
 /**
- * AGING (spec 2026-10-15-aging-module-design.md): SIGNED checks in the
- * Supplier Portal's buckets — days past the earliest due date of the bills
- * each check pays — ticked and marked READY FOR RELEASE through the existing
- * `bulkReadyForReleaseAction`. No other write. `requireUser()` first: it
+ * AGING (spec 2026-10-15-aging-module-design.md): SIGNED and READY FOR
+ * RELEASE checks in the Supplier Portal's buckets — days past the earliest due
+ * date of the bills each check pays. Only the SIGNED ones can be ticked and
+ * marked READY FOR RELEASE through the existing `bulkReadyForReleaseAction`;
+ * the already-available ones are shown with a STATUS. No other write. `requireUser()` first: it
  * lists payees and amounts.
  */
 export const dynamic = 'force-dynamic'

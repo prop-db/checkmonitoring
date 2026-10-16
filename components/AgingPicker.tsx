@@ -77,10 +77,14 @@ export function AgingPicker({ rows, cap, truncated }: { rows: readonly AgingRow[
     if (key === 'amount') return matchingTotal
     return null
   }
+  const matchingSigned = useMemo(() => matching.filter((r) => r.status === 'SIGNED'), [matching])
+  const readyShown = matching.length - matchingSigned.length
   const matchingIds = useMemo(() => new Set(matching.map((r) => r.id)), [matching])
   const offScreen = chosen.filter((r) => !matchingIds.has(r.id)).length
 
   const toggle = (id: string) => {
+    // Already available: never ticked from here (effectiveSelection would drop it anyway).
+    if (rows.find((r) => r.id === id)?.status !== 'SIGNED') return
     setResult(null)
     setSelected((s) => {
       const n = new Set(s)
@@ -127,6 +131,9 @@ export function AgingPicker({ rows, cap, truncated }: { rows: readonly AgingRow[
       case 'checkNumber': return <Link href={`/checks/${r.id}`} className="underline-offset-2 hover:underline" onClick={(e) => e.stopPropagation()}>{r.checkNumber}</Link>
       case 'amount': return formatAmount(r.amount)
       case 'bucket': return AGING_LABELS[r.bucket]
+      case 'status': return r.status === 'READY_FOR_RELEASE'
+        ? <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700">READY FOR RELEASE</span>
+        : 'SIGNED'
       default: {
         const b = BUCKET_BY_COLUMN.get(key)
         if (b) return b === r.bucket ? `${formatAmount(r.amount)}${r.currency !== 'PHP' ? ` ${r.currency}` : ''}` : null
@@ -138,7 +145,7 @@ export function AgingPicker({ rows, cap, truncated }: { rows: readonly AgingRow[
   return (
     <div className="space-y-4">
       <p className="text-xs font-medium tracking-wide text-slate-600">
-        SIGNED CHECKS ONLY. AGED BY THE EARLIEST DUE DATE OF THE BILLS EACH CHECK PAYS, AS IN THE SUPPLIER PORTAL.
+        SIGNED AND READY FOR RELEASE CHECKS. AGED BY THE EARLIEST DUE DATE OF THE BILLS EACH CHECK PAYS, AS IN THE SUPPLIER PORTAL.
         {strip.buckets.noDue.count > 0 && <> <button type="button" className="underline" onClick={() => setChoice('noDue')}>{strip.buckets.noDue.count.toLocaleString('en-PH')} HAVE NO DUE DATE.</button></>}
         {strip.nonPhp > 0 && <> {strip.nonPhp} NON-PHP CHECK(S) ARE COUNTED BUT NOT IN THE PESO AMOUNTS.</>}
         {strip.unpriced > 0 && <> {strip.unpriced} WITH NO READABLE AMOUNT ARE COUNTED BUT NOT IN THE PESO AMOUNTS.</>}
@@ -150,6 +157,9 @@ export function AgingPicker({ rows, cap, truncated }: { rows: readonly AgingRow[
         {card('ALL', 'ALL', strip.all, 'ring-slate-300')}
         {card('SELECTED', 'SELECTED', { count: chosen.length, amount: picked.amount }, 'ring-navy')}
       </div>
+      <p className="text-xs font-medium tracking-wide text-slate-600">
+        {matchingSigned.length.toLocaleString('en-PH')} SIGNED · {readyShown.toLocaleString('en-PH')} READY FOR RELEASE (ALREADY AVAILABLE — NOT SELECTABLE)
+      </p>
       {filters.bucket?.trim() && (
         <p className="text-xs font-medium tracking-wide text-slate-600">
           THE BUCKET COLUMN FILTER IS SET — CARDS OUTSIDE IT SHOW 0.
@@ -159,10 +169,10 @@ export function AgingPicker({ rows, cap, truncated }: { rows: readonly AgingRow[
       <div className="flex flex-wrap items-center gap-2">
         <ColumnConfigButton columns={columns} layout={layout} onSave={save} onReset={reset} />
         <button
-          type="button" onClick={() => { setResult(null); setSelected(new Set(matching.map((r) => r.id))) }} disabled={matching.length === 0}
+          type="button" onClick={() => { setResult(null); setSelected(new Set(matchingSigned.map((r) => r.id))) }} disabled={matchingSigned.length === 0}
           className="h-9 rounded-lg bg-navy px-3 text-sm font-medium tracking-wide text-white disabled:opacity-40"
         >
-          SELECT ALL SHOWN ({matching.length.toLocaleString('en-PH')})
+          SELECT ALL SHOWN ({matchingSigned.length.toLocaleString('en-PH')})
         </button>
         <button
           type="button" onClick={() => { setResult(null); setSelected(new Set()) }} disabled={chosen.length === 0}
@@ -201,13 +211,15 @@ export function AgingPicker({ rows, cap, truncated }: { rows: readonly AgingRow[
           </thead>
           <tbody>
             {matching.length === 0 && (
-              <tr><td colSpan={visible.length + 1} className="px-2 py-6 text-center text-slate-500">NO SIGNED CHECKS MATCH.</td></tr>
+              <tr><td colSpan={visible.length + 1} className="px-2 py-6 text-center text-slate-500">NO CHECKS MATCH.</td></tr>
             )}
             {matching.slice(0, DRAW_LIMIT).map((r) => (
-              <tr key={r.id} className="cursor-pointer border-t border-slate-100 hover:bg-navy-bg" onClick={() => toggle(r.id)}>
+              <tr key={r.id} className={`border-t border-slate-100 hover:bg-navy-bg ${r.status === 'SIGNED' ? 'cursor-pointer' : ''}`} onClick={() => toggle(r.id)}>
                 <td className="px-2 py-1.5">
-                  <input type="checkbox" checked={chosenIds.has(r.id)} onChange={() => toggle(r.id)}
-                    onClick={(e) => e.stopPropagation()} aria-label={`Select ${r.checkNumber}`} />
+                  {r.status === 'SIGNED' ? (
+                    <input type="checkbox" checked={chosenIds.has(r.id)} onChange={() => toggle(r.id)}
+                      onClick={(e) => e.stopPropagation()} aria-label={`Select ${r.checkNumber}`} />
+                  ) : '—'}
                 </td>
                 {visible.map((col) => (
                   <td key={col.key} style={widthStyle(layout.widths[col.key])}

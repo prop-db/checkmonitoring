@@ -47,6 +47,7 @@ describe('GET /api/export/aging', () => {
     state.user = SIGNED_IN
     await makeCheck({ status: 'SIGNED', checkNumber: '6000000001' })
     await makeCheck({ status: 'RELEASED', checkNumber: '6000000002' })
+    await makeCheck({ status: 'READY_FOR_RELEASE', checkNumber: '6000000003' })
     const res = await get()
     expect(res.status).toBe(200)
     expect(res.headers.get('content-disposition')).toMatch(/^attachment; filename="AGING \d{4}-\d{2}-\d{2}\.xlsx"$/)
@@ -54,7 +55,7 @@ describe('GET /api/export/aging', () => {
     await wb.xlsx.load(await res.arrayBuffer())
     expect(wb.getWorksheet(SUMMARY_SHEET)).toBeDefined()
     const sheet = wb.getWorksheet('NO DUE DATE')!
-    expect(sheet.rowCount).toBe(3) // header, the check, TOTAL (PHP)
-    expect(sheet.getRow(2).getCell(1).value).toBe('6000000001')
+    expect(sheet.rowCount).toBe(4) // header, the SIGNED and READY FOR RELEASE checks, TOTAL (PHP)
+    expect([2, 3].map((n) => sheet.getRow(n).getCell(1).value).sort()).toEqual(['6000000001', '6000000003'])
   })
 })

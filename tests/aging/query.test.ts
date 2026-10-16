@@ -9,14 +9,16 @@ const day = (d: string) => new Date(`${d}T00:00:00Z`)
 beforeEach(resetDb)
 
 describe('loadAgingRows', () => {
-  it('is SIGNED real checks with an amount, nothing else', async () => {
+  it('is SIGNED and READY_FOR_RELEASE real checks with an amount, nothing else', async () => {
     const keep = await makeCheck({ status: 'SIGNED', checkNumber: '6000000001' })
+    const ready = await makeCheck({ status: 'READY_FOR_RELEASE', checkNumber: '6000000003' })
     await makeCheck({ status: 'SIGNATURE_PENDING', checkNumber: '6000000002' })
-    await makeCheck({ status: 'READY_FOR_RELEASE', checkNumber: '6000000003' })
+    await makeCheck({ status: 'SCHEDULED', checkNumber: '6000000006' })
+    await makeCheck({ status: 'RELEASED', checkNumber: '6000000007' })
     await makeCheck({ status: 'SIGNED', checkNumber: '6000000004', isCheque: false })
     await makeCheck({ status: 'SIGNED', checkNumber: '6000000005', amount: null })
     const { rows, truncated } = await loadAgingRows(testDb, NOW)
-    expect(rows.map((r) => r.id)).toEqual([keep.id])
+    expect(rows.map((r) => [r.id, r.status])).toEqual([[keep.id, 'SIGNED'], [ready.id, 'READY_FOR_RELEASE']])
     expect(truncated).toBe(false)
   })
 
