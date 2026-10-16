@@ -511,6 +511,7 @@ category not on it.
 | `lib/admin/portal-backlog.ts` | Backlog dry run for `scripts/portal-backlog.ts` (winners, superseded, `stale`) and `queueCancelledForStale` (`--queue-cancelled [--apply]`). |
 | `lib/forecast/` | Cash outflow by check date: `buckets.ts` (the ageing buckets, pure), `query.ts` (the population — live, real, with an amount), `matrix.ts` (bucket × bank and bucket × stage, centavo-exact, pure). `/forecast` and `/api/export/forecast` sit on it. Since 2026-09-12 a check's typed `expectedOutflowDate` wins over its check date, and `PlannedOutflow` lines (`lib/planned-outflow/`, `/forecast/planned`) join the population as their own PLANNED column. |
 | `lib/aging/` | AGING: `buckets.ts` (the portal's buckets, pure), `query.ts` (SIGNED, aged). `lib/aging-picker.ts` (strip, selection, pure). `/aging` and `/api/export/aging` sit on it (`lib/export/aging-workbook.ts`). |
+| `lib/notifications/` | `messages.ts` (pure: what each notice says and to whom), `notify.ts` (the one writer; `safeNotify` for callers whose work has committed), `queries.ts` (bell count, page, mark read), `cron.ts`, `ready.ts`. `/notifications` and the header's NOTIFICATIONS link sit on it. |
 | `lib/recon/` | Outstanding checks: `outstanding.ts` (the as-of rule, pure), `summary.ts` (per account, centavo-exact, pure), `query.ts` (the released population). `/recon` and `/api/export/recon` sit on it. |
 | `lib/list-sort.ts` | The list's order: params, the `cm_sort` cookie, database and in-app keys. Pure. |
 | `lib/column-filters.ts` | The filter row's `f.*` parameters: parsing, refusal, description. Pure. |
@@ -847,8 +848,16 @@ Migration `20261005000100_acumatica_bill` (the `AcumaticaBill` table) must reach
    the page says so), Manila dates. Keyset pagination on `(createdAt, id)`; four indexes in
    `20260911000200_audit_log_indexes`, which must reach production before the deploy. Excel extract
    of the filtered range at `/api/export/audit`. `writeAudit` remains the only writer.
-4. **No notifications at all.** A failed sync is silent; nobody is told a check is ready or that a
-   supplier booked a pickup.
+4. **Notifications are in-app** (built 2026-10-16, spec `2026-10-16-notifications-design.md`): a
+   NOTIFICATIONS link with the unread count in the header and `/notifications`. One `Notification`
+   row per recipient. FINANCE_ADMINs are told when a scheduled read (payments, BILLS, BILL_REFS) or
+   auto-sign FAILS or is REFUSED (every run), when a tenant goes past `sync.staleAfterHours` (once
+   per stale stretch, `dedupeKey`), and when a portal event PARKS (in `settle`'s transaction, once
+   per event). Every other active user is told once per READY FOR RELEASE action (single or bulk,
+   the actor excluded). No email. Not notified, and not reachable: a supplier's pickup booking
+   (rule 12). If the cron stops running, the stale notice cannot fire; the dashboard's stale line
+   is the backstop. Migration `20261016000100_notification_recipients` must reach production
+   before the deploy (the header queries it on every page).
 5. **3,718 staged rows with no owner** — no ageing, no alert, nobody assigned.
 6. **"Acumatica wins" is not enforced in code.** See the amounts note above.
 7. **No general snapshot step before a bulk write.** The 10 September recovery depended on one
