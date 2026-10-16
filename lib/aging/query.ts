@@ -4,7 +4,7 @@ import { ageCheck, type AgingBucket, type BillTerms } from '@/lib/aging/buckets'
 
 type Db = Parameters<typeof listChecks>[0]
 
-/** Above this the page says it is short. SIGNED is ~1,400 (measured 2026-10). */
+/** Above this the page says it is short. SIGNED + READY FOR RELEASE is ~1,600 (measured 2026-10). */
 export const AGING_LIMIT = 25_000
 
 export type AgingRow = {
@@ -24,19 +24,23 @@ export type AgingRow = {
   /** Decimal string, rule 8. */
   amount: string | null
   currency: string
+  /** READY_FOR_RELEASE rows are already available: shown and counted, never selectable. */
+  status: 'SIGNED' | 'READY_FOR_RELEASE'
 }
 
 const ymd = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null)
 
 /**
- * THE POPULATION (spec 2026-10-15): SIGNED, a real check, an amount — the only
- * checks that may move to READY FOR RELEASE. Each is aged by its bills: per
+ * THE POPULATION (spec 2026-10-15; READY_FOR_RELEASE added 2026-10-16): SIGNED
+ * and READY_FOR_RELEASE, a real check, an amount. Only the SIGNED ones may move
+ * to READY FOR RELEASE (the picker refuses to select the others); the rest are
+ * listed so Finance sees the whole aged picture. Each is aged by its bills: per
  * APV, Acumatica's due date and terms (`AcumaticaBillTerms`), and only when
  * Acumatica states no date, the approval workbook's (`CheckBill`).
  */
 export async function loadAgingRows(db: Db, now: Date): Promise<{ rows: AgingRow[]; truncated: boolean }> {
   const listed = await listChecks(
-    db, { statusIn: ['SIGNED'], incomplete: false }, AGING_LIMIT, { key: 'checkNumber', dir: 'asc' },
+    db, { statusIn: ['SIGNED', 'READY_FOR_RELEASE'], incomplete: false }, AGING_LIMIT, { key: 'checkNumber', dir: 'asc' },
   )
   // Measured before the isCheque filter: listChecks takes AGING_LIMIT rows in
   // the database, so the limit was hit by what the database returned, not by
@@ -75,6 +79,7 @@ export async function loadAgingRows(db: Db, now: Date): Promise<{ rows: AgingRow
       bucket: aging.bucket,
       amount: table.amount,
       currency: table.currency,
+      status: c.status === 'READY_FOR_RELEASE' ? 'READY_FOR_RELEASE' : 'SIGNED',
     }
   })
   rows.sort((a, b) => compareCheckNumbers(a.checkNumber, b.checkNumber))

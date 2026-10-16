@@ -8,8 +8,8 @@ import { currencyNumberFormat } from './report'
 
 /**
  * AGING as a workbook (spec 2026-10-15): SUMMARY (bucket x count x PHP amount,
- * then bucket x bank), and one sheet per non-empty bucket. Every SIGNED check
- * in the population, no filters, and the title block says so. Amounts are
+ * then bucket x bank), and one sheet per non-empty bucket. Every SIGNED and READY FOR
+ * RELEASE check in the population, no filters, and the title block says so. Amounts are
  * summed in centavos and written as Excel numbers — a presentational value,
  * never added to anything here (see workbook.ts).
  */
@@ -22,7 +22,7 @@ export const TOTAL_LABEL = 'TOTAL (PHP)'
 // One amount column per bucket, as on the /aging screen. CURRENCY stays so a
 // non-PHP amount is readable in a file.
 export const AGING_HEADERS = [
-  'CHECK NO.', 'CV', 'APV', 'PO NUMBER', 'PAYEE', 'COMPANY', 'BANK', 'CHECK DATE', 'DUE DATE',
+  'CHECK NO.', 'STATUS', 'CV', 'APV', 'PO NUMBER', 'PAYEE', 'COMPANY', 'BANK', 'CHECK DATE', 'DUE DATE',
   'DAYS PAST DUE', 'CURRENCY', ...AGING_BUCKETS.map((b) => AGING_LABELS[b]),
 ] as const
 const FIRST_BUCKET_COL = AGING_HEADERS.length - AGING_BUCKETS.length + 1
@@ -57,11 +57,11 @@ export function agingFilename(now: Date): string {
 function addCheckSheet(wb: ExcelJS.Workbook, name: string, rows: readonly AgingRow[]) {
   const sheet = wb.addWorksheet(name)
   const h = sheet.addRow([])
-  AGING_HEADERS.forEach((label, i) => styleHeaderCell(h.getCell(i + 1), label, i + 1 >= 10 && label !== 'CURRENCY' ? 'right' : 'left'))
+  AGING_HEADERS.forEach((label, i) => styleHeaderCell(h.getCell(i + 1), label, i + 1 >= 11 && label !== 'CURRENCY' ? 'right' : 'left'))
   const sorted = [...rows].sort((x, y) => (y.daysPastDue ?? -Infinity) - (x.daysPastDue ?? -Infinity))
   for (const r of sorted) {
     const line = sheet.addRow([
-      r.checkNumber, r.cvNumber ?? '', r.apvNumbers.join(', '), r.poNumbers.join(', '), r.payee ?? '',
+      r.checkNumber, r.status === 'READY_FOR_RELEASE' ? 'READY FOR RELEASE' : 'SIGNED', r.cvNumber ?? '', r.apvNumbers.join(', '), r.poNumbers.join(', '), r.payee ?? '',
       r.company, r.bank ?? '', r.checkDate ?? '', r.dueDate ?? '', r.daysPastDue ?? '', r.currency,
       ...AGING_BUCKETS.map((b) => (b === r.bucket ? amountCell(r.amount) : '')),
     ])
@@ -91,9 +91,9 @@ export async function buildAgingWorkbook(args: {
   const byBucket = new Map<AgingBucket, AgingRow[]>(AGING_BUCKETS.map((b) => [b, rows.filter((r) => r.bucket === b)]))
 
   const summary = wb.addWorksheet(SUMMARY_SHEET)
-  summary.addRow(['AGING — ALL SIGNED CHECKS'])
+  summary.addRow(['AGING — SIGNED AND READY FOR RELEASE CHECKS'])
   summary.addRow([`Aged by the earliest due date of the bills each check pays, as in the Supplier Portal. Generated ${manilaToday(generatedAt)} by ${generatedBy}. Peso totals only.`])
-  if (truncated) summary.addRow([`CAPPED: the list holds the first ${AGING_LIMIT.toLocaleString('en-US')} SIGNED checks by check number; the rest are not in this file.`])
+  if (truncated) summary.addRow([`CAPPED: the list holds the first ${AGING_LIMIT.toLocaleString('en-US')} SIGNED and READY FOR RELEASE checks by check number; the rest are not in this file.`])
   summary.addRow([])
   const head = summary.addRow([])
   ;['BUCKET', 'CHECKS', 'AMOUNT (PHP)'].forEach((h, i) => styleHeaderCell(head.getCell(i + 1), h, i === 0 ? 'left' : 'right'))

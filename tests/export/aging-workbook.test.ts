@@ -6,7 +6,7 @@ import type { AgingRow } from '@/lib/aging/query'
 const row = (o: Partial<AgingRow>): AgingRow => ({
   id: 'x', checkNumber: '6000000001', cvNumber: 'CV-1', apvNumbers: ['AP-1'], poNumbers: ['PO-1'],
   payee: 'HENKEL', company: 'STK', bank: 'BPI-S-4636', checkDate: '2026-09-01', dueDate: '2026-10-01',
-  daysPastDue: 14, bucket: 'b30', amount: '1000.10', currency: 'PHP', ...o,
+  daysPastDue: 14, bucket: 'b30', amount: '1000.10', currency: 'PHP', status: 'SIGNED', ...o,
 })
 
 async function load(rows: AgingRow[], truncated?: boolean) {
@@ -77,11 +77,20 @@ describe('buildAgingWorkbook', () => {
     expect(await text(false)).not.toContain('CAPPED')
   })
 
-  it('says it covers all SIGNED checks, and totals each bucket in centavos', async () => {
+  it('STATUS is the second header and reads SIGNED or READY FOR RELEASE', async () => {
+    expect(AGING_HEADERS[1]).toBe('STATUS')
+    const wb = await load([row({ id: 'a' }), row({ id: 'b', checkNumber: '6000000002', status: 'READY_FOR_RELEASE' })])
+    const sheet = wb.getWorksheet('ALL CHECKS')!
+    expect(col(sheet, 'STATUS')).toBe(2)
+    expect([2, 3].map((n) => sheet.getRow(n).getCell(2).value).sort()).toEqual(['READY FOR RELEASE', 'SIGNED'])
+    expect(col(wb.getWorksheet('1–30 DAYS')!, 'STATUS')).toBe(2)
+  })
+
+  it('says it covers SIGNED and READY FOR RELEASE checks, and totals each bucket in centavos', async () => {
     const wb = await load([row({ id: 'a', amount: '0.10' }), row({ id: 'b', amount: '0.20' })])
     const summary = wb.getWorksheet(SUMMARY_SHEET)!
     const text = summary.getSheetValues().flat().filter((v) => typeof v === 'string').join(' ')
-    expect(text).toContain('ALL SIGNED CHECKS')
+    expect(text).toContain('AGING — SIGNED AND READY FOR RELEASE CHECKS')
     const b30 = (summary.getColumn(1).values as unknown[]).indexOf('1–30 DAYS')
     expect(summary.getRow(b30).getCell(2).value).toBe(2)
     expect(summary.getRow(b30).getCell(3).value).toBe(0.3)

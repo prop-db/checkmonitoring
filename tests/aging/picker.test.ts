@@ -8,7 +8,7 @@ import type { AgingRow } from '@/lib/aging/query'
 const row = (o: Partial<AgingRow>): AgingRow => ({
   id: 'x', checkNumber: '6000000001', cvNumber: 'CV-1', apvNumbers: ['AP-1'], poNumbers: ['PO-1'],
   payee: 'HENKEL', company: 'STK', bank: 'BPI-S-4636', checkDate: '2026-09-01', dueDate: '2026-10-01',
-  daysPastDue: 14, bucket: 'b30', amount: '1000.10', currency: 'PHP', ...o,
+  daysPastDue: 14, bucket: 'b30', amount: '1000.10', currency: 'PHP', status: 'SIGNED', ...o,
 })
 
 const ROWS = [
@@ -74,7 +74,7 @@ describe('agingColumns / agingValue', () => {
   it('has the spec\'s columns in order, with dropdowns for company, bank and bucket', () => {
     const cols = agingColumns(['STK'], ['BPI-S-4636'])
     expect(cols.map((c) => c.key)).toEqual([
-      'checkNumber', 'cvNumber', 'apvNumbers', 'poNumbers', 'payee', 'company', 'bank',
+      'checkNumber', 'status', 'cvNumber', 'apvNumbers', 'poNumbers', 'payee', 'company', 'bank',
       'checkDate', 'dueDate', 'daysPastDue',
       'b_current', 'b_b30', 'b_b60', 'b_b90', 'b_b90plus', 'b_noDue', 'bucket', 'amount',
     ])
@@ -82,6 +82,14 @@ describe('agingColumns / agingValue', () => {
     expect(cols.find((c) => c.key === 'amount')!.defaultHidden).toBe(true)
     for (const b of AGING_BUCKETS) expect(cols.find((c) => c.key === BUCKET_COLUMN_KEYS[b])!.kind).toBe('amount')
     expect(cols.find((c) => c.key === 'bucket')!.kind).toBe('enum')
+    const status = cols.find((c) => c.key === 'status')!
+    expect(status.kind).toBe('enum')
+    expect(status.label).toBe('STATUS')
+    expect(status.defaultHidden).toBeFalsy()
+    expect(status.options).toEqual([
+      { value: 'SIGNED', label: 'SIGNED' },
+      { value: 'READY_FOR_RELEASE', label: 'READY FOR RELEASE' },
+    ])
     expect(cols.find((c) => c.key === 'company')!.options).toEqual([{ value: 'STK', label: 'STK' }])
   })
 
@@ -90,6 +98,8 @@ describe('agingColumns / agingValue', () => {
     expect(agingValue(r, 'apvNumbers')).toBe('AP-1, AP-2')
     expect(agingValue(r, 'daysPastDue')).toBe('14')
     expect(agingValue(r, 'bucket')).toBe('b30')
+    expect(agingValue(r, 'status')).toBe('SIGNED')
+    expect(agingValue(row({ status: 'READY_FOR_RELEASE' }), 'status')).toBe('READY_FOR_RELEASE')
     expect(agingValue(row({ daysPastDue: null }), 'daysPastDue')).toBeNull()
   })
 
@@ -120,7 +130,26 @@ describe('bucketColumnTotals', () => {
   })
 })
 
+describe('both statuses are counted', () => {
+  const mixed = [
+    row({ id: 's', bucket: 'b30', amount: '10.00', status: 'SIGNED' }),
+    row({ id: 'r', bucket: 'b30', amount: '5.00', status: 'READY_FOR_RELEASE' }),
+  ]
+  it('stripTotals counts and sums both', () => {
+    const t = stripTotals(mixed)
+    expect(t.buckets.b30).toEqual({ count: 2, amount: '15.00' })
+    expect(t.all).toEqual({ count: 2, amount: '15.00' })
+  })
+  it('bucketColumnTotals counts and sums both', () => {
+    expect(bucketColumnTotals(mixed).b30).toEqual({ count: 2, amount: '15.00' })
+  })
+})
+
 describe('effectiveSelection', () => {
+  it('drops a READY_FOR_RELEASE row even when selected and on the page', () => {
+    const rows = [row({ id: 's' }), row({ id: 'r', status: 'READY_FOR_RELEASE' })]
+    expect(effectiveSelection(rows, new Set(['s', 'r'])).map((r) => r.id)).toEqual(['s'])
+  })
   it('keeps only ids still on the page, in the rows\' order', () => {
     expect(effectiveSelection(ROWS, new Set(['c', 'gone', 'a'])).map((r) => r.id)).toEqual(['a', 'c'])
   })

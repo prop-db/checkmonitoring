@@ -13,8 +13,8 @@ import type { AgingRow } from '@/lib/aging/query'
  * currencies); `nonPhp` and `unpriced` say what those amounts leave out.
  */
 
-// A new id, so a layout stored for the old single-column table (where BUCKET and AMOUNT were visible) does not keep the old view.
-export const AGING_TABLE_ID = 'aging.by-bucket'
+// v2: STATUS is a new visible column, which a layout stored under v1 would hide.
+export const AGING_TABLE_ID = 'aging.by-bucket.v2'
 
 /** One amount column per bucket: a check's amount sits under its own bucket's column. */
 export const BUCKET_COLUMN_KEYS: Record<AgingBucket, string> = {
@@ -22,7 +22,7 @@ export const BUCKET_COLUMN_KEYS: Record<AgingBucket, string> = {
 }
 
 const LABELS: Record<string, string> = {
-  checkNumber: 'CHECK NO.', cvNumber: 'CV', apvNumbers: 'APV', poNumbers: 'PO NUMBER', payee: 'PAYEE',
+  checkNumber: 'CHECK NO.', status: 'STATUS', cvNumber: 'CV', apvNumbers: 'APV', poNumbers: 'PO NUMBER', payee: 'PAYEE',
   company: 'COMPANY', bank: 'BANK', checkDate: 'CHECK DATE', dueDate: 'DUE DATE',
   daysPastDue: 'DAYS PAST DUE', bucket: 'BUCKET', amount: 'AMOUNT',
 }
@@ -33,6 +33,10 @@ export function agingColumns(companies: readonly string[], banks: readonly strin
   const text = (key: string): KitColumn => ({ key, label: LABELS[key], kind: 'text' })
   return [
     { ...text('checkNumber'), className: 'font-medium', locked: true },
+    {
+      key: 'status', label: LABELS.status, kind: 'enum',
+      options: [{ value: 'SIGNED', label: 'SIGNED' }, { value: 'READY_FOR_RELEASE', label: 'READY FOR RELEASE' }],
+    },
     text('cvNumber'),
     text('apvNumbers'),
     text('poNumbers'),
@@ -130,10 +134,12 @@ export function selectionTotal(rows: readonly AgingRow[], selected: ReadonlySet<
 }
 
 /**
- * The selection as it can be submitted: only ids of rows still on the page, in
- * the rows' order. An id whose check has left the list (readied, voided,
- * refreshed away) is dropped, never submitted.
+ * The selection as it can be submitted: only ids of SIGNED rows still on the
+ * page, in the rows' order. An id whose check has left the list (readied,
+ * voided, refreshed away) is dropped, never submitted — and so is a
+ * READY_FOR_RELEASE row, which is already available and must never reach
+ * `bulkReadyForReleaseAction` from this page.
  */
 export function effectiveSelection(rows: readonly AgingRow[], selected: ReadonlySet<string>): AgingRow[] {
-  return rows.filter((r) => selected.has(r.id))
+  return rows.filter((r) => r.status === 'SIGNED' && selected.has(r.id))
 }
