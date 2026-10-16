@@ -73,6 +73,26 @@ describe('loadAgingRows', () => {
     expect(row.dueDate).toBeNull()
   })
 
+  it('leaves out a check whose bills are all Closed in Acumatica (user ruling 2026-10-16)', async () => {
+    await makeCheck({ checkNumber: '6000000060', apvNumbers: ['AP-ST000060'] })
+    const partly = await makeCheck({ checkNumber: '6000000061', apvNumbers: ['AP-ST000061', 'AP-ST000062'] })
+    const open = await makeCheck({ checkNumber: '6000000062', apvNumbers: ['AP-ST000063'] })
+    const unknown = await makeCheck({ checkNumber: '6000000063', apvNumbers: ['AP-ST000064'] })
+    await makeCheck({ status: 'READY_FOR_RELEASE', checkNumber: '6000000064', apvNumbers: ['AP-ST000065'] })
+    await testDb.acumaticaBillTerms.createMany({ data: [
+      { apvNumber: 'AP-ST000060', tenant: 'GOLIVE', dueDate: day('2026-07-01'), status: 'Closed' },
+      { apvNumber: 'AP-ST000061', tenant: 'GOLIVE', dueDate: day('2026-07-01'), status: 'Closed' },
+      { apvNumber: 'AP-ST000062', tenant: 'GOLIVE', dueDate: day('2026-10-20'), status: 'Open' },
+      { apvNumber: 'AP-ST000063', tenant: 'GOLIVE', dueDate: day('2026-10-20'), status: 'Open' },
+      { apvNumber: 'AP-ST000065', tenant: 'GOLIVE', dueDate: day('2026-07-01'), status: 'Closed' },
+    ] })
+    const { rows } = await loadAgingRows(testDb, NOW)
+    // All Closed -> gone (SIGNED or READY). One open bill keeps the check, aged as
+    // before by its earliest due date. No status known -> kept.
+    expect(rows.map((r) => r.id)).toEqual([partly.id, open.id, unknown.id])
+    expect(rows[0].bucket).toBe('b90plus')
+  })
+
   it('a check with no APV, or no known date, is NO DUE DATE', async () => {
     await makeCheck({ checkNumber: '6000000040' })
     await makeCheck({ checkNumber: '6000000041', apvNumbers: ['AP-ST000099'] })

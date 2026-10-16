@@ -61,9 +61,9 @@ describe('the feed', () => {
     expect(BILL_REFS_FEED).toBe('AP-Bills and Adjustments')
     expect(BILL_REF_COLUMNS).toEqual({
       type: 'Type', ref: 'ReferenceNbr', date: 'Date', vendorRef: 'VendorRef', lastModified: 'LastModifiedOn',
-      dueDate: 'DueDate', terms: 'Terms',
+      dueDate: 'DueDate', terms: 'Terms', status: 'Status',
     })
-    expect(billRefsSelect()).toEqual(['Type', 'ReferenceNbr', 'Date', 'VendorRef', 'LastModifiedOn', 'DueDate', 'Terms'])
+    expect(billRefsSelect()).toEqual(['Type', 'ReferenceNbr', 'Date', 'VendorRef', 'LastModifiedOn', 'DueDate', 'Terms', 'Status'])
   })
 
   it('filters on one column with the datetime literal, no zone', () => {
@@ -87,6 +87,7 @@ describe('mapBillRef', () => {
       lastModifiedOn: new Date('2026-09-29T08:15:00Z'),
       dueDate: null,
       termsCode: null,
+      status: null,
     })
   })
 
@@ -135,6 +136,12 @@ describe('mapBillRef — due date and terms (AGING, 2026-10-15)', () => {
     expect(ref.apvNumber).toBe('AP-ST044591')
     expect(ref.dueDate).toBeNull()
     expect(ref.termsCode).toBeNull()
+  })
+
+  it('reads the status trimmed, null when blank (user ruling 2026-10-16)', () => {
+    expect(mapBillRef(row({ Status: ' Closed ' }))!.status).toBe('Closed')
+    expect(mapBillRef(row({ Status: '' }))!.status).toBeNull()
+    expect(mapBillRef(row())!.status).toBeNull()
   })
 
   it('a bill with a blank Vendor Ref still carries its terms', () => {

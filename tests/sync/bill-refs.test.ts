@@ -186,7 +186,7 @@ describe('runBillRefsSync — the run record', () => {
     expect(a.calls[0].feed).toBe(BILL_REFS_FEED)
     expect(a.calls[0].opts?.filter).toBe(billRefsSinceFilter(since))
     expect(a.calls[0].opts?.orderby).toBe('LastModifiedOn asc')
-    expect(a.calls[0].opts?.select).toEqual(['Type', 'ReferenceNbr', 'Date', 'VendorRef', 'LastModifiedOn', 'DueDate', 'Terms'])
+    expect(a.calls[0].opts?.select).toEqual(['Type', 'ReferenceNbr', 'Date', 'VendorRef', 'LastModifiedOn', 'DueDate', 'Terms', 'Status'])
 
     const b = read([])
     await b.result
@@ -434,6 +434,14 @@ describe('AcumaticaBillTerms (AGING, 2026-10-15)', () => {
     await (read([docRow({ ReferenceNbr: 'AP-ST000001', VendorRef: '', DueDate: '2026-11-28T00:00:00', Terms: '60D' })]).result)
     expect(await testDb.acumaticaBill.count()).toBe(0)
     expect(await testDb.acumaticaBillTerms.count()).toBe(1)
+  })
+
+  it('stores the bill status, and a bill turning Closed is written again (user ruling 2026-10-16)', async () => {
+    await (read([docRow({ ReferenceNbr: 'AP-ST000004', DueDate: '2026-10-29T00:00:00', Terms: '30D', Status: 'Open' })]).result)
+    expect((await testDb.acumaticaBillTerms.findUniqueOrThrow({ where: { apvNumber: 'AP-ST000004' } })).status).toBe('Open')
+    const closed = await (read([docRow({ ReferenceNbr: 'AP-ST000004', DueDate: '2026-10-29T00:00:00', Terms: '30D', Status: 'Closed' })]).result)
+    expect(closed.termsWritten).toBe(1)
+    expect((await testDb.acumaticaBillTerms.findUniqueOrThrow({ where: { apvNumber: 'AP-ST000004' } })).status).toBe('Closed')
   })
 
   it('a bill the feed gives neither value is still recorded, as nulls', async () => {

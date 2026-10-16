@@ -277,21 +277,23 @@ async function upsertTermsBatch(db: Db, tenant: AcumaticaTenant, batch: readonly
     tenant,
     dueDate: b.dueDate?.toISOString() ?? null,
     termsCode: b.termsCode,
+    status: b.status,
     lastModifiedOn: b.lastModifiedOn?.toISOString() ?? null,
   })))
   return db.$executeRaw(Prisma.sql`
-    INSERT INTO "AcumaticaBillTerms" ("apvNumber", "tenant", "dueDate", "termsCode", "lastModifiedOn", "updatedAt")
-    SELECT x."apvNumber", x."tenant", x."dueDate", x."termsCode", x."lastModifiedOn", (now() AT TIME ZONE 'UTC')
+    INSERT INTO "AcumaticaBillTerms" ("apvNumber", "tenant", "dueDate", "termsCode", "status", "lastModifiedOn", "updatedAt")
+    SELECT x."apvNumber", x."tenant", x."dueDate", x."termsCode", x."status", x."lastModifiedOn", (now() AT TIME ZONE 'UTC')
       FROM jsonb_to_recordset(${payload}::jsonb)
-        AS x("apvNumber" text, "tenant" text, "dueDate" timestamp(3), "termsCode" text, "lastModifiedOn" timestamp(3))
+        AS x("apvNumber" text, "tenant" text, "dueDate" timestamp(3), "termsCode" text, "status" text, "lastModifiedOn" timestamp(3))
     ON CONFLICT ("apvNumber") DO UPDATE
        SET "tenant" = EXCLUDED."tenant",
            "dueDate" = EXCLUDED."dueDate",
            "termsCode" = EXCLUDED."termsCode",
+           "status" = EXCLUDED."status",
            "lastModifiedOn" = EXCLUDED."lastModifiedOn",
            "updatedAt" = EXCLUDED."updatedAt"
-     WHERE ("AcumaticaBillTerms"."tenant", "AcumaticaBillTerms"."dueDate", "AcumaticaBillTerms"."termsCode", "AcumaticaBillTerms"."lastModifiedOn")
-           IS DISTINCT FROM (EXCLUDED."tenant", EXCLUDED."dueDate", EXCLUDED."termsCode", EXCLUDED."lastModifiedOn")`)
+     WHERE ("AcumaticaBillTerms"."tenant", "AcumaticaBillTerms"."dueDate", "AcumaticaBillTerms"."termsCode", "AcumaticaBillTerms"."status", "AcumaticaBillTerms"."lastModifiedOn")
+           IS DISTINCT FROM (EXCLUDED."tenant", EXCLUDED."dueDate", EXCLUDED."termsCode", EXCLUDED."status", EXCLUDED."lastModifiedOn")`)
 }
 
 function describe(error: unknown): string {

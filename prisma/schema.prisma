@@ -671,6 +671,10 @@ model AcumaticaBillTerms {
   dueDate        DateTime?
   // `Terms`, trimmed, otherwise verbatim.
   termsCode      String?
+  // `Status`, trimmed: Open, Closed, Voided ... A Closed bill is paid, so
+  // AGING leaves out a check whose bills are all Closed (user ruling
+  // 2026-10-16: "those closed in acumatica should be closed to your aging").
+  status         String?
   lastModifiedOn DateTime?
   updatedAt      DateTime  @updatedAt
 }

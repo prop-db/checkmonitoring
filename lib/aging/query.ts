@@ -7,6 +7,9 @@ type Db = Parameters<typeof listChecks>[0]
 /** Above this the page says it is short. SIGNED + READY FOR RELEASE is ~1,600 (measured 2026-10). */
 export const AGING_LIMIT = 25_000
 
+/** Acumatica's `Status` for a paid bill (the Supplier Portal's PAID_STATUS). */
+export const CLOSED = 'Closed'
+
 export type AgingRow = {
   id: string
   checkNumber: string
@@ -51,11 +54,20 @@ export async function loadAgingRows(db: Db, now: Date): Promise<{ rows: AgingRow
   const apvs = [...new Set(tabled.flatMap(({ table }) => table.apvNumbers))]
   const terms = apvs.length === 0 ? [] : await db.acumaticaBillTerms.findMany({
     where: { apvNumber: { in: apvs } },
-    select: { apvNumber: true, dueDate: true, termsCode: true },
+    select: { apvNumber: true, dueDate: true, termsCode: true, status: true },
   })
   const byApv = new Map(terms.map((t) => [t.apvNumber, t]))
 
-  const rows = tabled.map(({ c, table }): AgingRow => {
+  // Paid in Acumatica, so not aged (user ruling 2026-10-16: "those closed in
+  // acumatica should be closed to your aging"). The Supplier Portal's aging
+  // drops a Closed bill the same way (its `settled`), so the two screens agree.
+  // A check leaves only when EVERY APV it pays is Closed: one open bill keeps
+  // the check, at its full amount, as before. A check with no APV, or an APV
+  // Acumatica has not told us about, stays.
+  const allClosed = (apvNumbers: readonly string[]) =>
+    apvNumbers.length > 0 && apvNumbers.every((apv) => byApv.get(apv)?.status === CLOSED)
+
+  const rows = tabled.filter(({ table }) => !allClosed(table.apvNumbers)).map(({ c, table }): AgingRow => {
     const bills: BillTerms[] = table.apvNumbers.map((apv) => {
       const acu = byApv.get(apv)
       const local = c.bills.find((b) => b.apvNumber === apv)
