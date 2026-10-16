@@ -45,9 +45,12 @@ describe('the registry', () => {
     expect(parseSettingText(def!, '101').ok).toBe(false)
   })
 
-  it('declares Monday auto-sign as a WORKFLOW ON/OFF switch, on by default', () => {
+  it('declares Monday-and-Tuesday auto-sign as a WORKFLOW ON/OFF switch, on by default', () => {
     const def = settingDef('autoSign.mondayEnabled')
-    expect(def).toMatchObject({ kind: 'int', group: 'WORKFLOW', default: 1, min: 0, max: 1 })
+    expect(def).toMatchObject({
+      kind: 'int', group: 'WORKFLOW', default: 1, min: 0, max: 1,
+      label: 'AUTO-SIGN ACUMATICA CHECKS ON MONDAY AND TUESDAY',
+    })
     expect(DEFAULTS['autoSign.mondayEnabled']).toBe(1)
     expect(parseSettingText(def!, '0')).toEqual({ ok: true, value: 0 })
     expect(parseSettingText(def!, '2').ok).toBe(false)

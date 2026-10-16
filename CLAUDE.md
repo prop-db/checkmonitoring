@@ -376,6 +376,22 @@ user with `--apply`: closed 2 of 2 (`6000354350`, `1791259553`), 0 left, snapsho
 day's deploy rather than after a cron delivery, so a no-APV CANCELLED still PENDING then could park
 once more on the next run; if `/admin/portal` shows one, run the script again.
 
+**AGING (`/aging`) picks SIGNED checks for release in the Supplier Portal's buckets** (2026-10-15,
+spec `2026-10-15-aging-module-design.md`). CURRENT / 1–30 / 31–60 / 61–90 / OVER 90 / NO DUE DATE,
+on days past the EARLIEST due date of the bills a check pays (`lib/aging/buckets.ts`; COD, PDC,
+dated-check and 100PBD terms never age, as in the portal). The due date and terms come from
+`AP-Bills and Adjustments` into `AcumaticaBillTerms` (written by the BILL_REFS read for every
+in-scope bill, blank Vendor Ref included, never deleted; `CheckBill.dueDate` only where Acumatica
+states none). MARK READY FOR RELEASE calls `bulkReadyForReleaseAction` unchanged — no new write
+path — and submits only `effectiveSelection`: ticked checks still on the page, with a SELECTED view
+listing every one of them, so nothing hidden is readied. A card counts every check in its bucket;
+its amount is PHP only, and the page says how many it leaves out. The totals do not match the
+portal's aging and are not meant to: the portal ages open bill balances, this ages SIGNED check
+amounts. Migration `20261015000100_acumatica_bill_terms` must reach production BEFORE the deploy.
+**The first fill is `npx tsx scripts/sync.ts <TENANT> --bill-refs --full` on each tenant, run by
+the user after the deploy;** until then every check is NO DUE DATE except those with a `CheckBill`
+due date.
+
 **NUMBERING (`/numbering`) checks check consecutives per check book.** Every check of every
 status — VOIDED, CANCELLED and no-amount included — in BigInt order; each unused number between a
 book's first and last is one MISSING line, however large (user ruling 2026-10-01: "every number
@@ -481,6 +497,7 @@ category not on it.
 | `lib/sync/portal-kick.ts` | Best-effort delivery within a time budget, from an action (`afterResponse`), the cron and `/admin/portal`; never throws, `{ skipped }` when the env is unset. |
 | `lib/admin/portal-backlog.ts` | Backlog dry run for `scripts/portal-backlog.ts` (winners, superseded, `stale`) and `queueCancelledForStale` (`--queue-cancelled [--apply]`). |
 | `lib/forecast/` | Cash outflow by check date: `buckets.ts` (the ageing buckets, pure), `query.ts` (the population — live, real, with an amount), `matrix.ts` (bucket × bank and bucket × stage, centavo-exact, pure). `/forecast` and `/api/export/forecast` sit on it. Since 2026-09-12 a check's typed `expectedOutflowDate` wins over its check date, and `PlannedOutflow` lines (`lib/planned-outflow/`, `/forecast/planned`) join the population as their own PLANNED column. |
+| `lib/aging/` | AGING: `buckets.ts` (the portal's buckets, pure), `query.ts` (SIGNED, aged). `lib/aging-picker.ts` (strip, selection, pure). `/aging` and `/api/export/aging` sit on it. |
 | `lib/recon/` | Outstanding checks: `outstanding.ts` (the as-of rule, pure), `summary.ts` (per account, centavo-exact, pure), `query.ts` (the released population). `/recon` and `/api/export/recon` sit on it. |
 | `lib/list-sort.ts` | The list's order: params, the `cm_sort` cookie, database and in-app keys. Pure. |
 | `lib/column-filters.ts` | The filter row's `f.*` parameters: parsing, refusal, description. Pure. |
@@ -804,7 +821,7 @@ Migration `20261005000100_acumatica_bill` (the `AcumaticaBill` table) must reach
    **To go live:** set `CRON_SECRET` in Vercel, `node scripts/migrate.mjs prod --confirm`,
    `npx vercel --prod`, then trigger the job once from the Vercel dashboard and confirm two
    SCHEDULED rows on `/admin/sync`. Until that is done, item 1 is still open in production.
-   **Auto-sign** (rewritten 2026-10-01, spec `2026-10-01-signing-schedule-apv-and-table-design.md`): the cron runs at 12:00 and 18:00 Manila (`0 4 * * *`, `0 10 * * *`); on a Manila Tuesday only, an Acumatica check first read on the Monday before and still at SIGNATURE_PENDING becomes SIGNED (`signedById` null, one `auto_signed` row, no portal event). Every other pending check is signed by SIGN ALL on the SIGNATURE PENDING list (server-confirmed like RELEASE ALL, every Finance user). `SIGNED -> SIGNATURE_PENDING` is `revertSignature`, every Finance user, reason optional, one `signature_reverted` row; a reverted check is never auto-signed again. Setting `autoSign.mondayEnabled` (1/0) replaces `autoSign.afterDays`. Every run writes one `auto_sign_run` row (read by LAST AUTO-SIGN on `/admin/sync`: "N Monday check(s) signed", "not a Tuesday - nothing due", "switched off in settings") - `IDLE` on a non-Tuesday; a FAILED run turns the cron response 500, and the route's 50-second time budget still applies. Nothing retries a failed run by hand: the 18:00 run retries what 12:00 left (same Monday window); anything left after 18:00 waits for SIGN ALL, and the FAILED message says which (`LAST_RUN_UTC_HOUR` in `lib/sync/auto-sign.ts`, tied to `vercel.json`). Rule 4 is untouched: the sync never writes status.
+   **Auto-sign** (rewritten 2026-10-16, spec `2026-10-16-auto-sign-monday-and-tuesday-design.md`, replacing the 2026-10-01 Monday-only rule): the cron runs at 12:00 and 18:00 Manila (`0 4 * * *`, `0 10 * * *`); on a Manila Monday it signs every SIGNATURE_PENDING Acumatica check first read before that Monday (last Tuesday to Sunday and any older backlog — user ruling 2026-10-16), and on a Manila Tuesday every one first read before that Tuesday (Monday's checks and any Monday leftover), so Monday's checks sign on Tuesday and the rest on the next Monday (`signedById` null, one `auto_signed` row with `rule: 'WEEKLY'` and `runDay`, no portal event; rows written before 2026-10-16 say `rule: 'MONDAY'`). Measured 2026-10-16 before the change: 727 pending, not one `marked_signed` row ever — SIGN ALL had never been pressed. SIGN ALL on the SIGNATURE PENDING list still signs sooner (server-confirmed like RELEASE ALL, every Finance user). `SIGNED -> SIGNATURE_PENDING` is `revertSignature`, every Finance user, reason optional, one `signature_reverted` row; a reverted check is never auto-signed again. Setting `autoSign.mondayEnabled` (1/0, key kept, label "AUTO-SIGN ACUMATICA CHECKS ON MONDAY AND TUESDAY"). Every run writes one `auto_sign_run` row (read by LAST AUTO-SIGN on `/admin/sync`: "N check(s) signed", "not a Monday or Tuesday - nothing due", "switched off in settings") - `IDLE` Wednesday to Sunday; a FAILED run turns the cron response 500, and the route's 50-second time budget still applies. A run cut off by the budget is continued by the next run — the 18:00 run, else Tuesday's for Monday, else next Monday's for Tuesday — and the FAILED message says which (`LAST_RUN_UTC_HOUR` in `lib/sync/auto-sign.ts`, tied to `vercel.json`). Rule 4 is untouched: the sync never writes status.
    SIGN ALL and RELEASE ALL share one unexported helper `runConfirmedAll` (`app/checks/bulk-actions.ts`) and one client form `components/ConfirmAllForm.tsx`; the confirm block stays mounted while `?confirm=` is set, so the success report stays on screen after a run. SIGN ALL is offered only on the SIGNATURE PENDING list with no search and the incomplete toggle off; its set excludes non-checks (DEBIT ADV, CASH) and the page states how many. The bulk bar's REVERT TO PENDING has its own optional reason box.
 2. **One active FINANCE_ADMIN**, of three active users. This stopped being housekeeping the moment
    admin-only actions shipped (revert availability; the release reversal below). One forgotten
