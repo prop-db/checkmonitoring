@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { agingColumns, agingValue, stripTotals, inBucket, selectionTotal, effectiveSelection } from '@/lib/aging-picker'
+import {
+  agingColumns, agingValue, stripTotals, inBucket, selectionTotal, effectiveSelection, bucketColumnTotals, BUCKET_COLUMN_KEYS,
+} from '@/lib/aging-picker'
+import { AGING_BUCKETS } from '@/lib/aging/buckets'
 import type { AgingRow } from '@/lib/aging/query'
 
 const row = (o: Partial<AgingRow>): AgingRow => ({
@@ -72,8 +75,12 @@ describe('agingColumns / agingValue', () => {
     const cols = agingColumns(['STK'], ['BPI-S-4636'])
     expect(cols.map((c) => c.key)).toEqual([
       'checkNumber', 'cvNumber', 'apvNumbers', 'poNumbers', 'payee', 'company', 'bank',
-      'checkDate', 'dueDate', 'daysPastDue', 'bucket', 'amount',
+      'checkDate', 'dueDate', 'daysPastDue',
+      'b_current', 'b_b30', 'b_b60', 'b_b90', 'b_b90plus', 'b_noDue', 'bucket', 'amount',
     ])
+    expect(cols.find((c) => c.key === 'bucket')!.defaultHidden).toBe(true)
+    expect(cols.find((c) => c.key === 'amount')!.defaultHidden).toBe(true)
+    for (const b of AGING_BUCKETS) expect(cols.find((c) => c.key === BUCKET_COLUMN_KEYS[b])!.kind).toBe('amount')
     expect(cols.find((c) => c.key === 'bucket')!.kind).toBe('enum')
     expect(cols.find((c) => c.key === 'company')!.options).toEqual([{ value: 'STK', label: 'STK' }])
   })
@@ -86,13 +93,30 @@ describe('agingColumns / agingValue', () => {
     expect(agingValue(row({ daysPastDue: null }), 'daysPastDue')).toBeNull()
   })
 
-  it('every column reads a value from a full row', () => {
+  it('every non-bucket column reads a value from a full row', () => {
     const r = row({})
+    const bucketKeys = new Set(Object.values(BUCKET_COLUMN_KEYS))
     for (const c of agingColumns(['STK'], ['BPI-S-4636'])) {
+      if (bucketKeys.has(c.key)) continue
       expect(agingValue(r, c.key), c.key).not.toBeNull()
     }
     expect(agingValue(r, 'checkDate')).toBe('2026-09-01')
     expect(agingValue(r, 'amount')).toBe('1000.10')
+  })
+
+  it('a bucket column reads the amount only for a check in that bucket', () => {
+    const r = row({ bucket: 'b30', amount: '1000.10' })
+    expect(agingValue(r, 'b_b30')).toBe('1000.10')
+    for (const b of AGING_BUCKETS.filter((x) => x !== 'b30')) expect(agingValue(r, BUCKET_COLUMN_KEYS[b]), b).toBeNull()
+  })
+})
+
+describe('bucketColumnTotals', () => {
+  it('counts every row in the bucket and sums PHP amounts only', () => {
+    const t = bucketColumnTotals(ROWS)
+    expect(t.b30).toEqual({ count: 2, amount: '1,000.25' })
+    expect(t.b90plus).toEqual({ count: 1, amount: '2,000.65' })
+    expect(t.b60).toEqual({ count: 0, amount: '0.00' })
   })
 })
 

@@ -6,10 +6,10 @@ import Link from 'next/link'
 import { formatAmount } from '@/lib/transmittal'
 import { bulkReadyForReleaseAction } from '@/app/checks/bulk-actions'
 import type { BulkActionResult, BulkOutcome } from '@/lib/bulk-run'
-import { AGING_BUCKETS, AGING_LABELS } from '@/lib/aging/buckets'
+import { AGING_BUCKETS, AGING_LABELS, type AgingBucket } from '@/lib/aging/buckets'
 import type { AgingRow } from '@/lib/aging/query'
 import {
-  AGING_TABLE_ID, agingColumns, agingValue, effectiveSelection, inBucket, selectionTotal, stripTotals, type BucketChoice,
+  AGING_TABLE_ID, BUCKET_COLUMN_KEYS, agingColumns, agingValue, bucketColumnTotals, effectiveSelection, inBucket, selectionTotal, stripTotals, type BucketChoice,
 } from '@/lib/aging-picker'
 import type { KitSort } from '@/lib/table-kit/types'
 import { applyKit, needleError } from '@/lib/table-kit/match'
@@ -21,6 +21,8 @@ import { ColumnConfigButton } from './table-kit/ColumnConfigDialog'
 
 /** Rows drawn at once; SELECT ALL SHOWN still selects every match. */
 const DRAW_LIMIT = 500
+
+const BUCKET_BY_COLUMN = new Map<string, AgingBucket>(AGING_BUCKETS.map((b) => [BUCKET_COLUMN_KEYS[b], b]))
 
 const BUCKET_TONE: Record<string, string> = {
   current: 'ring-emerald-300', b30: 'ring-amber-300', b60: 'ring-amber-400',
@@ -65,6 +67,16 @@ export function AgingPicker({ rows, cap, truncated }: { rows: readonly AgingRow[
       : applyKit(inBucket(filtered, choice), columns, agingValue, {}, sort),
     [filtered, choice, chosen, columns, sort],
   )
+  const columnTotals = useMemo(() => bucketColumnTotals(matching), [matching])
+  const matchingTotal = useMemo(() => stripTotals(matching).all.amount, [matching])
+  const firstTextKey = visible.find((c) => !BUCKET_BY_COLUMN.has(c.key))?.key
+  const foot = (key: string) => {
+    const b = BUCKET_BY_COLUMN.get(key)
+    if (b) return columnTotals[b].count > 0 ? columnTotals[b].amount : null
+    if (key === firstTextKey) return 'TOTAL (PHP)'
+    if (key === 'amount') return matchingTotal
+    return null
+  }
   const matchingIds = useMemo(() => new Set(matching.map((r) => r.id)), [matching])
   const offScreen = chosen.filter((r) => !matchingIds.has(r.id)).length
 
@@ -115,7 +127,11 @@ export function AgingPicker({ rows, cap, truncated }: { rows: readonly AgingRow[
       case 'checkNumber': return <Link href={`/checks/${r.id}`} className="underline-offset-2 hover:underline" onClick={(e) => e.stopPropagation()}>{r.checkNumber}</Link>
       case 'amount': return formatAmount(r.amount)
       case 'bucket': return AGING_LABELS[r.bucket]
-      default: return agingValue(r, key) ?? '—'
+      default: {
+        const b = BUCKET_BY_COLUMN.get(key)
+        if (b) return b === r.bucket ? `${formatAmount(r.amount)}${r.currency !== 'PHP' ? ` ${r.currency}` : ''}` : null
+        return agingValue(r, key) ?? '—'
+      }
     }
   }
 
@@ -202,6 +218,17 @@ export function AgingPicker({ rows, cap, truncated }: { rows: readonly AgingRow[
               </tr>
             ))}
           </tbody>
+          <tfoot className="sticky bottom-0 z-10">
+            <tr className="border-t border-hairline bg-navy-bg font-semibold">
+              <td className="px-2 py-1.5" />
+              {visible.map((col) => (
+                <td key={col.key} style={widthStyle(layout.widths[col.key])}
+                  className={`truncate px-2 py-1.5 ${col.align === 'right' ? 'text-right' : ''} ${col.align === 'right' ? 'tabular-nums' : ''}`}>
+                  {foot(col.key)}
+                </td>
+              ))}
+            </tr>
+          </tfoot>
         </table>
         {matching.length > DRAW_LIMIT && (
           <p className="border-t border-slate-100 px-2 py-2 text-center text-xs text-slate-500">

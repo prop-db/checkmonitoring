@@ -13,7 +13,13 @@ import type { AgingRow } from '@/lib/aging/query'
  * currencies); `nonPhp` and `unpriced` say what those amounts leave out.
  */
 
-export const AGING_TABLE_ID = 'aging'
+// A new id, so a layout stored for the old single-column table (where BUCKET and AMOUNT were visible) does not keep the old view.
+export const AGING_TABLE_ID = 'aging.by-bucket'
+
+/** One amount column per bucket: a check's amount sits under its own bucket's column. */
+export const BUCKET_COLUMN_KEYS: Record<AgingBucket, string> = {
+  current: 'b_current', b30: 'b_b30', b60: 'b_b60', b90: 'b_b90', b90plus: 'b_b90plus', noDue: 'b_noDue',
+}
 
 const LABELS: Record<string, string> = {
   checkNumber: 'CHECK NO.', cvNumber: 'CV', apvNumbers: 'APV', poNumbers: 'PO NUMBER', payee: 'PAYEE',
@@ -36,15 +42,22 @@ export function agingColumns(companies: readonly string[], banks: readonly strin
     { key: 'checkDate', label: LABELS.checkDate, kind: 'date' },
     { key: 'dueDate', label: LABELS.dueDate, kind: 'date' },
     { key: 'daysPastDue', label: LABELS.daysPastDue, kind: 'amount', align: 'right', className: 'tabular-nums' },
+    ...AGING_BUCKETS.map((b): KitColumn => ({
+      key: BUCKET_COLUMN_KEYS[b], label: AGING_LABELS[b], kind: 'amount', align: 'right', className: 'tabular-nums',
+    })),
     {
-      key: 'bucket', label: LABELS.bucket, kind: 'enum',
+      key: 'bucket', label: LABELS.bucket, kind: 'enum', defaultHidden: true,
       options: AGING_BUCKETS.map((b) => ({ value: b, label: AGING_LABELS[b] })),
     },
-    { key: 'amount', label: LABELS.amount, kind: 'amount', align: 'right', className: 'tabular-nums' },
+    { key: 'amount', label: LABELS.amount, kind: 'amount', align: 'right', className: 'tabular-nums', defaultHidden: true },
   ]
 }
 
+const BUCKET_BY_COLUMN = new Map<string, AgingBucket>(AGING_BUCKETS.map((b) => [BUCKET_COLUMN_KEYS[b], b]))
+
 export function agingValue(r: AgingRow, key: string): string | null {
+  const columnBucket = BUCKET_BY_COLUMN.get(key)
+  if (columnBucket) return columnBucket === r.bucket ? r.amount : null
   switch (key) {
     case 'apvNumbers': return r.apvNumbers.join(', ') || null
     case 'poNumbers': return r.poNumbers.join(', ') || null
@@ -95,6 +108,13 @@ export function stripTotals(rows: readonly AgingRow[]) {
     nonPhp: rows.filter((r) => r.currency !== 'PHP').length,
     unpriced: rows.filter(unpricedPhp).length,
   }
+}
+
+/** The TOTAL row's bucket cells: every row counted, PHP readable amounts summed. */
+export function bucketColumnTotals(rows: readonly AgingRow[]): Record<AgingBucket, StripTotal> {
+  return Object.fromEntries(
+    AGING_BUCKETS.map((b) => [b, total(rows.filter((r) => r.bucket === b))]),
+  ) as Record<AgingBucket, StripTotal>
 }
 
 export type BucketChoice = 'ALL' | 'OVERDUE' | AgingBucket
