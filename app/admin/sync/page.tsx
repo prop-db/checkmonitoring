@@ -241,7 +241,7 @@ export default async function SyncPage() {
         <h2 className="text-[11px] font-semibold tracking-widest text-slate-400">LAST AUTO-SIGN</h2>
         {lastAutoSign === null ? (
           <p className="mt-2 text-sm text-slate-600">
-            Auto-sign has not run yet. It runs at 12:00 and 18:00 Manila, after the sync, and signs on Tuesdays.
+            Auto-sign has not run yet. It runs at 12:00 and 18:00 Manila, after the sync, and signs on Mondays and Tuesdays.
           </p>
         ) : lastAutoSign.outcome === 'FAILED' ? (
           <div className="mt-2 space-y-2 rounded-xl bg-danger-bg p-4 ring-1 ring-danger-ink/20">
@@ -261,8 +261,8 @@ export default async function SyncPage() {
             {/* A run recorded before the Monday rule (2026-10-01) is described by its own rule. */}
             {lastAutoSign.outcome === 'OK' && (lastAutoSign.legacyDays !== null
               ? <>: {n(lastAutoSign.signed)} check(s) signed after {n(lastAutoSign.legacyDays)} day(s)</>
-              : <>: {n(lastAutoSign.signed)} Monday check(s) signed</>)}
-            {lastAutoSign.outcome === 'IDLE' && <>: not a Tuesday — nothing due</>}
+              : <>: {n(lastAutoSign.signed)} check(s) signed</>)}
+            {lastAutoSign.outcome === 'IDLE' && <>: not a Monday or Tuesday — nothing due</>}
             {lastAutoSign.skipped > 0 && <>, {n(lastAutoSign.skipped)} skipped because they changed first</>}
             {lastAutoSign.outcome === 'DISABLED' && <>: switched off in settings</>}
           </p>

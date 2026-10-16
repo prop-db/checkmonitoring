@@ -22,7 +22,7 @@ export const DEFAULT_VOUCHER_SCREEN_ROW_LIMIT = 200
 export const DEFAULT_WINDOW_MINUTES = 15
 export const DEFAULT_EMAIL_FREE_FAILURES = 4
 export const DEFAULT_IP_FREE_FAILURES = 20
-/** 1 = Monday's Acumatica cheques auto-sign at Tuesday's 12:00 run; 0 = off. */
+/** 1 = Acumatica checks auto-sign on Monday and Tuesday (lib/domain/auto-sign.ts); 0 = off. */
 export const DEFAULT_AUTO_SIGN_MONDAY_ENABLED = 1
 
 /**

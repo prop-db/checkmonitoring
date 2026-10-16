@@ -192,10 +192,10 @@ export async function markSigned(
 }
 
 /**
- * The Monday rule's write (lib/domain/auto-sign.ts). No user: `signedById`
+ * The Monday-and-Tuesday rule's write (lib/domain/auto-sign.ts). No user: `signedById`
  * stays null, because a name on a signature nobody gave is worse than none.
  * Reached only when the setting is on — the run decides that. Re-judged on
- * the row as loaded, so a cheque someone signed, reverted or cancelled after
+ * the row as loaded, so a check someone signed, reverted or cancelled after
  * the candidates were listed is skipped (null), never overwritten. No portal
  * event — `markSigned` queues none either.
  */
