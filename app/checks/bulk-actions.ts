@@ -2,9 +2,7 @@
 
 import { prisma } from '@/lib/db'
 import { requireUser } from '@/lib/auth'
-import { markSigned, markReadyForRelease, markReleased, recordReceipt, revertAvailability, revertSignature } from '@/lib/domain/actions'
-import { DomainError } from '@/lib/domain/errors'
-import { checkReceipt } from '@/lib/domain/receipt'
+import { markSigned, markReadyForRelease, markReleased, releaseDirectly, recordReceipt, revertAvailability, revertSignature } from '@/lib/domain/actions'
 import { parseSelection, chunkSelection } from '@/lib/bulk'
 import {
   listTodaysReleaseIds, listPendingSignatureIds, getFilterOptions, parseOptionId, parseEligibilityParam,
@@ -171,15 +169,11 @@ export async function bulkRevertToPendingAction(formData: FormData): Promise<Bul
 }
 
 /**
- * FINANCE_ADMIN only (design decision D11): release is the point at which the
- * cheque physically leaves the building, and it is the one action in this
- * system that cannot be undone by any transition — RELEASED leads only to
- * VOIDED.
- *
- * The role is checked here, and `markReleased` is reached only through it. A
- * server action is an HTTP endpoint, reachable by anyone holding a session
- * whether or not a button points at it, so this test is the control and the
- * hidden button in `BulkActionBar` is only a courtesy.
+ * Every Finance user (client, 2026-10-16: "let every Finance user mark checks
+ * RELEASED from the list, not just Finance Admins"), replacing design decision
+ * D11 for this action. The check page's MARK RELEASED was never role-gated, so
+ * the list now matches it. RELEASE ALL stays FINANCE_ADMIN only, and so does
+ * undoing a release (`reverseRelease`).
  *
  * **THE RECEIPT BOX, ONE PER ROW.**
  * Since 2026-09-25 every ticked row carries its own OR/CR box
@@ -200,9 +194,6 @@ export async function bulkRevertToPendingAction(formData: FormData): Promise<Bul
  */
 export async function bulkReleaseAction(formData: FormData): Promise<BulkActionResult> {
   const user = await requireUser()
-  if (user.role !== 'FINANCE_ADMIN') {
-    return { ok: false, message: 'Only a Finance Admin can mark a check RELEASED.' }
-  }
   const settings = await loadSettings(prisma)
   const selection = parseSelection(ids(formData), settings.values['caps.bulkSelection'])
   if (!selection.ok) return { ok: false, message: selection.message }
@@ -210,30 +201,17 @@ export async function bulkReleaseAction(formData: FormData): Promise<BulkActionR
   const read = readRowReceipts(formData, selection.checkIds)
   if (!read.ok) return { ok: false, message: read.message }
 
-  // A SIGNED check can be handed over without first being marked ready (client,
-  // 2026-10-09). The ladder keeps its shape: such a check is readied (every
-  // READY guard, the portal's MARK_AVAILABLE) and then released, each through
-  // its own domain action, so nothing is skipped — and a check the guards refuse
-  // stays SIGNED and is named in the result. The receipt is checked up front, so
-  // a refusal there can never strand a check at READY FOR RELEASE.
-  const statuses = new Map(
-    (await prisma.check.findMany({ where: { id: { in: selection.checkIds } }, select: { id: true, status: true } }))
-      .map((c) => [c.id, c.status]),
-  )
-
+  // GENERATED, SIGNATURE PENDING and SIGNED checks are handed over without first
+  // being marked ready (client, 2026-10-09 and 2026-10-16). `releaseDirectly`
+  // signs, readies and releases in one transaction, so a check any guard refuses
+  // stays where it was and is named in the result.
   const now = new Date()
-  return runEach(prisma, selection.checkIds, async (checkId) => {
+  return runEach(prisma, selection.checkIds, (checkId) => {
     const receipt = read.receipts.get(checkId)
-    const release = {
+    return releaseDirectly(prisma, {
       checkId, userId: user.id, now,
       orNumber: receipt?.orNumber, orDate: undefined, receiptType: receipt?.receiptType ?? null,
-    }
-    if (statuses.get(checkId) !== 'SIGNED') return markReleased(prisma, release)
-
-    const guard = checkReceipt(release)
-    if (!guard.ok) throw new DomainError(guard.code, guard.message)
-    await markReadyForRelease(prisma, { checkId, userId: user.id, availablePickupDate: now, now })
-    return markReleased(prisma, { ...release, remarks: 'Released directly from SIGNED' })
+    })
   })
 }
 

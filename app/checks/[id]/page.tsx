@@ -15,7 +15,7 @@ import { DetailsForm } from '@/components/DetailsForm'
 import { ClearingForm } from '@/components/ClearingForm'
 import { checkDeletable } from '@/lib/domain/incomplete'
 import { checkReleaseReversible } from '@/lib/domain/reversal'
-import { clearingTargets, type ClearingStatus } from '@/lib/domain/check-status'
+import { clearingTargets, isLiveStatus, type ClearingStatus, type CheckStatus } from '@/lib/domain/check-status'
 import { RECEIPT_TYPE_LABELS } from '@/lib/domain/receipt'
 import { isoDay } from '@/lib/domain/details'
 import { loadSettings } from '@/lib/settings/read'
@@ -306,7 +306,10 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
           </ActionForm>
         )}
 
-        {(check.status === 'READY_FOR_RELEASE' || check.status === 'SCHEDULED') && (
+        {/* From any live rung: below READY FOR RELEASE the check is signed and
+            readied on the way, in one transaction (`releaseDirectly`, client
+            2026-10-16). */}
+        {isLiveStatus(check.status as CheckStatus) && check.isCheque && (
           <ActionForm
             action={releaseAction}
             checkId={check.id}

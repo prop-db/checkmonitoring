@@ -9,7 +9,7 @@ import { isNextControlFlowError } from '@/lib/next-errors'
 import { afterResponse, kickPortalDelivery } from '@/lib/sync/portal-kick'
 import {
   markSigned, markReadyForRelease, revertAvailability,
-  markReleased, recordClearing, cancelCheck, deleteIncompleteCheck, recordReceipt,
+  releaseDirectly, recordClearing, cancelCheck, deleteIncompleteCheck, recordReceipt,
   reverseRelease, updateDetails, revertSignature, restoreCancelled, attachReceiptFile,
 } from '@/lib/domain/actions'
 import { readReceiptFields } from '@/lib/receipt-form'
@@ -127,7 +127,7 @@ export async function releaseAction(formData: FormData): Promise<ActionResult> {
   const checkId = str(formData, 'checkId')
   const receipt = await readReceiptFields(formData)
   if (!receipt.ok) return { ok: false, message: receipt.message }
-  return run(checkId, () => markReleased(prisma, {
+  return run(checkId, () => releaseDirectly(prisma, {
     checkId, userId: user.id,
     orNumber: receipt.orNumber,
     orDate: receipt.orDate,

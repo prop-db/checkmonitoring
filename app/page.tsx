@@ -420,7 +420,8 @@ export default async function DashboardPage({
           toTableRow in lib/queries.ts. */}
       <CheckTable
         rows={rows.map(toTableRow)}
-        canRelease={user.role === 'FINANCE_ADMIN'}
+        // MARK RELEASED on the list is every Finance user's (client, 2026-10-16).
+        canRelease
         bulkCap={settings.values['caps.bulkSelection']}
         sort={sort}
         filters={{

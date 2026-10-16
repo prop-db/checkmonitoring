@@ -218,14 +218,18 @@ describe('bulkReadyForReleaseAction', () => {
 })
 
 describe('bulkReleaseAction', () => {
-  it('refuses a FINANCE_USER by returning a result, never by throwing a redirect', async () => {
+  it('releases for a FINANCE_USER too (client, 2026-10-16)', async () => {
     const { bulkReleaseAction } = await import('@/app/checks/bulk-actions')
     const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
+    const s = await makeCheck({ status: 'SIGNED' })
 
-    const result = await bulkReleaseAction(fd([a.id]))
+    const result = await bulkReleaseAction(fd([a.id, s.id]))
 
-    expect(result).toEqual({ ok: false, message: 'Only a Finance Admin can mark a check RELEASED.' })
-    expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('READY_FOR_RELEASE')
+    expect(result.ok && result.succeeded).toBe(2)
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('RELEASED')
+    const after = await testDb.check.findUniqueOrThrow({ where: { id: s.id } })
+    expect(after.status).toBe('RELEASED')
+    expect(after.releasedById).toBe(currentUser.id)
   })
 
   it('releases the selected checks for a FINANCE_ADMIN', async () => {
@@ -233,7 +237,7 @@ describe('bulkReleaseAction', () => {
     currentUser.role = 'FINANCE_ADMIN'
     const a = await makeCheck({ status: 'READY_FOR_RELEASE' })
     const b = await makeCheck({ status: 'SCHEDULED' })
-    const notReady = await makeCheck({ status: 'SIGNATURE_PENDING' })
+    const notReady = await makeCheck({ status: 'CANCELLED' })
 
     const result = await bulkReleaseAction(fd([a.id, b.id, notReady.id]))
 
@@ -243,7 +247,7 @@ describe('bulkReleaseAction', () => {
     expect(result.failed).toBe(1)
     expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('RELEASED')
     expect((await testDb.check.findUniqueOrThrow({ where: { id: b.id } })).status).toBe('RELEASED')
-    expect(outcomeFor(result, notReady.id).message).toBe('Cannot move a check from SIGNATURE_PENDING to RELEASED.')
+    expect(outcomeFor(result, notReady.id).message).toBe('Cannot move a check from CANCELLED to RELEASED.')
   })
 
   /**
@@ -295,6 +299,41 @@ describe('bulkReleaseAction', () => {
     if (!result.ok) return
     expect(result.failed).toBe(1)
     expect((await testDb.check.findUniqueOrThrow({ where: { id: noPayee.id } })).status).toBe('SIGNED')
+  })
+
+  /**
+   * GENERATED and SIGNATURE PENDING too (client, 2026-10-16): signed, readied and
+   * released in one transaction, so a refusal at any step moves nothing.
+   */
+  it.each(['SIGNATURE_PENDING', 'GENERATED'] as const)('releases a %s check directly, signing and readying it first', async (status) => {
+    const { bulkReleaseAction } = await import('@/app/checks/bulk-actions')
+    currentUser.role = 'FINANCE_ADMIN'
+    const c = await makeCheck({ status, apvNumbers: ['AP-ST000003'] })
+
+    const result = await bulkReleaseAction(fd([c.id]))
+
+    expect(result.ok && result.succeeded).toBe(1)
+    const after = await testDb.check.findUniqueOrThrow({ where: { id: c.id } })
+    expect(after.status).toBe('RELEASED')
+    expect(after.signedById).toBe(currentUser.id)
+    expect(after.readyAt).not.toBeNull()
+    expect(after.remarks).toBe(`Released directly from ${status}`)
+    const actions = (await testDb.auditLog.findMany({ where: { checkId: c.id } })).map((r) => r.action)
+    expect(actions).toEqual(expect.arrayContaining(['marked_signed', 'ready_for_release', 'released']))
+  })
+
+  it('refuses a SIGNATURE_PENDING check the READY guards refuse, leaving it unsigned', async () => {
+    const { bulkReleaseAction } = await import('@/app/checks/bulk-actions')
+    currentUser.role = 'FINANCE_ADMIN'
+    const noPayee = await makeCheck({ status: 'SIGNATURE_PENDING', payeeName: null })
+
+    const result = await bulkReleaseAction(fd([noPayee.id]))
+
+    expect(result.ok && result.failed).toBe(1)
+    const after = await testDb.check.findUniqueOrThrow({ where: { id: noPayee.id } })
+    expect(after.status).toBe('SIGNATURE_PENDING')
+    expect(after.signedById).toBeNull()
+    expect(await testDb.auditLog.count({ where: { checkId: noPayee.id, action: 'marked_signed' } })).toBe(0)
   })
 
   /**

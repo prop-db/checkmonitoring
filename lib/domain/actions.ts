@@ -715,6 +715,42 @@ export async function markReleased(
   }, RECEIPT_TX_OPTIONS)
 }
 
+/** The statuses `releaseDirectly` walks up the ladder before releasing. */
+export const DIRECT_RELEASE_FROM = ['GENERATED', 'SIGNATURE_PENDING', 'SIGNED'] as const satisfies readonly CheckStatus[]
+
+/**
+ * MARK RELEASED from any rung below READY FOR RELEASE (client, 2026-10-09 for
+ * SIGNED; 2026-10-16 for GENERATED and SIGNATURE PENDING: "all checks from
+ * generated to signed can be directly released").
+ *
+ * The ladder keeps its shape: the check is signed, readied and released, each
+ * through its own domain action, so every guard still runs — the READY guards
+ * (payee, amount, check book, …), the portal's MARK_AVAILABLE, the receipt
+ * rules. All three share ONE transaction, so a refusal at any step leaves the
+ * check exactly where it was rather than stranded halfway up. A READY FOR
+ * RELEASE or SCHEDULED check is simply released.
+ */
+export async function releaseDirectly(
+  db: Db,
+  args: Parameters<typeof markReleased>[1],
+): Promise<Check> {
+  // The receipt is refused before anything is written, as in `markReleased`.
+  const guard = checkReceipt(args)
+  if (!guard.ok) throw new DomainError(guard.code, guard.message)
+
+  return inTx(db, async (tx) => {
+    const check = await load(tx, args.checkId)
+    const from = check.status as CheckStatus
+    if (!(DIRECT_RELEASE_FROM as readonly CheckStatus[]).includes(from)) return markReleased(tx, args)
+
+    assertReleasable({ isCheque: check.isCheque })
+    const step = { checkId: check.id, userId: args.userId, now: args.now }
+    if (from !== 'SIGNED') await markSigned(tx, step)
+    await markReadyForRelease(tx, { ...step, availablePickupDate: args.now })
+    return markReleased(tx, { ...args, remarks: args.remarks ?? `Released directly from ${from}` })
+  }, RECEIPT_TX_OPTIONS)
+}
+
 /** An amount or file with no receipt reference of this action's own to belong to. */
 function receiptExtrasOrphaned(): DomainError {
   return new DomainError('RECEIPT_REQUIRED', 'An amount or file needs the receipt reference it belongs to.')

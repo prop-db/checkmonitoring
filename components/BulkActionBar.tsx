@@ -21,9 +21,9 @@ import {
  * sentence against each. "Some cheques could not be updated" would leave a
  * Finance user to find them by hand.
  *
- * **MARK RELEASED is hidden from a Finance user and refused by the server
- * anyway.** Hiding a button is presentation; `bulkReleaseAction` re-checks the
- * role because a server action is an HTTP endpoint (design decision D11).
+ * **MARK RELEASED is every Finance user's** (client, 2026-10-16, replacing
+ * design decision D11 for this button). `canRelease` still exists for callers
+ * that hide it; the list passes true.
  *
  * **The cap is enforced here only as a courtesy.** `parseSelection` refuses an
  * oversized selection server-side; this disables the buttons so the user finds
