@@ -54,7 +54,7 @@ describe('GET /api/export/aging', () => {
     await wb.xlsx.load(await res.arrayBuffer())
     expect(wb.getWorksheet(SUMMARY_SHEET)).toBeDefined()
     const sheet = wb.getWorksheet('NO DUE DATE')!
-    expect(sheet.rowCount).toBe(2)
+    expect(sheet.rowCount).toBe(3) // header, the check, TOTAL (PHP)
     expect(sheet.getRow(2).getCell(1).value).toBe('6000000001')
   })
 })

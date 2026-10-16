@@ -387,10 +387,23 @@ path — and submits only `effectiveSelection`: ticked checks still on the page,
 listing every one of them, so nothing hidden is readied. A card counts every check in its bucket;
 its amount is PHP only, and the page says how many it leaves out. The totals do not match the
 portal's aging and are not meant to: the portal ages open bill balances, this ages SIGNED check
-amounts. Migration `20261015000100_acumatica_bill_terms` must reach production BEFORE the deploy.
-**The first fill is `npx tsx scripts/sync.ts <TENANT> --bill-refs --full` on each tenant, run by
-the user after the deploy;** until then every check is NO DUE DATE except those with a `CheckBill`
-due date.
+amounts.
+**Bucket by column (2026-10-16, user request).** The table shows one amount column per bucket
+(`BUCKET_COLUMN_KEYS` in `lib/aging-picker.ts`) — a check's amount sits under its own bucket only —
+with a TOTAL (PHP) row over every row the view matches; BUCKET and AMOUNT are hidden by default
+under CUSTOMIZE COLUMNS. The layout key is `aging.by-bucket` (renamed so a layout stored for the
+old single-column table does not keep it). The export matches: SUMMARY, then `ALL CHECKS`, then one
+sheet per non-empty bucket, each built by one `addCheckSheet` with the same columns (CURRENCY, then
+the six buckets) and a bold TOTAL (PHP) row; an unreadable amount is blank, never 0.
+**Live since 2026-10-16.** Migration `20261015000100_acumatica_bill_terms` reached production
+before the deploy. **First fill run by the user that day, `--bill-refs --full` from a master
+worktree: GOLIVE 41,825 fetched, 37,822 terms rows written; MANUFACTURING 244 fetched, 181 written;
+0 errors**, snapshots `snapshots/bill-refs-<TENANT>-2026-10-16T01-1*.json`. The 12:00 and 18:00
+BILL_REFS runs keep it current. `termsWritten` is printed by the script but not recorded on the
+`SyncRun` row, so `/admin/sync` does not show terms activity. **Running any `scripts/*.ts` from a
+deploy worktree needs `npx prisma generate` there first** — the junctioned client is generated from
+whichever checkout last ran it, and a new model reads as `undefined` ("Cannot read properties of
+undefined (reading 'findMany')"); the first fill hit exactly that, before any write.
 
 **NUMBERING (`/numbering`) checks check consecutives per check book.** Every check of every
 status — VOIDED, CANCELLED and no-amount included — in BigInt order; each unused number between a
@@ -497,7 +510,7 @@ category not on it.
 | `lib/sync/portal-kick.ts` | Best-effort delivery within a time budget, from an action (`afterResponse`), the cron and `/admin/portal`; never throws, `{ skipped }` when the env is unset. |
 | `lib/admin/portal-backlog.ts` | Backlog dry run for `scripts/portal-backlog.ts` (winners, superseded, `stale`) and `queueCancelledForStale` (`--queue-cancelled [--apply]`). |
 | `lib/forecast/` | Cash outflow by check date: `buckets.ts` (the ageing buckets, pure), `query.ts` (the population — live, real, with an amount), `matrix.ts` (bucket × bank and bucket × stage, centavo-exact, pure). `/forecast` and `/api/export/forecast` sit on it. Since 2026-09-12 a check's typed `expectedOutflowDate` wins over its check date, and `PlannedOutflow` lines (`lib/planned-outflow/`, `/forecast/planned`) join the population as their own PLANNED column. |
-| `lib/aging/` | AGING: `buckets.ts` (the portal's buckets, pure), `query.ts` (SIGNED, aged). `lib/aging-picker.ts` (strip, selection, pure). `/aging` and `/api/export/aging` sit on it. |
+| `lib/aging/` | AGING: `buckets.ts` (the portal's buckets, pure), `query.ts` (SIGNED, aged). `lib/aging-picker.ts` (strip, selection, pure). `/aging` and `/api/export/aging` sit on it (`lib/export/aging-workbook.ts`). |
 | `lib/recon/` | Outstanding checks: `outstanding.ts` (the as-of rule, pure), `summary.ts` (per account, centavo-exact, pure), `query.ts` (the released population). `/recon` and `/api/export/recon` sit on it. |
 | `lib/list-sort.ts` | The list's order: params, the `cm_sort` cookie, database and in-app keys. Pure. |
 | `lib/column-filters.ts` | The filter row's `f.*` parameters: parsing, refusal, description. Pure. |

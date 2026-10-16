@@ -16,10 +16,16 @@ import { currencyNumberFormat } from './report'
 
 export const SUMMARY_SHEET = 'SUMMARY'
 
+export const ALL_CHECKS_SHEET = 'ALL CHECKS'
+export const TOTAL_LABEL = 'TOTAL (PHP)'
+
+// One amount column per bucket, as on the /aging screen. CURRENCY stays so a
+// non-PHP amount is readable in a file.
 export const AGING_HEADERS = [
   'CHECK NO.', 'CV', 'APV', 'PO NUMBER', 'PAYEE', 'COMPANY', 'BANK', 'CHECK DATE', 'DUE DATE',
-  'DAYS PAST DUE', 'BUCKET', 'CURRENCY', 'AMOUNT',
+  'DAYS PAST DUE', 'CURRENCY', ...AGING_BUCKETS.map((b) => AGING_LABELS[b]),
 ] as const
+const FIRST_BUCKET_COL = AGING_HEADERS.length - AGING_BUCKETS.length + 1
 
 const ZERO = BigInt(0)
 
@@ -44,6 +50,34 @@ const asNumber = (c: bigint) => Number(c) / 100
 
 export function agingFilename(now: Date): string {
   return `AGING ${manilaToday(now)}.xlsx`
+}
+
+// A check sheet: every row by days past due (nulls last), each amount under its
+// own bucket column, then a bold TOTAL (PHP) row of PHP centavo sums.
+function addCheckSheet(wb: ExcelJS.Workbook, name: string, rows: readonly AgingRow[]) {
+  const sheet = wb.addWorksheet(name)
+  const h = sheet.addRow([])
+  AGING_HEADERS.forEach((label, i) => styleHeaderCell(h.getCell(i + 1), label, i + 1 >= 10 && label !== 'CURRENCY' ? 'right' : 'left'))
+  const sorted = [...rows].sort((x, y) => (y.daysPastDue ?? -Infinity) - (x.daysPastDue ?? -Infinity))
+  for (const r of sorted) {
+    const line = sheet.addRow([
+      r.checkNumber, r.cvNumber ?? '', r.apvNumbers.join(', '), r.poNumbers.join(', '), r.payee ?? '',
+      r.company, r.bank ?? '', r.checkDate ?? '', r.dueDate ?? '', r.daysPastDue ?? '', r.currency,
+      ...AGING_BUCKETS.map((b) => (b === r.bucket ? amountCell(r.amount) : '')),
+    ])
+    const own = FIRST_BUCKET_COL + AGING_BUCKETS.indexOf(r.bucket)
+    line.getCell(own).numFmt = currencyNumberFormat(r.currency)
+  }
+  const total = sheet.addRow([TOTAL_LABEL])
+  AGING_BUCKETS.forEach((b, i) => {
+    const inB = rows.filter((r) => r.bucket === b)
+    if (inB.length === 0) return
+    const cell = total.getCell(FIRST_BUCKET_COL + i)
+    cell.value = asNumber(phpCentavos(inB))
+    cell.numFmt = currencyNumberFormat('PHP')
+  })
+  total.font = { bold: true }
+  AGING_HEADERS.forEach((label, i) => { sheet.getColumn(i + 1).width = Math.max(12, label.length + 4) })
 }
 
 export async function buildAgingWorkbook(args: {
@@ -82,22 +116,10 @@ export async function buildAgingWorkbook(args: {
   summary.getColumn(1).width = 28
   for (let i = 2; i <= AGING_BUCKETS.length + 1; i++) summary.getColumn(i).width = 18
 
+  addCheckSheet(wb, ALL_CHECKS_SHEET, rows)
   for (const b of AGING_BUCKETS) {
     const inB = byBucket.get(b)!
-    if (inB.length === 0) continue
-    const sheet = wb.addWorksheet(AGING_LABELS[b])
-    const h = sheet.addRow([])
-    AGING_HEADERS.forEach((label, i) => styleHeaderCell(h.getCell(i + 1), label, label === 'AMOUNT' || label === 'DAYS PAST DUE' ? 'right' : 'left'))
-    const sorted = [...inB].sort((x, y) => (y.daysPastDue ?? -Infinity) - (x.daysPastDue ?? -Infinity))
-    for (const r of sorted) {
-      const line = sheet.addRow([
-        r.checkNumber, r.cvNumber ?? '', r.apvNumbers.join(', '), r.poNumbers.join(', '), r.payee ?? '',
-        r.company, r.bank ?? '', r.checkDate ?? '', r.dueDate ?? '', r.daysPastDue ?? '', AGING_LABELS[r.bucket],
-        r.currency, amountCell(r.amount),
-      ])
-      line.getCell(13).numFmt = currencyNumberFormat(r.currency)
-    }
-    AGING_HEADERS.forEach((label, i) => { sheet.getColumn(i + 1).width = Math.max(12, label.length + 4) })
+    if (inB.length > 0) addCheckSheet(wb, AGING_LABELS[b], inB)
   }
 
   return Buffer.from(await wb.xlsx.writeBuffer())

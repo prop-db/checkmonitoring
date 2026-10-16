@@ -16,10 +16,58 @@ async function load(rows: AgingRow[], truncated?: boolean) {
   return wb
 }
 
+const BUCKET_LABELS = ['CURRENT', '1–30 DAYS', '31–60 DAYS', '61–90 DAYS', 'OVER 90 DAYS', 'NO DUE DATE']
+
+// Column number (1-based) of a header, read off the header row.
+function col(sheet: ExcelJS.Worksheet, header: string): number {
+  const i = (sheet.getRow(1).values as unknown[]).indexOf(header)
+  expect(i).toBeGreaterThan(0)
+  return i
+}
+const blank = (v: unknown) => v === null || v === undefined || v === ''
+
 describe('buildAgingWorkbook', () => {
   it('writes an unreadable amount as an empty cell, not 0', async () => {
     const wb = await load([row({ amount: '1,000.00' })])
-    expect(wb.getWorksheet('1–30 DAYS')!.getRow(2).getCell(13).value).toBe('')
+    const sheet = wb.getWorksheet('1–30 DAYS')!
+    expect(blank(sheet.getRow(2).getCell(col(sheet, '1–30 DAYS')).value)).toBe(true)
+  })
+
+  it('orders sheets SUMMARY, ALL CHECKS, then non-empty buckets', async () => {
+    const wb = await load([row({ id: 'a', bucket: 'b90plus' }), row({ id: 'b', bucket: 'current' })])
+    expect(wb.worksheets.map((w) => w.name)).toEqual([SUMMARY_SHEET, 'ALL CHECKS', 'CURRENT', 'OVER 90 DAYS'])
+  })
+
+  it('puts a row amount only under its own bucket column', async () => {
+    const wb = await load([row({})])
+    const sheet = wb.getWorksheet('ALL CHECKS')!
+    for (const label of BUCKET_LABELS) {
+      const v = sheet.getRow(2).getCell(col(sheet, label)).value
+      if (label === '1–30 DAYS') expect(v).toBe(1000.1)
+      else expect(blank(v)).toBe(true)
+    }
+  })
+
+  it('TOTAL (PHP) sums PHP centavos per bucket and excludes other currencies', async () => {
+    const wb = await load([
+      row({ id: 'a', amount: '0.10' }), row({ id: 'b', amount: '0.20' }),
+      row({ id: 'c', amount: '99.00', currency: 'USD' }),
+    ])
+    const sheet = wb.getWorksheet('ALL CHECKS')!
+    const total = sheet.getRow(sheet.rowCount)
+    expect(total.getCell(1).value).toBe('TOTAL (PHP)')
+    expect(total.getCell(col(sheet, '1–30 DAYS')).value).toBe(0.3)
+    expect(blank(total.getCell(col(sheet, 'CURRENT')).value)).toBe(true)
+    const usd = [2, 3, 4].map((n) => sheet.getRow(n)).find((r) => r.getCell(col(sheet, 'CURRENCY')).value === 'USD')!
+    expect(usd.getCell(col(sheet, '1–30 DAYS')).value).toBe(99)
+  })
+
+  it('a bucket sheet uses the same layout and its own TOTAL row', async () => {
+    const wb = await load([row({ id: 'a', amount: '1.00' }), row({ id: 'b', bucket: 'current', amount: '5.00' })])
+    const sheet = wb.getWorksheet('CURRENT')!
+    expect(sheet.getRow(1).values).toEqual([undefined, ...AGING_HEADERS])
+    expect(sheet.rowCount).toBe(3)
+    expect(sheet.getRow(3).getCell(col(sheet, 'CURRENT')).value).toBe(5)
   })
 
   it('says CAPPED on SUMMARY only when the list was truncated', async () => {
@@ -27,11 +75,6 @@ describe('buildAgingWorkbook', () => {
       .getSheetValues().flat().filter((v) => typeof v === 'string').join(' ')
     expect(await text(true)).toContain('CAPPED')
     expect(await text(false)).not.toContain('CAPPED')
-  })
-
-  it('has SUMMARY and one sheet per non-empty bucket, in bucket order', async () => {
-    const wb = await load([row({ id: 'a', bucket: 'b90plus' }), row({ id: 'b', bucket: 'current' })])
-    expect(wb.worksheets.map((w) => w.name)).toEqual([SUMMARY_SHEET, 'CURRENT', 'OVER 90 DAYS'])
   })
 
   it('says it covers all SIGNED checks, and totals each bucket in centavos', async () => {
@@ -49,6 +92,7 @@ describe('buildAgingWorkbook', () => {
     const sheet = wb.getWorksheet('1–30 DAYS')!
     expect(sheet.getRow(1).values).toEqual([undefined, ...AGING_HEADERS])
     expect(sheet.getRow(2).getCell(1).value).toBe('6000000001')
+    expect([...AGING_HEADERS].slice(-6)).toEqual(BUCKET_LABELS)
   })
 
   it('names the file by the Manila day', () => {
