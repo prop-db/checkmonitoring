@@ -155,6 +155,7 @@ async function importRegister(db: PrismaClient, rows: Awaited<ReturnType<typeof 
   heading('WRITTEN')
   line('created', summary.created)
   line('updated', summary.updated)
+  line('  kept Acumatica values', summary.keptAcumatica)
   line('staged NO_COMPANY', summary.stagedByReason.NO_COMPANY)
   line('staged AMBIGUOUS_COMPANY', summary.stagedByReason.AMBIGUOUS_COMPANY)
   line('staged NO_CHECK_NUMBER', summary.stagedByReason.NO_CHECK_NUMBER)

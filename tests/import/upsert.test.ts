@@ -4,6 +4,7 @@ import { testDb, resetDb } from '../helpers/db'
 import { makeUser } from '../helpers/factory'
 import {
   upsertCheck, importRows, IMMUTABLE_ON_UPDATE, IMPORT_WRITABLE, FINANCE_RULING_BASIS,
+  ACUMATICA_OWNED, REGISTER_MAY_WRITE_ON_HELD, ACUMATICA_WINS_BASIS,
   COMPANY_RULING_BASIS,
 } from '@/lib/import/upsert'
 import { VOID_AFTER_RELEASE_WARNING } from '@/lib/domain/actions'
@@ -1127,6 +1128,7 @@ describe('importRows — running the whole import', () => {
       updated: 0,
       staged: 4,
       stagedByReason: { NO_COMPANY: 1, NO_CHECK_NUMBER: 1, AMBIGUOUS_COMPANY: 2, SHARED_NUMBER: 0 },
+      keptAcumatica: 0,
     })
     expect(summary.created + summary.updated + summary.staged).toBe(summary.rows)
     expect(await testDb.check.count()).toBe(2)
@@ -1145,6 +1147,7 @@ describe('importRows — running the whole import', () => {
       updated: 2,
       staged: 4,
       stagedByReason: { NO_COMPANY: 1, NO_CHECK_NUMBER: 1, AMBIGUOUS_COMPANY: 2, SHARED_NUMBER: 0 },
+      keptAcumatica: 0,
     })
     expect(await testDb.check.count()).toBe(2)
     expect(await testDb.stagedCheck.count()).toBe(4)
@@ -1317,5 +1320,88 @@ describe('upsertCheck — the incomplete flag', () => {
     const check = await testDb.check.findFirstOrThrow()
     expect(check.amount?.toString()).toBe('197715.42')
     expect(check.isIncomplete).toBe(false)
+  })
+})
+
+describe('upsertCheck — Acumatica wins over the register (spec 2026-10-16)', () => {
+  const acumaticaRow = (overrides: Partial<NormalisedRow> = {}) => row({
+    source: 'ACUMATICA', acumaticaPaymentId: 'CV-ST-004112', apvNumbers: [],
+    sourceSheet: null, sourceRow: null, receiptRef: null, ...overrides,
+  })
+
+  it('ACUMATICA_OWNED and REGISTER_MAY_WRITE_ON_HELD partition IMPORT_WRITABLE', () => {
+    const both = [...ACUMATICA_OWNED, ...REGISTER_MAY_WRITE_ON_HELD]
+    expect(new Set(both).size).toBe(both.length)
+    expect([...both].sort()).toEqual([...IMPORT_WRITABLE].sort())
+  })
+
+  it('a register row cannot change what Acumatica owns, still adds a voucher, and the refusal is audited', async () => {
+    await seedCompany('STK')
+    await seedCompany('A1', 'A1 Multinational Packaging Inc.')
+    const created = await upsert(acumaticaRow())
+    const id = (created as { checkId: string }).checkId
+    const before = await testDb.check.findUniqueOrThrow({ where: { id } })
+
+    const result = await upsert(row({
+      companyCode: 'A1', amount: '27037.94', checkDate: new Date('2026-02-01T00:00:00Z'), payeeName: 'SOMEONE ELSE',
+    }))
+
+    expect(result).toEqual({ outcome: 'UPDATED', checkId: id, refusedFields: 4 })
+    const after = await testDb.check.findUniqueOrThrow({ where: { id } })
+    for (const field of ACUMATICA_OWNED) {
+      expect({ [field]: after[field] }).toEqual({ [field]: before[field] })
+    }
+    expect(after.apvNumbers).toContain('APV-ST-009911')
+    expect(after.sourceSheet).toBe('BPI RELEASED')
+    expect(await testDb.auditLog.count({ where: { action: 'check_company_corrected' } })).toBe(0)
+
+    const audit = await testDb.auditLog.findFirstOrThrow({ where: { checkId: id, action: 'register_value_refused' } })
+    const details = audit.details as { basis: string; refused: Record<string, { kept: string | null; offered: string }> }
+    expect(details.basis).toBe(ACUMATICA_WINS_BASIS)
+    expect(Object.keys(details.refused).sort()).toEqual(['amount', 'checkDate', 'companyId', 'payeeName'])
+    expect(details.refused.amount).toEqual({ kept: '197715.42', offered: '27037.94' })
+    expect(details.refused.companyId).toEqual({ kept: 'STK', offered: 'A1' })
+  })
+
+  it('a register row that agrees, or states nothing, refuses nothing and writes no refusal row', async () => {
+    await seedCompany('STK')
+    await upsert(acumaticaRow())
+    const result = await upsert(row({ amount: null }))
+    expect(result).toMatchObject({ outcome: 'UPDATED', refusedFields: 0 })
+    expect(await testDb.auditLog.count({ where: { action: 'register_value_refused' } })).toBe(0)
+  })
+
+  it('on a check Acumatica does not hold, the register still writes as before', async () => {
+    await seedCompany('STK')
+    const created = await upsert(row())
+    await upsert(row({ amount: '1.00' }))
+    const after = await testDb.check.findUniqueOrThrow({ where: { id: (created as { checkId: string }).checkId } })
+    expect(after.amount?.toString()).toBe('1')
+  })
+
+  it('the Acumatica sync still writes what it owns', async () => {
+    await seedCompany('STK')
+    const created = await upsert(acumaticaRow())
+    await upsert(acumaticaRow({ amount: '5.00' }))
+    const after = await testDb.check.findUniqueOrThrow({ where: { id: (created as { checkId: string }).checkId } })
+    expect(after.amount?.toString()).toBe('5')
+  })
+
+  it('the register\'s payee cannot reclassify a held check', async () => {
+    await seedCompany('STK')
+    const created = await upsert(acumaticaRow())
+    const id = (created as { checkId: string }).checkId
+    const before = await testDb.check.findUniqueOrThrow({ where: { id } })
+    await upsert(row({ payeeName: 'STARKSON PACKAGING INC.' }))
+    const after = await testDb.check.findUniqueOrThrow({ where: { id } })
+    expect(after.eligibility).toBe(before.eligibility)
+    expect(after.eligibility).not.toBe('INTERNAL')
+  })
+
+  it('importRows counts the rows Acumatica overruled', async () => {
+    await seedCompany('STK')
+    await upsert(acumaticaRow())
+    const summary = await importRows(testDb, { rows: [row({ amount: '1.00' })], ownCompanyNames: OWN_COMPANIES, now: NOW })
+    expect(summary).toMatchObject({ updated: 1, keptAcumatica: 1 })
   })
 })

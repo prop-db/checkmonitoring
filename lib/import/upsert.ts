@@ -8,6 +8,7 @@ import { isCheckIncomplete } from '@/lib/domain/incomplete'
 import type { NormalisedRow } from '@/lib/normalised-row'
 import { classifyImportOutcome } from './classify'
 import { resolveImpliedStatus } from './implied-status'
+import { refusedRegisterValues, type Refused } from './acumatica-wins'
 
 type Db = PrismaClient | Prisma.TransactionClient
 
@@ -121,6 +122,44 @@ export const IMPORT_WRITABLE = [
   'isIncomplete',
 ] as const satisfies readonly (keyof Check)[]
 
+type ImportWritable = (typeof IMPORT_WRITABLE)[number]
+
+/**
+ * ACUMATICA WINS (spec 2026-10-16-acumatica-wins-design.md, user ruling the
+ * same day). On a check Acumatica holds (`acumaticaPaymentId` set), a REGISTER
+ * row may not change these. On 9 September the register changed 94 amounts
+ * and 1,958 companies on such checks and was wrong in every case; this list is
+ * what stops it happening again. The Acumatica sync still writes all of them,
+ * and a register row still writes them on a check Acumatica does not hold.
+ *
+ * `isIncomplete` derives from `amount`; `eligibility`, `portalDomain` and
+ * `portalSyncStatus` derive from the payee, so the register's payee would flip
+ * them. `companyId` covers the "misfiled" refile.
+ */
+export const ACUMATICA_OWNED = [
+  'amount', 'isIncomplete', 'checkDate', 'payeeName', 'currency', 'cvNumber', 'isCheque',
+  'companyId', 'cashAccountId', 'checkBookId',
+  'eligibility', 'portalDomain', 'portalSyncStatus',
+] as const satisfies readonly ImportWritable[]
+
+/**
+ * The rest of IMPORT_WRITABLE, which a register row may still write on a held
+ * check: new vouchers (by union) and its own sheet and row. The others are
+ * never written by a register row anyway (its values are null, which `keep()`
+ * skips; `checkNumber` is written only on an Acumatica renumber), and are
+ * listed so the two lists partition IMPORT_WRITABLE — a test pins that, so a
+ * new import-writable column forces the question.
+ */
+export const REGISTER_MAY_WRITE_ON_HELD = [
+  'apvNumbers', 'sourceSheet', 'sourceRow',
+  'acumaticaPaymentId', 'checkNumber',
+  'acumaticaDocType', 'acumaticaStatus', 'acumaticaBranch', 'acumaticaTenant', 'lastModifiedOn',
+] as const satisfies readonly ImportWritable[]
+
+/** Cited on every `register_value_refused` audit row. */
+export const ACUMATICA_WINS_BASIS =
+  'User ruling of 2026-10-16: Acumatica wins over the register on any check Acumatica holds'
+
 /**
  * Cited as the basis of every automatic status resolution, so each of the 102
  * cheques whose sheets contradict each other is traceable to the decision that
@@ -168,7 +207,7 @@ export type UpsertArgs = {
 
 export type UpsertResult =
   | { outcome: 'CREATED'; checkId: string }
-  | { outcome: 'UPDATED'; checkId: string }
+  | { outcome: 'UPDATED'; checkId: string; /** Register values refused on an Acumatica-held check (Acumatica wins). */ refusedFields: number }
   | { outcome: 'STAGED'; stagedCheckId: string; reason: StagedReason }
 
 // On an update, a null from the incoming row means "this source does not carry
@@ -490,11 +529,43 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
     // would make the override last exactly until the next sync.
     const overridden = existing.eligibilityOverriddenById !== null
 
+    // ACUMATICA WINS (spec 2026-10-16). A register row updating a check the
+    // ERP holds writes none of ACUMATICA_OWNED; what it offered differently is
+    // recorded below, never thrown, so one disagreement cannot abort an import.
+    const held = row.source === 'WORKBOOK' && existing.acumaticaPaymentId !== null
+    let refused: Refused = {}
+    if (held) {
+      const codes = await tx.check.findUniqueOrThrow({
+        where: { id: existing.id },
+        select: {
+          company: { select: { code: true } },
+          cashAccount: { select: { code: true } },
+          checkBook: { select: { code: true } },
+        },
+      })
+      refused = refusedRegisterValues(
+        {
+          amount: existing.amount?.toString() ?? null, checkDate: existing.checkDate,
+          payeeName: existing.payeeName, currency: existing.currency, cvNumber: existing.cvNumber,
+          isCheque: existing.isCheque, companyCode: codes.company.code,
+          cashAccountCode: codes.cashAccount?.code ?? null, checkBookCode: codes.checkBook?.code ?? null,
+        },
+        {
+          amount: row.amount, checkDate: row.checkDate, payeeName: row.payeeName,
+          currency: row.currency, cvNumber: row.cvNumber, isCheque: row.isCheque,
+          companyCode: company.code,
+          // Only what resolved to a real row is an offer; an unknown code writes nothing today either.
+          cashAccountCode: cashAccount?.code ?? null, checkBookCode: checkBook?.code ?? null,
+        },
+      )
+    }
+
     // A cheque changing company is a material fact — which of our companies'
     // money left the bank — so it is never allowed to happen silently. Written
     // before the update rather than after, so the row that explains the move
-    // reads ahead of the move in the trail.
-    if (misfiled) {
+    // reads ahead of the move in the trail. Not on a held check from the
+    // register: the move does not happen (Acumatica wins).
+    if (misfiled && !held) {
       await writeAudit(tx, {
         checkId: existing.id,
         actorType: 'SYSTEM',
@@ -539,16 +610,14 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
     // a different one replaces what is recorded, and the move goes into
     // `import_updated` so the trail shows which book the cheque left. A code
     // that names no book is `checkBook === null` here and changes nothing.
-    const checkBookChanged = checkBook && checkBook.id !== existing.checkBookId
+    const checkBookChanged = !held && checkBook && checkBook.id !== existing.checkBookId
       ? { from: existing.checkBookId, to: checkBook.id, code: checkBook.code }
       : undefined
 
     const mergedVouchers = mergeVouchers(existing.apvNumbers, row.apvNumbers)
     const addsVoucher = row.apvNumbers.some((v) => !existing.apvNumbers.includes(v))
 
-    await tx.check.update({
-      where: { id: existing.id },
-      data: {
+    const data: Prisma.CheckUncheckedUpdateInput = {
         // Written on an update in exactly one case: the fallback above found
         // this cheque under another company. `undefined` otherwise, so the
         // ordinary re-import still never touches the half of the key it looked
@@ -596,8 +665,11 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
         acumaticaBranch: keep(row.acumaticaBranch),
         acumaticaTenant: keep(row.acumaticaTenant),
         lastModifiedOn: keep(row.lastModifiedOn),
-      },
-    })
+    }
+    // Acumatica wins: on a held check the register writes none of what the ERP
+    // owns. Driven off the list, so a field added to it is protected here too.
+    if (held) for (const field of ACUMATICA_OWNED) delete data[field]
+    await tx.check.update({ where: { id: existing.id }, data })
 
     await writeAudit(tx, {
       checkId: existing.id,
@@ -605,14 +677,36 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
       action: 'import_updated',
       details: {
         source: row.source,
-        eligibility: overridden ? existing.eligibility : classified.eligibility,
+        eligibility: overridden || held ? existing.eligibility : classified.eligibility,
         eligibilityOverridden: overridden,
+        ...(held ? { acumaticaHeld: true } : {}),
         sourceSheet: row.sourceSheet,
         sourceRow: row.sourceRow,
         ...(checkBookChanged ? { checkBookChanged } : {}),
       },
       remarks: `Updated from ${row.source}; status left at ${existing.status}.`,
     })
+
+    // What the register offered and did not get, so the disagreement is on the
+    // record rather than silently dropped. One row per check, never thrown.
+    const refusedFields = Object.keys(refused).length
+    if (refusedFields > 0) {
+      await writeAudit(tx, {
+        checkId: existing.id,
+        actorType: 'SYSTEM',
+        action: 'register_value_refused',
+        details: {
+          source: row.source,
+          sourceSheet: row.sourceSheet,
+          sourceRow: row.sourceRow,
+          basis: ACUMATICA_WINS_BASIS,
+          refused,
+        },
+        remarks:
+          `The register offered a different ${Object.keys(refused).join(', ')} for this check. ` +
+          `Acumatica's values were kept (${ACUMATICA_WINS_BASIS}).`,
+      })
+    }
 
     // A cheque number changing is not an ordinary field update. It is what people
     // search by, quote to a supplier and write on a voucher, so it gets its own
@@ -636,7 +730,7 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
     }
 
     await applyVoid(tx, existing.id, existing.status as CheckStatus, row, now)
-    return { outcome: 'UPDATED', checkId: existing.id }
+    return { outcome: 'UPDATED', checkId: existing.id, refusedFields }
   })
 }
 
@@ -830,6 +924,8 @@ export type ImportSummary = {
   updated: number
   staged: number
   stagedByReason: Record<StagedReason, number>
+  /** Updated rows whose register values Acumatica overruled on a held check (one count per row). */
+  keptAcumatica: number
 }
 
 /**
@@ -860,6 +956,7 @@ export async function importRows(
     updated: 0,
     staged: 0,
     stagedByReason: { NO_COMPANY: 0, NO_CHECK_NUMBER: 0, AMBIGUOUS_COMPANY: 0, SHARED_NUMBER: 0 },
+    keptAcumatica: 0,
   }
 
   for (const row of args.rows) {
@@ -873,7 +970,10 @@ export async function importRows(
     })
 
     if (result.outcome === 'CREATED') summary.created++
-    else if (result.outcome === 'UPDATED') summary.updated++
+    else if (result.outcome === 'UPDATED') {
+      summary.updated++
+      if (result.refusedFields > 0) summary.keptAcumatica++
+    }
     else {
       summary.staged++
       summary.stagedByReason[result.reason]++

@@ -113,6 +113,15 @@ export function ImportWorkbookForm() {
                 <div><dt className="text-[11px] font-semibold tracking-widest text-slate-400">ROWS IN THE FILE</dt>
                   <dd className="tabular-nums">{result.summary.rows.toLocaleString('en-PH')}</dd></div>
               </dl>
+              {/* Acumatica wins (spec 2026-10-16): stated, so a register that
+                  disagreed with the ERP is not mistaken for one that applied. */}
+              {result.summary.keptAcumatica > 0 && (
+                <p className="mt-3 text-sm text-slate-600">
+                  Kept Acumatica&apos;s values on {result.summary.keptAcumatica.toLocaleString('en-PH')} check(s)
+                  where the register disagreed. Each is a <code>register_value_refused</code> row on{' '}
+                  <a className="underline" href="/admin/audit">/admin/audit</a>.
+                </p>
+              )}
             </section>
           )}
 
