@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { resetDb, testDb } from '../helpers/db'
+import { makeUser } from '../helpers/factory'
 
 /**
  * The scheduled route's guard. `middleware.ts` DOES NOT RUN in this project, so
@@ -382,5 +383,47 @@ describe('GET /api/cron/sync — the PO read (BILL_REFS)', () => {
         expect(r.message).toMatch(/^skipped: the run had used \d+ s of its budget before the PO read; the next run catches up$/)
       }
     })
+  })
+})
+
+describe('GET /api/cron/sync — notifications', () => {
+  it('a clean run notifies nobody', async () => {
+    await makeUser('FINANCE_ADMIN')
+    await watermarked('GOLIVE')
+    await watermarked('MANUFACTURING')
+    expect((await get(`Bearer ${SECRET}`)).status).toBe(200)
+    expect(await testDb.notification.count()).toBe(0)
+  })
+
+  it('a FAILED tenant notifies each admin, and only admins', async () => {
+    const admin = await makeUser('FINANCE_ADMIN')
+    await makeUser('FINANCE_USER')
+    await watermarked('GOLIVE')
+    await watermarked('MANUFACTURING')
+    state.failFor = 'GOLIVE'
+    await get(`Bearer ${SECRET}`)
+    const rows = await testDb.notification.findMany({ where: { kind: 'SYNC_FAILED' } })
+    expect(rows.map((r) => r.userId)).toEqual([admin.id])
+    expect(rows[0].message).toMatch(/^Scheduled Acumatica payment read failed for GOLIVE: /)
+  })
+
+  it('a never-read tenant is reported refused every run but stale only once', async () => {
+    await makeUser('FINANCE_ADMIN')
+    await watermarked('GOLIVE')
+    await get(`Bearer ${SECRET}`)
+    await get(`Bearer ${SECRET}`)
+    expect(await testDb.notification.count({ where: { kind: 'SYNC_FAILED' } })).toBe(2)
+    const stale = await testDb.notification.findMany({ where: { kind: 'SYNC_STALE' } })
+    expect(stale.map((r) => r.dedupeKey)).toEqual(['stale:MANUFACTURING:never'])
+  })
+
+  it('an auto-sign FAILED notifies the admins', async () => {
+    await makeUser('FINANCE_ADMIN')
+    await watermarked('GOLIVE')
+    await watermarked('MANUFACTURING')
+    state.failAutoSign = true
+    await get(`Bearer ${SECRET}`)
+    const rows = await testDb.notification.findMany({ where: { kind: 'AUTO_SIGN_FAILED' } })
+    expect(rows.map((r) => r.message)).toEqual(['Auto-sign failed: forced'])
   })
 })
