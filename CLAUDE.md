@@ -643,7 +643,8 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
 
   The same import also moved **1,958 checks to a company Acumatica contradicts**, silently, because
   `companyId` and `amount` are both in `IMPORT_WRITABLE`. Both were restored from a pre-import
-  snapshot, with 2,052 audit rows. **The ruling is still not enforced in code** — nothing in
+  snapshot, with 2,052 audit rows. **Enforced since 2026-10-16** (`ACUMATICA_OWNED`, "What is
+  missing" item 6). Before that it was not enforced in code — nothing in
   `upsertCheck` stops a register row overwriting a field the ERP owns, and this was caught only by
   diffing against a snapshot taken by hand beforehand. **Snapshot before any bulk write to
   production**: it is the only reason that recovery was exact rather than reconstructed.
@@ -862,7 +863,14 @@ Migration `20261005000100_acumatica_bill` (the `AcumaticaBill` table) must reach
    is the backstop. Migration `20261016000100_notification_recipients` must reach production
    before the deploy (the header queries it on every page).
 5. **3,718 staged rows with no owner** — no ageing, no alert, nobody assigned.
-6. **"Acumatica wins" is not enforced in code.** See the amounts note above.
+6. **"Acumatica wins" is enforced** (2026-10-16, spec `2026-10-16-acumatica-wins-design.md`): a
+   register (WORKBOOK) row that updates a check with `acumaticaPaymentId` writes none of
+   `ACUMATICA_OWNED` (amount, check date, payee, currency, CV, isCheque, company, account, book, and
+   the payee-derived eligibility/routing) — only new vouchers and its sheet/row. Each value it
+   offered differently is one `register_value_refused` audit row per check (kept and offered, as
+   strings), and the import summary counts them (`keptAcumatica`, shown on `/admin/import` and by
+   `scripts/import-workbook.ts`). The Acumatica sync, a register row on a check Acumatica does not
+   hold, and a create are unchanged. Nothing was changed in existing data.
 7. **No general snapshot step before a bulk write.** The 10 September recovery depended on one
    taken by hand. `scripts/repair-cr-receipts.ts` (2026-09-11) builds its own — a JSON of every
    affected row under `snapshots/`, written before the first write — and is the pattern for the
