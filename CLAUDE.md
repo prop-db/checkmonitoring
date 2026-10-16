@@ -399,8 +399,10 @@ the six buckets) and a bold TOTAL (PHP) row; an unreadable amount is blank, neve
 before the deploy. **First fill run by the user that day, `--bill-refs --full` from a master
 worktree: GOLIVE 41,825 fetched, 37,822 terms rows written; MANUFACTURING 244 fetched, 181 written;
 0 errors**, snapshots `snapshots/bill-refs-<TENANT>-2026-10-16T01-1*.json`. The 12:00 and 18:00
-BILL_REFS runs keep it current. `termsWritten` is printed by the script but not recorded on the
-`SyncRun` row, so `/admin/sync` does not show terms activity. **Running any `scripts/*.ts` from a
+BILL_REFS runs keep it current. Since 2026-10-16 every BILL_REFS run that reaches the write phase
+records `due dates: N bills written` as the start of its `SyncRun.message` (problems follow after
+` | `), so `/admin/sync` shows whether due dates are being kept current; no column was added (the
+BILLS read's `runMessage` is the precedent). A run whose fetch fails has no such prefix. **Running any `scripts/*.ts` from a
 deploy worktree needs `npx prisma generate` there first** — the junctioned client is generated from
 whichever checkout last ran it, and a new model reads as `undefined` ("Cannot read properties of
 undefined (reading 'findMany')"); the first fill hit exactly that, before any write.
@@ -837,9 +839,10 @@ Migration `20261005000100_acumatica_bill` (the `AcumaticaBill` table) must reach
    SCHEDULED rows on `/admin/sync`. Until that is done, item 1 is still open in production.
    **Auto-sign** (rewritten 2026-10-16, spec `2026-10-16-auto-sign-monday-and-tuesday-design.md`, replacing the 2026-10-01 Monday-only rule): the cron runs at 12:00 and 18:00 Manila (`0 4 * * *`, `0 10 * * *`); on a Manila Monday it signs every SIGNATURE_PENDING Acumatica check first read before that Monday (last Tuesday to Sunday and any older backlog — user ruling 2026-10-16), and on a Manila Tuesday every one first read before that Tuesday (Monday's checks and any Monday leftover), so Monday's checks sign on Tuesday and the rest on the next Monday (`signedById` null, one `auto_signed` row with `rule: 'WEEKLY'` and `runDay`, no portal event; rows written before 2026-10-16 say `rule: 'MONDAY'`). Measured 2026-10-16 before the change: 727 pending, not one `marked_signed` row ever — SIGN ALL had never been pressed. SIGN ALL on the SIGNATURE PENDING list still signs sooner (server-confirmed like RELEASE ALL, every Finance user). `SIGNED -> SIGNATURE_PENDING` is `revertSignature`, every Finance user, reason optional, one `signature_reverted` row; a reverted check is never auto-signed again. Setting `autoSign.mondayEnabled` (1/0, key kept, label "AUTO-SIGN ACUMATICA CHECKS ON MONDAY AND TUESDAY"). Every run writes one `auto_sign_run` row (read by LAST AUTO-SIGN on `/admin/sync`: "N check(s) signed", "not a Monday or Tuesday - nothing due", "switched off in settings") - `IDLE` Wednesday to Sunday; a FAILED run turns the cron response 500, and the route's 50-second time budget still applies. A run cut off by the budget is continued by the next run — the 18:00 run, else Tuesday's for Monday, else next Monday's for Tuesday — and the FAILED message says which (`LAST_RUN_UTC_HOUR` in `lib/sync/auto-sign.ts`, tied to `vercel.json`). Rule 4 is untouched: the sync never writes status.
    SIGN ALL and RELEASE ALL share one unexported helper `runConfirmedAll` (`app/checks/bulk-actions.ts`) and one client form `components/ConfirmAllForm.tsx`; the confirm block stays mounted while `?confirm=` is set, so the success report stays on screen after a run. SIGN ALL is offered only on the SIGNATURE PENDING list with no search and the incomplete toggle off; its set excludes non-checks (DEBIT ADV, CASH) and the page states how many. The bulk bar's REVERT TO PENDING has its own optional reason box.
-2. **One active FINANCE_ADMIN**, of three active users. This stopped being housekeeping the moment
-   admin-only actions shipped (revert availability; the release reversal below). One forgotten
-   password locks administration, and one has already been forgotten on this system.
+2. ~~**One active FINANCE_ADMIN**, of three active users.~~ **Closed: the user reports three active
+   FINANCE_ADMINs (2026-10-16).** It mattered because admin-only actions (revert availability, the
+   release reversal below) and user administration would lock with one forgotten password — which
+   had already happened once. The last active admin still cannot be deactivated or demoted (rule 6).
 3. **The audit trail can be read** (built 2026-09-11): `/admin/audit`, FINANCE_ADMIN only. It opens
    on people's actions — measured that day, 4 of 65,269 rows; the rest are imports, backfills and
    the sync — with SYSTEM ROWS one toggle away, because the 10 September restorations are SYSTEM

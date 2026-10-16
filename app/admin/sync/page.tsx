@@ -155,7 +155,7 @@ const COUNT_CAPTIONS: Partial<Record<string, { short: string; titles: readonly [
     titles: ['vouchers added', 'checks changed', 'payments not held here'],
   },
   [BILL_REFS_MODE]: {
-    short: 'bills written · deleted · ref but no PO',
+    short: 'bills written · deleted · ref but no PO (due dates in MESSAGE)',
     titles: ['bills with a PO written', 'bills deleted (VendorRef no longer names a PO)', 'bills with a VendorRef that names no PO'],
   },
 }
