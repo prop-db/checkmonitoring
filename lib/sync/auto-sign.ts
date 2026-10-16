@@ -1,14 +1,15 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { writeAudit } from '@/lib/audit'
 import { autoSign } from '@/lib/domain/actions'
-import { AUTO_SIGN_RUN_ACTION, SIGNATURE_REVERTED_ACTION, isManilaTuesday, mondayWindow } from '@/lib/domain/auto-sign'
+import { AUTO_SIGN_RUN_ACTION, SIGNATURE_REVERTED_ACTION, autoSignRunDay, signingCutoff } from '@/lib/domain/auto-sign'
 import { DomainError } from '@/lib/domain/errors'
 import { loadSettings } from '@/lib/settings/read'
 
 /**
  * THE AUTO-SIGN RUN. Called by /api/cron/sync after both tenants' syncs, at 12:00
- * and 18:00 Manila. It signs only on a Manila Tuesday — Monday's Acumatica
- * cheques (lib/domain/auto-sign.ts); on every other day it records IDLE.
+ * and 18:00 Manila. It signs on a Manila Monday and Tuesday — every due
+ * Acumatica check first read before that day (lib/domain/auto-sign.ts); on
+ * every other day it records IDLE.
  *
  * Never throws. A failure is returned as FAILED and recorded, so the route can
  * answer 500 and /admin/sync can show it. Every run — OK, DISABLED, IDLE or FAILED —
@@ -23,19 +24,21 @@ const MAX_ERROR = 300
 /**
  * The UTC hour of the LAST scheduled run of the day — vercel.json's
  * `"0 10 * * *"` entry on /api/cron/sync, 18:00 Manila. The other entry,
- * `"0 4 * * *"`, is 12:00 Manila. A Tuesday run cut off before this hour
- * is retried by the 18:00 run (same Monday window); one cut off at or after
- * it is not, because Wednesday is IDLE. Change it with vercel.json.
+ * `"0 4 * * *"`, is 12:00 Manila. A run cut off before this hour is continued
+ * by the 18:00 run; one cut off at or after it by the next run day's (Monday's
+ * leftovers by Tuesday, Tuesday's by the next Monday), because neither run has
+ * a lower bound. Change it with vercel.json.
  */
 export const LAST_RUN_UTC_HOUR = 10
 const HOUR_MS = 3_600_000
 
-/** What happens to cheques a Tuesday run left unsigned at its deadline. */
+/** Which run picks up the checks a run left unsigned at its deadline. */
 function leftoverFate(now: Date): string {
-  // `mondayWindow(now).to` is 00:00 Manila on this Tuesday = 16:00 UTC Monday,
-  // so 18:00 Manila (10:00 UTC) is 18 hours after it.
-  const lastRun = mondayWindow(now).to.getTime() + (LAST_RUN_UTC_HOUR + 8) * HOUR_MS
-  return now.getTime() < lastRun ? 'the 18:00 run continues' : 'they wait for SIGN ALL'
+  // `signingCutoff(now)` is 00:00 Manila on the run's day = 16:00 UTC the day
+  // before, so 18:00 Manila (10:00 UTC) is 18 hours after it.
+  const lastRun = signingCutoff(now).getTime() + (LAST_RUN_UTC_HOUR + 8) * HOUR_MS
+  if (now.getTime() < lastRun) return 'the 18:00 run continues'
+  return autoSignRunDay(now) === 'MONDAY' ? "Tuesday's run continues" : "next Monday's run continues"
 }
 
 export type AutoSignRun = {
@@ -52,8 +55,7 @@ export type AutoSignCandidate = { id: string; checkNumber: string; createdAt: Da
 
 /** The database form of `isDueForAutoSign`; `autoSign` re-judges each row with the pure rule. */
 export async function listAutoSignCandidates(db: PrismaClient, now: Date): Promise<AutoSignCandidate[]> {
-  if (!isManilaTuesday(now)) return []
-  const { from, to } = mondayWindow(now)
+  if (autoSignRunDay(now) === null) return []
   const rows = await db.check.findMany({
     where: {
       status: 'SIGNATURE_PENDING',
@@ -61,7 +63,7 @@ export async function listAutoSignCandidates(db: PrismaClient, now: Date): Promi
       isCheque: true,
       // `{ not: 'Voided' }` alone would drop the nulls: SQL's <> never matches NULL.
       OR: [{ acumaticaStatus: null }, { acumaticaStatus: { not: 'Voided' } }],
-      createdAt: { gte: from, lt: to },
+      createdAt: { lt: signingCutoff(now) },
       auditLogs: { none: { action: SIGNATURE_REVERTED_ACTION } },
     },
     select: { id: true, checkNumber: true, createdAt: true, company: { select: { code: true } } },
@@ -79,7 +81,7 @@ export async function runAutoSign(
     run.enabled = enabled
     if (!enabled) {
       run.outcome = 'DISABLED'
-    } else if (!isManilaTuesday(args.now)) {
+    } else if (autoSignRunDay(args.now) === null) {
       run.outcome = 'IDLE'
     } else {
       const candidates = await listAutoSignCandidates(db, args.now)
@@ -87,7 +89,7 @@ export async function runAutoSign(
         // Checked before each cheque. Vercel's 60s ceiling can cut a run off
         // mid-backlog; when it does, the run must still leave a record rather
         // than being killed silently — FAILED, with what is left still due and
-        // whether the 18:00 run will pick it up or SIGN ALL must.
+        // which run picks it up.
         if (args.deadline && Date.now() >= args.deadline.getTime()) {
           const left = candidates.length - i
           run.outcome = 'FAILED'

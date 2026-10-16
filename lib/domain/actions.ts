@@ -19,7 +19,7 @@ import {
   assertTransition, assertClearing, assertReleasable, checkReadyForRelease,
   type CheckStatus, type ClearingStatus,
 } from './check-status'
-import { isDueForAutoSign, AUTO_SIGNED_ACTION, SIGNATURE_REVERTED_ACTION } from './auto-sign'
+import { autoSignRunDay, isDueForAutoSign, AUTO_SIGNED_ACTION, SIGNATURE_REVERTED_ACTION } from './auto-sign'
 
 type Db = PrismaClient | Prisma.TransactionClient
 
@@ -205,7 +205,9 @@ export async function autoSign(
   return inTx(db, async (tx) => {
     const check = await load(tx, args.checkId)
     const reverted = (await tx.auditLog.count({ where: { checkId: check.id, action: SIGNATURE_REVERTED_ACTION } })) > 0
-    if (!isDueForAutoSign({ ...check, reverted }, args.now, true)) return null
+    const runDay = autoSignRunDay(args.now)
+    if (runDay === null || !isDueForAutoSign({ ...check, reverted }, args.now, true)) return null
+    const day = runDay === 'MONDAY' ? 'Monday' : 'Tuesday'
     assertTransition(check.status as CheckStatus, 'SIGNED')
     const { count } = await tx.check.updateMany({
       where: { id: check.id, status: 'SIGNATURE_PENDING' },
@@ -216,10 +218,10 @@ export async function autoSign(
       checkId: check.id,
       actorType: 'SYSTEM',
       action: AUTO_SIGNED_ACTION,
-      details: { from: 'SIGNATURE_PENDING', to: 'SIGNED', rule: 'MONDAY', inAppSince: check.createdAt.toISOString() },
+      details: { from: 'SIGNATURE_PENDING', to: 'SIGNED', rule: 'WEEKLY', runDay, inAppSince: check.createdAt.toISOString() },
       remarks:
-        `Signed automatically at Tuesday's run: this Acumatica check first reached the app on ` +
-        `Monday (${check.createdAt.toISOString()}). No one signed it here, so no signing user is recorded.`,
+        `Signed automatically at ${day}'s run: this Acumatica check first reached the app on ` +
+        `${check.createdAt.toISOString()}, before that ${day}. No one signed it here, so no signing user is recorded.`,
     })
     return tx.check.findUniqueOrThrow({ where: { id: check.id } })
   })

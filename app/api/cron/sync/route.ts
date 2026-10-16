@@ -56,13 +56,13 @@ import { kickPortalDelivery } from '@/lib/sync/portal-kick'
  * BILL_REFS row with no watermark; the next run catches up), but one begun
  * before that — or an unusually large incremental BILLS read — can still run
  * long enough to push auto-sign past its 50 s deadline: auto-sign then
- * records FAILED, the response is 500, and the 18:00 run retries what 12:00
+ * records FAILED, the response is 500, and the next run continues what it
  * left. That is the same exposure BILLS already had.
  *
- * Then AUTO-SIGN (lib/sync/auto-sign.ts): on a Manila Tuesday, the Acumatica
- * cheques first read on the Monday become SIGNED; on any other day the run
- * records IDLE. It runs even when a tenant failed, and its own failure also
- * turns the response 500.
+ * Then AUTO-SIGN (lib/sync/auto-sign.ts): on a Manila Monday or Tuesday, every
+ * due Acumatica check first read before that day becomes SIGNED; on any other
+ * day the run records IDLE. It runs even when a tenant failed, and its own
+ * failure also turns the response 500.
  */
 
 // ExcelJS is not involved, but the Prisma client is Node-only all the same.

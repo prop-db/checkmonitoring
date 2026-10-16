@@ -290,6 +290,26 @@ describe('GET /api/cron/sync — auto-sign after the syncs', () => {
   })
 })
 
+describe('GET /api/cron/sync — auto-sign on a Monday', () => {
+  // Monday 12 Oct 2026, 12:00 Manila. Only Date is faked so DB timers stay real.
+  beforeEach(() => { vi.useFakeTimers({ now: new Date('2026-10-12T04:00:00Z'), toFake: ['Date'] }) })
+  afterEach(() => { vi.useRealTimers() })
+
+  it('signs last week’s check', async () => {
+    await watermarked('GOLIVE'); await watermarked('MANUFACTURING')
+    const { makeCheck } = await import('../helpers/factory')
+    const made = await makeCheck({ status: 'SIGNATURE_PENDING' })
+    const c = await testDb.check.update({
+      where: { id: made.id },
+      data: { acumaticaPaymentId: `PAY-${made.id}`, acumaticaStatus: 'Balanced', createdAt: new Date('2026-10-08T02:00:00Z') },
+    })
+    const res = await get(`Bearer ${SECRET}`)
+    expect(res.status).toBe(200)
+    expect((await res.json()).autoSign).toMatchObject({ outcome: 'OK', signed: 1, enabled: true })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('SIGNED')
+  })
+})
+
 describe('GET /api/cron/sync — the PO read (BILL_REFS)', () => {
   it('reports one BILL_REFS outcome per tenant, in SYNC_TENANTS order', async () => {
     await watermarked('GOLIVE')
