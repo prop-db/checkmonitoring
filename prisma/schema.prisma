@@ -803,15 +803,27 @@ model SyncRun {
   @@index([tenant, startedAt])
 }
 
+/// One row per RECIPIENT (spec 2026-10-16-notifications-design.md). Not an
+/// audit row: it can be marked read, and nothing deletes it. `kind` is a
+/// NotificationKind (lib/notifications/messages.ts), a string like SyncRun.mode.
+/// `dedupeKey` makes a repeated notice a no-op for the same user; Postgres
+/// allows many NULLs in the unique index, so it binds only when set.
 model Notification {
-  id        String   @id @default(cuid())
-  type      String
+  id        String    @id @default(cuid())
+  userId    String
+  kind      String
   message   String
+  link      String?
+  dedupeKey String?
   checkId   String?
   readAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
-  check     Check?   @relation(fields: [checkId], references: [id])
+  user      User      @relation(fields: [userId], references: [id])
+  check     Check?    @relation(fields: [checkId], references: [id])
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, readAt, createdAt])
 }
 
 model User {
@@ -849,6 +861,7 @@ model User {
   plannedOutflowsPaid      PlannedOutflow[] @relation("PlannedOutflowPaidBy")
   plannedOutflowsCancelled PlannedOutflow[] @relation("PlannedOutflowCancelledBy")
   receiptFilesUploaded     CheckReceiptFile[] @relation("receiptFileUploadedBy")
+  notifications            Notification[]
 }
 
 /// An outflow that is not a cheque — payroll, a tax remittance, loan
