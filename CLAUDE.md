@@ -644,7 +644,7 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
   **blocked READY FOR RELEASE on 930 of the 1,370 SIGNED/pending checks**. Where a check has both,
   the book wins (follow Acumatica). The forecast's bank split, `/vouchers`' BANK column and portal
   event bodies still read the label first and fall back to the book.
-  `PCF-SITIO`, `PAYROLL`, `PCF-SILANG`, `RSB-S-0869`, `MBTC-S-988` are no check book.
+  `PCF-SITIO`, `PAYROLL`, `PCF-SILANG`, `RSB-S-0869`, `MBTC-S-988` are no check book. **`PAYROLL` is the clearing account, a BPI CASH ACCOUNT since 2026-10-16** (user ruling; companyId STK decides nothing), and `MBT-S-9048` an MBTC check book: `scripts/add-clearing-accounts.ts <TENANT> [--apply]` (`lib/admin/clearing-accounts.ts`) created both and, run that day by Claude on the user's "do it", linked 818 PAYROLL checks (GOLIVE 784, MANUFACTURING 34; one `cash_account_linked_from_acumatica` row each) and set 10 on MBT-S-9048, snapshots `snapshots/clearing-accounts-<TENANT>-2026-10-16T03-*.json`. Before it those checks had no account, so READY FOR RELEASE and MARK RELEASED refused them.
 - A voided check is **two feed rows** under one reference; the original's positive amount survives.
   **`collapseVoidPairs` pairs on company + payment reference + check number** (2026-10-06). Keyed on
   the number alone it treated a RE-ISSUE on the same number as the void's other half and flagged the
