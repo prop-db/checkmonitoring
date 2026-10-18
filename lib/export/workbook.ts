@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs'
 import type { CheckTableRow } from '../queries'
 import { formatMoney } from '../money'
+import { manilaToday } from '../manila-day'
 import {
   bankLabel, currencyNumberFormat, describeScope, fitColumnWidth,
   statusWords, totalsByCurrency,
@@ -30,13 +31,15 @@ export const SUMMARY_SHEET = 'SUMMARY'
 
 /**
  * The file's columns, in their default order — the table's columns less ACTION
- * and DATE RELEASED. Since part C (2026-10-01) the viewer's on-screen order
- * reorders them (`cols=`), but never removes one: a file missing AMOUNT because
- * somebody hid it on screen would be read as complete.
+ * and AVAILABLE DATE. DATE RELEASED stands where AVAILABLE DATE stood (user
+ * request 2026-10-19: "replace AVAILABLE DATE to DATE RELEASED"). Since part C
+ * (2026-10-01) the viewer's on-screen order reorders them (`cols=`), but never
+ * removes one: a file missing AMOUNT because somebody hid it on screen would be
+ * read as complete.
  */
 export const EXPORT_COLUMN_KEYS = [
   'checkNumber', 'apvNumbers', 'poNumbers', 'payeeName', 'companyCode', 'bank',
-  'checkDate', 'amount', 'status', 'availablePickupDate', 'scheduledPickupDate',
+  'checkDate', 'amount', 'status', 'releasedAt', 'scheduledPickupDate',
 ] as const satisfies readonly ColumnKey[]
 export type ExportColumnKey = (typeof EXPORT_COLUMN_KEYS)[number]
 
@@ -123,6 +126,8 @@ type ExportCell = {
 }
 
 const listOrNull = (xs: readonly string[]) => (xs.length ? xs.join(', ') : null)
+/** The Manila calendar day of an instant, as that day's UTC midnight — the convention `checkDate` follows. */
+const manilaDayAsDate = (d: Date) => new Date(`${manilaToday(d)}T00:00:00Z`)
 const dateCell = (pick: (r: CheckTableRow) => Date | null): ExportCell =>
   ({ kind: 'date', value: pick, sample: (r) => (pick(r) ? DATE_WIDTH_SAMPLE : '') })
 
@@ -161,7 +166,14 @@ const EXPORT_CELLS: Record<ExportColumnKey, ExportCell> = {
     sample: (r) => (r.amount === null ? '' : formatMoney(r.amount, r.currency)),
   },
   status: { kind: 'text', value: (r) => statusWords(r.status), sample: (r) => statusWords(r.status) },
-  availablePickupDate: dateCell((r) => r.availablePickupDate),
+  /**
+   * The day the release was recorded in this app, as a MANILA day (an evening
+   * release is 10:00+ UTC and must not slip to the next or previous day); for a
+   * release the app never recorded, the register's stated day — the two the
+   * screen shows in this column (the latter tagged REGISTER there). Blank when
+   * neither exists: unknown is not a date.
+   */
+  releasedAt: dateCell((r) => (r.releasedAt ? manilaDayAsDate(r.releasedAt) : r.statedReleaseDate)),
   scheduledPickupDate: dateCell((r) => r.scheduledPickupDate),
 }
 

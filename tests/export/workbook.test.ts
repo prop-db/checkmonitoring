@@ -138,9 +138,27 @@ describe('CHECK REGISTER — the header row', () => {
     const header = ws.getRow(HEADER_ROW)
     expect(REGISTER_HEADERS).toEqual([
       'CHECK NUMBER', 'APV NUMBER', 'PO NUMBER', 'SUPPLIER NAME', 'COMPANY', 'BANK',
-      'CHECK DATE', 'AMOUNT', 'STATUS', 'AVAILABLE DATE', 'PICKUP SCHEDULE',
+      'CHECK DATE', 'AMOUNT', 'STATUS', 'DATE RELEASED', 'PICKUP SCHEDULE',
     ])
     expect(REGISTER_HEADERS.map((_, i) => header.getCell(i + 1).value)).toEqual([...REGISTER_HEADERS])
+  })
+
+  // User request 2026-10-19: "replace AVAILABLE DATE to DATE RELEASED".
+  it('DATE RELEASED is the Manila day the app recorded the release, else the register day, else blank', async () => {
+    const col = REGISTER_HEADERS.indexOf('DATE RELEASED') + 1
+    const ws = (await readBack(input({ rows: [
+      // 18:48 Manila on 16 Oct is 10:48 UTC; 00:30 Manila on 17 Oct is still 16 Oct in UTC.
+      row({ id: 'a', status: 'RELEASED', releasedAt: new Date('2026-10-16T10:48:41Z') }),
+      row({ id: 'b', status: 'RELEASED', releasedAt: new Date('2026-10-16T16:30:00Z') }),
+      row({ id: 'c', status: 'RELEASED', releasedAt: null, statedReleaseDate: new Date('2026-10-09T00:00:00Z') }),
+      row({ id: 'd' }),
+    ] }))).getWorksheet(REGISTER_SHEET)!
+    const day = (r: number) => {
+      const v = ws.getRow(FIRST_DATA_ROW + r).getCell(col).value
+      return v instanceof Date ? v.toISOString().slice(0, 10) : v
+    }
+    expect([day(0), day(1), day(2), day(3)]).toEqual(['2026-10-16', '2026-10-17', '2026-10-09', null])
+    expect(REGISTER_HEADERS).not.toContain('AVAILABLE DATE')
   })
 
   it('is bold, white, on a dark fill', async () => {
@@ -232,12 +250,14 @@ describe('CHECK REGISTER — the rows', () => {
   })
 
   it('writes the dates as real Excel dates with a readable format', async () => {
-    const ws = (await readBack(input())).getWorksheet(REGISTER_SHEET)!
+    const ws = (await readBack(input({ rows: [row({ status: 'RELEASED', releasedAt: new Date('2026-10-16T10:48:41Z') })] }))).getWorksheet(REGISTER_SHEET)!
     const cell = ws.getRow(FIRST_DATA_ROW).getCell(7)
     expect(cell.value).toBeInstanceOf(Date)
     expect((cell.value as Date).toISOString()).toBe('2026-09-01T00:00:00.000Z')
     expect(cell.numFmt).toBe('dd mmm yyyy')
+    // Column 10 is DATE RELEASED (2026-10-19), a real date too.
     expect(ws.getRow(FIRST_DATA_ROW).getCell(10).value).toBeInstanceOf(Date)
+    expect(ws.getRow(FIRST_DATA_ROW).getCell(10).numFmt).toBe('dd mmm yyyy')
   })
 
   it('leaves a missing date, payee or APV blank rather than writing a placeholder', async () => {
@@ -443,9 +463,10 @@ describe('CHECK REGISTER — the viewer’s column order', () => {
     expect(exportColumnOrder('status')[0]).toBe('status')
   })
 
-  it('ignores ACTION, DATE RELEASED, unknown and repeated names', () => {
-    expect(exportColumnOrder('action,releasedAt,nope,amount,amount'))
+  it('ignores ACTION, AVAILABLE DATE, unknown and repeated names; follows DATE RELEASED where named', () => {
+    expect(exportColumnOrder('action,availablePickupDate,nope,amount,amount'))
       .toEqual(['amount', ...EXPORT_COLUMN_KEYS.filter((k) => k !== 'amount')])
+    expect(exportColumnOrder('releasedAt,amount').slice(0, 2)).toEqual(['releasedAt', 'amount'])
   })
 
   it('writes header and cells in that order, with the amount still a formatted number', async () => {
