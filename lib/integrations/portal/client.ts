@@ -4,9 +4,12 @@
 // outbox stored: the worker delivers the cheque's current truth (latest wins),
 // so a stale MARK_AVAILABLE never announces a pickup date that has since moved.
 //
-// RULE 2, asserted here independently of portalRoute() at the outbox write
-// site: an INTERNAL cheque (payroll, tax, fund transfers) must never reach a
-// supplier-facing system. Two checks on purpose.
+// RULE 2 (amended, ruling 2026-10-19), asserted here independently of
+// portalRoute() at the outbox write site: an INTERNAL cheque (payroll, tax,
+// fund transfers) never tells a payee anything. Only its RELEASED,
+// RELEASE_REVERSED and CANCELLED go to the portal, flagged internal, to be
+// recorded silently; MARK_AVAILABLE, REVERT and RECEIPT never. Two checks on
+// purpose.
 import type { Check, PortalEventKind } from '@prisma/client'
 import { portalRoute, type Eligibility } from '@/lib/domain/eligibility'
 import { portalAcceptsReceiptType } from '@/lib/domain/receipt'

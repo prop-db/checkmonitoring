@@ -197,7 +197,9 @@ describe('revertAvailability', () => {
   })
 
   // Regression test for the other half of the bug: an INTERNAL check must
-  // never produce a portal event. This used to be proved by forcing
+  // never produce a supplier-route portal event (ruling 2026-10-19: only its
+  // quiet RELEASED / RELEASE_REVERSED / CANCELLED status events go out, flagged
+  // internal). This used to be proved by forcing
   // portalSyncStatus to 'PENDING' on an INTERNAL check via testDb, but that
   // state is now unreachable: the database's own CHECK constraint
   // (check_internal_never_routes_to_portal) rejects it directly, which is a

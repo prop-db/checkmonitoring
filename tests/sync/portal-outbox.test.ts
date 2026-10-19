@@ -621,3 +621,34 @@ describe('deliverPortalEvents: a parked event notifies the admins', () => {
     expect(await testDb.notification.count()).toBe(0)
   })
 })
+
+describe('deliverPortalEvents: an unmatched INTERNAL event (ruling 2026-10-19)', () => {
+  it('retries while attempts remain, then closes SYNCED quietly on the last one: no parked notice', async () => {
+    await makeUser('FINANCE_ADMIN')
+    const check = await makeCheck({ status: 'RELEASED', eligibility: 'INTERNAL', apvNumbers: ['AP-1'], releasedAt: NOW })
+    const early = await queue(check.id, 'RELEASED', NOW, { attempts: UNMATCHED_MAX_ATTEMPTS - 2 })
+    const client = fakeClient(() => ok({ results: [], unmatched: ['AP-1'] }))
+    await deliverPortalEvents(testDb, { now: LATER, deadline: new Date(LATER.getTime() + 10_000), client })
+    let after = await testDb.portalEvent.findUniqueOrThrow({ where: { id: early.id } })
+    expect(after.status).toBe('FAILED')   // a bill that arrives late is still matched
+
+    await testDb.portalEvent.update({ where: { id: early.id }, data: { nextAttemptAt: LATER } })
+    await deliverPortalEvents(testDb, { now: LATER, deadline: new Date(LATER.getTime() + 10_000), client })
+    after = await testDb.portalEvent.findUniqueOrThrow({ where: { id: early.id } })
+    expect(after.status).toBe('SYNCED'); expect(after.attempts).toBe(UNMATCHED_MAX_ATTEMPTS)
+    expect(after.lastError).toBe('unmatched (internal): AP-1')
+    expect(await testDb.notification.count()).toBe(0)
+    const c = await testDb.check.findUniqueOrThrow({ where: { id: check.id } })
+    expect(c.portalSyncStatus).toBe('NOT_APPLICABLE')
+    expect(await testDb.auditLog.count({ where: { checkId: check.id, action: 'portal_event_synced' } })).toBe(1)
+  })
+
+  it('a SUPPLIER check unmatched on its last attempt still parks and notifies', async () => {
+    await makeUser('FINANCE_ADMIN')
+    const check = await releasedCheck('AP-1')
+    const ev = await queue(check.id, 'RELEASED', NOW, { attempts: UNMATCHED_MAX_ATTEMPTS - 1 })
+    await deliverPortalEvents(testDb, { now: LATER, deadline: new Date(LATER.getTime() + 10_000), client: fakeClient(() => ok({ results: [], unmatched: ['AP-1'] })) })
+    expect((await testDb.portalEvent.findUniqueOrThrow({ where: { id: ev.id } })).status).toBe('PARKED')
+    expect(await testDb.notification.count()).toBe(1)
+  })
+})
