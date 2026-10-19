@@ -76,3 +76,41 @@ describe('createPortalReleasesReader', () => {
     expect(page.next).toBeNull()
   })
 })
+
+describe('createPortalReleasesReader.statuses (final re-review 2026-10-19)', () => {
+  it('GETs the status endpoint with the bearer and the ids, and maps the answer', async () => {
+    const calls: string[] = []
+    const reader = createPortalReleasesReader({
+      baseUrl: 'https://portal.test/', token: 'tok',
+      fetchImpl: async (url, init) => {
+        calls.push(`${init.method} ${url} ${init.headers.authorization}`)
+        return { ok: true, status: 200, text: async () => JSON.stringify({ statuses: [
+          { domain: 'LOCAL', releaseId: 7, status: 'RELEASED', releasedAt: '2026-10-19T02:30:00.000Z', orNumber: '4852', orDate: '2026-10-19' },
+          { domain: 'BROKER', releaseId: 3, status: null, releasedAt: null, orNumber: null, orDate: null },
+          { bad: 1 },
+        ] }) }
+      },
+    })
+    const st = await reader.statuses!([{ domain: 'LOCAL', releaseId: 7 }, { domain: 'BROKER', releaseId: 3 }], { timeoutMs: 2_000 })
+    expect(calls).toEqual(['GET https://portal.test/api/integrations/check-monitoring/releases/status?ids=LOCAL%3A7%2CBROKER%3A3 Bearer tok'])
+    expect(st).toEqual([
+      { domain: 'LOCAL', releaseId: 7, status: 'RELEASED', releasedAt: new Date('2026-10-19T02:30:00.000Z'), orNumber: '4852', orDate: '2026-10-19' },
+      { domain: 'BROKER', releaseId: 3, status: null, releasedAt: null, orNumber: null, orDate: null },
+    ])
+  })
+  it('names the status read and the status on a failure', async () => {
+    const bad = (status: number, body: string) => createPortalReleasesReader({ baseUrl: 'https://p', token: 't', fetchImpl: async () => ({ ok: status === 200, status, text: async () => body }) })
+    await expect(bad(502, 'gateway').statuses!([{ domain: 'LOCAL', releaseId: 1 }])).rejects.toThrow(/answered 502 to the releases status read/)
+    await expect(bad(200, '<html>').statuses!([{ domain: 'LOCAL', releaseId: 1 }])).rejects.toThrow(/releases status read answered 200 with a body that is not JSON/)
+    await expect(bad(200, '{}').statuses!([{ domain: 'LOCAL', releaseId: 1 }])).rejects.toThrow(/releases status read answered 200 without a statuses array/)
+  })
+  it('asks nothing for no ids, and passes a per-call timeout to the releases read', async () => {
+    let n = 0
+    const signals: AbortSignal[] = []
+    const reader = createPortalReleasesReader({ baseUrl: 'https://p', token: 't', fetchImpl: async (_u, init) => { n++; if (init.signal) signals.push(init.signal); return { ok: true, status: 200, text: async () => '{"rows":[],"next":null}' } } })
+    expect(await reader.statuses!([])).toEqual([])
+    expect(n).toBe(0)
+    await reader.list(new Date(0), 1, { timeoutMs: 1_000 })
+    expect(signals).toHaveLength(1)
+  })
+})
