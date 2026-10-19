@@ -17,6 +17,7 @@ const state = vi.hoisted(() => ({
   failAutoSign: false,
   failBillsFor: null as string | null,
   failBillRefsFor: null as string | null,
+  failPortalReader: false,
   /** When set, the voucher feed moves the (faked) clock on by this much, as a slow read would. */
   advanceClockMs: 0,
 }))
@@ -63,6 +64,20 @@ vi.mock('@/lib/sync/auto-sign', async (importOriginal) => {
       state.failAutoSign
         ? { outcome: 'FAILED' as const, signed: 0, skipped: 0, enabled: true, error: 'forced' }
         : real.runAutoSign(...args),
+  }
+})
+
+// The portal reader is built through this mock so no test can reach a real URL (.env holds the
+// production portal's). Unless a test sets failPortalReader, the real function runs, and with the
+// env deleted in beforeEach it throws, i.e. SKIPPED_NOT_CONFIGURED.
+vi.mock('@/lib/integrations/portal/from-env', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/lib/integrations/portal/from-env')>()
+  return {
+    ...real,
+    createPortalReleasesReaderFromEnv: () =>
+      state.failPortalReader
+        ? { list: async () => { throw new Error('portal down') } }
+        : real.createPortalReleasesReaderFromEnv(),
   }
 })
 
@@ -115,6 +130,7 @@ beforeEach(async () => {
   state.failAutoSign = false
   state.failBillsFor = null
   state.failBillRefsFor = null
+  state.failPortalReader = false
   state.advanceClockMs = 0
 })
 
@@ -300,6 +316,20 @@ describe('GET /api/cron/sync — the PORTAL RELEASES read', () => {
     const body = await res.json()
     expect(body.portalReleases).toEqual({ outcome: 'SKIPPED_NOT_CONFIGURED' })
     expect(res.status).toBe(200)
+  })
+})
+
+describe('GET /api/cron/sync — the PORTAL RELEASES read failing', () => {
+  it('turns the response 500 as FAILED while the payment, BILLS and BILL_REFS reads still RAN', async () => {
+    await watermarked('GOLIVE'); await watermarked('MANUFACTURING')
+    state.failPortalReader = true
+    const res = await get(`Bearer ${SECRET}`)
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.portalReleases).toMatchObject({ outcome: 'FAILED' })
+    expect(body.outcomes.map((o: { outcome: string }) => o.outcome)).toEqual(['RAN', 'RAN'])
+    expect(body.bills.map((o: { outcome: string }) => o.outcome)).toEqual(['RAN', 'RAN'])
+    expect(body.billRefs.map((o: { outcome: string }) => o.outcome)).toEqual(['RAN', 'RAN'])
   })
 })
 

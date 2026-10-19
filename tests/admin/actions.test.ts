@@ -34,6 +34,16 @@ vi.mock('@/lib/integrations/acumatica/from-env', () => ({
   }),
 }))
 
+// .env (loaded by vitest.config) carries the PRODUCTION portal URL and token, and syncNowAction now
+// runs the PORTAL RELEASES read. A fake reader keeps this file off the network.
+vi.mock('@/lib/integrations/portal/from-env', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/lib/integrations/portal/from-env')>()
+  return {
+    ...real,
+    createPortalReleasesReaderFromEnv: () => ({ list: async () => ({ rows: [], next: null }) }),
+  }
+})
+
 beforeEach(async () => {
   await resetDb()
   feed.rows = []
@@ -117,6 +127,13 @@ describe('syncNowAction', () => {
     const result = await syncNowAction(fd({ tenant: 'GOLIVE' }))
     expect(result.ok).toBe(true)
     expect(await testDb.syncRun.count({ where: { tenant: 'GOLIVE', trigger: 'MANUAL' } })).toBe(1)
+  })
+
+  it('also runs the PORTAL RELEASES read', async () => {
+    const { syncNowAction } = await import('@/app/admin/actions')
+    const result = await syncNowAction(fd({ tenant: 'GOLIVE' }))
+    expect(result.ok).toBe(true)
+    expect(await testDb.syncRun.count({ where: { mode: 'PORTAL_RELEASES' } })).toBe(1)
   })
 
   it('refuses a tenant it does not recognise', async () => {
