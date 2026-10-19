@@ -1,7 +1,7 @@
 import ExcelJS from 'exceljs'
 import type { CheckTableRow } from '../queries'
 import { formatMoney } from '../money'
-import { manilaToday } from '../manila-day'
+import { releaseDay } from '../release-day'
 import {
   bankLabel, currencyNumberFormat, describeScope, fitColumnWidth,
   statusWords, totalsByCurrency,
@@ -127,7 +127,6 @@ type ExportCell = {
 
 const listOrNull = (xs: readonly string[]) => (xs.length ? xs.join(', ') : null)
 /** The Manila calendar day of an instant, as that day's UTC midnight — the convention `checkDate` follows. */
-const manilaDayAsDate = (d: Date) => new Date(`${manilaToday(d)}T00:00:00Z`)
 const dateCell = (pick: (r: CheckTableRow) => Date | null): ExportCell =>
   ({ kind: 'date', value: pick, sample: (r) => (pick(r) ? DATE_WIDTH_SAMPLE : '') })
 
@@ -167,13 +166,12 @@ const EXPORT_CELLS: Record<ExportColumnKey, ExportCell> = {
   },
   status: { kind: 'text', value: (r) => statusWords(r.status), sample: (r) => statusWords(r.status) },
   /**
-   * The day the release was recorded in this app, as a MANILA day (an evening
-   * release is 10:00+ UTC and must not slip to the next or previous day); for a
-   * release the app never recorded, the register's stated day — the two the
-   * screen shows in this column (the latter tagged REGISTER there). Blank when
-   * neither exists: unknown is not a date.
+   * The RELEASE DAY (`releaseDay`): the day a person typed (the portal's release
+   * date, or the register's) when there is one, else the MANILA day of the
+   * recorded instant (an evening release is 10:00+ UTC and must not slip a
+   * day). Blank when neither exists: unknown is not a date.
    */
-  releasedAt: dateCell((r) => (r.releasedAt ? manilaDayAsDate(r.releasedAt) : r.statedReleaseDate)),
+  releasedAt: dateCell((r) => releaseDay(r)),
   scheduledPickupDate: dateCell((r) => r.scheduledPickupDate),
 }
 

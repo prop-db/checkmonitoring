@@ -39,6 +39,7 @@ describe('runPortalReleasesSync', () => {
       expect(res).toMatchObject({ read: 1, released: 1, already: 0, look: [], errors: 0 })
       expect(await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).toMatchObject({
         status: 'RELEASED', releasedAt: new Date('2026-10-19T02:30:00Z'), releasedById: null,
+        statedReleaseDate: new Date('2026-10-19T00:00:00Z'),
         orNumber: '4852', orDate: new Date('2026-10-19T00:00:00Z'), receiptType: null, crNumber: null,
       })
       const audit = await testDb.auditLog.findFirstOrThrow({ where: { checkId: c.id, action: RELEASED_ON_PORTAL_ACTION } })
@@ -51,6 +52,22 @@ describe('runPortalReleasesSync', () => {
     await run([rel({ releasedAt: null })])
     expect(await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).toMatchObject({
       status: 'RELEASED', releasedAt: null, statedReleaseDate: new Date('2026-10-19T00:00:00Z'),
+    })
+  })
+
+  it('with the portal instant and no typed day, writes only releasedAt', async () => {
+    const c = await makeCheck({ status: 'SIGNED', checkNumber: '6000354897', apvNumbers: ['AP-ST045048'] })
+    await run([rel({ releaseDate: null })])
+    expect(await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).toMatchObject({
+      status: 'RELEASED', releasedAt: new Date('2026-10-19T02:30:00Z'), statedReleaseDate: null,
+    })
+  })
+
+  it('writes both when the typed day differs from the recorded instant', async () => {
+    const c = await makeCheck({ status: 'SIGNED', checkNumber: '6000354897', apvNumbers: ['AP-ST045048'] })
+    await run([rel({ releaseDate: '2026-10-16' })])
+    expect(await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).toMatchObject({
+      releasedAt: new Date('2026-10-19T02:30:00Z'), statedReleaseDate: new Date('2026-10-16T00:00:00Z'),
     })
   })
 

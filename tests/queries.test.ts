@@ -841,16 +841,18 @@ describe('DATE RELEASED range', () => {
     expect(rows.map((r) => r.checkNumber)).toEqual(['S-IN'])
   })
 
-  it('matches on either date when a check carries both', async () => {
-    // App says the 25th, register says the 22nd: inside on the app date.
+  it('matches the ONE release day: the typed day first, the recorded instant only when none', async () => {
+    // Recorded 25th, typed 22nd: the release day is the 22nd, so NOT inside.
     await makeCheck({ status: 'RELEASED', checkNumber: 'B-APP', releasedAt: new Date('2026-09-25T02:00:00.000Z'), statedReleaseDate: new Date('2026-09-22T00:00:00.000Z') })
-    // App says the 20th, register says the 25th: inside on the stated date.
+    // Recorded 20th, typed 25th: inside on the typed day.
     await makeCheck({ status: 'RELEASED', checkNumber: 'B-REG', releasedAt: new Date('2026-09-20T02:00:00.000Z'), statedReleaseDate: new Date('2026-09-25T00:00:00.000Z') })
+    // No typed day, recorded 25th: inside on the fallback.
+    await makeCheck({ status: 'RELEASED', checkNumber: 'B-FALL', releasedAt: new Date('2026-09-25T02:00:00.000Z') })
     // Both outside.
     await makeCheck({ status: 'RELEASED', checkNumber: 'B-OUT', releasedAt: new Date('2026-09-20T02:00:00.000Z'), statedReleaseDate: new Date('2026-09-22T00:00:00.000Z') })
 
     const rows = await listChecks(testDb, { status: 'RELEASED', releasedFrom: from, releasedTo: to })
-    expect(rows.map((r) => r.checkNumber).sort()).toEqual(['B-APP', 'B-REG'])
+    expect(rows.map((r) => r.checkNumber).sort()).toEqual(['B-FALL', 'B-REG'])
   })
 
   // The range lives under AND so it composes with the search, which owns the

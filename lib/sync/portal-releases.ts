@@ -273,7 +273,9 @@ async function applyOne(db: PrismaClient, r: PortalRelease): Promise<Done | Look
         data: {
           status: 'RELEASED',
           releasedById: null,
-          ...(r.releasedAt ? { releasedAt: r.releasedAt } : r.releaseDate ? { statedReleaseDate: dayDate(r.releaseDate) } : {}),
+          // Both when the portal gives both: the recorded instant and the typed release day (2026-10-19).
+          ...(r.releasedAt ? { releasedAt: r.releasedAt } : {}),
+          ...(r.releaseDate ? { statedReleaseDate: dayDate(r.releaseDate) } : {}),
           ...(takeOr ? { orNumber: r.orNumber, orDate: r.orDate ? dayDate(r.orDate) : null, receiptType: null } : {}),
         },
       })

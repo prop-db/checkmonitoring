@@ -29,8 +29,8 @@ export const DEFAULT_SORT: SortSpec = { key: 'checkDate', dir: 'desc' }
  * matching set: APV and PO sort by their FIRST value (an array element, and a
  * union with the bills); BANK cannot put a cheque with no cash account last on
  * a descending sort (`nulls` exists only on nullable scalars); DATE RELEASED
- * shows `releasedAt`, else the register's `statedReleaseDate`, and sorts by
- * the date it shows.
+ * sorts by the release day (`lib/release-day.ts`): the typed `statedReleaseDate`
+ * first, else the Manila day of `releasedAt`.
  */
 export const APP_SORTED_KEYS = ['apvNumbers', 'poNumbers', 'bank', 'releasedAt'] as const satisfies readonly SortKey[]
 export type AppSortKey = (typeof APP_SORTED_KEYS)[number]

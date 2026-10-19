@@ -152,12 +152,14 @@ describe('CHECK REGISTER — the header row', () => {
       row({ id: 'b', status: 'RELEASED', releasedAt: new Date('2026-10-16T16:30:00Z') }),
       row({ id: 'c', status: 'RELEASED', releasedAt: null, statedReleaseDate: new Date('2026-10-09T00:00:00Z') }),
       row({ id: 'd' }),
+      // Both: the typed day wins over the recorded instant (user ruling 2026-10-19).
+      row({ id: 'e', status: 'RELEASED', releasedAt: new Date('2026-10-16T10:48:41Z'), statedReleaseDate: new Date('2026-10-15T00:00:00Z') }),
     ] }))).getWorksheet(REGISTER_SHEET)!
     const day = (r: number) => {
       const v = ws.getRow(FIRST_DATA_ROW + r).getCell(col).value
       return v instanceof Date ? v.toISOString().slice(0, 10) : v
     }
-    expect([day(0), day(1), day(2), day(3)]).toEqual(['2026-10-16', '2026-10-17', '2026-10-09', null])
+    expect([day(0), day(1), day(2), day(3), day(4)]).toEqual(['2026-10-16', '2026-10-17', '2026-10-09', null, '2026-10-15'])
     expect(REGISTER_HEADERS).not.toContain('AVAILABLE DATE')
   })
 

@@ -7,6 +7,7 @@ import { ELIGIBILITIES } from './domain/eligibility'
 // there is no cycle.
 import { viewStatusFilter } from './dashboard-view'
 import { manilaDayStart, manilaToday } from './manila-day'
+import { releaseDay } from './release-day'
 import {
   DEFAULT_SORT, isAppSorted, dbOrderBy, compareSortValues,
   type SortSpec, type SortDir, type AppSortKey, type SortValue,
@@ -68,9 +69,11 @@ export type CheckFilters = ColumnFilters & {
    * load imported at RELEASED and every one the two catch-ups moved — so it
    * never matches a bound on `releasedAt`.
    *
-   * Since 2026-09-28 the range also matches `statedReleaseDate` — the day the
-   * retired register states for a release the app never recorded — so a
-   * cheque matches when EITHER date falls inside it. The two are never merged.
+   * Since 2026-10-19 (user ruling) the range is over the ONE release day
+   * (`lib/release-day.ts`): `statedReleaseDate` — the day a person typed, the
+   * portal's release date or the retired register's — when there is one, else
+   * `releasedAt`. A check holding two different days matches only on the typed
+   * one.
    */
   releasedFrom?: Date
   releasedTo?: Date
@@ -532,7 +535,7 @@ function buildWhere(filters: CheckFilters, extraSearch: readonly Prisma.CheckWhe
     // replace the first. A null date satisfies neither bound, so a cheque with
     // neither date is left out without an extra clause.
     const bounds = { gte: filters.releasedFrom, lte: filters.releasedTo }
-    and.push({ OR: [{ releasedAt: bounds }, { statedReleaseDate: bounds }] })
+    and.push({ OR: [{ statedReleaseDate: bounds }, { statedReleaseDate: null, releasedAt: bounds }] })
   }
   if (and.length > 0) where.AND = and
 
@@ -687,7 +690,7 @@ export function appSortValue(key: AppSortKey, r: SortProbe, acumatica: Acumatica
     case 'apvNumbers': return displayApvNumbers(r)[0] ?? null
     case 'poNumbers': return displayPoNumbers(r, acumatica)[0] ?? null
     case 'bank': return r.checkBook?.code ?? r.cashAccount?.code ?? null
-    case 'releasedAt': return (r.releasedAt ?? r.statedReleaseDate)?.getTime() ?? null
+    case 'releasedAt': return releaseDay(r)?.getTime() ?? null
     default: {
       const unreachable: never = key
       throw new Error(`No in-app order for ${String(unreachable)}`)

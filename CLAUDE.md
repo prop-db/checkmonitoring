@@ -290,7 +290,16 @@ eligibility, DATE RELEASED and the filter row), so N is exactly what "Show them"
 TOTALS keeps company, bank and eligibility via `totalsHref` — narrowing to STK, opening SIGNED
 and coming back lands on STK's totals.
 
-**DATE RELEASED on the filter bar matches either of two dates that are never merged**
+**DATE RELEASED is the typed release day, else the recorded instant** (user ruling 2026-10-19:
+"Use the portal's typed release date for DATE RELEASED; keep the recorded instant only as a
+fallback"). One definition, `releaseDay` in `lib/release-day.ts`: `statedReleaseDate` (a day a
+person typed — the portal's release date, or the retired register's) when present, else the Manila
+day of `releasedAt`. The filter, the in-app sort, the Excel cell and the table all read it, so the
+filter matches the ONE release day (a check recorded on 16 Oct with a typed 15 Oct is in 15 Oct's
+extract, not 16 Oct's); the table tags REGISTER only on a day with no `releasedAt`. The PORTAL
+RELEASES read writes BOTH when the portal gives both. `lib/recon/*` still reads only `releasedAt`.
+The two columns are still never merged in storage. (The 2026-09-28 design follows; its "either
+date" matching is superseded.)
 (2026-09-28, specs `2026-09-28-released-date-filter-design.md` and
 `2026-09-28-stated-release-date-design.md`). `releasedAt` is the app's own record of a
 release and only `markReleased` and the PORTAL RELEASES read (`lib/sync/portal-releases.ts`,
@@ -381,7 +390,7 @@ reads no data and must never show a figure: it is the one page a stranger can lo
 RELEASES read (`SyncRun.mode = 'PORTAL_RELEASES'`, its own watermark, first read from 2026-10-19
 Manila) runs in the 12:00 and 18:00 cron after BILL_REFS and on SYNC NOW. It matches on canonical
 check number AND a shared APV (numbers are reused, 1791379613), writes `releasedAt` (the portal's
-hand-over instant) or `statedReleaseDate` (its day), takes the portal's OR only when the check has
+hand-over instant) and `statedReleaseDate` (its typed release day), both when it gives both, takes the portal's OR only when the check has
 no receipt yet (rule 11), and queues nothing for the portal. The register file is no longer a source
 of releases. Deploy order: the portal's `/api/integrations/check-monitoring/releases` first.
 **The look list lasts** (final review 2026-10-19): a release not applied here is one SYSTEM

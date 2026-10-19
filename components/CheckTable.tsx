@@ -109,15 +109,16 @@ function DataCell({ column, r, width }: { column: DataColumn; r: CheckTableRow; 
     case 'scheduledPickupDate':
       return <td style={widthStyle(width)} className="px-2 py-2 text-slate-600">{fmtDate(r.scheduledPickupDate)}</td>
     case 'releasedAt':
-      // The app's own timestamp when it has one; otherwise the day the retired
-      // register stated, tagged so nobody reads a spreadsheet date as a release
-      // this system recorded.
+      // The release day (lib/release-day.ts): the typed day first (the portal's
+      // or the register's), else the recorded instant. REGISTER tags only a
+      // register-only day: no recorded instant, so nothing but a spreadsheet
+      // says it. A portal day is never labelled REGISTER.
       return (
         <td style={widthStyle(width)} className="px-2 py-2 text-slate-600">
-          {r.releasedAt
-            ? fmtDate(r.releasedAt)
-            : r.statedReleaseDate
-              ? <>{fmtDate(r.statedReleaseDate)}<span className="ml-1 text-[10px] font-semibold tracking-widest text-slate-400">REGISTER</span></>
+          {r.statedReleaseDate
+            ? <>{fmtDate(r.statedReleaseDate)}{!r.releasedAt && <span className="ml-1 text-[10px] font-semibold tracking-widest text-slate-400">REGISTER</span>}</>
+            : r.releasedAt
+              ? fmtDate(r.releasedAt)
               : '—'}
         </td>
       )
