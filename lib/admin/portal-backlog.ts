@@ -3,6 +3,7 @@ import { writeAudit } from '@/lib/audit'
 import { portalRoute, type Eligibility } from '@/lib/domain/eligibility'
 import { portalApvs } from '@/lib/integrations/portal/apvs'
 import { kindMatchesStatus } from '@/lib/sync/portal-outbox'
+import { RELEASED_ON_PORTAL_ACTION } from '@/lib/sync/portal-releases'
 
 type Db = PrismaClient | Prisma.TransactionClient
 
@@ -135,6 +136,10 @@ export async function queueReleasedForStale(db: Db, args: { now: Date; apply: bo
       status: 'RELEASED',
       isCheque: true,
       portalEvents: { none: { kind: 'RELEASED' } },
+      // Released on the Supplier Portal and read back (final review 2026-10-19, I1): the portal has
+      // it already, and an event sent now would re-release it there as the service user if a portal
+      // user had since undone the release. No echo.
+      auditLogs: { none: { action: RELEASED_ON_PORTAL_ACTION } },
       OR: [
         { releasedAt: { gte: REPORT_RELEASES_FROM } },
         { releasedAt: null, statedReleaseDate: { gte: REPORT_RELEASES_FROM } },
