@@ -390,10 +390,25 @@ VOIDED here; `checkId` set), NOT_FOUND, AMBIGUOUS, or BEFORE_GO_LIVE (released o
 2026-10-19 Manila, by `releasedAt` else `releaseDate`; never applied, never re-evaluated — a later
 touch of an old portal row must not replay it). CANCELLED / VOIDED checks are set aside before
 matching, so a live re-issue on the same number and APV decides. Every run re-decides the open
-NOT_FOUND / AMBIGUOUS items (60 days, 200 a run), so a check whose APV is linked later is released
-then; `/admin/portal` lists every open item across runs. The cron stops the read at `now + 40 s`
-between rows or pages, keeping the watermark of the rows done; a FAILED read notifies the admins.
-The portal moves `updated_at` when it stamps an OR onto a release row, so a late OR is read back.
+NOT_FOUND / AMBIGUOUS items (60 days, 200 a run) **on the portal's CURRENT state**, asked in one call
+to the read-only `GET /api/integrations/check-monitoring/releases/status?ids=LOCAL:7,BROKER:3`
+(at most 200 ids; the stored copy is never acted on): one still RELEASED there is released here with
+the current instant and OR once it matches, so a check whose APV is linked later is released then.
+**How an item closes** — a later row for the same (domain, releaseId): `released_on_supplier_portal`;
+`portal_release_look_closed` (SYSTEM; outcome ALREADY or RECEIPT when re-evaluation finds the check
+already RELEASED here, NO_LONGER_RELEASED_ON_PORTAL when the portal no longer says RELEASED or no
+longer holds the release); or `portal_release_look_dismissed` — the DISMISS button on `/admin/portal`,
+FINANCE_ADMIN only, mandatory reason, the admin's user id (`dismissPortalReleaseLook`). DEAD_HERE and
+BEFORE_GO_LIVE items close only by dismissal. A dismissed release is never re-evaluated and never
+listed again; a closed one that comes back is listed again. `/admin/portal` lists every open item
+across runs. A failed status call skips re-evaluation for that run; it and any failure while
+re-evaluating are counted apart (in the run message) and never hold the read's watermark. The cron
+stops the read at `now + 40 s` between rows or pages, keeping the watermark of the rows done; each
+portal call times out at min(15 s, time left), and no new page or status call starts within 5 s of
+the deadline (the first page is always read). A FAILED read notifies the admins.
+The portal moves `updated_at` when it stamps an OR onto a release row, so a late OR is read back —
+but only for a check released ON THE PORTAL: an OR typed on the portal for a check released HERE
+sits on an echo row (`releasedByService`), which the read skips, so it is not read back.
 
 **A void or cancel of a check with no APV queues nothing for the portal** (2026-10-01, spec
 `2026-10-01-cheque-numbering-and-cancel-guard-design.md`). The portal matches on APV and the client
