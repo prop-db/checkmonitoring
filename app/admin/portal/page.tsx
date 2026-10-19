@@ -5,6 +5,7 @@ import { PortalActionButton } from '@/components/PortalRetryButton'
 import { KitTable, type KitRow } from '@/components/table-kit/KitTable'
 import type { KitColumn } from '@/lib/table-kit/types'
 import { instantValue } from '@/lib/table-kit/match'
+import { PORTAL_RELEASES_MODE } from '@/lib/sync/modes'
 import { deliverPortalNowAction, retryPortalEventAction } from './actions'
 
 const fmt = (d: Date) => d.toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
@@ -12,6 +13,11 @@ const fmt = (d: Date) => d.toLocaleString('en-PH', { month: 'short', day: 'numer
 export default async function AdminPortalPage() {
   await requireAdmin()
   const o = await getPortalOverview(prisma)
+  const lastPortalRead = await prisma.syncRun.findFirst({
+    where: { mode: PORTAL_RELEASES_MODE, finishedAt: { not: null } },
+    orderBy: { startedAt: 'desc' },
+    select: { startedAt: true, imported: true, updated: true, staged: true, errors: true, message: true },
+  })
   const distinct = (vals: string[]) => [...new Set(vals)].sort().map((v) => ({ value: v, label: v }))
   const columns: KitColumn[] = [
     { key: 'check', label: 'CHECK', kind: 'text', locked: true },
@@ -69,6 +75,19 @@ export default async function AdminPortalPage() {
             />
           </div>
         )}
+      </section>
+      <section className="rounded-2xl bg-white p-6 ring-1 ring-hairline">
+        <h2 className="text-[11px] font-semibold tracking-widest text-slate-400">RELEASES READ FROM THE SUPPLIER PORTAL</h2>
+        {lastPortalRead ? (
+          <div className="mt-2 space-y-1 text-sm text-slate-700">
+            <p>Last read {fmt(lastPortalRead.startedAt)}: {lastPortalRead.imported} released here, {lastPortalRead.updated} already released, {lastPortalRead.errors} error(s).</p>
+            <p className={lastPortalRead.staged > 0 ? 'font-semibold text-warning-ink' : 'text-slate-500'}>
+              {lastPortalRead.staged > 0 ? `NEEDING A LOOK (${lastPortalRead.staged})` : 'Nothing needing a look.'}
+            </p>
+            {lastPortalRead.message ? <p className="text-slate-700">{lastPortalRead.message}</p> : null}
+            <p className="text-xs text-slate-500">DEAD_HERE: released on the portal but CANCELLED or VOIDED here. NOT_FOUND: no check here with that number and APV. AMBIGUOUS: more than one. Each list shows up to 10 check numbers.</p>
+          </div>
+        ) : <p className="mt-2 text-sm text-slate-500">Not read yet.</p>}
       </section>
     </div>
   )

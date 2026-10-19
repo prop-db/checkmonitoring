@@ -186,7 +186,11 @@ These are safety properties, not preferences. Each exists because of a specific 
    or released anything, so a sync that wrote `status` would silently undo a Finance user's work.
    The immutable field list is `IMMUTABLE_ON_UPDATE` in `lib/import/upsert.ts`, with an
    exhaustiveness test that fails when a new `Check` column is added and not classified.
-5. **The portal may never mark a check RELEASED.** Physical release is Finance-only.
+5. **A check is released where it is handed over** (rewritten 2026-10-19, spec
+   `2026-10-19-portal-releases-read-back-design.md`): on the Supplier Portal, read back here by the
+   PORTAL RELEASES read (`lib/sync/portal-releases.ts`); or, as a backup, by Finance in this app. The
+   portal's release is the record. A portal release moves only a live check (GENERATED through
+   SCHEDULED) to RELEASED; a CANCELLED or VOIDED check is listed on `/admin/portal`, never released.
 6. **No delete-user path exists anywhere.** A `User` is referenced by `AuditLog` and five `Check`
    relations; deleting one orphans the record of who released real money. Removal is deactivation,
    and the last active admin cannot be deactivated or demoted.
@@ -248,8 +252,11 @@ These are safety properties, not preferences. Each exists because of a specific 
     of the run remain (`lib/sync/portal-outbox.ts`); the receipt actions kick delivery with 25 s, the
     other actions with 8 s. Rollback is forward-fix only: Postgres cannot drop the `RECEIPT` enum
     value, so older code must not run while RECEIPT rows exist (review 2026-10-02).
-12. **The portal client sends only.** Nothing reads a status from the portal into a check;
-    `lib/integrations/portal/client.ts` has one method.
+12. **The portal client sends events; the PORTAL RELEASES read is the one thing read back**
+   (rewritten 2026-10-19). `lib/integrations/portal/client.ts` keeps its one sending method; the
+   reader is `lib/integrations/portal/releases.ts` (GET only). It only ever moves a live check to
+   RELEASED — never cancels, voids, un-releases or edits anything else — and writes no outbox event
+   (no echo); rows this app itself sent (`releasedByService`) are skipped.
 
 ## Things that will catch you out
 
@@ -362,6 +369,14 @@ redirects a signed-in visitor to `/`. `/welcome` is listed in `isPublicPath` (ex
 the middleware sends an anonymous bare `/` there and every other guarded path to `/login` as
 before, and sign-out lands on `/welcome`. `requireUser()` still redirects to `/login`. The page
 reads no data and must never show a figure: it is the one page a stranger can load.
+
+**Releases are recorded on the Supplier Portal since 2026-10-19** (user decision). The PORTAL
+RELEASES read (`SyncRun.mode = 'PORTAL_RELEASES'`, its own watermark, first read from 2026-10-19
+Manila) runs in the 12:00 and 18:00 cron after BILL_REFS and on SYNC NOW. It matches on canonical
+check number AND a shared APV (numbers are reused, 1791379613), writes `releasedAt` (the portal's
+hand-over instant) or `statedReleaseDate` (its day), takes the portal's OR only when the check has
+no receipt yet (rule 11), and queues nothing for the portal. The register file is no longer a source
+of releases. Deploy order: the portal's `/api/integrations/check-monitoring/releases` first.
 
 **A void or cancel of a check with no APV queues nothing for the portal** (2026-10-01, spec
 `2026-10-01-cheque-numbering-and-cancel-guard-design.md`). The portal matches on APV and the client
