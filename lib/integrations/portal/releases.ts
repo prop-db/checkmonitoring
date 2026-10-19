@@ -32,10 +32,12 @@ export function mapPortalRelease(raw: unknown): PortalRelease | null {
   const domain = str(r.domain)
   const checkNumber = str(r.checkNumber)
   const updatedAt = instant(r.updatedAt)
-  if ((domain !== 'LOCAL' && domain !== 'BROKER') || !checkNumber || !updatedAt) return null
+  const releaseId = Number(r.releaseId)
+  // A release id keys the look list (lib/sync/portal-releases.ts), so a row without a usable one is refused too.
+  if ((domain !== 'LOCAL' && domain !== 'BROKER') || !checkNumber || !updatedAt || !Number.isSafeInteger(releaseId) || releaseId <= 0) return null
   return {
     domain,
-    releaseId: Number(r.releaseId),
+    releaseId,
     checkNumber,
     apvNumbers: Array.isArray(r.apvNumbers) ? r.apvNumbers.map((a) => str(a).toUpperCase()).filter(Boolean) : [],
     releaseDate: day(r.releaseDate),
@@ -48,7 +50,16 @@ export function mapPortalRelease(raw: unknown): PortalRelease | null {
   }
 }
 
-export type PortalReleasesReader = { list(since: Date, limit: number): Promise<{ rows: PortalRelease[]; next: Date | null }> }
+/** A row mapPortalRelease refused, named by what the portal sent (final review 2026-10-19). */
+export type RejectedRelease = { releaseId: string; domain: string }
+export type PortalReleasesPage = { rows: PortalRelease[]; next: Date | null; rejected?: RejectedRelease[] }
+export type PortalReleasesReader = { list(since: Date, limit: number): Promise<PortalReleasesPage> }
+
+const named = (raw: unknown): RejectedRelease => {
+  const r = raw !== null && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
+  const show = (v: unknown) => (typeof v === 'string' || typeof v === 'number' ? String(v).slice(0, 40) : '?')
+  return { releaseId: show(r.releaseId), domain: show(r.domain) }
+}
 
 export function createPortalReleasesReader(opts: { baseUrl: string; token: string; fetchImpl?: ReleasesFetch; timeoutMs?: number }): PortalReleasesReader {
   const fetchImpl: ReleasesFetch = opts.fetchImpl ?? ((url, init) => fetch(url, init))
@@ -63,11 +74,23 @@ export function createPortalReleasesReader(opts: { baseUrl: string; token: strin
       })
       const text = await res.text()
       if (res.status !== 200) throw new Error(`The Supplier Portal answered ${res.status} to the releases read: ${text.slice(0, 200)}`)
-      const body = JSON.parse(text) as { rows?: unknown[]; next?: unknown }
-      return {
-        rows: (body.rows ?? []).map(mapPortalRelease).filter((r): r is PortalRelease => r !== null),
-        next: instant(body.next),
+      let body: { rows?: unknown; next?: unknown }
+      try {
+        body = JSON.parse(text) as { rows?: unknown; next?: unknown }
+      } catch {
+        throw new Error(`The Supplier Portal's releases read answered ${res.status} with a body that is not JSON: ${text.slice(0, 200)}`)
       }
+      if (body === null || typeof body !== 'object' || !Array.isArray(body.rows)) {
+        throw new Error(`The Supplier Portal's releases read answered ${res.status} without a rows array: ${text.slice(0, 200)}`)
+      }
+      const rows: PortalRelease[] = []
+      const rejected: RejectedRelease[] = []
+      for (const raw of body.rows) {
+        const m = mapPortalRelease(raw)
+        if (m) rows.push(m)
+        else rejected.push(named(raw))
+      }
+      return { rows, next: instant(body.next), rejected }
     },
   }
 }

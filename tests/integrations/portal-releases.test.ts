@@ -25,6 +25,11 @@ describe('mapPortalRelease', () => {
     expect(mapPortalRelease({ ...raw, domain: 'OTHER' })).toBeNull()
     expect(mapPortalRelease(null)).toBeNull()
   })
+  it('refuses a row without a usable release id', () => {
+    expect(mapPortalRelease({ ...raw, releaseId: 'x' })).toBeNull()
+    expect(mapPortalRelease({ ...raw, releaseId: 0 })).toBeNull()
+    expect(mapPortalRelease({ ...raw, releaseId: 1.5 })).toBeNull()
+  })
 })
 
 describe('createPortalReleasesReader', () => {
@@ -41,6 +46,20 @@ describe('createPortalReleasesReader', () => {
     expect(calls).toEqual(['GET https://portal.test/api/integrations/check-monitoring/releases?since=2026-10-19T00%3A00%3A00.000Z&limit=500 Bearer tok'])
     expect(page.rows.map((r) => r.checkNumber)).toEqual(['6000354897'])
     expect(page.next).toEqual(new Date('2026-10-19T02:30:05.000Z'))
+    expect(page.rejected).toEqual([{ releaseId: '?', domain: '?' }])
+  })
+  it('names a rejected row by its release id and domain', async () => {
+    const reader = createPortalReleasesReader({
+      baseUrl: 'https://p', token: 't',
+      fetchImpl: async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ rows: [{ ...raw, releaseId: 12, checkNumber: '' }], next: null }) }),
+    })
+    expect((await reader.list(new Date(0), 10)).rejected).toEqual([{ releaseId: '12', domain: 'LOCAL' }])
+  })
+  it('throws, naming the releases read and the status, on a body that is not JSON or has no rows array', async () => {
+    for (const body of ['<html>gateway</html>', '{"rows":{}}', 'null', '{}']) {
+      const reader = createPortalReleasesReader({ baseUrl: 'https://p', token: 't', fetchImpl: async () => ({ ok: true, status: 200, text: async () => body }) })
+      await expect(reader.list(new Date(), 10)).rejects.toThrow(/releases read answered 200/)
+    }
   })
   it('throws on a non-200 answer, naming the status', async () => {
     const reader = createPortalReleasesReader({ baseUrl: 'https://p', token: 't', fetchImpl: async () => ({ ok: false, status: 401, text: async () => '{"error":"unauthorized"}' }) })
