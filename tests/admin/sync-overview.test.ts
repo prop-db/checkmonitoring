@@ -99,4 +99,12 @@ describe('getSyncOverview', () => {
     expect(overview.untenantedRuns).toBe(1)
     expect(forTenant(overview, 'GOLIVE').lastAttempt).toBeNull()
   })
+
+  it('does not count a PORTAL_RELEASES run (one portal, no tenant) as a pre-tenant-column run', async () => {
+    await run({ tenant: null, startedAt: '2026-09-01T10:00:00Z' })
+    await testDb.syncRun.create({
+      data: { mode: 'PORTAL_RELEASES', tenant: null, startedAt: new Date('2026-10-19T04:00:00Z'), finishedAt: new Date('2026-10-19T04:00:05Z') },
+    })
+    expect((await getSyncOverview(testDb)).untenantedRuns).toBe(1)
+  })
 })

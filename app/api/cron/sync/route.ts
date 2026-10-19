@@ -97,6 +97,8 @@ const BILL_REFS_SKIP_AFTER_MS = 20_000
  * watermark stays, so the next run catches up.
  */
 const PORTAL_RELEASES_SKIP_AFTER_MS = 25_000
+/** Once begun, the PORTAL RELEASES read stops between rows or pages at `now` + this. */
+const PORTAL_RELEASES_DEADLINE_MS = 40_000
 
 function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
@@ -184,11 +186,14 @@ export async function GET(request: Request): Promise<Response> {
 
   // Checks released on the Supplier Portal become RELEASED here (rules 5 and 12, 2026-10-19).
   // Not tenant-bound: one portal. Before auto-sign so a check released on the portal is not
-  // signed afterwards. Never throws; unset portal env is a skip.
+  // signed afterwards. Never throws; unset portal env is a skip. Once begun it stops itself at
+  // `now + 40 s` (final review 2026-10-19, I3), keeping the watermark of the rows it did.
   const portalReleases: ScheduledPortalReleasesOutcome =
     Date.now() - now.getTime() > PORTAL_RELEASES_SKIP_AFTER_MS
       ? { outcome: 'SKIPPED_TIME_BUDGET' }
-      : await runScheduledPortalReleases(prisma, { now, reader: createPortalReleasesReaderFromEnv })
+      : await runScheduledPortalReleases(prisma, {
+        now, reader: createPortalReleasesReaderFromEnv, deadline: new Date(now.getTime() + PORTAL_RELEASES_DEADLINE_MS),
+      })
 
   // After both tenants, whether or not either failed: cheques already in the
   // app keep ageing, and a failed read delays new cheques, not old ones.
@@ -201,7 +206,7 @@ export async function GET(request: Request): Promise<Response> {
   // Tell the admins what failed, and whether a tenant has gone stale (spec
   // 2026-10-16-notifications-design.md). Before the portal kick so the kick's
   // budget is measured after it; never throws, never changes the status code.
-  await notifyCronResults(prisma, { outcomes, bills, billRefs, autoSign }, new Date())
+  await notifyCronResults(prisma, { outcomes, bills, billRefs, portalReleases, autoSign }, new Date())
 
   // The outbox: retries and the backlog. Whatever budget is left inside the
   // route's 60s ceiling, minus room for the response.

@@ -43,6 +43,20 @@ describe('syncFailureNotices', () => {
     ])
     expect(notices.every((n) => n.dedupeKey === undefined)).toBe(true)
   })
+
+  it('a FAILED Supplier Portal releases read notifies the admins like the Acumatica reads; a skip or a run does not', () => {
+    const base = { outcomes: [], bills: [], billRefs: [], autoSign: okSign }
+    expect(syncFailureNotices({ ...base, portalReleases: { outcome: 'FAILED', message: 'answered 500' } })).toEqual([{
+      kind: 'SYNC_FAILED', audience: 'ADMINS', link: '/admin/sync',
+      message: 'Scheduled Supplier Portal releases read (PORTAL_RELEASES) failed: answered 500',
+    }])
+    for (const portalReleases of [
+      { outcome: 'SKIPPED_NOT_CONFIGURED' }, { outcome: 'SKIPPED_TIME_BUDGET' },
+      { outcome: 'RAN', syncRunId: 'r', released: 1, already: 0, look: 0, errors: 0 },
+    ] as const) {
+      expect(syncFailureNotices({ ...base, portalReleases })).toEqual([])
+    }
+  })
 })
 
 describe('staleNotices', () => {

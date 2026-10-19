@@ -425,6 +425,19 @@ describe('GET /api/cron/sync — the PO read (BILL_REFS)', () => {
         expect(r.message).toMatch(/^skipped: the run had used \d+ s of its budget before the PO read; the next run catches up$/)
       }
     })
+
+    it('skips the PORTAL RELEASES read once more than 25 s have passed, without reading the portal', async () => {
+      await watermarked('GOLIVE')
+      await watermarked('MANUFACTURING')
+      state.advanceClockMs = 25_000
+      // Would fail if it were read: the skip must come before the reader is touched.
+      state.failPortalReader = true
+      const res = await get(`Bearer ${SECRET}`)
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.portalReleases).toEqual({ outcome: 'SKIPPED_TIME_BUDGET' })
+      expect(await testDb.syncRun.count({ where: { mode: 'PORTAL_RELEASES' } })).toBe(0)
+    })
   })
 })
 
@@ -467,5 +480,15 @@ describe('GET /api/cron/sync — notifications', () => {
     await get(`Bearer ${SECRET}`)
     const rows = await testDb.notification.findMany({ where: { kind: 'AUTO_SIGN_FAILED' } })
     expect(rows.map((r) => r.message)).toEqual(['Auto-sign failed: forced'])
+  })
+
+  it('a FAILED Supplier Portal releases read notifies the admins (final review 2026-10-19, I6)', async () => {
+    const admin = await makeUser('FINANCE_ADMIN')
+    await watermarked('GOLIVE')
+    await watermarked('MANUFACTURING')
+    state.failPortalReader = true
+    await get(`Bearer ${SECRET}`)
+    const rows = await testDb.notification.findMany({ where: { kind: 'SYNC_FAILED' } })
+    expect(rows.map((r) => [r.userId, r.message])).toEqual([[admin.id, 'Scheduled Supplier Portal releases read (PORTAL_RELEASES) failed: portal down']])
   })
 })

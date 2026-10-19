@@ -3,6 +3,7 @@ import { formatMoney } from '@/lib/money'
 import type { ScheduledSyncOutcome } from '@/lib/sync/scheduled'
 import type { ScheduledBillsOutcome } from '@/lib/sync/bills'
 import type { ScheduledBillRefsOutcome } from '@/lib/sync/bill-refs'
+import type { ScheduledPortalReleasesOutcome } from '@/lib/sync/portal-releases'
 import type { AutoSignRun } from '@/lib/sync/auto-sign'
 import type { Staleness } from '@/lib/sync/staleness'
 
@@ -47,6 +48,8 @@ export function syncFailureNotices(r: {
   outcomes: readonly ScheduledSyncOutcome[]
   bills: readonly ScheduledBillsOutcome[]
   billRefs: readonly ScheduledBillRefsOutcome[]
+  /** The Supplier Portal releases read (2026-10-19). Not tenant-bound: one portal. */
+  portalReleases?: ScheduledPortalReleasesOutcome
   autoSign: AutoSignRun
 }): Notice[] {
   const notices = [
@@ -54,6 +57,10 @@ export function syncFailureNotices(r: {
     ...readNotices('voucher read (BILLS)', r.bills as readonly ReadOutcome[]),
     ...readNotices('PO number read (BILL_REFS)', r.billRefs as readonly ReadOutcome[]),
   ]
+  if (r.portalReleases?.outcome === 'FAILED') {
+    notices.push({ kind: 'SYNC_FAILED', audience: 'ADMINS', link: SYNC_LINK,
+      message: `Scheduled Supplier Portal releases read (PORTAL_RELEASES) failed: ${r.portalReleases.message || 'no detail recorded'}` })
+  }
   if (r.autoSign.outcome === 'FAILED') {
     notices.push({ kind: 'AUTO_SIGN_FAILED', audience: 'ADMINS', link: SYNC_LINK,
       message: `Auto-sign failed: ${r.autoSign.error ?? 'no detail recorded'}` })

@@ -1,7 +1,7 @@
 import type { Prisma, PrismaClient, SyncRun } from '@prisma/client'
 import type { AcumaticaTenant } from '@/lib/integrations/acumatica/companies'
 import { DEFAULT_ABANDONED_AFTER_MINUTES } from '@/lib/settings/defaults'
-import { NON_PAYMENT_MODES } from '@/lib/sync/modes'
+import { NON_PAYMENT_MODES, PORTAL_RELEASES_MODE } from '@/lib/sync/modes'
 
 type Db = PrismaClient | Prisma.TransactionClient
 
@@ -100,7 +100,8 @@ export async function getSyncOverview(
         }
       }),
     ),
-    db.syncRun.count({ where: { tenant: null } }),
+    // A PORTAL_RELEASES run is not tenant-bound (one portal), so it is not a pre-tenant-column run.
+    db.syncRun.count({ where: { tenant: null, mode: { not: PORTAL_RELEASES_MODE } } }),
   ])
 
   return { tenants, untenantedRuns }
