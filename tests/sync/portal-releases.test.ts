@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { testDb, resetDb } from '../helpers/db'
-import { makeCheck } from '../helpers/factory'
+import { makeCheck, makeUser } from '../helpers/factory'
 import {
   runPortalReleasesSync, lastPortalReleasesWatermark, runScheduledPortalReleases,
   RELEASED_ON_PORTAL_ACTION, PORTAL_RELEASES_FIRST_SINCE, NEEDS_LOOK_ACTION, RECEIPT_FROM_PORTAL_ACTION,
-  listOpenPortalReleaseLooks,
+  listOpenPortalReleaseLooks, LOOK_CLOSED_ACTION, LOOK_DISMISSED_ACTION, dismissPortalReleaseLook,
 } from '@/lib/sync/portal-releases'
 import { queueReleasedForStale } from '@/lib/admin/portal-backlog'
-import type { PortalRelease, PortalReleasesReader } from '@/lib/integrations/portal/releases'
+import type { PortalRelease, PortalReleasesReader, PortalReleaseStatus } from '@/lib/integrations/portal/releases'
 
 const NOW = new Date('2026-10-19T12:00:00+08:00')
 beforeEach(resetDb)
@@ -17,8 +17,16 @@ const rel = (o: Partial<PortalRelease> = {}): PortalRelease => ({
   releaseDate: '2026-10-19', releasedAt: new Date('2026-10-19T02:30:00Z'), orNumber: '4852', orDate: '2026-10-19',
   releasedByName: 'LUSIE', releasedByService: false, updatedAt: new Date('2026-10-19T02:30:05Z'), ...o,
 })
+// The portal's current state of every release asked about: RELEASED, with rel()'s instant and OR,
+// unless a test says otherwise in `portalNow` (re-review B).
+const portalNow = new Map<string, Partial<PortalReleaseStatus>>()
+beforeEach(() => portalNow.clear())
+const statuses: NonNullable<PortalReleasesReader['statuses']> = async (ids) => ids.map((k) => ({
+  ...k, status: 'RELEASED', releasedAt: new Date('2026-10-19T02:30:00Z'), orNumber: '4852', orDate: '2026-10-19',
+  ...portalNow.get(`${k.domain}:${k.releaseId}`),
+}))
 function reader(rows: PortalRelease[], seen: Date[] = []): PortalReleasesReader {
-  return { async list(since) { seen.push(since); return { rows, next: null } } }
+  return { async list(since) { seen.push(since); return { rows, next: null } }, statuses }
 }
 const run = (rows: PortalRelease[], since: Date | null = null, seen: Date[] = []) =>
   runPortalReleasesSync(testDb, { reader: reader(rows, seen), since, now: NOW, trigger: 'MANUAL' })
@@ -390,5 +398,147 @@ describe('final review 2026-10-19', () => {
     })
     expect(out).toMatchObject({ outcome: 'RAN' })
     expect(seen).toHaveLength(1)
+  })
+})
+
+describe('final re-review 2026-10-19 (round 2)', () => {
+  const closes = () => testDb.auditLog.findMany({ where: { action: LOOK_CLOSED_ACTION }, orderBy: { createdAt: 'asc' } })
+  // A NOT_FOUND item for rel(): the check exists, paying another APV.
+  async function notFound() {
+    const c = await makeCheck({ status: 'SIGNED', checkNumber: '6000354897', apvNumbers: ['AP-OTHER'] })
+    const r = await run([rel()])
+    expect(r.look.map((l) => l.kind)).toEqual(['NOT_FOUND'])
+    const [item] = await listOpenPortalReleaseLooks(testDb)
+    return { c, item }
+  }
+  const link = (id: string, data: object = {}) =>
+    testDb.check.update({ where: { id }, data: { apvNumbers: ['AP-OTHER', 'AP-ST045048'], ...data } })
+
+  it('A: a re-evaluated item already RELEASED here closes, with the check, and is not re-evaluated again', async () => {
+    const { c } = await notFound()
+    await link(c.id, { status: 'RELEASED', orNumber: '1111', receiptType: 'OR' })
+    const second = await run([])
+    expect(second).toMatchObject({ closed: 1, released: 0, errors: 0 })
+    const [row] = await closes()
+    expect(row).toMatchObject({ actorType: 'SYSTEM', checkId: c.id })
+    expect(row.details).toMatchObject({ domain: 'LOCAL', releaseId: 1, outcome: 'ALREADY' })
+    expect(await listOpenPortalReleaseLooks(testDb)).toEqual([])
+    expect(await run([])).toMatchObject({ closed: 0 })
+    expect(await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).toMatchObject({ orNumber: '1111', receiptType: 'OR' })
+  })
+
+  it('A: RECEIPT closes too (the portal OR taken onto a check released here with none)', async () => {
+    const { c } = await notFound()
+    await link(c.id, { status: 'RELEASED' })
+    expect(await run([])).toMatchObject({ closed: 1, receipts: 1 })
+    expect((await closes())[0].details).toMatchObject({ outcome: 'RECEIPT' })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).orNumber).toBe('4852')
+  })
+
+  it('A: a dismissed item is neither listed nor re-evaluated, nor listed again by a re-read', async () => {
+    const { c, item } = await notFound()
+    const admin = await makeUser('FINANCE_ADMIN')
+    expect(await dismissPortalReleaseLook(testDb, { lookId: item.id, reason: '  ', userId: admin.id })).toMatchObject({ ok: false })
+    expect(await dismissPortalReleaseLook(testDb, { lookId: item.id, reason: 'paid by another check', userId: admin.id })).toEqual({ ok: true })
+    const d = await testDb.auditLog.findFirstOrThrow({ where: { action: LOOK_DISMISSED_ACTION } })
+    expect(d).toMatchObject({ actorType: 'USER', userId: admin.id })
+    expect(d.details).toMatchObject({ domain: 'LOCAL', releaseId: 1, kind: 'NOT_FOUND', reason: 'paid by another check' })
+    expect(await listOpenPortalReleaseLooks(testDb)).toEqual([])
+    await link(c.id)
+    expect(await run([])).toMatchObject({ released: 0, closed: 0 })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('SIGNED')
+    // The same release read again cannot reopen it: it would release now, but dismissal is about the list.
+    await testDb.check.update({ where: { id: c.id }, data: { apvNumbers: ['AP-OTHER'] } })
+    await run([rel()])
+    expect(await testDb.auditLog.count({ where: { action: NEEDS_LOOK_ACTION } })).toBe(1)
+    expect(await listOpenPortalReleaseLooks(testDb)).toEqual([])
+    expect(await dismissPortalReleaseLook(testDb, { lookId: item.id, reason: 'again', userId: admin.id })).toMatchObject({ ok: false, message: 'That item is no longer open.' })
+  })
+
+  it('B: a portal release undone since it was listed is closed, not released', async () => {
+    const { c } = await notFound()
+    await link(c.id)
+    portalNow.set('LOCAL:1', { status: 'AVAILABLE_FOR_RELEASE', releasedAt: null, orNumber: null })
+    const r = await run([])
+    expect(r).toMatchObject({ released: 0, closed: 1 })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('SIGNED')
+    expect((await closes())[0].details).toMatchObject({ outcome: 'NO_LONGER_RELEASED_ON_PORTAL', portalStatus: 'AVAILABLE_FOR_RELEASE' })
+    expect(await listOpenPortalReleaseLooks(testDb)).toEqual([])
+  })
+
+  it('B: a release the portal no longer holds (status null) is closed too', async () => {
+    const { c } = await notFound()
+    await link(c.id)
+    portalNow.set('LOCAL:1', { status: null })
+    expect(await run([])).toMatchObject({ released: 0, closed: 1 })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('SIGNED')
+  })
+
+  it('B: the release uses the portal CURRENT instant and OR, not the stored copy', async () => {
+    const { c } = await notFound()
+    await link(c.id)
+    portalNow.set('LOCAL:1', { releasedAt: new Date('2026-10-20T03:00:00Z'), orNumber: '7777', orDate: '2026-10-20' })
+    expect(await run([])).toMatchObject({ released: 1, healed: 1 })
+    expect(await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).toMatchObject({
+      status: 'RELEASED', releasedAt: new Date('2026-10-20T03:00:00Z'), orNumber: '7777', orDate: new Date('2026-10-20T00:00:00Z'), crNumber: null,
+    })
+  })
+
+  it('B: a failed status read skips re-evaluation, is not an error, and the watermark still moves', async () => {
+    const { c } = await notFound()
+    await link(c.id)
+    await makeCheck({ status: 'SIGNED', checkNumber: '6000000041', apvNumbers: ['AP-41'] })
+    const r: PortalReleasesReader = {
+      async list() { return { rows: [rel({ releaseId: 2, checkNumber: '6000000041', apvNumbers: ['AP-41'] })], next: null } },
+      async statuses() { throw new Error('The Supplier Portal answered 502 to the releases status read: bad gateway') },
+    }
+    const res = await runPortalReleasesSync(testDb, { reader: r, since: null, now: NOW, trigger: 'MANUAL' })
+    expect(res).toMatchObject({ released: 1, errors: 0, reevalErrors: 0, watermark: new Date('2026-10-19T02:20:05Z') })
+    expect(res.reevalSkipped).toContain('status read failed')
+    expect((await testDb.syncRun.findUniqueOrThrow({ where: { id: res.syncRunId } })).message).toContain('re-evaluation skipped: the portal status read failed')
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('SIGNED')
+    expect(await listOpenPortalReleaseLooks(testDb)).toHaveLength(1)
+  })
+
+  it('a failure while re-evaluating is counted apart, named in the message, and never holds the watermark', async () => {
+    const { c } = await notFound()
+    await link(c.id)
+    const k = await makeCheck({ status: 'RELEASED', checkNumber: '6000000042', apvNumbers: ['AP-42'] })
+    await testDb.check.update({ where: { id: k.id }, data: { orNumber: '1', receiptType: 'OR' } })
+    // Every transaction fails: only the re-evaluated release needs one (the page row is ALREADY).
+    const bad = new Proxy(testDb, {
+      get(t, p, rcv) {
+        if (p === '$transaction') return async () => { throw new Error('boom') }
+        const v = Reflect.get(t, p, rcv)
+        return typeof v === 'function' ? v.bind(t) : v
+      },
+    }) as typeof testDb
+    const res = await runPortalReleasesSync(bad, {
+      reader: { ...reader([rel({ releaseId: 3, checkNumber: '6000000042', apvNumbers: ['AP-42'] })]) }, since: null, now: NOW, trigger: 'MANUAL',
+    })
+    expect(res).toMatchObject({ errors: 0, reevalErrors: 1, already: 1, watermark: new Date('2026-10-19T02:20:05Z') })
+    expect((await testDb.syncRun.findUniqueOrThrow({ where: { id: res.syncRunId } })).message).toContain('re-evaluation errors 1')
+  })
+
+  it('timeouts: min(15 s, time left); no new page and no status call within 5 s of the deadline', async () => {
+    const asked: (number | undefined)[] = []
+    let statusCalls = 0
+    await notFound()
+    const t1 = new Date('2026-10-19T03:00:00Z')
+    const r: PortalReleasesReader = {
+      async list(_s, _l, o) { asked.push(o?.timeoutMs); return { rows: [rel({ releaseId: 9, checkNumber: '9', apvNumbers: ['AP-9'], updatedAt: t1 })], next: t1 } },
+      async statuses() { statusCalls++; return [] },
+    }
+    const res = await runPortalReleasesSync(testDb, { reader: r, since: null, now: NOW, trigger: 'SCHEDULED', deadline: new Date(Date.now() + 3_000) })
+    expect(asked).toHaveLength(1)
+    expect(asked[0]).toBeLessThanOrEqual(3_000)
+    expect(res.stoppedAtDeadline).toBe(true)
+    expect(statusCalls).toBe(0)
+    const free = await runPortalReleasesSync(testDb, {
+      reader: { ...r, async list(_s, _l, o) { asked.push(o?.timeoutMs); return { rows: [], next: null } } }, since: null, now: NOW, trigger: 'MANUAL',
+    })
+    expect(asked[1]).toBe(15_000)
+    expect(free.reevalSkipped).toBeNull()
+    expect(statusCalls).toBe(1)
   })
 })

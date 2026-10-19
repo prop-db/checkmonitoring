@@ -5,6 +5,7 @@ import { prisma } from '@/lib/db'
 import { requireUser } from '@/lib/auth'
 import { writeAudit } from '@/lib/audit'
 import { kickPortalDelivery } from '@/lib/sync/portal-kick'
+import { dismissPortalReleaseLook } from '@/lib/sync/portal-releases'
 import type { AdminActionResult } from '@/app/admin/actions'
 
 // Refuse a FINANCE_USER by RETURNING, never by redirecting - the same rule as
@@ -40,4 +41,18 @@ export async function deliverPortalNowAction(): Promise<AdminActionResult> {
   // 2026-09-26): the button must say so rather than report success.
   if (out.stoppedOnAuth) return { ok: false, message: 'The portal refused the token (401) — check PORTAL_TOKEN.' }
   return { ok: true }
+}
+
+// FINANCE_ADMIN only (final re-review 2026-10-19): takes an open PORTAL RELEASES look item off the
+// list, with a mandatory reason, as one portal_release_look_dismissed audit row. Never touches a check.
+export async function dismissPortalReleaseLookAction(formData: FormData): Promise<AdminActionResult> {
+  const user = await requireUser()
+  if (user.role !== 'FINANCE_ADMIN') return { ok: false, message: 'Only a Finance Admin can dismiss a portal release from the list.' }
+  const out = await dismissPortalReleaseLook(prisma, {
+    lookId: String(formData.get('lookId') ?? '').trim(),
+    reason: String(formData.get('reason') ?? ''),
+    userId: user.id,
+  })
+  if (out.ok) revalidatePath('/admin/portal')
+  return out
 }

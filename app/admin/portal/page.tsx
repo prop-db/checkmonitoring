@@ -7,7 +7,8 @@ import type { KitColumn } from '@/lib/table-kit/types'
 import { instantValue } from '@/lib/table-kit/match'
 import { PORTAL_RELEASES_MODE } from '@/lib/sync/modes'
 import { listOpenPortalReleaseLooks } from '@/lib/sync/portal-releases'
-import { deliverPortalNowAction, retryPortalEventAction } from './actions'
+import { PortalLookDismiss } from '@/components/PortalLookDismiss'
+import { deliverPortalNowAction, dismissPortalReleaseLookAction, retryPortalEventAction } from './actions'
 
 const fmt = (d: Date) => d.toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 
@@ -100,7 +101,7 @@ export default async function AdminPortalPage() {
                 <tr>
                   <th className="py-2 pr-4">LISTED</th><th className="py-2 pr-4">KIND</th><th className="py-2 pr-4">CHECK</th>
                   <th className="py-2 pr-4">RELEASE DATE</th><th className="py-2 pr-4">OR</th><th className="py-2 pr-4">RELEASED BY</th>
-                  <th className="py-2 pr-4">DETAIL</th>
+                  <th className="py-2 pr-4">DETAIL</th><th className="py-2 pr-4"></th>
                 </tr>
               </thead>
               <tbody>
@@ -116,13 +117,14 @@ export default async function AdminPortalPage() {
                     <td className="py-2 pr-4">{l.orNumber ?? '—'}</td>
                     <td className="py-2 pr-4">{l.releasedByName ?? '—'}</td>
                     <td className="py-2 pr-4 max-w-md truncate" title={l.detail ?? ''}>{l.detail ?? '—'}</td>
+                    <td className="py-2 pr-4 whitespace-nowrap"><PortalLookDismiss lookId={l.id} action={dismissPortalReleaseLookAction} /></td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
-        <p className="mt-2 text-xs text-slate-500">DEAD_HERE: released on the portal but CANCELLED or VOIDED here. NOT_FOUND: no check here with that number and APV (re-checked every read, so it is released once the APV is linked). AMBIGUOUS: more than one live check. BEFORE_GO_LIVE: released on the portal before 19 October 2026; never applied here. An item leaves the list when the release is read back onto a check.</p>
+        <p className="mt-2 text-xs text-slate-500">DEAD_HERE: released on the portal but CANCELLED or VOIDED here. NOT_FOUND: no check here with that number and APV. AMBIGUOUS: more than one live check. BEFORE_GO_LIVE: released on the portal before 19 October 2026; never applied here. Every read re-checks NOT_FOUND and AMBIGUOUS items against the portal&apos;s current state (last 60 days, 200 a read): one still released there is released here once it matches; one already released here, or no longer released on the portal, leaves the list. DEAD_HERE and BEFORE_GO_LIVE items stay until a Finance Admin dismisses them, with a reason; any item can be dismissed, and a dismissed item is never re-checked.</p>
       </section>
     </div>
   )

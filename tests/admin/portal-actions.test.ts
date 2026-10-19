@@ -51,3 +51,36 @@ describe('portal admin actions', () => {
     expect(state.kicked).toBe(1)
   })
 })
+
+describe('dismiss a PORTAL RELEASES look item (final re-review 2026-10-19)', () => {
+  async function look() {
+    await testDb.auditLog.create({ data: { actorType: 'SYSTEM', action: 'portal_release_needs_look', details: { kind: 'DEAD_HERE', domain: 'LOCAL', releaseId: 5, checkNumber: '6000000005', apvNumbers: ['AP-5'] } } })
+    return testDb.auditLog.findFirstOrThrow({ where: { action: 'portal_release_needs_look' } })
+  }
+  it('a FINANCE_ADMIN dismisses it with a reason, as one audit row with their id', async () => {
+    const { dismissPortalReleaseLookAction } = await import('@/app/admin/portal/actions')
+    const admin = await makeUser('FINANCE_ADMIN'); state.userId = admin.id
+    const row = await look()
+    const f = new FormData(); f.set('lookId', row.id); f.set('reason', 'cancelled on purpose')
+    expect(await dismissPortalReleaseLookAction(f)).toEqual({ ok: true })
+    const d = await testDb.auditLog.findFirstOrThrow({ where: { action: 'portal_release_look_dismissed' } })
+    expect(d).toMatchObject({ userId: admin.id, actorType: 'USER' })
+    expect(d.details).toMatchObject({ domain: 'LOCAL', releaseId: 5, kind: 'DEAD_HERE', reason: 'cancelled on purpose' })
+  })
+  it('refuses a missing reason', async () => {
+    const { dismissPortalReleaseLookAction } = await import('@/app/admin/portal/actions')
+    const admin = await makeUser('FINANCE_ADMIN'); state.userId = admin.id
+    const row = await look()
+    const f = new FormData(); f.set('lookId', row.id); f.set('reason', ' ')
+    expect(await dismissPortalReleaseLookAction(f)).toMatchObject({ ok: false, message: expect.stringContaining('reason') })
+    expect(await testDb.auditLog.count({ where: { action: 'portal_release_look_dismissed' } })).toBe(0)
+  })
+  it('a FINANCE_USER is refused and nothing is written', async () => {
+    const { dismissPortalReleaseLookAction } = await import('@/app/admin/portal/actions')
+    state.role = 'FINANCE_USER'
+    const row = await look()
+    const f = new FormData(); f.set('lookId', row.id); f.set('reason', 'x')
+    expect(await dismissPortalReleaseLookAction(f)).toMatchObject({ ok: false, message: expect.stringContaining('Finance Admin') })
+    expect(await testDb.auditLog.count({ where: { action: 'portal_release_look_dismissed' } })).toBe(0)
+  })
+})

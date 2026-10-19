@@ -2,7 +2,7 @@ import { Prisma, type PrismaClient } from '@prisma/client'
 import { writeAudit } from '@/lib/audit'
 import { canonicalCheckNumber } from '@/lib/import/normalise'
 import { PORTAL_RELEASES_MODE } from '@/lib/sync/modes'
-import type { PortalRelease, PortalReleasesReader, RejectedRelease } from '@/lib/integrations/portal/releases'
+import type { PortalRelease, PortalReleaseStatus, PortalReleasesReader, RejectedRelease } from '@/lib/integrations/portal/releases'
 
 /**
  * THE PORTAL RELEASES READ (spec 2026-10-19-portal-releases-read-back-design.md; rules 5 and 12 as
@@ -14,10 +14,12 @@ import type { PortalRelease, PortalReleasesReader, RejectedRelease } from '@/lib
  * portal already has the release. Rows this app itself sent (`releasedByService`) are skipped as the
  * echo.
  *
- * The look list lasts (final review 2026-10-19): each item is one SYSTEM audit row
- * (`portal_release_needs_look`), written once per (domain, releaseId, kind). Every run re-decides the
- * open NOT_FOUND / AMBIGUOUS items from their stored details, so a check whose APV is linked later
- * is released then. `/admin/portal` lists the open items (listOpenPortalReleaseLooks).
+ * The look list (final review and re-review 2026-10-19): each item is one SYSTEM audit row
+ * (`portal_release_needs_look`). An item is open until a later row for the same (domain, releaseId)
+ * closes it: `released_on_supplier_portal`, `portal_release_look_closed` (re-evaluated and found
+ * already released here, or no longer released on the portal) or `portal_release_look_dismissed`
+ * (a FINANCE_ADMIN, with a reason). Every run re-decides the open NOT_FOUND / AMBIGUOUS items on the
+ * portal's CURRENT state of each release (the reader's `statuses`), never on the stored copy.
  */
 type Db = PrismaClient | Prisma.TransactionClient
 const TX_OPTIONS = { timeout: 30_000, maxWait: 15_000 } as const
@@ -28,13 +30,22 @@ const DEAD = ['CANCELLED', 'VOIDED'] as const
 /** Re-decided each run: open NOT_FOUND / AMBIGUOUS items from this many days back, at most this many. */
 const REEVALUATE_DAYS = 60
 const REEVALUATE_MAX = 200
+/** A portal call never waits longer than this, nor past the deadline. */
+const CALL_TIMEOUT_MS = 15_000
+/** No new call to the portal starts this close to the deadline. */
+const NO_NEW_CALL_WITHIN_MS = 5_000
 
 export const PORTAL_RELEASES_FIRST_SINCE = new Date('2026-10-19T00:00:00+08:00')
 export const RELEASED_ON_PORTAL_ACTION = 'released_on_supplier_portal'
 export const NEEDS_LOOK_ACTION = 'portal_release_needs_look'
 export const RECEIPT_FROM_PORTAL_ACTION = 'receipt_from_supplier_portal'
+export const LOOK_CLOSED_ACTION = 'portal_release_look_closed'
+export const LOOK_DISMISSED_ACTION = 'portal_release_look_dismissed'
+/** Rows that close a look item written before them for the same (domain, releaseId). */
+const CLOSING_ACTIONS = [RELEASED_ON_PORTAL_ACTION, LOOK_CLOSED_ACTION, LOOK_DISMISSED_ACTION] as const
 
 export type LookKind = 'DEAD_HERE' | 'NOT_FOUND' | 'AMBIGUOUS' | 'BEFORE_GO_LIVE'
+export type LookCloseOutcome = 'ALREADY' | 'RECEIPT' | 'NO_LONGER_RELEASED_ON_PORTAL'
 export type Look = {
   kind: LookKind; domain: PortalRelease['domain']; releaseId: number; checkNumber: string; apvNumbers: string[]
   detail: string; checkId: string | null
@@ -42,6 +53,8 @@ export type Look = {
 export type PortalReleasesResult = {
   syncRunId: string; read: number; echo: number; released: number; healed: number; already: number; receipts: number
   look: Look[]; rejected: RejectedRelease[]; errors: number; stoppedAtDeadline: boolean; watermark: Date | null
+  /** Re-evaluation: items closed, errors (never holding the watermark), and why it was skipped, if it was. */
+  closed: number; reevalErrors: number; reevalSkipped: string | null
 }
 
 export async function lastPortalReleasesWatermark(db: Db): Promise<Date | null> {
@@ -52,6 +65,8 @@ export async function lastPortalReleasesWatermark(db: Db): Promise<Date | null> 
 }
 
 const dayDate = (d: string) => new Date(`${d}T00:00:00.000Z`)
+const keyOf = (k: { domain: string; releaseId: number }) => `${k.domain}:${k.releaseId}`
+const errText = (e: unknown, n: number) => (e instanceof Error ? e.message.slice(0, n) : String(e).slice(0, n))
 
 /** A release recorded before releasing moved to the portal (I4): never replayed onto a check here. */
 function beforeGoLive(r: PortalRelease): boolean {
@@ -59,23 +74,28 @@ function beforeGoLive(r: PortalRelease): boolean {
   return at !== null && at < PORTAL_RELEASES_FIRST_SINCE
 }
 
-function message(
-  look: readonly Look[], problems: readonly string[], echo: number,
-  extra: { healed: number; receipts: number; rejected: readonly RejectedRelease[]; stopped: boolean },
-): string | null {
+type MessageExtra = {
+  healed: number; receipts: number; rejected: readonly RejectedRelease[]; stopped: boolean
+  closed: number; reevalErrors: number; reevalProblems: readonly string[]; reevalSkipped: string | null
+}
+
+function message(look: readonly Look[], problems: readonly string[], echo: number, x: MessageExtra): string | null {
   const parts: string[] = []
-  if (extra.stopped) parts.push('stopped at the time budget; the rest is read next run')
+  if (x.stopped) parts.push('stopped at the time budget; the rest is read next run')
   if (echo) parts.push(`${echo} echo (sent from here) skipped`)
-  if (extra.healed) parts.push(`${extra.healed} earlier look item(s) released`)
-  if (extra.receipts) parts.push(`${extra.receipts} OR(s) taken onto checks already released`)
+  if (x.healed) parts.push(`${x.healed} earlier look item(s) released`)
+  if (x.closed) parts.push(`${x.closed} look item(s) closed`)
+  if (x.receipts) parts.push(`${x.receipts} OR(s) taken onto checks already released`)
   for (const kind of ['DEAD_HERE', 'NOT_FOUND', 'AMBIGUOUS', 'BEFORE_GO_LIVE'] as const) {
     const xs = look.filter((l) => l.kind === kind)
     if (xs.length) parts.push(`${kind} ${xs.length}: ${xs.slice(0, 10).map((l) => l.checkNumber).join(', ')}`)
   }
-  if (extra.rejected.length) {
-    parts.push(`rejected ${extra.rejected.length}: ${extra.rejected.slice(0, 10).map((x) => `${x.domain}#${x.releaseId}`).join(', ')}`)
+  if (x.rejected.length) {
+    parts.push(`rejected ${x.rejected.length}: ${x.rejected.slice(0, 10).map((r) => `${r.domain}#${r.releaseId}`).join(', ')}`)
   }
   if (problems.length) parts.push(`errors: ${[...new Set(problems)].slice(0, 5).join(' | ')}`)
+  if (x.reevalSkipped) parts.push(`re-evaluation skipped: ${x.reevalSkipped}`)
+  if (x.reevalErrors) parts.push(`re-evaluation errors ${x.reevalErrors}: ${[...new Set(x.reevalProblems)].slice(0, 3).join(' | ')}`)
   return parts.length ? parts.join(' · ').slice(0, 1000) : null
 }
 
@@ -86,46 +106,37 @@ export async function runPortalReleasesSync(
   const since = args.since ?? PORTAL_RELEASES_FIRST_SINCE
   const run = await db.syncRun.create({ data: { mode: PORTAL_RELEASES_MODE, startedAt: args.now, trigger: args.trigger } })
   let read = 0, echo = 0, released = 0, healed = 0, already = 0, receipts = 0, errors = 0
+  let closed = 0, reevalErrors = 0
+  let reevalSkipped: string | null = null
   let stopped = false
   const look: Look[] = []
   const rejected: RejectedRelease[] = []
   const problems: string[] = []
+  const reevalProblems: string[] = []
   const seenKeys = new Set<string>()
   let maxSeen: Date | null = null
-  const pastDeadline = () => !!args.deadline && Date.now() >= args.deadline.getTime()
+  const left = () => (args.deadline ? args.deadline.getTime() - Date.now() : Infinity)
+  const pastDeadline = () => left() <= 0
+  // min(15 s, the time left); never below 1 s, so a call made is a real attempt.
+  const timeoutMs = () => Math.max(1_000, Math.min(CALL_TIMEOUT_MS, left()))
 
   const finish = (watermark: Date | null) => db.syncRun.update({
     where: { id: run.id },
     data: {
       finishedAt: new Date(), imported: released, updated: already, staged: look.length, errors, watermark,
-      message: message(look, problems, echo, { healed, receipts, rejected, stopped }),
+      message: message(look, problems, echo, { healed, receipts, rejected, stopped, closed, reevalErrors, reevalProblems, reevalSkipped }),
     },
   })
-
-  const apply = async (r: PortalRelease, fromLook: boolean) => {
-    try {
-      const outcome = await applyOne(db, r)
-      if (outcome === 'RELEASED') { released++; if (fromLook) healed++ }
-      else if (outcome === 'ALREADY') already++
-      else if (outcome === 'RECEIPT') { already++; receipts++ }
-      else {
-        await recordLook(db, outcome, r)
-        if (!fromLook) look.push(outcome)
-      }
-    } catch (e) {
-      errors++
-      problems.push(`${r.checkNumber}: ${e instanceof Error ? e.message.slice(0, 200) : String(e)}`)
-    }
-  }
 
   let cursor = since
   try {
     let first = true
     pages: for (;;) {
-      // Between pages (I3). The first page is always read, so every run makes progress.
-      if (!first && pastDeadline()) { stopped = true; break }
+      // Between pages (I3): no new page within 5 s of the deadline. The first page is always read,
+      // so every run makes progress.
+      if (!first && left() < NO_NEW_CALL_WITHIN_MS) { stopped = true; break }
       first = false
-      const page = await args.reader.list(cursor, PAGE)
+      const page = await args.reader.list(cursor, PAGE, { timeoutMs: timeoutMs() })
       rejected.push(...(page.rejected ?? []))
       for (let i = 0; i < page.rows.length; i++) {
         // Between rows (I3). Rows arrive in updatedAt order, so the watermark from the rows done so
@@ -135,45 +146,91 @@ export async function runPortalReleasesSync(
         read++
         if (!maxSeen || r.updatedAt > maxSeen) maxSeen = r.updatedAt
         if (r.releasedByService) { echo++; continue }
-        seenKeys.add(`${r.domain}:${r.releaseId}`)
-        await apply(r, false)
+        seenKeys.add(keyOf(r))
+        try {
+          const outcome = await applyOne(db, r)
+          if (!('t' in outcome)) { await recordLook(db, outcome, r); look.push(outcome) }
+          else if (outcome.t === 'RELEASED') released++
+          else { already++; if (outcome.t === 'RECEIPT') receipts++ }
+        } catch (e) {
+          errors++
+          problems.push(`${r.checkNumber}: ${errText(e, 200)}`)
+        }
       }
       if (!page.next) break
       cursor = page.next
     }
   } catch (e) {
     errors++
-    problems.push(e instanceof Error ? e.message.slice(0, 300) : String(e))
+    problems.push(errText(e, 300))
     try { await finish(null) } catch { /* keep the original error */ }
     throw e
   }
 
-  // The open NOT_FOUND / AMBIGUOUS items of earlier runs, re-decided from their stored details (I2).
+  // The open NOT_FOUND / AMBIGUOUS items of earlier runs (I2), re-decided on the portal's CURRENT state
+  // of each release (re-review B). Nothing here counts towards `errors`, so nothing here holds the
+  // main read's watermark: a skipped or failed re-evaluation is simply tried again next run.
   if (!stopped) {
     try {
-      const open = await openLooks(db, {
+      const open = (await openLooks(db, {
         from: new Date(args.now.getTime() - REEVALUATE_DAYS * 86_400_000), kinds: ['NOT_FOUND', 'AMBIGUOUS'], limit: REEVALUATE_MAX,
-      })
-      for (const item of open) {
+      })).filter((i) => !seenKeys.has(keyOf(i)))
+      let current: Map<string, PortalReleaseStatus> | null = null
+      if (open.length) {
+        if (!args.reader.statuses) reevalSkipped = 'the reader cannot ask the portal for current statuses'
+        else if (left() < NO_NEW_CALL_WITHIN_MS) reevalSkipped = 'too close to the time budget'
+        else {
+          try {
+            const st = await args.reader.statuses(open.map((i) => ({ domain: i.domain, releaseId: i.releaseId })), { timeoutMs: timeoutMs() })
+            current = new Map(st.map((s) => [keyOf(s), s]))
+          } catch (e) {
+            reevalSkipped = `the portal status read failed: ${errText(e, 200)}`
+          }
+        }
+      }
+      for (const item of current ? open : []) {
         if (pastDeadline()) { stopped = true; break }
-        if (seenKeys.has(`${item.domain}:${item.releaseId}`)) continue
-        await apply(releaseFromLook(item), true)
+        const s = current!.get(keyOf(item))
+        if (!s) continue // the portal did not answer for it: left open, asked again next run
+        try {
+          if (s.status !== 'RELEASED') {
+            await closeLook(db, item, 'NO_LONGER_RELEASED_ON_PORTAL', null, s.status)
+            closed++
+            continue
+          }
+          // The CURRENT instant and OR; the stored copy only for what the status read does not carry.
+          const r: PortalRelease = { ...releaseFromLook(item), releasedAt: s.releasedAt, orNumber: s.orNumber, orDate: s.orDate }
+          const outcome = await applyOne(db, r)
+          if (!('t' in outcome)) await recordLook(db, outcome, r)
+          else if (outcome.t === 'RELEASED') { released++; healed++ }
+          else {
+            if (outcome.t === 'RECEIPT') receipts++
+            await closeLook(db, item, outcome.t, outcome.checkId, s.status)
+            closed++
+          }
+        } catch (e) {
+          reevalErrors++
+          reevalProblems.push(`${item.checkNumber}: ${errText(e, 200)}`)
+        }
       }
     } catch (e) {
-      errors++
-      problems.push(`re-evaluating look items: ${e instanceof Error ? e.message.slice(0, 200) : String(e)}`)
+      reevalErrors++
+      reevalProblems.push(errText(e, 200))
     }
   }
 
   const watermark = errors > 0 || !maxSeen ? null : new Date(maxSeen.getTime() - OVERLAP_MS)
   await finish(watermark)
-  return { syncRunId: run.id, read, echo, released, healed, already, receipts, look, rejected, errors, stoppedAtDeadline: stopped, watermark }
+  return {
+    syncRunId: run.id, read, echo, released, healed, already, receipts, look, rejected, errors,
+    stoppedAtDeadline: stopped, watermark, closed, reevalErrors, reevalSkipped,
+  }
 }
 
 const MAX_TRIES = 3
-type Outcome = 'RELEASED' | 'ALREADY' | 'RECEIPT' | Look
+type Done = { t: 'RELEASED' | 'ALREADY' | 'RECEIPT'; checkId: string }
 
-async function applyOne(db: PrismaClient, r: PortalRelease): Promise<Outcome> {
+async function applyOne(db: PrismaClient, r: PortalRelease): Promise<Done | Look> {
   const number = canonicalCheckNumber(r.checkNumber) ?? r.checkNumber
   const apvs = new Set(r.apvNumbers.map((a) => a.toUpperCase()))
   const pre = beforeGoLive(r)
@@ -202,8 +259,8 @@ async function applyOne(db: PrismaClient, r: PortalRelease): Promise<Outcome> {
     const c = usable[0]
     if (c.status === 'RELEASED') {
       // I5: an OR typed on the portal after the release, onto a check with no receipt only (rule 11).
-      if (pre || c.orNumber || !r.orNumber) return 'ALREADY'
-      return (await takeReceipt(db, c.id, r)) ? 'RECEIPT' : 'ALREADY'
+      if (pre || c.orNumber || !r.orNumber) return { t: 'ALREADY', checkId: c.id }
+      return { t: (await takeReceipt(db, c.id, r)) ? 'RECEIPT' : 'ALREADY', checkId: c.id }
     }
     if (!(LIVE as readonly string[]).includes(c.status)) return lookOf('DEAD_HERE', `${c.status} here, released on the portal ${r.releaseDate ?? ''}`.trim(), c.id)
     if (pre) return preLook()
@@ -232,7 +289,7 @@ async function applyOne(db: PrismaClient, r: PortalRelease): Promise<Outcome> {
       })
       return true
     }, TX_OPTIONS)
-    if (done) return 'RELEASED'
+    if (done) return { t: 'RELEASED', checkId: c.id }
   }
   throw new Error(`release of ${number} raced ${MAX_TRIES} times; will be re-read`)
 }
@@ -254,20 +311,30 @@ async function takeReceipt(db: PrismaClient, checkId: string, r: PortalRelease):
   }, TX_OPTIONS)
 }
 
-/** One audit row per (domain, releaseId, kind): an overlap replay or a re-evaluation writes nothing new. */
+const releaseKeyWhere = (k: { domain: string; releaseId: number }): Prisma.AuditLogWhereInput[] => [
+  { details: { path: ['domain'], equals: k.domain } },
+  { details: { path: ['releaseId'], equals: k.releaseId } },
+]
+
+/**
+ * One audit row per (domain, releaseId, kind) while it is open: an overlap replay or a re-evaluation
+ * writes nothing new. A release whose item was closed (released, closed) and comes back is listed
+ * again; a dismissed release is never listed again.
+ */
 async function recordLook(db: PrismaClient, l: Look, r: PortalRelease): Promise<void> {
-  const exists = await db.auditLog.findFirst({
-    where: {
-      action: NEEDS_LOOK_ACTION,
-      AND: [
-        { details: { path: ['domain'], equals: l.domain } },
-        { details: { path: ['releaseId'], equals: l.releaseId } },
-        { details: { path: ['kind'], equals: l.kind } },
-      ],
-    },
-    select: { id: true },
+  const key = releaseKeyWhere(l)
+  if (await db.auditLog.findFirst({ where: { action: LOOK_DISMISSED_ACTION, AND: key }, select: { id: true } })) return
+  const last = await db.auditLog.findFirst({
+    where: { action: NEEDS_LOOK_ACTION, AND: [...key, { details: { path: ['kind'], equals: l.kind } }] },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { createdAt: true },
   })
-  if (exists) return
+  if (last) {
+    const closedSince = await db.auditLog.findFirst({
+      where: { action: { in: [RELEASED_ON_PORTAL_ACTION, LOOK_CLOSED_ACTION] }, AND: key, createdAt: { gt: last.createdAt } },
+      select: { id: true },
+    })
+    if (!closedSince) return
+  }
   await writeAudit(db, {
     ...(l.kind === 'DEAD_HERE' && l.checkId ? { checkId: l.checkId } : {}),
     actorType: 'SYSTEM', action: NEEDS_LOOK_ACTION,
@@ -280,6 +347,18 @@ async function recordLook(db: PrismaClient, l: Look, r: PortalRelease): Promise<
   })
 }
 
+/** Closes an open item (re-review A/B): one SYSTEM `portal_release_look_closed` row. */
+async function closeLook(db: PrismaClient, item: OpenLook, outcome: LookCloseOutcome, checkId: string | null, portalStatus: string | null): Promise<void> {
+  await writeAudit(db, {
+    ...(checkId ?? item.checkId ? { checkId: (checkId ?? item.checkId)! } : {}),
+    actorType: 'SYSTEM', action: LOOK_CLOSED_ACTION,
+    details: { domain: item.domain, releaseId: item.releaseId, outcome, kind: item.kind, lookId: item.id, portalStatus },
+    remarks: outcome === 'NO_LONGER_RELEASED_ON_PORTAL'
+      ? `Portal release no longer RELEASED on the portal (${portalStatus ?? 'not found'}); taken off the look list.`
+      : 'Already released here when re-evaluated; taken off the look list.',
+  })
+}
+
 export type OpenLook = {
   id: string; createdAt: Date; checkId: string | null; kind: LookKind; domain: PortalRelease['domain']; releaseId: number
   checkNumber: string; apvNumbers: string[]; releaseDate: string | null; releasedAt: string | null
@@ -287,22 +366,27 @@ export type OpenLook = {
 }
 
 /**
- * The open look items: the newest item per (domain, releaseId), when no `released_on_supplier_portal`
- * row for the same release was written after it. Newest first.
+ * The open look items: the newest item per (domain, releaseId), when no closing row
+ * (CLOSING_ACTIONS) for the same release was written after it. Newest first.
  */
-async function openLooks(db: Db, args: { from?: Date; kinds?: readonly LookKind[]; limit: number }): Promise<OpenLook[]> {
+async function openLooks(
+  db: Db, args: { from?: Date; kinds?: readonly LookKind[]; key?: { domain: string; releaseId: number }; limit: number },
+): Promise<OpenLook[]> {
   const from = args.from ? Prisma.sql`and l."createdAt" >= ${args.from}` : Prisma.empty
+  const key = args.key
+    ? Prisma.sql`and l.details->>'domain' = ${args.key.domain} and l.details->>'releaseId' = ${String(args.key.releaseId)}`
+    : Prisma.empty
   const kinds = args.kinds?.length ? Prisma.sql`and x.details->>'kind' in (${Prisma.join([...args.kinds])})` : Prisma.empty
   const rows = await db.$queryRaw<{ id: string; createdAt: Date; checkId: string | null; details: Prisma.JsonValue }[]>`
     select x.id, x."createdAt", x."checkId", x.details from (
       select distinct on (l.details->>'domain', l.details->>'releaseId') l.id, l."createdAt", l."checkId", l.details
       from "AuditLog" l
-      where l.action = ${NEEDS_LOOK_ACTION} ${from}
+      where l.action = ${NEEDS_LOOK_ACTION} ${from} ${key}
       order by l.details->>'domain', l.details->>'releaseId', l."createdAt" desc, l.id desc
     ) x
     where not exists (
       select 1 from "AuditLog" r
-      where r.action = ${RELEASED_ON_PORTAL_ACTION}
+      where r.action in (${Prisma.join([...CLOSING_ACTIONS])})
         and r.details->>'domain' = x.details->>'domain'
         and r.details->>'releaseId' = x.details->>'releaseId'
         and r."createdAt" > x."createdAt"
@@ -326,6 +410,33 @@ async function openLooks(db: Db, args: { from?: Date; kinds?: readonly LookKind[
 /** `/admin/portal`'s list: every open look item, across runs, newest first. */
 export function listOpenPortalReleaseLooks(db: Db, limit = 200): Promise<OpenLook[]> {
   return openLooks(db, { limit })
+}
+
+/**
+ * A FINANCE_ADMIN takes an open item off the list, with a reason (re-review A). The caller checks the
+ * role; this checks the item is still open and writes one USER `portal_release_look_dismissed` row.
+ * A dismissed item is never re-evaluated and never listed again.
+ */
+export async function dismissPortalReleaseLook(
+  db: PrismaClient, args: { lookId: string; reason: string; userId: string },
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const reason = args.reason.trim()
+  if (!reason) return { ok: false, message: 'A reason is required to dismiss an item.' }
+  if (reason.length > 500) return { ok: false, message: 'The reason is longer than 500 characters.' }
+  const row = await db.auditLog.findUnique({ where: { id: args.lookId } })
+  if (!row || row.action !== NEEDS_LOOK_ACTION) return { ok: false, message: 'That item is not on the list.' }
+  const d = (row.details ?? {}) as Record<string, unknown>
+  const domain = typeof d.domain === 'string' ? d.domain : ''
+  const releaseId = Number(d.releaseId)
+  const open = await openLooks(db, { key: { domain, releaseId }, limit: 1 })
+  if (open.length === 0 || open[0].id !== row.id) return { ok: false, message: 'That item is no longer open.' }
+  await writeAudit(db, {
+    ...(row.checkId ? { checkId: row.checkId } : {}),
+    actorType: 'USER', userId: args.userId, action: LOOK_DISMISSED_ACTION,
+    details: { domain, releaseId, kind: open[0].kind, reason, lookId: row.id },
+    remarks: `Portal release look item dismissed: ${reason}`,
+  })
+  return { ok: true }
 }
 
 function releaseFromLook(l: OpenLook): PortalRelease {
