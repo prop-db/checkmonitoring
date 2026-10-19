@@ -3,8 +3,10 @@ import { testDb, resetDb } from '../helpers/db'
 import { makeCheck } from '../helpers/factory'
 import {
   runPortalReleasesSync, lastPortalReleasesWatermark, runScheduledPortalReleases,
-  RELEASED_ON_PORTAL_ACTION, PORTAL_RELEASES_FIRST_SINCE,
+  RELEASED_ON_PORTAL_ACTION, PORTAL_RELEASES_FIRST_SINCE, NEEDS_LOOK_ACTION, RECEIPT_FROM_PORTAL_ACTION,
+  listOpenPortalReleaseLooks,
 } from '@/lib/sync/portal-releases'
+import { queueReleasedForStale } from '@/lib/admin/portal-backlog'
 import type { PortalRelease, PortalReleasesReader } from '@/lib/integrations/portal/releases'
 
 const NOW = new Date('2026-10-19T12:00:00+08:00')
@@ -211,5 +213,182 @@ describe('review round 1', () => {
     await testDb.checkBill.create({ data: { checkId: c.id, apvNumber: 'AP-ST045048', amount: '100.00' } })
     await run([rel()])
     expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('RELEASED')
+  })
+})
+
+describe('final review 2026-10-19', () => {
+  const looks = () => testDb.auditLog.findMany({ where: { action: NEEDS_LOOK_ACTION }, orderBy: { createdAt: 'asc' } })
+
+  it('I1: a check released by the read is never queued RELEASED by the backlog; another RELEASED check still is', async () => {
+    const viaPortal = await makeCheck({ status: 'SIGNED', checkNumber: '6000354897', apvNumbers: ['AP-ST045048'] })
+    const other = await makeCheck({ status: 'RELEASED', checkNumber: '6000354898', apvNumbers: ['AP-ST045049'], releasedAt: new Date('2026-10-10T02:00:00Z') })
+    await run([rel()])
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: viaPortal.id } })).status).toBe('RELEASED')
+    const q = await queueReleasedForStale(testDb, { now: NOW, apply: true })
+    expect(q.cheques.map((c) => c.id)).toEqual([other.id])
+    expect(q.queued).toBe(1)
+    expect(await testDb.portalEvent.count({ where: { checkId: viaPortal.id } })).toBe(0)
+    expect(await testDb.portalEvent.count({ where: { checkId: other.id, kind: 'RELEASED' } })).toBe(1)
+  })
+
+  it('I2: each look item is one SYSTEM audit row, written once per release and kind', async () => {
+    const dead = await makeCheck({ status: 'CANCELLED', checkNumber: '6000000002', apvNumbers: ['AP-2'] })
+    const rows = [
+      rel({ releaseId: 10, checkNumber: '6000000001', apvNumbers: ['AP-1'] }),
+      rel({ releaseId: 11, domain: 'BROKER', checkNumber: '6000000002', apvNumbers: ['AP-2'] }),
+    ]
+    await run(rows)
+    await run(rows)
+    const kindOf = (x: { details: unknown }) => (x.details as { kind: string }).kind
+    const xs = (await looks()).sort((p, q) => kindOf(p).localeCompare(kindOf(q)))
+    expect(xs).toHaveLength(2)
+    expect(xs.map((x) => [x.actorType, x.checkId, kindOf(x)])).toEqual([
+      ['SYSTEM', dead.id, 'DEAD_HERE'], ['SYSTEM', null, 'NOT_FOUND'],
+    ])
+    expect(xs[0].details).toMatchObject({
+      kind: 'DEAD_HERE', domain: 'BROKER', releaseId: 11, checkNumber: '6000000002', apvNumbers: ['AP-2'],
+      releaseDate: '2026-10-19', releasedAt: '2026-10-19T02:30:00.000Z', orNumber: '4852', orDate: '2026-10-19', releasedByName: 'LUSIE',
+    })
+  })
+
+  it('I2: a NOT_FOUND heals on a later run once the APV is linked, and leaves the open list', async () => {
+    const c = await makeCheck({ status: 'SIGNED', checkNumber: '6000354897', apvNumbers: ['AP-OTHER'] })
+    const first = await run([rel()])
+    expect(first.look.map((l) => l.kind)).toEqual(['NOT_FOUND'])
+    expect((await listOpenPortalReleaseLooks(testDb)).map((l) => [l.kind, l.checkNumber])).toEqual([['NOT_FOUND', '6000354897']])
+    await testDb.check.update({ where: { id: c.id }, data: { apvNumbers: ['AP-OTHER', 'AP-ST045048'] } })
+    const second = await run([])
+    expect(second).toMatchObject({ released: 1, healed: 1, errors: 0 })
+    expect(await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).toMatchObject({
+      status: 'RELEASED', releasedAt: new Date('2026-10-19T02:30:00Z'), orNumber: '4852', receiptType: null, crNumber: null,
+    })
+    expect(await listOpenPortalReleaseLooks(testDb)).toEqual([])
+    expect((await testDb.syncRun.findUniqueOrThrow({ where: { id: second.syncRunId } })).message).toContain('1 earlier look item(s) released')
+  })
+
+  it('I2: the open list keeps the newest item per release, newest first, with what Finance needs', async () => {
+    await makeCheck({ status: 'SIGNED', checkNumber: '1791379613', apvNumbers: ['AP-NEW'] })
+    await run([rel({ releaseId: 20, checkNumber: '1791379613', apvNumbers: ['AP-NONE'] })])
+    await makeCheck({ status: 'VOIDED', checkNumber: '6000000003', apvNumbers: ['AP-3'] })
+    await run([rel({ releaseId: 21, checkNumber: '6000000003', apvNumbers: ['AP-3'] })])
+    await makeCheck({ status: 'SIGNED', checkNumber: '1791379613', apvNumbers: ['AP-NONE'] })
+    await makeCheck({ status: 'SIGNED', checkNumber: '1791379613', apvNumbers: ['AP-NONE'] })
+    await run([]) // re-evaluates release 20: now two checks pay AP-NONE
+    const open = await listOpenPortalReleaseLooks(testDb)
+    expect(open.map((l) => [l.kind, l.releaseId])).toEqual([['AMBIGUOUS', 20], ['DEAD_HERE', 21]])
+    expect(open[0]).toMatchObject({ checkNumber: '1791379613', releaseDate: '2026-10-19', orNumber: '4852', releasedByName: 'LUSIE', domain: 'LOCAL' })
+  })
+
+  it('I3: a deadline reached after page 1 stops before page 2, watermark from page 1', async () => {
+    await makeCheck({ status: 'SIGNED', checkNumber: '6000000011', apvNumbers: ['AP-11'] })
+    await makeCheck({ status: 'SIGNED', checkNumber: '6000000013', apvNumbers: ['AP-13'] })
+    const t1 = new Date('2026-10-19T03:00:00Z')
+    const seen: Date[] = []
+    const pages = [
+      { rows: [rel({ releaseId: 1, checkNumber: '6000000011', apvNumbers: ['AP-11'], updatedAt: t1 })], next: t1 },
+      { rows: [rel({ releaseId: 2, checkNumber: '6000000013', apvNumbers: ['AP-13'], updatedAt: new Date('2026-10-19T04:00:00Z') })], next: null },
+    ]
+    const r: PortalReleasesReader = { async list(since) { seen.push(since); return pages.shift()! } }
+    const res = await runPortalReleasesSync(testDb, { reader: r, since: null, now: NOW, trigger: 'SCHEDULED', deadline: new Date(0) })
+    expect(seen).toHaveLength(1)
+    expect(res).toMatchObject({ read: 1, released: 1, stoppedAtDeadline: true, errors: 0, watermark: new Date('2026-10-19T02:50:00Z') })
+    const row = await testDb.syncRun.findUniqueOrThrow({ where: { id: res.syncRunId } })
+    expect(row.message).toContain('stopped at the time budget')
+    expect(row.watermark).toEqual(new Date('2026-10-19T02:50:00Z'))
+  })
+
+  it('I3: a deadline stops between rows of one page', async () => {
+    await makeCheck({ status: 'SIGNED', checkNumber: '6000000011', apvNumbers: ['AP-11'] })
+    const b = await makeCheck({ status: 'SIGNED', checkNumber: '6000000012', apvNumbers: ['AP-12'] })
+    const res = await runPortalReleasesSync(testDb, {
+      reader: reader([rel({ releaseId: 1, checkNumber: '6000000011', apvNumbers: ['AP-11'] }), rel({ releaseId: 2, checkNumber: '6000000012', apvNumbers: ['AP-12'] })]),
+      since: null, now: NOW, trigger: 'SCHEDULED', deadline: new Date(0),
+    })
+    expect(res).toMatchObject({ read: 1, released: 1, stoppedAtDeadline: true })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: b.id } })).status).toBe('SIGNED')
+  })
+
+  it('I4: a release from before go-live is never applied; listed BEFORE_GO_LIVE and not re-evaluated', async () => {
+    const a = await makeCheck({ status: 'SIGNED', checkNumber: '6000000021', apvNumbers: ['AP-21'] })
+    const b = await makeCheck({ status: 'SIGNED', checkNumber: '6000000022', apvNumbers: ['AP-22'] })
+    const res = await run([
+      rel({ releaseId: 1, checkNumber: '6000000021', apvNumbers: ['AP-21'], releasedAt: new Date('2026-10-18T10:00:00Z') }),
+      rel({ releaseId: 2, checkNumber: '6000000022', apvNumbers: ['AP-22'], releasedAt: null, releaseDate: '2026-10-18' }),
+      rel({ releaseId: 3, checkNumber: '6000000023', apvNumbers: ['AP-23'], releasedAt: new Date('2026-09-01T00:00:00Z') }),
+    ])
+    expect(res.released).toBe(0)
+    expect(res.look.map((l) => l.kind)).toEqual(['BEFORE_GO_LIVE', 'BEFORE_GO_LIVE', 'BEFORE_GO_LIVE'])
+    await run([])
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('SIGNED')
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: b.id } })).status).toBe('SIGNED')
+    expect((await looks()).map((x) => (x.details as { kind: string }).kind)).toEqual(['BEFORE_GO_LIVE', 'BEFORE_GO_LIVE', 'BEFORE_GO_LIVE'])
+    // The first instant of go-live (00:00 Manila) is not before it.
+    const c = await makeCheck({ status: 'SIGNED', checkNumber: '6000000024', apvNumbers: ['AP-24'] })
+    await run([rel({ releaseId: 4, checkNumber: '6000000024', apvNumbers: ['AP-24'], releasedAt: PORTAL_RELEASES_FIRST_SINCE })])
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('RELEASED')
+  })
+
+  it('I5: an OR typed on the portal after the release reaches a RELEASED check with none, once', async () => {
+    const c = await makeCheck({ status: 'RELEASED', checkNumber: '6000354897', apvNumbers: ['AP-ST045048'] })
+    const res = await run([rel()])
+    expect(res).toMatchObject({ already: 1, receipts: 1, released: 0 })
+    expect(await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).toMatchObject({
+      status: 'RELEASED', orNumber: '4852', orDate: new Date('2026-10-19T00:00:00Z'), receiptType: null, crNumber: null,
+    })
+    const audits = await testDb.auditLog.findMany({ where: { checkId: c.id, action: RECEIPT_FROM_PORTAL_ACTION } })
+    expect(audits).toHaveLength(1)
+    expect(audits[0]).toMatchObject({ actorType: 'SYSTEM' })
+    expect(audits[0].details).toMatchObject({ releaseId: 1, domain: 'LOCAL', orNumber: '4852' })
+    const again = await run([rel({ orNumber: '9999' })])
+    expect(again).toMatchObject({ already: 1, receipts: 0 })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).orNumber).toBe('4852')
+    expect(await testDb.auditLog.count({ where: { action: RECEIPT_FROM_PORTAL_ACTION } })).toBe(1)
+  })
+
+  it('I5: a RELEASED check that has a receipt keeps it (rule 11)', async () => {
+    const c = await makeCheck({ status: 'RELEASED', checkNumber: '6000354897', apvNumbers: ['AP-ST045048'] })
+    await testDb.check.update({ where: { id: c.id }, data: { orNumber: '1111', receiptType: 'CR' } })
+    const res = await run([rel()])
+    expect(res).toMatchObject({ already: 1, receipts: 0 })
+    expect(await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).toMatchObject({ orNumber: '1111', receiptType: 'CR', crNumber: null })
+    expect(await testDb.auditLog.count({ where: { action: RECEIPT_FROM_PORTAL_ACTION } })).toBe(0)
+  })
+
+  it('matching sets CANCELLED / VOIDED aside first: a live re-issue on the same number and APV is released', async () => {
+    await makeCheck({ status: 'CANCELLED', checkNumber: '6000354897', apvNumbers: ['AP-ST045048'] })
+    const live = await makeCheck({ status: 'SIGNED', checkNumber: '6000354897', apvNumbers: ['AP-ST045048'] })
+    const res = await run([rel()])
+    expect(res).toMatchObject({ released: 1, look: [] })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: live.id } })).status).toBe('RELEASED')
+  })
+
+  it('matching: dead + RELEASED is ALREADY; two dead are DEAD_HERE', async () => {
+    await makeCheck({ status: 'VOIDED', checkNumber: '6000000031', apvNumbers: ['AP-31'] })
+    await makeCheck({ status: 'RELEASED', checkNumber: '6000000031', apvNumbers: ['AP-31'] })
+    await makeCheck({ status: 'VOIDED', checkNumber: '6000000032', apvNumbers: ['AP-32'] })
+    await makeCheck({ status: 'CANCELLED', checkNumber: '6000000032', apvNumbers: ['AP-32'] })
+    const res = await run([
+      rel({ releaseId: 1, checkNumber: '6000000031', apvNumbers: ['AP-31'], orNumber: null }),
+      rel({ releaseId: 2, checkNumber: '6000000032', apvNumbers: ['AP-32'] }),
+    ])
+    expect(res).toMatchObject({ already: 1, released: 0 })
+    expect(res.look.map((l) => [l.kind, l.checkNumber])).toEqual([['DEAD_HERE', '6000000032']])
+  })
+
+  it('names rejected rows in the run message', async () => {
+    const r: PortalReleasesReader = { async list() { return { rows: [], next: null, rejected: [{ releaseId: '12', domain: 'LOCAL' }] } } }
+    const res = await runPortalReleasesSync(testDb, { reader: r, since: null, now: NOW, trigger: 'MANUAL' })
+    expect(res.rejected).toEqual([{ releaseId: '12', domain: 'LOCAL' }])
+    expect((await testDb.syncRun.findUniqueOrThrow({ where: { id: res.syncRunId } })).message).toContain('rejected 1: LOCAL#12')
+  })
+
+  it('runScheduledPortalReleases passes the deadline through', async () => {
+    const seen: Date[] = []
+    const pages = [{ rows: [rel({ checkNumber: '1', apvNumbers: ['AP-X'] })], next: new Date('2026-10-19T03:00:00Z') }, { rows: [], next: null }]
+    const out = await runScheduledPortalReleases(testDb, {
+      now: NOW, deadline: new Date(0), reader: () => ({ async list(since) { seen.push(since); return pages.shift()! } }),
+    })
+    expect(out).toMatchObject({ outcome: 'RAN' })
+    expect(seen).toHaveLength(1)
   })
 })
