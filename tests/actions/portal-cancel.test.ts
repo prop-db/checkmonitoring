@@ -31,13 +31,22 @@ describe('CANCELLED portal event', () => {
     expect(after.portalDomain).toBe('BROKER')
   })
 
-  it('an INTERNAL check queues nothing', async () => {
+  it('an INTERNAL check queues a CANCELLED and writes no portal state (ruling 2026-10-19)', async () => {
     const user = await makeUser('FINANCE_ADMIN')
-    const check = await makeCheck({ status: 'SIGNED', eligibility: 'INTERNAL' })
+    const check = await makeCheck({ status: 'SIGNED', eligibility: 'INTERNAL', apvNumbers: ['AP-ST000009'] })
     await cancelCheck(testDb, { checkId: check.id, userId: user.id, reason: 'x', now: NOW })
-    expect(await testDb.portalEvent.count({ where: { checkId: check.id } })).toBe(0)
+    const ev = await testDb.portalEvent.findFirstOrThrow({ where: { checkId: check.id } })
+    expect(ev.kind).toBe('CANCELLED')
     const after = await testDb.check.findUniqueOrThrow({ where: { id: check.id } })
     expect(after.portalSyncStatus).toBe('NOT_APPLICABLE')
+    expect(after.portalDomain).toBeNull()
+  })
+
+  it('voidCheck queues a CANCELLED for an INTERNAL check too', async () => {
+    const check = await makeCheck({ status: 'RELEASED', eligibility: 'INTERNAL', apvNumbers: ['AP-ST000010'] })
+    await voidCheck(testDb, { checkId: check.id, reason: 'Voided in Acumatica', now: NOW })
+    expect((await testDb.portalEvent.findFirstOrThrow({ where: { checkId: check.id } })).kind).toBe('CANCELLED')
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: check.id } })).portalSyncStatus).toBe('NOT_APPLICABLE')
   })
 
   it('cancelCheck queues nothing for a routed check with no APV, and says so', async () => {

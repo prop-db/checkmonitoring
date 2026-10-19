@@ -158,6 +158,17 @@ async function portalCanMatch(tx: Prisma.TransactionClient, check: { id: string;
   return portalApvs({ apvNumbers: check.apvNumbers, bills }).length > 0
 }
 
+/**
+ * User ruling 2026-10-19 (Supplier Portal spec 2026-10-19-cm-internal-release-quiet):
+ * an INTERNAL check's release, reversal and cancellation are sent so the portal
+ * stops aging its bill. Only those three kinds, only with an APV to match, and
+ * the check's own portal columns stay untouched (check_internal_never_routes_to_portal):
+ * delivery state lives on the PortalEvent row.
+ */
+async function queuesQuietStatus(tx: Prisma.TransactionClient, check: { id: string; eligibility: string; apvNumbers: string[] }): Promise<boolean> {
+  return check.eligibility === 'INTERNAL' && portalCanMatch(tx, check)
+}
+
 /** The audit keys for the portal decision; none for an unrouted (INTERNAL) cheque. */
 function portalAuditDetails(routed: boolean, pushes: boolean): { portalNotified?: boolean; portalSkipReason?: string } {
   if (!routed) return {}
@@ -456,6 +467,7 @@ export async function reverseRelease(
 
     const route = portalRoute(check.eligibility as Eligibility)
     const pushes = route !== null
+    const quiet = !pushes && await queuesQuietStatus(tx, check)
 
     const updated = await tx.check.update({
       where: { id: check.id },
@@ -472,7 +484,7 @@ export async function reverseRelease(
       },
     })
 
-    if (pushes) {
+    if (pushes || quiet) {
       await tx.portalEvent.create({
         data: {
           checkId: check.id, direction: 'OUT', kind: 'RELEASE_REVERSED', status: 'PENDING',
@@ -637,6 +649,7 @@ export async function markReleased(
 
     const route = portalRoute(check.eligibility as Eligibility)
     const pushes = route !== null
+    const quiet = !pushes && await queuesQuietStatus(tx, check)
     // The receipt columns are written by this release: it carries a reference
     // and the cheque had none. Only then do the amount and file go with them.
     const writesReceipt = !alreadyHasReceipt && hasReceipt(receipt)
@@ -659,7 +672,7 @@ export async function markReleased(
       },
     })
 
-    if (pushes) {
+    if (pushes || quiet) {
       await tx.portalEvent.create({
         data: {
           checkId: check.id,
@@ -1030,6 +1043,7 @@ export async function voidCheck(
 
     const route = portalRoute(check.eligibility as Eligibility)
     const pushes = route !== null && await portalCanMatch(tx, check)
+    const quiet = route === null && await queuesQuietStatus(tx, check)
 
     const updated = await tx.check.update({
       where: { id: check.id },
@@ -1044,7 +1058,7 @@ export async function voidCheck(
       },
     })
 
-    if (pushes) await queueCancelled(tx, check.id, check.checkNumber, args.now)
+    if (pushes || quiet) await queueCancelled(tx, check.id, check.checkNumber, args.now)
 
     // A distinct action, not just distinct remarks: every audit query, filter
     // and screen that groups by action then separates this case for free,
@@ -1233,6 +1247,7 @@ export async function cancelCheck(
 
     const route = portalRoute(check.eligibility as Eligibility)
     const pushes = route !== null && await portalCanMatch(tx, check)
+    const quiet = route === null && await queuesQuietStatus(tx, check)
 
     const updated = await tx.check.update({
       where: { id: check.id },
@@ -1245,7 +1260,7 @@ export async function cancelCheck(
         portalDomain: route,
       },
     })
-    if (pushes) await queueCancelled(tx, check.id, check.checkNumber, args.now)
+    if (pushes || quiet) await queueCancelled(tx, check.id, check.checkNumber, args.now)
     const portal = portalAuditDetails(route !== null, pushes)
     await writeAudit(tx, {
       checkId: check.id, actorType: 'USER', userId: args.userId,

@@ -177,9 +177,14 @@ These are safety properties, not preferences. Each exists because of a specific 
 
 1. **INTERNAL USE ONLY.** No supplier login, supplier dashboard, or supplier-facing page. Suppliers
    never log in here.
-2. **An `INTERNAL` check must never produce a portal call.** Payroll, tax, fund transfers and
-   inter-company payments are classified `INTERNAL` by `lib/domain/eligibility.ts`, and the portal
-   client asserts it again before building any request. Two independent checks, deliberately.
+2. **An `INTERNAL` check never tells a payee anything.** Payroll, tax, fund transfers and
+   inter-company payments are classified `INTERNAL` by `lib/domain/eligibility.ts`. Since user
+   ruling 2026-10-19 (portal spec `2026-10-19-cm-internal-release-quiet-design.md`) the portal is
+   sent their RELEASED, RELEASE_REVERSED and CANCELLED, flagged `internal: true`, so their bills
+   stop aging there; the portal records them silently. MARK_AVAILABLE, REVERT and RECEIPT are never
+   sent, and the check row never carries portal state (`check_internal_never_routes_to_portal`).
+   The actions decide (`queuesQuietStatus`), and the portal client asserts it again
+   (`INTERNAL_PORTAL_KINDS`). Two independent checks, deliberately.
 3. **Acumatica is read-only.** `lib/integrations/acumatica/client.ts` exposes no mutating method,
    and a test asserts it. Read-only by construction, not by callers being careful.
 4. **An import never changes a check's status.** Acumatica does not know whether Finance has signed

@@ -306,15 +306,25 @@ describe('markReleased', () => {
     expect(updated.portalSyncStatus).toBe('PENDING')
   })
 
-  it('queues no portal event when releasing an INTERNAL check', async () => {
+  it('queues a RELEASED event for an INTERNAL check but writes no portal state on it (ruling 2026-10-19)', async () => {
     const user = await makeUser()
-    const check = await makeCheck({ status: 'SIGNED', eligibility: 'INTERNAL' })
+    const check = await makeCheck({ status: 'SIGNED', eligibility: 'INTERNAL', apvNumbers: ['AP-ST044602'] })
     await markReadyForRelease(testDb, { checkId: check.id, userId: user.id, availablePickupDate: PICKUP, now: NOW })
     await markReleased(testDb, { checkId: check.id, userId: user.id, now: NOW })
 
-    expect(await testDb.portalEvent.count({ where: { checkId: check.id } })).toBe(0)
+    const events = await testDb.portalEvent.findMany({ where: { checkId: check.id } })
+    expect(events.map((e) => e.kind)).toEqual(['RELEASED'])
     const updated = await testDb.check.findUniqueOrThrow({ where: { id: check.id } })
     expect(updated.portalSyncStatus).toBe('NOT_APPLICABLE')
+    expect(updated.portalDomain).toBeNull()
+  })
+
+  it('queues nothing for an INTERNAL check with no APV', async () => {
+    const user = await makeUser()
+    const check = await makeCheck({ status: 'SIGNED', eligibility: 'INTERNAL', apvNumbers: [] })
+    await markReadyForRelease(testDb, { checkId: check.id, userId: user.id, availablePickupDate: PICKUP, now: NOW })
+    await markReleased(testDb, { checkId: check.id, userId: user.id, now: NOW })
+    expect(await testDb.portalEvent.count({ where: { checkId: check.id } })).toBe(0)
   })
 })
 

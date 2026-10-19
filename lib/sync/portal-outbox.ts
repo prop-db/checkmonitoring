@@ -385,7 +385,9 @@ export async function deliverPortalEvents(
       let authRefused = false
       try {
         // RULE 2 is asserted inside buildPortalEventBody; an INTERNAL cheque
-        // throws before any request exists and parks below.
+        // sending MARK_AVAILABLE, REVERT or RECEIPT throws before any request
+        // exists and parks below (RELEASED, RELEASE_REVERSED and CANCELLED go
+        // out flagged internal, ruling 2026-10-19).
         const body = buildPortalEventBody({ id: ev.id, kind: ev.kind }, check)
         out.delivered += 1
         const remaining = args.deadline.getTime() - clock()
