@@ -45,6 +45,8 @@ export type PortalEventBody = {
   orNumber?: string
   orDate?: string
   releasedBy?: string
+  // spec 2026-10-19: an INTERNAL check's status event, recorded by the portal without telling anyone.
+  internal?: true
   // RECEIPT (user request 2026-10-01): the amount is a two-decimal string,
   // never a JS number; the file is the scanned receipt, ≤ 3 MB raw (spec 2026-10-02).
   receiptType?: 'OR' | 'CR'
@@ -97,9 +99,19 @@ export function manilaDay(d: Date): string {
   return `${get('year')}-${get('month')}-${get('day')}`
 }
 
+/**
+ * User ruling 2026-10-19 (Supplier Portal spec 2026-10-19-cm-internal-release-quiet):
+ * an INTERNAL check's release, reversal and cancellation decide whether its bill
+ * is paid, so the portal is told those three, flagged `internal`, and records
+ * them without notifying anyone. Every kind that tells a payee something
+ * (MARK_AVAILABLE, REVERT, RECEIPT) is still refused here - rule 2's second check.
+ */
+export const INTERNAL_PORTAL_KINDS: readonly PortalEventKind[] = ['RELEASED', 'RELEASE_REVERSED', 'CANCELLED']
+
 export function buildPortalEventBody(event: { id: string; kind: PortalEventKind }, check: CheckForPortal): PortalEventBody {
-  if (portalRoute(check.eligibility as Eligibility) === null) {
-    throw new PortalPayloadError('INTERNAL', `INTERNAL check ${check.id} must never reach the portal.`)
+  const internal = check.eligibility === 'INTERNAL'
+  if (portalRoute(check.eligibility as Eligibility) === null && !(internal && INTERNAL_PORTAL_KINDS.includes(event.kind))) {
+    throw new PortalPayloadError('INTERNAL', `INTERNAL check ${check.id} must never reach the portal as ${event.kind}.`)
   }
   // apvNumbers is the source's list; the bills are the same vouchers with
   // their PO numbers. A cheque imported before 2026-09-07 may carry only bills.
@@ -113,6 +125,7 @@ export function buildPortalEventBody(event: { id: string; kind: PortalEventKind 
     checkNo: check.checkNumber,
     bank: check.cashAccount?.bank.code ?? check.checkBook?.bank.code ?? '',
   }
+  if (internal) body.internal = true
   // Pre-checks mirroring the portal's own 400 validation (spec §1.2; final
   // review 2026-09-26): a request the portal is certain to refuse is a payload
   // defect, parked here without a round trip instead of sent to earn a 400.
@@ -127,9 +140,13 @@ export function buildPortalEventBody(event: { id: string; kind: PortalEventKind 
   }
   if (event.kind === 'MARK_AVAILABLE' || event.kind === 'RELEASE_REVERSED') {
     if (!check.availablePickupDate) {
-      throw new PortalPayloadError('MISSING_DATE', `${event.kind} check ${check.id} has no availablePickupDate; the portal requires availablePickupDate`)
+      // An INTERNAL reversal needs no pickup date: nobody is told to collect (spec 2026-10-19).
+      if (!(internal && event.kind === 'RELEASE_REVERSED')) {
+        throw new PortalPayloadError('MISSING_DATE', `${event.kind} check ${check.id} has no availablePickupDate; the portal requires availablePickupDate`)
+      }
+    } else {
+      body.availablePickupDate = manilaDay(check.availablePickupDate)
     }
-    body.availablePickupDate = manilaDay(check.availablePickupDate)
   }
   if (event.kind === 'RELEASED') {
     // User report 2026-10-06: a cheque released by the register catch-up

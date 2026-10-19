@@ -138,15 +138,26 @@ describe('deliverPortalEvents', () => {
     }
   })
 
-  it('never sends an INTERNAL check: the event parks without a request', async () => {
-    const check = await makeCheck({ status: 'RELEASED', eligibility: 'INTERNAL', apvNumbers: ['AP-1'] })
+  it('sends an INTERNAL RELEASED flagged internal and leaves the check with no portal state (spec 2026-10-19)', async () => {
+    const check = await makeCheck({ status: 'RELEASED', eligibility: 'INTERNAL', apvNumbers: ['AP-1'], releasedAt: NOW })
     const ev = await queue(check.id, 'RELEASED', NOW)
+    const client = fakeClient(() => ok())
+    await deliverPortalEvents(testDb, { now: LATER, deadline: new Date(LATER.getTime() + 10_000), client })
+    expect(client.sent).toHaveLength(1)
+    expect(client.sent[0]).toMatchObject({ kind: 'RELEASED', internal: true })
+    expect((await testDb.portalEvent.findUniqueOrThrow({ where: { id: ev.id } })).status).toBe('SYNCED')
+    // check_internal_never_routes_to_portal: delivery state lives on the event only.
+    const after = await testDb.check.findUniqueOrThrow({ where: { id: check.id } })
+    expect(after.portalSyncStatus).toBe('NOT_APPLICABLE'); expect(after.portalDomain).toBeNull()
+  })
+
+  it('still parks an INTERNAL MARK_AVAILABLE without a request', async () => {
+    const check = await makeCheck({ status: 'READY_FOR_RELEASE', eligibility: 'INTERNAL', apvNumbers: ['AP-1'], availablePickupDate: NOW })
+    const ev = await queue(check.id, 'MARK_AVAILABLE', NOW)
     const client = fakeClient(() => ok())
     await deliverPortalEvents(testDb, { now: LATER, deadline: new Date(LATER.getTime() + 10_000), client })
     expect(client.sent).toHaveLength(0)
     expect((await testDb.portalEvent.findUniqueOrThrow({ where: { id: ev.id } })).status).toBe('PARKED')
-    // An INTERNAL cheque never carries portal state (DB constraint check_internal_never_routes_to_portal).
-    expect((await testDb.check.findUniqueOrThrow({ where: { id: check.id } })).portalSyncStatus).toBe('NOT_APPLICABLE')
   })
 
   it('a payload missing its required date parks without a request (never retried)', async () => {
