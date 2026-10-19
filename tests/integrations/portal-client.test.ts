@@ -85,6 +85,14 @@ describe('buildPortalEventBody', () => {
     expect(body.releaseDate).toBe('2026-09-23')
   })
 
+  // User ruling 2026-10-19: a typed day wins over the recorded instant.
+  it('RELEASED with both sends the typed day, not the recorded instant', () => {
+    const body = buildPortalEventBody({ id: 'e', kind: 'RELEASED' }, check({
+      releasedAt: new Date('2026-10-16T02:00:00Z'), statedReleaseDate: new Date('2026-10-15T00:00:00Z'),
+    }))
+    expect(body.releaseDate).toBe('2026-10-15')
+  })
+
   it('RELEASED with neither releasedAt nor statedReleaseDate throws PortalPayloadError MISSING_DATE', () => {
     try {
       buildPortalEventBody({ id: 'e', kind: 'RELEASED' }, check({ releasedAt: null, statedReleaseDate: null }))

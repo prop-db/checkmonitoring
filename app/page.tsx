@@ -367,7 +367,7 @@ export default async function DashboardPage({
       )}
 
       {/* ── THE OTHER DISCLOSURE ────────────────────────────────────────────
-          `releasedAt` is written only by `markReleased`, when a cheque is
+          `releasedAt` is written by `markReleased` and by the PORTAL RELEASES read; when a cheque is
           released THROUGH THIS APP. Every release the register load imported
           and every one the two catch-ups moved has none — on purpose: a
           timestamp fabricated from a spreadsheet on a release record is worse

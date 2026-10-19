@@ -135,8 +135,9 @@ export function buildPortalEventBody(event: { id: string; kind: PortalEventKind 
     // User report 2026-10-06: a cheque released by the register catch-up
     // (lib/admin/register-releases.ts) keeps releasedAt null by design and
     // carries the register's day in statedReleaseDate; that day is the
-    // release date the portal is told.
-    const released = check.releasedAt ?? check.statedReleaseDate ?? null
+    // release date the portal is told. Since 2026-10-19 a typed day wins over
+    // the recorded instant, as DATE RELEASED does (lib/release-day.ts).
+    const released = check.statedReleaseDate ?? check.releasedAt ?? null
     if (!released) {
       throw new PortalPayloadError('MISSING_DATE', `RELEASED check ${check.id} has neither releasedAt nor statedReleaseDate; the portal requires releaseDate`)
     }
