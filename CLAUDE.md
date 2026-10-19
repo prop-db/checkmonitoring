@@ -253,10 +253,13 @@ These are safety properties, not preferences. Each exists because of a specific 
     other actions with 8 s. Rollback is forward-fix only: Postgres cannot drop the `RECEIPT` enum
     value, so older code must not run while RECEIPT rows exist (review 2026-10-02).
 12. **The portal client sends events; the PORTAL RELEASES read is the one thing read back**
-   (rewritten 2026-10-19). `lib/integrations/portal/client.ts` keeps its one sending method; the
-   reader is `lib/integrations/portal/releases.ts` (GET only). It only ever moves a live check to
-   RELEASED — never cancels, voids, un-releases or edits anything else — and writes no outbox event
-   (no echo); rows this app itself sent (`releasedByService`) are skipped.
+    (rewritten 2026-10-19). `lib/integrations/portal/client.ts` keeps its one sending method; the
+    reader is `lib/integrations/portal/releases.ts` (GET only). It only ever moves a live check to
+    RELEASED — never cancels, voids, un-releases or edits anything else — and writes no outbox event
+    (no echo); rows this app itself sent (`releasedByService`) are skipped. The backlog does not
+    send one for it later either: `queueReleasedForStale` skips every check carrying a
+    `released_on_supplier_portal` audit row (final review 2026-10-19). Its one other write is the
+    portal's OR onto a RELEASED check that has no receipt (`receipt_from_supplier_portal`, rule 11).
 
 ## Things that will catch you out
 
@@ -290,7 +293,8 @@ and coming back lands on STK's totals.
 **DATE RELEASED on the filter bar matches either of two dates that are never merged**
 (2026-09-28, specs `2026-09-28-released-date-filter-design.md` and
 `2026-09-28-stated-release-date-design.md`). `releasedAt` is the app's own record of a
-release and only `markReleased` writes it; `statedReleaseDate` is the day the retired
+release and only `markReleased` and the PORTAL RELEASES read (`lib/sync/portal-releases.ts`,
+the portal's hand-over instant, since 2026-10-19) write it; `statedReleaseDate` is the day the retired
 register states, written once by `scripts/backfill-stated-release-dates.ts` from the
 RELEASED sheets of a register file (exactly one calendar day per check — an Excel date
 cell or the text `MM/DD/YYYY`, which is how 222 of the 228 rows dated 25 September were
@@ -304,7 +308,10 @@ VOIDED here, 25 with two days, 168 with no usable date (68 say CLEARED), 234 not
 only on the RELEASED and ALL CHECKS views; the table shows the app timestamp or, failing
 that, the stated day tagged REGISTER; the LIST screen counts the checks with neither. Do
 not write the stated day into `releasedAt`, and do not read `statedReleaseDate` as "the app
-recorded a release" — `lib/recon/outstanding.ts` deliberately reads only `releasedAt`.
+recorded a release" — `lib/recon/outstanding.ts` deliberately reads only `releasedAt`. The
+outstanding list (`/recon`) includes checks released on the Supplier Portal: they are RELEASED, issued
+on the portal's instant (`releasedAt`, basis RELEASED AT), or on their check date when the portal gave
+only a day.
 
 **The list sorts, filters per column and reorders** (part C, 2026-10-01, spec
 `2026-10-01-signing-schedule-apv-and-table-design.md`). **Sort:** the order in force is the URL's
@@ -377,6 +384,16 @@ check number AND a shared APV (numbers are reused, 1791379613), writes `released
 hand-over instant) or `statedReleaseDate` (its day), takes the portal's OR only when the check has
 no receipt yet (rule 11), and queues nothing for the portal. The register file is no longer a source
 of releases. Deploy order: the portal's `/api/integrations/check-monitoring/releases` first.
+**The look list lasts** (final review 2026-10-19): a release not applied here is one SYSTEM
+`portal_release_needs_look` audit row, once per (domain, releaseId, kind) — DEAD_HERE (CANCELLED or
+VOIDED here; `checkId` set), NOT_FOUND, AMBIGUOUS, or BEFORE_GO_LIVE (released on the portal before
+2026-10-19 Manila, by `releasedAt` else `releaseDate`; never applied, never re-evaluated — a later
+touch of an old portal row must not replay it). CANCELLED / VOIDED checks are set aside before
+matching, so a live re-issue on the same number and APV decides. Every run re-decides the open
+NOT_FOUND / AMBIGUOUS items (60 days, 200 a run), so a check whose APV is linked later is released
+then; `/admin/portal` lists every open item across runs. The cron stops the read at `now + 40 s`
+between rows or pages, keeping the watermark of the rows done; a FAILED read notifies the admins.
+The portal moves `updated_at` when it stamps an OR onto a release row, so a late OR is read back.
 
 **A void or cancel of a check with no APV queues nothing for the portal** (2026-10-01, spec
 `2026-10-01-cheque-numbering-and-cancel-guard-design.md`). The portal matches on APV and the client
