@@ -9,6 +9,8 @@ import {
   runScheduledBillRefsSync,
   type ScheduledBillRefsOutcome,
 } from '@/lib/sync/bill-refs'
+import { runScheduledPortalReleases, type ScheduledPortalReleasesOutcome } from '@/lib/sync/portal-releases'
+import { createPortalReleasesReaderFromEnv } from '@/lib/integrations/portal/from-env'
 import { runAutoSign } from '@/lib/sync/auto-sign'
 import { kickPortalDelivery } from '@/lib/sync/portal-kick'
 import { notifyCronResults } from '@/lib/notifications/cron'
@@ -89,6 +91,12 @@ export const maxDuration = 60
  */
 // Not exported: a Next route module may export only its handlers and config.
 const BILL_REFS_SKIP_AFTER_MS = 20_000
+
+/**
+ * The PORTAL RELEASES read (2026-10-19) is not begun once this much of the budget is spent; its
+ * watermark stays, so the next run catches up.
+ */
+const PORTAL_RELEASES_SKIP_AFTER_MS = 25_000
 
 function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
@@ -174,6 +182,14 @@ export async function GET(request: Request): Promise<Response> {
     )
   }
 
+  // Checks released on the Supplier Portal become RELEASED here (rules 5 and 12, 2026-10-19).
+  // Not tenant-bound: one portal. Before auto-sign so a check released on the portal is not
+  // signed afterwards. Never throws; unset portal env is a skip.
+  const portalReleases: ScheduledPortalReleasesOutcome =
+    Date.now() - now.getTime() > PORTAL_RELEASES_SKIP_AFTER_MS
+      ? { outcome: 'SKIPPED_TIME_BUDGET' }
+      : await runScheduledPortalReleases(prisma, { now, reader: createPortalReleasesReaderFromEnv })
+
   // After both tenants, whether or not either failed: cheques already in the
   // app keep ageing, and a failed read delays new cheques, not old ones.
   // A 50s budget, inside the route's 60s ceiling: it leaves room for the
@@ -197,6 +213,7 @@ export async function GET(request: Request): Promise<Response> {
     outcomes.some((o) => o.outcome === 'FAILED') ||
     bills.some((b) => b.outcome === 'FAILED') ||
     billRefs.some((b) => b.outcome === 'FAILED') ||
+    portalReleases.outcome === 'FAILED' ||
     autoSign.outcome === 'FAILED'
-  return json({ ranAt: now.toISOString(), outcomes, bills, billRefs, autoSign, portal }, failed ? 500 : 200)
+  return json({ ranAt: now.toISOString(), outcomes, bills, billRefs, portalReleases, autoSign, portal }, failed ? 500 : 200)
 }

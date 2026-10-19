@@ -20,6 +20,8 @@ import { createClientForTenant } from '@/lib/integrations/acumatica/from-env'
 import { lastSyncWatermark, runSync } from '@/lib/sync/run'
 import { runScheduledBillsSync } from '@/lib/sync/bills'
 import { runScheduledBillRefsSync } from '@/lib/sync/bill-refs'
+import { runScheduledPortalReleases } from '@/lib/sync/portal-releases'
+import { createPortalReleasesReaderFromEnv } from '@/lib/integrations/portal/from-env'
 import { loadSettings } from '@/lib/settings/read'
 
 /**
@@ -121,6 +123,8 @@ export async function syncNowAction(formData: FormData): Promise<SyncNowResult> 
     const readOnly = { tenant: tenant.data, now: new Date(), client: () => createClientForTenant(tenant.data) }
     await runScheduledBillsSync(prisma, readOnly)
     await runScheduledBillRefsSync(prisma, readOnly)
+    // Releases recorded on the Supplier Portal (2026-10-19), so SYNC NOW shows them at once.
+    await runScheduledPortalReleases(prisma, { now: new Date(), reader: createPortalReleasesReaderFromEnv })
     revalidatePath('/admin/sync')
     revalidatePath('/')
     return {

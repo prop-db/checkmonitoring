@@ -291,6 +291,18 @@ describe('GET /api/cron/sync — auto-sign after the syncs', () => {
   })
 })
 
+describe('GET /api/cron/sync — the PORTAL RELEASES read', () => {
+  it('runs after BILL_REFS and reports it; unset portal env is SKIPPED_NOT_CONFIGURED', async () => {
+    delete process.env.PORTAL_BASE_URL
+    delete process.env.PORTAL_TOKEN
+    await watermarked('GOLIVE'); await watermarked('MANUFACTURING')
+    const res = await get(`Bearer ${SECRET}`)
+    const body = await res.json()
+    expect(body.portalReleases).toEqual({ outcome: 'SKIPPED_NOT_CONFIGURED' })
+    expect(res.status).toBe(200)
+  })
+})
+
 describe('GET /api/cron/sync — auto-sign on a Monday', () => {
   // Monday 12 Oct 2026, 12:00 Manila. Only Date is faked so DB timers stay real.
   beforeEach(() => { vi.useFakeTimers({ now: new Date('2026-10-12T04:00:00Z'), toFake: ['Date'] }) })
