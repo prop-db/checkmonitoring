@@ -36,8 +36,9 @@ export async function lastPortalReleasesWatermark(db: Db): Promise<Date | null> 
 
 const dayDate = (d: string) => new Date(`${d}T00:00:00.000Z`)
 
-function message(look: readonly Look[], problems: readonly string[]): string | null {
+function message(look: readonly Look[], problems: readonly string[], echo: number): string | null {
   const parts: string[] = []
+  if (echo) parts.push(`${echo} echo (sent from here) skipped`)
   for (const kind of ['DEAD_HERE', 'NOT_FOUND', 'AMBIGUOUS'] as const) {
     const xs = look.filter((l) => l.kind === kind)
     if (xs.length) parts.push(`${kind} ${xs.length}: ${xs.slice(0, 10).map((l) => l.checkNumber).join(', ')}`)
@@ -59,7 +60,7 @@ export async function runPortalReleasesSync(
 
   const finish = (watermark: Date | null) => db.syncRun.update({
     where: { id: run.id },
-    data: { finishedAt: new Date(), imported: released, updated: already, staged: look.length, errors, watermark, message: message(look, problems) },
+    data: { finishedAt: new Date(), imported: released, updated: already, staged: look.length, errors, watermark, message: message(look, problems, echo) },
   })
 
   let cursor = since
@@ -86,7 +87,7 @@ export async function runPortalReleasesSync(
   } catch (e) {
     errors++
     problems.push(e instanceof Error ? e.message.slice(0, 300) : String(e))
-    await finish(null)
+    try { await finish(null) } catch { /* keep the original error */ }
     throw e
   }
   const watermark = errors > 0 || !maxSeen ? null : new Date(maxSeen.getTime() - OVERLAP_MS)
@@ -94,45 +95,54 @@ export async function runPortalReleasesSync(
   return { syncRunId: run.id, read, echo, released, already, look, errors, watermark }
 }
 
+const MAX_TRIES = 3
+
 async function applyOne(db: PrismaClient, r: PortalRelease): Promise<'RELEASED' | 'ALREADY' | Look> {
   const number = canonicalCheckNumber(r.checkNumber) ?? r.checkNumber
   const apvs = new Set(r.apvNumbers.map((a) => a.toUpperCase()))
-  const same = await db.check.findMany({
-    where: { checkNumber: number },
-    select: { id: true, status: true, orNumber: true, apvNumbers: true, bills: { select: { apvNumber: true } } },
-  })
-  const matched = same.filter((c) => [...c.apvNumbers, ...c.bills.map((b) => b.apvNumber)].some((a) => apvs.has(a.toUpperCase())))
   const base = { checkNumber: number, apvNumbers: r.apvNumbers }
-  if (matched.length === 0) return { kind: 'NOT_FOUND', ...base, detail: same.length ? `${same.length} check(s) with this number, none paying ${r.apvNumbers.join(', ')}` : 'no check with this number' }
-  if (matched.length > 1) return { kind: 'AMBIGUOUS', ...base, detail: `${matched.length} checks with this number pay these APVs` }
-  const c = matched[0]
-  if (c.status === 'RELEASED') return 'ALREADY'
-  if (!(LIVE as readonly string[]).includes(c.status)) return { kind: 'DEAD_HERE', ...base, detail: `${c.status} here, released on the portal ${r.releaseDate ?? ''}`.trim() }
+  // A conditional write that matches nothing means Finance (or a receipt) got there between our read
+  // and our write. Decide again from what is there now; the watermark would otherwise move past this
+  // row for good. After MAX_TRIES we throw, so the row counts as an error and the watermark is held.
+  for (let attempt = 0; attempt < MAX_TRIES; attempt++) {
+    const same = await db.check.findMany({
+      where: { checkNumber: number },
+      select: { id: true, status: true, orNumber: true, apvNumbers: true, bills: { select: { apvNumber: true } } },
+    })
+    const matched = same.filter((c) => [...c.apvNumbers, ...c.bills.map((b) => b.apvNumber)].some((a) => apvs.has(a.toUpperCase())))
+    if (matched.length === 0) return { kind: 'NOT_FOUND', ...base, detail: same.length ? `${same.length} check(s) with this number, none paying ${r.apvNumbers.join(', ')}` : 'no check with this number' }
+    if (matched.length > 1) return { kind: 'AMBIGUOUS', ...base, detail: `${matched.length} checks with this number pay these APVs` }
+    const c = matched[0]
+    if (c.status === 'RELEASED') return 'ALREADY'
+    if (!(LIVE as readonly string[]).includes(c.status)) return { kind: 'DEAD_HERE', ...base, detail: `${c.status} here, released on the portal ${r.releaseDate ?? ''}`.trim() }
 
-  const takeReceipt = !c.orNumber && !!r.orNumber
-  const done = await db.$transaction(async (tx) => {
-    const moved = await tx.check.updateMany({
-      where: { id: c.id, status: c.status },
-      data: {
-        status: 'RELEASED',
-        releasedById: null,
-        ...(r.releasedAt ? { releasedAt: r.releasedAt } : r.releaseDate ? { statedReleaseDate: dayDate(r.releaseDate) } : {}),
-        ...(takeReceipt ? { orNumber: r.orNumber, orDate: r.orDate ? dayDate(r.orDate) : null, receiptType: null } : {}),
-      },
-    })
-    if (!moved.count) return false
-    await writeAudit(tx, {
-      checkId: c.id, actorType: 'SYSTEM', action: RELEASED_ON_PORTAL_ACTION,
-      details: {
-        from: c.status, to: 'RELEASED', domain: r.domain, releaseId: r.releaseId, releaseDate: r.releaseDate,
-        releasedAt: r.releasedAt?.toISOString() ?? null, orNumber: r.orNumber, orDate: r.orDate,
-        receiptTaken: takeReceipt, releasedByName: r.releasedByName,
-      },
-      remarks: `Released on the Supplier Portal${r.releasedByName ? ` by ${r.releasedByName}` : ''}${r.releaseDate ? ` on ${r.releaseDate}` : ''}. Read back by the PORTAL RELEASES read (rule 5, 2026-10-19).`,
-    })
-    return true
-  }, TX_OPTIONS)
-  return done ? 'RELEASED' : 'ALREADY'
+    const takeReceipt = !c.orNumber && !!r.orNumber
+    const done = await db.$transaction(async (tx) => {
+      const moved = await tx.check.updateMany({
+        // rule 11: a receipt recorded since the read makes this match nothing; the retry re-decides.
+        where: { id: c.id, status: c.status, ...(takeReceipt ? { orNumber: null } : {}) },
+        data: {
+          status: 'RELEASED',
+          releasedById: null,
+          ...(r.releasedAt ? { releasedAt: r.releasedAt } : r.releaseDate ? { statedReleaseDate: dayDate(r.releaseDate) } : {}),
+          ...(takeReceipt ? { orNumber: r.orNumber, orDate: r.orDate ? dayDate(r.orDate) : null, receiptType: null } : {}),
+        },
+      })
+      if (!moved.count) return false
+      await writeAudit(tx, {
+        checkId: c.id, actorType: 'SYSTEM', action: RELEASED_ON_PORTAL_ACTION,
+        details: {
+          from: c.status, to: 'RELEASED', domain: r.domain, releaseId: r.releaseId, releaseDate: r.releaseDate,
+          releasedAt: r.releasedAt?.toISOString() ?? null, orNumber: r.orNumber, orDate: r.orDate,
+          receiptTaken: takeReceipt, releasedByName: r.releasedByName,
+        },
+        remarks: `Released on the Supplier Portal${r.releasedByName ? ` by ${r.releasedByName}` : ''}${r.releaseDate ? ` on ${r.releaseDate}` : ''}. Read back by the PORTAL RELEASES read (rule 5, 2026-10-19).`,
+      })
+      return true
+    }, TX_OPTIONS)
+    if (done) return 'RELEASED'
+  }
+  throw new Error(`release of ${number} raced ${MAX_TRIES} times; will be re-read`)
 }
 
 export type ScheduledPortalReleasesOutcome =

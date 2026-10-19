@@ -116,3 +116,100 @@ describe('runScheduledPortalReleases', () => {
     expect(out).toMatchObject({ outcome: 'FAILED' })
   })
 })
+
+describe('review round 1', () => {
+  // wraps db so a hook runs once just before the release transaction, i.e. between read and write
+  const raceDb = (hook: () => Promise<void>) => {
+    let fired = false
+    return new Proxy(testDb, {
+      get(t, p, rcv) {
+        if (p === '$transaction') return async (...a: unknown[]) => {
+          if (!fired) { fired = true; await hook() }
+          return (t.$transaction as (...x: unknown[]) => unknown)(...a)
+        }
+        const v = Reflect.get(t, p, rcv)
+        return typeof v === 'function' ? v.bind(t) : v
+      },
+    }) as typeof testDb
+  }
+  const go = (db: typeof testDb, rows: PortalRelease[]) =>
+    runPortalReleasesSync(db, { reader: reader(rows), since: null, now: NOW, trigger: 'MANUAL' })
+
+  it('a status change between read and write still lands the release', async () => {
+    const c = await makeCheck({ status: 'SIGNED', checkNumber: '6000354897', apvNumbers: ['AP-ST045048'] })
+    const res = await go(raceDb(async () => { await testDb.check.update({ where: { id: c.id }, data: { status: 'READY_FOR_RELEASE' } }) }), [rel()])
+    expect(res).toMatchObject({ released: 1, already: 0, errors: 0 })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('RELEASED')
+    const a = await testDb.auditLog.findFirstOrThrow({ where: { checkId: c.id, action: RELEASED_ON_PORTAL_ACTION } })
+    expect(a.details).toMatchObject({ from: 'READY_FOR_RELEASE' })
+  })
+
+  it('a check that became CANCELLED between read and write ends as DEAD_HERE', async () => {
+    const c = await makeCheck({ status: 'SIGNED', checkNumber: '6000354897', apvNumbers: ['AP-ST045048'] })
+    const res = await go(raceDb(async () => { await testDb.check.update({ where: { id: c.id }, data: { status: 'CANCELLED' } }) }), [rel()])
+    expect(res.released).toBe(0)
+    expect(res.look.map((l) => l.kind)).toEqual(['DEAD_HERE'])
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('CANCELLED')
+  })
+
+  it('a receipt recorded between read and write is kept, not overwritten', async () => {
+    const c = await makeCheck({ status: 'SIGNED', checkNumber: '6000354897', apvNumbers: ['AP-ST045048'] })
+    const res = await go(raceDb(async () => { await testDb.check.update({ where: { id: c.id }, data: { orNumber: '9999', receiptType: 'OR' } }) }), [rel()])
+    expect(res.released).toBe(1)
+    expect(await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).toMatchObject({ status: 'RELEASED', orNumber: '9999', receiptType: 'OR' })
+  })
+
+  it('pages until next is null, including a page larger than the limit', async () => {
+    await makeCheck({ status: 'SIGNED', checkNumber: '6000000011', apvNumbers: ['AP-11'] })
+    await makeCheck({ status: 'SIGNED', checkNumber: '6000000012', apvNumbers: ['AP-12'] })
+    await makeCheck({ status: 'SIGNED', checkNumber: '6000000013', apvNumbers: ['AP-13'] })
+    const t1 = new Date('2026-10-19T03:00:00Z'), t2 = new Date('2026-10-19T04:00:00Z')
+    const seen: Date[] = []
+    const pages = [
+      { rows: [rel({ checkNumber: '6000000011', apvNumbers: ['AP-11'], updatedAt: t1 }), rel({ checkNumber: '6000000012', apvNumbers: ['AP-12'], updatedAt: t1 })], next: t1 },
+      { rows: [rel({ checkNumber: '6000000013', apvNumbers: ['AP-13'], updatedAt: t2 })], next: null },
+    ]
+    const r: PortalReleasesReader = { async list(since, limit) { seen.push(since); expect(limit).toBe(500); return pages.shift()! } }
+    const res = await runPortalReleasesSync(testDb, { reader: r, since: null, now: NOW, trigger: 'MANUAL' })
+    expect(res).toMatchObject({ read: 3, released: 3 })
+    expect(seen).toEqual([PORTAL_RELEASES_FIRST_SINCE, t1])
+  })
+
+  it('holds the watermark after a row error and records it', async () => {
+    await makeCheck({ status: 'SIGNED', checkNumber: '6000354897', apvNumbers: ['AP-ST045048'] })
+    const bad = new Proxy(testDb, {
+      get(t, p, rcv) {
+        if (p === '$transaction') return async () => { throw new Error('boom') }
+        const v = Reflect.get(t, p, rcv)
+        return typeof v === 'function' ? v.bind(t) : v
+      },
+    }) as typeof testDb
+    const res = await go(bad, [rel()])
+    expect(res).toMatchObject({ errors: 1, released: 0, watermark: null })
+    expect(await lastPortalReleasesWatermark(testDb)).toBeNull()
+    const row = await testDb.syncRun.findUniqueOrThrow({ where: { id: res.syncRunId } })
+    expect(row.message).toContain('boom')
+  })
+
+  it('stores a message with the echo count and the looks', async () => {
+    const res = await go(testDb, [rel({ releasedByService: true }), rel({ checkNumber: '1', apvNumbers: ['AP-X'] })])
+    const row = await testDb.syncRun.findUniqueOrThrow({ where: { id: res.syncRunId } })
+    expect(row.message).toContain('1 echo')
+    expect(row.message).toContain('NOT_FOUND 1: 1')
+    const only = await go(testDb, [rel({ releasedByService: true })])
+    expect((await testDb.syncRun.findUniqueOrThrow({ where: { id: only.syncRunId } })).message).toContain('1 echo')
+  })
+
+  it('matches APVs ignoring case', async () => {
+    const c = await makeCheck({ status: 'SIGNED', checkNumber: '6000354897', apvNumbers: ['ap-st045048'] })
+    await run([rel({ apvNumbers: ['AP-ST045048'] })])
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('RELEASED')
+  })
+
+  it('matches through CheckBill alone', async () => {
+    const c = await makeCheck({ status: 'SIGNED', checkNumber: '6000354897', apvNumbers: [] })
+    await testDb.checkBill.create({ data: { checkId: c.id, apvNumber: 'AP-ST045048', amount: '100.00' } })
+    await run([rel()])
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('RELEASED')
+  })
+})
