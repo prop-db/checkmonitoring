@@ -91,10 +91,11 @@ describe('reverseRelease — the portal', () => {
   })
 
   /**
-   * Rule 2. An INTERNAL cheque — payroll, tax, an inter-company transfer — must
-   * never produce a portal call, and the database's own CHECK constraint
-   * refuses routing state on one. Pinned here the way the other three sites
-   * pin it.
+   * Rule 2. An INTERNAL cheque — payroll, tax, an inter-company transfer —
+   * queues its RELEASE_REVERSED flagged internal so the portal bill ages again
+   * (ruling 2026-10-19), but carries no routing state: the database's own CHECK
+   * constraint refuses portalSyncStatus / portalDomain on one. Pinned here the
+   * way the other three sites pin it.
    */
   it('queues a RELEASE_REVERSED for an INTERNAL check and writes no portal state (ruling 2026-10-19)', async () => {
     const { check } = await released({ eligibility: 'INTERNAL', apvNumbers: ['AP-1'] })

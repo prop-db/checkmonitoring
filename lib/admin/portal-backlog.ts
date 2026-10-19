@@ -131,7 +131,6 @@ export const REPORT_RELEASES_FROM = new Date('2026-09-01T00:00:00Z')
 export async function queueReleasedForStale(db: Db, args: { now: Date; apply: boolean; limit?: number }) {
   const candidates = await db.check.findMany({
     where: {
-      eligibility: { not: 'INTERNAL' },
       status: 'RELEASED',
       isCheque: true,
       portalEvents: { none: { kind: 'RELEASED' } },
@@ -149,7 +148,10 @@ export async function queueReleasedForStale(db: Db, args: { now: Date; apply: bo
       apvNumbers: true, bills: { select: { apvNumber: true } },
     },
   })
-  const routed = candidates.filter((c) => portalRoute(c.eligibility as Eligibility) !== null && portalApvs(c).length > 0)
+  // An INTERNAL release goes too, flagged internal at delivery (ruling 2026-10-19,
+  // portal spec 2026-10-19-cm-internal-release-quiet); it still needs an APV.
+  const routed = candidates.filter((c) =>
+    (portalRoute(c.eligibility as Eligibility) !== null || c.eligibility === 'INTERNAL') && portalApvs(c).length > 0)
   const cheques = routed.filter((c) => c.releasedAt || c.statedReleaseDate)
   const noDate = routed.filter((c) => !c.releasedAt && !c.statedReleaseDate)
   if (!args.apply) return { found: cheques.length, queued: 0, cheques, noDate }
@@ -171,13 +173,14 @@ export async function queueReleasedForStale(db: Db, args: { now: Date; apply: bo
           nextAttemptAt: args.now,
         },
       })
-      await tx.check.update({
-        where: { id: c.id },
-        data: { portalSyncStatus: 'PENDING', portalDomain: portalRoute(c.eligibility as Eligibility) },
-      })
+      const route = portalRoute(c.eligibility as Eligibility)
+      // check_internal_never_routes_to_portal: an INTERNAL check carries no portal state.
+      if (route !== null) {
+        await tx.check.update({ where: { id: c.id }, data: { portalSyncStatus: 'PENDING', portalDomain: route } })
+      }
       await writeAudit(tx, {
         checkId: c.id, actorType: 'SYSTEM', action: 'portal_event_backfilled',
-        details: { eventId: ev.id, kind: 'RELEASED', checkStatus: c.status, reason: 'released by the register catch-up, which queues no portal event' },
+        details: { eventId: ev.id, kind: 'RELEASED', checkStatus: c.status, reason: c.eligibility === 'INTERNAL' ? 'INTERNAL release, sent quietly so the portal stops aging the bill (ruling 2026-10-19)' : 'released by the register catch-up, which queues no portal event' },
       })
       return true
     })
