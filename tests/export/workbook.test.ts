@@ -15,6 +15,7 @@ function row(overrides: Partial<CheckTableRow> = {}): CheckTableRow {
   return {
     id: 'c1',
     checkNumber: '6000240287',
+    paymentReference: 'CV-A1009798',
     apvNumbers: ['APV-0001'],
     poNumbers: ['PO-0001'],
     payeeName: 'HENKEL PHILIPPINES INC.',
@@ -138,7 +139,7 @@ describe('CHECK REGISTER — the header row', () => {
     const header = ws.getRow(HEADER_ROW)
     expect(REGISTER_HEADERS).toEqual([
       'CHECK NUMBER', 'APV NUMBER', 'PO NUMBER', 'SUPPLIER NAME', 'COMPANY', 'BANK',
-      'CHECK DATE', 'AMOUNT', 'STATUS', 'DATE RELEASED', 'PICKUP SCHEDULE',
+      'CHECK DATE', 'AMOUNT', 'STATUS', 'DATE RELEASED', 'PAYMENT REFERENCE',
     ])
     expect(REGISTER_HEADERS.map((_, i) => header.getCell(i + 1).value)).toEqual([...REGISTER_HEADERS])
   })
@@ -159,6 +160,19 @@ describe('CHECK REGISTER — the header row', () => {
     }
     expect([day(0), day(1), day(2), day(3)]).toEqual(['2026-10-16', '2026-10-17', '2026-10-09', null])
     expect(REGISTER_HEADERS).not.toContain('AVAILABLE DATE')
+  })
+
+  // User request 2026-10-22: payment reference in, pick-up schedule out.
+  it('PAYMENT REFERENCE is the Acumatica payment reference, and PICKUP SCHEDULE is gone', async () => {
+    const col = REGISTER_HEADERS.indexOf('PAYMENT REFERENCE') + 1
+    expect(col).toBe(11)
+    expect(REGISTER_HEADERS).not.toContain('PICKUP SCHEDULE')
+    const ws = (await readBack(input({ rows: [
+      row({ id: 'a', status: 'RELEASED' }),
+      row({ id: 'b', status: 'RELEASED', paymentReference: null }),
+    ] }))).getWorksheet(REGISTER_SHEET)!
+    expect(ws.getRow(FIRST_DATA_ROW).getCell(col).value).toBe('CV-A1009798')
+    expect(ws.getRow(FIRST_DATA_ROW + 1).getCell(col).value).toBeNull()
   })
 
   it('is bold, white, on a dark fill', async () => {
@@ -262,7 +276,7 @@ describe('CHECK REGISTER — the rows', () => {
 
   it('leaves a missing date, payee or APV blank rather than writing a placeholder', async () => {
     const ws = (await readBack(input({
-      rows: [row({ checkDate: null, payeeName: null, apvNumbers: [], poNumbers: [], scheduledPickupDate: null })],
+      rows: [row({ checkDate: null, payeeName: null, apvNumbers: [], poNumbers: [], paymentReference: null })],
     }))).getWorksheet(REGISTER_SHEET)!
     const r = ws.getRow(FIRST_DATA_ROW)
     expect(r.getCell(2).value).toBeNull()
