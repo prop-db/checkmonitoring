@@ -36,14 +36,24 @@ export const SUMMARY_SHEET = 'SUMMARY'
  * (2026-10-01) the viewer's on-screen order reorders them (`cols=`), but never
  * removes one: a file missing AMOUNT because somebody hid it on screen would be
  * read as complete.
+ *
+ * PAYMENT REFERENCE stands where PICKUP SCHEDULE stood (user request
+ * 2026-10-22: "Payment reference should be include in reports extraction of
+ * checks released. Remove pick up schedule column."), so AMOUNT stays column H.
+ * It is a file-only column — Acumatica's `CV-…` reference, which the screen
+ * does not show — so `cols=` never names it and it keeps its place after the
+ * named ones.
  */
 export const EXPORT_COLUMN_KEYS = [
   'checkNumber', 'apvNumbers', 'poNumbers', 'payeeName', 'companyCode', 'bank',
-  'checkDate', 'amount', 'status', 'releasedAt', 'scheduledPickupDate',
-] as const satisfies readonly ColumnKey[]
+  'checkDate', 'amount', 'status', 'releasedAt', 'paymentReference',
+] as const satisfies readonly (ColumnKey | 'paymentReference')[]
 export type ExportColumnKey = (typeof EXPORT_COLUMN_KEYS)[number]
 
-export const REGISTER_HEADERS: readonly string[] = EXPORT_COLUMN_KEYS.map((k) => COLUMN_LABELS[k])
+const exportLabel = (k: ExportColumnKey): string =>
+  k === 'paymentReference' ? 'PAYMENT REFERENCE' : COLUMN_LABELS[k]
+
+export const REGISTER_HEADERS: readonly string[] = EXPORT_COLUMN_KEYS.map(exportLabel)
 
 /** The named columns first, in the order named; every other file column after, in default order. */
 export function exportColumnOrder(cols: string | null | undefined): ExportColumnKey[] {
@@ -174,7 +184,8 @@ const EXPORT_CELLS: Record<ExportColumnKey, ExportCell> = {
    * neither exists: unknown is not a date.
    */
   releasedAt: dateCell((r) => (r.releasedAt ? manilaDayAsDate(r.releasedAt) : r.statedReleaseDate)),
-  scheduledPickupDate: dateCell((r) => r.scheduledPickupDate),
+  /** Blank for a register-only check: Acumatica holds no payment for it. */
+  paymentReference: { kind: 'text', value: (r) => r.paymentReference, sample: (r) => r.paymentReference ?? '' },
 }
 
 /**
@@ -240,7 +251,7 @@ function buildRegisterSheet(wb: ExcelJS.Workbook, { rows, meta, columns }: Expor
 
   const header = ws.getRow(HEADER_ROW)
   order.forEach((key, i) => {
-    styleHeaderCell(header.getCell(i + 1), COLUMN_LABELS[key], key === 'amount' ? 'right' : 'left')
+    styleHeaderCell(header.getCell(i + 1), exportLabel(key), key === 'amount' ? 'right' : 'left')
   })
   header.height = 20
 
@@ -271,7 +282,7 @@ function buildRegisterSheet(wb: ExcelJS.Workbook, { rows, meta, columns }: Expor
   })
 
   order.forEach((key, i) => {
-    ws.getColumn(i + 1).width = fitColumnWidth(COLUMN_LABELS[key], widthSamples[i])
+    ws.getColumn(i + 1).width = fitColumnWidth(exportLabel(key), widthSamples[i])
   })
 
   // Over the header and the data only. Extending it across the totals would let
