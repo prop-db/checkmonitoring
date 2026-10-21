@@ -166,6 +166,7 @@ npx tsx scripts/sync.ts GOLIVE --bill-refs --dry-run  # read AP-Bills and Adjust
 npx tsx scripts/sync.ts GOLIVE --bill-refs            # snapshot AcumaticaBill, then mirror bill -> PO; add --full to re-read
 npx tsx scripts/sync.ts GOLIVE --full               # snapshot, re-read every 2026 CHK payment, then the live checks that left that feed (--dry-run lists them)
 npx tsx scripts/reconcile-with-acumatica.ts "<file>.xlsx" [--apply --user <email>]   # AFTER --full: Closed-in-Acumatica checks to RELEASED, Finance verdicts (2026-10-06)
+npx tsx scripts/revert-recent-signed.ts 2026-10-19 [--apply --user <email>]   # SIGNED first read on/after that Manila day back to PENDING (signing manual, 2026-10-22)
 ```
 
 **On Windows, use `npx.cmd` / `npm.cmd`.** PowerShell's execution policy is `Undefined` (i.e.
