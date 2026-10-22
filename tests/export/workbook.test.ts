@@ -15,7 +15,6 @@ function row(overrides: Partial<CheckTableRow> = {}): CheckTableRow {
   return {
     id: 'c1',
     checkNumber: '6000240287',
-    paymentReference: 'CV-A1009798',
     apvNumbers: ['APV-0001'],
     poNumbers: ['PO-0001'],
     payeeName: 'HENKEL PHILIPPINES INC.',
@@ -163,16 +162,19 @@ describe('CHECK REGISTER — the header row', () => {
   })
 
   // User request 2026-10-22: payment reference in, pick-up schedule out.
-  it('PAYMENT REFERENCE is the Acumatica payment reference, and PICKUP SCHEDULE is gone', async () => {
+  // "OR/CR or any reference encoded" — the receipt, not Acumatica's CV.
+  it('PAYMENT REFERENCE is the encoded receipt, type first, and PICKUP SCHEDULE is gone', async () => {
     const col = REGISTER_HEADERS.indexOf('PAYMENT REFERENCE') + 1
     expect(col).toBe(11)
     expect(REGISTER_HEADERS).not.toContain('PICKUP SCHEDULE')
     const ws = (await readBack(input({ rows: [
-      row({ id: 'a', status: 'RELEASED' }),
-      row({ id: 'b', status: 'RELEASED', paymentReference: null }),
+      row({ id: 'a', status: 'RELEASED', orNumber: '4471', receiptType: 'OR', hasReceipt: true }),
+      row({ id: 'b', status: 'RELEASED', orNumber: 'ACK-12', receiptType: 'OTHERS', hasReceipt: true }),
+      row({ id: 'c', status: 'RELEASED', orNumber: 'CR 88', receiptType: null, hasReceipt: true }),
+      row({ id: 'd', status: 'RELEASED' }),
     ] }))).getWorksheet(REGISTER_SHEET)!
-    expect(ws.getRow(FIRST_DATA_ROW).getCell(col).value).toBe('CV-A1009798')
-    expect(ws.getRow(FIRST_DATA_ROW + 1).getCell(col).value).toBeNull()
+    const cell = (i: number) => ws.getRow(FIRST_DATA_ROW + i).getCell(col).value
+    expect([cell(0), cell(1), cell(2), cell(3)]).toEqual(['OR 4471', 'OTHERS ACK-12', 'CR 88', null])
   })
 
   it('is bold, white, on a dark fill', async () => {
@@ -276,7 +278,7 @@ describe('CHECK REGISTER — the rows', () => {
 
   it('leaves a missing date, payee or APV blank rather than writing a placeholder', async () => {
     const ws = (await readBack(input({
-      rows: [row({ checkDate: null, payeeName: null, apvNumbers: [], poNumbers: [], paymentReference: null })],
+      rows: [row({ checkDate: null, payeeName: null, apvNumbers: [], poNumbers: [], orNumber: null })],
     }))).getWorksheet(REGISTER_SHEET)!
     const r = ws.getRow(FIRST_DATA_ROW)
     expect(r.getCell(2).value).toBeNull()

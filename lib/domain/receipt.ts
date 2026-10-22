@@ -24,7 +24,7 @@ import type { GuardResult } from './check-status'
  * and the answer is a column.
  */
 
-export const RECEIPT_TYPES = ['OR', 'CR', 'AR', 'PR', 'SI'] as const
+export const RECEIPT_TYPES = ['OR', 'CR', 'AR', 'PR', 'SI', 'OTHERS'] as const
 export type ReceiptType = (typeof RECEIPT_TYPES)[number]
 
 /** What the letters stand for, spelled out wherever a user has to choose. */
@@ -34,11 +34,12 @@ export const RECEIPT_TYPE_LABELS: Record<ReceiptType, string> = {
   AR: 'ACKNOWLEDGEMENT RECEIPT',
   PR: 'PROVISIONAL RECEIPT',
   SI: 'SALES INVOICE',
+  OTHERS: 'OTHERS',
 }
 
 /**
  * The kinds the Supplier Portal accepts: its RECEIPT endpoint rejects anything
- * but OR or CR ("receiptType must be OR or CR"). An AR, PR or SI is recorded
+ * but OR or CR ("receiptType must be OR or CR"). An AR, PR, SI or OTHERS is recorded
  * here and queues no RECEIPT event — it could only park on /admin/portal — until
  * the portal learns it; then widening this list is the whole change.
  */

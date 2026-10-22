@@ -61,6 +61,9 @@ enum ReceiptType {
   AR
   PR
   SI
+  // Added 2026-10-22 (client: "add in the options OTHERS"): any other paper the
+  // supplier hands over. Recorded here only, like AR/PR/SI.
+  OTHERS
 }
 
 enum Eligibility {

@@ -244,7 +244,7 @@ export function BulkActionBar({
 
       {missingType && (
         <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
-          Choose the receipt type (OR, CR, AR, PR or SI) for {invalidRows.map((r) => r.checkNumber).join(', ')}.
+          Choose the receipt type (OR, CR, AR, PR, SI or OTHERS) for {invalidRows.map((r) => r.checkNumber).join(', ')}.
         </p>
       )}
 

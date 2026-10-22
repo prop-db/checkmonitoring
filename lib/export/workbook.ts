@@ -40,9 +40,11 @@ export const SUMMARY_SHEET = 'SUMMARY'
  * PAYMENT REFERENCE stands where PICKUP SCHEDULE stood (user request
  * 2026-10-22: "Payment reference should be include in reports extraction of
  * checks released. Remove pick up schedule column."), so AMOUNT stays column H.
- * It is a file-only column — Acumatica's `CV-…` reference, which the screen
- * does not show — so `cols=` never names it and it keeps its place after the
- * named ones.
+ * It is the supplier's receipt as encoded in the OR / CR box — type and
+ * reference, "OR 4471", "OTHERS ACK-12" (user, 2026-10-22: "OR/CR or any
+ * reference encoded") — never Acumatica's CV and never `crNumber` (rule 11).
+ * A file-only column, so `cols=` never names it and it keeps its place after
+ * the named ones.
  */
 export const EXPORT_COLUMN_KEYS = [
   'checkNumber', 'apvNumbers', 'poNumbers', 'payeeName', 'companyCode', 'bank',
@@ -136,6 +138,8 @@ type ExportCell = {
 }
 
 const listOrNull = (xs: readonly string[]) => (xs.length ? xs.join(', ') : null)
+const receiptReference = (r: CheckTableRow): string | null =>
+  r.orNumber === null ? null : r.receiptType ? `${r.receiptType} ${r.orNumber}` : r.orNumber
 /** The Manila calendar day of an instant, as that day's UTC midnight — the convention `checkDate` follows. */
 const manilaDayAsDate = (d: Date) => new Date(`${manilaToday(d)}T00:00:00Z`)
 const dateCell = (pick: (r: CheckTableRow) => Date | null): ExportCell =>
@@ -184,8 +188,8 @@ const EXPORT_CELLS: Record<ExportColumnKey, ExportCell> = {
    * neither exists: unknown is not a date.
    */
   releasedAt: dateCell((r) => (r.releasedAt ? manilaDayAsDate(r.releasedAt) : r.statedReleaseDate)),
-  /** Blank for a register-only check: Acumatica holds no payment for it. */
-  paymentReference: { kind: 'text', value: (r) => r.paymentReference, sample: (r) => r.paymentReference ?? '' },
+  /** Blank when no receipt is recorded; the bare reference when its type was never stated. */
+  paymentReference: { kind: 'text', value: (r) => receiptReference(r), sample: (r) => receiptReference(r) ?? '' },
 }
 
 /**

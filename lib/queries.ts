@@ -877,8 +877,6 @@ export type CheckRow = Awaited<ReturnType<typeof listChecks>>[number]
 export type CheckTableRow = {
   id: string
   checkNumber: string
-  /** Acumatica's payment reference (`acumaticaPaymentId`); null for a register-only check. */
-  paymentReference: string | null
   apvNumbers: string[]
   poNumbers: string[]
   payeeName: string | null
@@ -954,7 +952,6 @@ export function toTableRow(r: CheckRow): CheckTableRow {
   return {
     id: r.id,
     checkNumber: r.checkNumber,
-    paymentReference: r.acumaticaPaymentId,
     apvNumbers: displayApvNumbers(r),
     // Computed by listChecks through displayPoNumbers (one AcumaticaBill query per page).
     poNumbers: r.poNumbers,

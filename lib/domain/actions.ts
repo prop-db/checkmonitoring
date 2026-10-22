@@ -554,6 +554,7 @@ const RECEIPT_REMARK_LABELS: Record<ReceiptType | 'UNSTATED', string> = {
   AR: 'Acknowledgement Receipt',
   PR: 'Provisional Receipt',
   SI: 'Sales Invoice',
+  OTHERS: 'Other receipt',
   UNSTATED: 'Receipt of unstated kind',
 }
 

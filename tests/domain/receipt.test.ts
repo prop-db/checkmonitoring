@@ -8,8 +8,8 @@ import {
 // answerable here, which is why the guard lives outside `actions.ts`.
 
 describe('the receipt types', () => {
-  it('is OR, CR, AR, PR and SI — the papers a supplier hands over', () => {
-    expect([...RECEIPT_TYPES]).toEqual(['OR', 'CR', 'AR', 'PR', 'SI'])
+  it('is OR, CR, AR, PR, SI and OTHERS — the papers a supplier hands over', () => {
+    expect([...RECEIPT_TYPES]).toEqual(['OR', 'CR', 'AR', 'PR', 'SI', 'OTHERS'])
     expect(isReceiptType('AR') && isReceiptType('PR') && isReceiptType('SI')).toBe(true)
     expect(isReceiptType('XX')).toBe(false)
   })
@@ -17,7 +17,7 @@ describe('the receipt types', () => {
   it('tells the portal only about the kinds it accepts (OR and CR)', () => {
     expect(PORTAL_RECEIPT_TYPES).toEqual(['OR', 'CR'])
     expect(portalAcceptsReceiptType('CR')).toBe(true)
-    for (const t of ['AR', 'PR', 'SI', null, undefined, '']) expect(portalAcceptsReceiptType(t), String(t)).toBe(false)
+    for (const t of ['AR', 'PR', 'SI', 'OTHERS', null, undefined, '']) expect(portalAcceptsReceiptType(t), String(t)).toBe(false)
   })
 
   it('recognises its own values and nothing else', () => {
