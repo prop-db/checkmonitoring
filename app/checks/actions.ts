@@ -10,7 +10,7 @@ import { afterResponse, kickPortalDelivery } from '@/lib/sync/portal-kick'
 import {
   markSigned, markReadyForRelease, revertAvailability,
   releaseDirectly, recordClearing, cancelCheck, deleteIncompleteCheck, recordReceipt,
-  reverseRelease, updateDetails, revertSignature, restoreCancelled, attachReceiptFile,
+  reverseRelease, updateDetails, revertSignature, restoreCancelled, attachReceiptFile, removeReceipt,
 } from '@/lib/domain/actions'
 import { readReceiptFields } from '@/lib/receipt-form'
 import { notifyReady } from '@/lib/notifications/ready'
@@ -123,6 +123,22 @@ export async function reverseReleaseAction(formData: FormData): Promise<ActionRe
   return run(checkId, () => reverseRelease(prisma, {
     checkId, userId: user.id,
     reason: str(formData, 'reason'), now: new Date(),
+  }))
+}
+
+/**
+ * A receipt recorded by mistake, removed (2026-10-23). FINANCE_ADMIN only, the
+ * same guard as `reverseReleaseAction`, which it unblocks; the domain requires
+ * the reason and refuses a cleared check or a receipt the portal already holds.
+ */
+export async function removeReceiptAction(formData: FormData): Promise<ActionResult> {
+  const user = await requireUser()
+  if (user.role !== 'FINANCE_ADMIN') {
+    return { ok: false, message: 'Only a Finance Admin can remove a receipt.' }
+  }
+  const checkId = str(formData, 'checkId')
+  return run(checkId, () => removeReceipt(prisma, {
+    checkId, userId: user.id, reason: str(formData, 'reason'), now: new Date(),
   }))
 }
 

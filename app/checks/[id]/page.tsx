@@ -19,7 +19,7 @@ import { clearingTargets, isLiveStatus, type ClearingStatus, type CheckStatus } 
 import { RECEIPT_TYPE_LABELS } from '@/lib/domain/receipt'
 import { isoDay } from '@/lib/domain/details'
 import { loadSettings } from '@/lib/settings/read'
-import { signAction, releaseAction, revertAction, reverseReleaseAction, revertSignatureAction, restoreCancelledAction } from '../actions'
+import { signAction, releaseAction, revertAction, reverseReleaseAction, removeReceiptAction, revertSignatureAction, restoreCancelledAction } from '../actions'
 
 /**
  * ONE CHEQUE.
@@ -413,10 +413,35 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
                   </p>
                 </ActionForm>
               ) : (
-                <p className="text-sm text-slate-600">
-                  <span className="font-semibold text-navy">This release cannot be reversed.</span>{' '}
-                  {reversible.message}
-                </p>
+                <div className="space-y-3">
+                  <p className="text-sm text-slate-600">
+                    <span className="font-semibold text-navy">This release cannot be reversed.</span>{' '}
+                    {reversible.message}
+                  </p>
+                  {/* A receipt typed with a release that never happened (2026-10-23):
+                      removing it is what unblocks REVERSE RELEASE. Offered only when
+                      the receipt IS the blocker; `removeReceipt` refuses the rest. */}
+                  {reversible.code === 'RECEIPT_ON_RECORD' && (
+                    <ActionForm
+                      action={removeReceiptAction}
+                      checkId={check.id}
+                      label="REMOVE RECEIPT"
+                      className="block rounded-lg border border-hairline bg-white px-4 py-2 text-sm font-medium tracking-wide text-navy transition hover:bg-ground disabled:opacity-50"
+                    >
+                      <label className="block text-[11px] font-semibold tracking-widest text-slate-400">
+                        REASON <span className="text-danger-ink">— REQUIRED</span>
+                      </label>
+                      <input name="reason" required placeholder="Released by mistake, not collected"
+                        className="h-10 w-full max-w-md rounded-lg border border-hairline bg-white px-3 text-sm text-slate-900 focus:border-navy focus:outline-none focus:ring-1 focus:ring-navy" />
+                      <p className="text-[11px] text-slate-500">
+                        Only when the receipt was recorded by mistake. Removes receipt {check.orNumber ?? ''}
+                        {check.receiptType ? ` (${check.receiptType})` : ''}, its amount and its scanned file;
+                        the check stays RELEASED and REVERSE RELEASE becomes available. What was removed stays
+                        on the audit trail with your reason.
+                      </p>
+                    </ActionForm>
+                  )}
+                </div>
               )
             })()}
 
