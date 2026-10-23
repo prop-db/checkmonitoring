@@ -354,7 +354,7 @@ export async function upsertCheck(db: Db, args: UpsertArgs): Promise<UpsertResul
       // a different company's payment, silently and with an audit row asserting
       // the correction was right.
       //
-      // The sync now filters to `PaymentMethod eq 'CHK'`, so such a row should
+      // The sync filters by payment method (CHK or CASH), so such a row should
       // not arrive at all. This is the second lock on that door: the first one
       // is a query filter somebody could widen without ever reading this file.
       const sameNumber = !renumbered && row.isCheque

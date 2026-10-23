@@ -273,7 +273,7 @@ export default async function CheckDetailPage({ params }: { params: Promise<{ id
           than from three unrelated Tailwind hues. */}
       <Panel title="ACTIONS">
         {/* `isCheque` gates this, as it gates the dashboard table's checkbox.
-            A DEBIT ADV or a CASH payment is not a cheque and nobody signs one —
+            A DEBIT ADV or a wire (TT) payment is not a check and nobody signs one —
             CLAUDE.md states that outright. This page offered the button anyway
             until 2026-09-10; `assertReleasable` refused the action server-side,
             so nothing unsafe ever happened, but a button that exists only to be

@@ -418,7 +418,7 @@ status — VOIDED, CANCELLED and no-amount included — in BigInt order; each un
 book's first and last is one MISSING line, however large (user ruling 2026-10-01: "every number
 counts", not a booklet heuristic). The check book is the series key — Acumatica's CashAccount value
 (spec §D, 2026-10-02); checks with no book are a stated count. A series holds every company's
-checks in that book; the company filter selects the books a company uses and shows them whole. MISSING is bounded by the sync's scope (2026 onward, CHK only). A number Acumatica
+checks in that book; the company filter selects the books a company uses and shows them whole. MISSING is bounded by the sync's scope (2026 onward, CHK or CASH). A number Acumatica
 re-used with a trailing dot — a second payment document on the same check number, which Acumatica
 will not accept twice on one cash account — sits on `/admin/staged` as NO_CHECK_NUMBER and is shown
 as a **STAGED** line, never MISSING (`stagedSeriesNumber`, spec §C, 2026-10-02). Measured that day:
@@ -658,8 +658,23 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
   writes them bare. `canonicalCheckNumber` reconciles them — without it the same check stores twice.
 - **`Branch` from Acumatica is space-padded** (`"A1+       "`). `orNull` trims it; an untrimmed read
   resolves every payment to no company.
-- **`PaymentMethod` decides `isCheque`**, alongside the China-branch rule. `DEBIT ADV` and `CASH` are
-  not checks and must not offer a SIGN button.
+- **`PaymentMethod` decides `isCheque`**, alongside the China-branch rule. **`CHK` and `CASH` are
+  checks; `TT`, `DEBIT ADV`, `BT`, `MC` are not** and must not offer a SIGN button. CASH was a
+  non-check until 2026-10-23, when the user ruled: *"all the AP issued CV will be paid thru checks,
+  its either will be checks pay to cash or to be encashed"* — and the feed filter in `lib/sync/run.ts`
+  asked for CHK only, so `CV-ST021234` (`6000354949`, BPI-S-8879, 19 Oct, CASH) was never fetched,
+  never held, never in the portal. Measured that day on Go-Live 2026: CHK 13,496, TT 1,680, CASH 271
+  (242 PCF-SITIO petty-cash replenishments numbered `PCF26-xxxx`, 29 on bank books, 26 with a plain
+  check number — 21 of those held from the register, `6000353877` and `6000354949` not held at all);
+  Manufacturing 1 CASH. **The user ruled the PCF-SITIO ones are checks too.** Since the sync reads
+  `(PaymentMethod eq 'CHK' or PaymentMethod eq 'CASH')` — the payments inquiry accepts that `or`,
+  measured, unlike the bills inquiry — and `CHEQUE_PAYMENT_METHODS` in `map.ts` is the same pair;
+  keep the two in step. A CASH check numbered `PCF26-xxxx` is not a bare number, so it stages
+  NO_CHECK_NUMBER like the 275 CHK payments numbered that way already do (2026-09-04 ruling, not
+  revisited) — it does not appear on the dashboard. The BILLS read needs no change: its `CHK` is
+  the DOCUMENT type (Payment), and CV-ST021234's application to AP-ST045103 maps as it is. A full
+  re-read (`scripts/sync.ts <TENANT> --full`) is what brings the CASH checks in; the incremental
+  read sees only those modified after the watermark.
 - **Acumatica's `CashAccount` column is the CHECK BOOK, not this system's cash account.** It states
   `BPI-S-4636`, `MBT-A-4155`, `BDO-A-3838` — the eight `CheckBook` codes the register used — while
   `CashAccount` here holds six register labels (`BPI STK`, `MBTC A1+`, …). Until 2026-10-02 `map.ts`
@@ -693,8 +708,8 @@ The register (`CHECK MONITORING 9.1.2026.xlsx`) has 15 sheets and 12,227 data ro
   payments took turns writing over one check and the voided one voided the live one. Measured that day:
   5 Go-Live numbers — void + re-issue `1791361374`, `1791361447`, `1791361448`; two live payments
   `6000338856`, `6000349314`. Fix the number in Acumatica, or settle it by hand.
-- **A payment that leaves the sync's scope is never read again** (2026 + `CHK`): `PCF26-0244` became
-  CASH in Acumatica and stayed a SIGNATURE_PENDING check here. `scripts/sync.ts <TENANT> --full`
+- **A payment that leaves the sync's scope is never read again** (2026 + CHK-or-CASH): `PCF26-0244` became
+  CASH in Acumatica (a non-check until 2026-10-23) and stayed a SIGNATURE_PENDING check here. `scripts/sync.ts <TENANT> --full`
   now (a) snapshots the tenant's checks to `snapshots/payments-full-<tenant>-<ts>.json` first and
   (b) re-reads, one request per reference, every LIVE check whose payment is no longer in the scoped
   feed (`lib/sync/out-of-scope.ts`), through `upsertCheck` — status untouched. `--full --dry-run` lists them.

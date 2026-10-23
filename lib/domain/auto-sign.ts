@@ -74,7 +74,7 @@ export function isDueForAutoSign(c: AutoSignFacts, now: Date, enabled: boolean):
   if (c.status !== 'SIGNATURE_PENDING') return false
   // Only what Acumatica generated. A register-only check waits for a person.
   if (c.acumaticaPaymentId === null) return false
-  // DEBIT ADV and CASH are never signed by anyone.
+  // DEBIT ADV and TT are never signed by anyone.
   if (!c.isCheque) return false
   // A voided payment is the sync's or a person's to settle, not the clock's.
   if (c.acumaticaStatus === 'Voided') return false

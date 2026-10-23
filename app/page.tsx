@@ -322,7 +322,7 @@ export default async function DashboardPage({
           )}
           {matching > pendingSign.count && (
             <p className="mt-2 text-xs text-slate-500">
-              {(matching - pendingSign.count).toLocaleString('en-PH')} NON-CHECK PAYMENT(S) (DEBIT ADV, CASH) IN THIS VIEW ARE NOT SIGNED.
+              {(matching - pendingSign.count).toLocaleString('en-PH')} NON-CHECK PAYMENT(S) (DEBIT ADV, TT) IN THIS VIEW ARE NOT SIGNED.
             </p>
           )}
         </div>
