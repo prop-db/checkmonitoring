@@ -243,7 +243,12 @@ These are safety properties, not preferences. Each exists because of a specific 
     never a JS number); the file (PDF/JPG/PNG, at most 3 MB, signature-checked) is stored in
     `CheckReceiptFile` (BYTEA) and read only when a RECEIPT is delivered. Once recorded neither is
     overwritten: `attachReceiptFile` adds a missing amount or file later and refuses to replace one
-    that is there. They travel to the portal as the `RECEIPT` outbox event, queued only for a
+    that is there. **The one way out is `removeReceipt` (2026-10-23, REMOVE RECEIPT on the check page,
+    FINANCE_ADMIN, reason required)**: for a receipt typed with a release that never happened
+    (6000354897, AR 4852). RELEASED and uncleared only; refused when a RECEIPT event was DELIVERED to
+    the portal (it has no remove message); clears the receipt columns, amount and file, one
+    `receipt_removed` audit row. It exists to unblock REVERSE RELEASE, never to edit a real receipt.
+    They travel to the portal as the `RECEIPT` outbox event, queued only for a
     portal-routed check with an APV (an INTERNAL or APV-less check records the receipt here and
     queues nothing). Server actions allow a 4 MB body (`bodySizeLimit` in `next.config.ts`).
     **The outbox has two lanes per check.** Status lane: MARK_AVAILABLE, REVERT, RELEASED,

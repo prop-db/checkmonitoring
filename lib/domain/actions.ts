@@ -379,6 +379,23 @@ export async function revertAvailability(
     const check = await load(tx, args.checkId)
     assertTransition(check.status as CheckStatus, 'SIGNED')
 
+    // A release reversal the portal has not received yet (2026-10-23): this
+    // REVERT would supersede it unsent (latest wins), the portal ignores a REVERT
+    // on a row it still holds as RELEASED, and the supplier's AP would stay
+    // paid there. Refused until RELEASE_REVERSED is delivered.
+    const reversalWaiting = await tx.portalEvent.findFirst({
+      where: { checkId: check.id, kind: 'RELEASE_REVERSED', status: { in: ['PENDING', 'IN_FLIGHT', 'FAILED', 'PARKED'] } },
+      select: { status: true },
+    })
+    if (reversalWaiting) {
+      throw new DomainError(
+        'PORTAL_REVERSAL_PENDING',
+        reversalWaiting.status === 'PARKED'
+          ? 'The supplier portal refused the release reversal (see Administration → Portal). Resolve it there before reverting to SIGNED.'
+          : 'The supplier portal has not received the release reversal yet. Try again in a few seconds.',
+      )
+    }
+
     const route = portalRoute(check.eligibility as Eligibility)
     const pushes = route !== null
 
@@ -920,6 +937,72 @@ export async function attachReceiptFile(
     })
     return updated as Check
   }, RECEIPT_TX_OPTIONS)
+}
+
+export const RECEIPT_REMOVED_ACTION = 'receipt_removed'
+
+/**
+ * A receipt recorded by mistake, removed (user request 2026-10-23: 6000354897,
+ * AR 4852, typed with a release that never happened). FINANCE_ADMIN only —
+ * enforced by the server action — with a mandatory reason. It is what makes
+ * REVERSE RELEASE possible again, since `checkReleaseReversible` refuses while a
+ * receipt is on record; nothing else about the check changes.
+ *
+ * Clears rule 11's three receipt columns, the amount and the scanned file, and
+ * records all of it (file metadata, never the bytes - rule 7) on one
+ * `receipt_removed` audit row. Refused when the check is not RELEASED, when the
+ * bank has cleared it, and when a RECEIPT event for it was DELIVERED to the
+ * portal: the portal has no "remove receipt" message, so the two systems would
+ * disagree. RECEIPT events still waiting are closed unsent.
+ */
+export async function removeReceipt(
+  db: Db, args: { checkId: string; userId: string; reason: string; now: Date },
+): Promise<Check> {
+  const reason = args.reason?.trim() ?? ''
+  if (!reason) throw new DomainError('REASON_REQUIRED', 'A reason is required to remove a receipt.')
+  return inTx(db, async (tx) => {
+    const check = await load(tx, args.checkId)
+    const file = await tx.checkReceiptFile.findUnique({
+      where: { checkId: check.id }, select: { fileName: true, contentType: true, sizeBytes: true, sha256: true },
+    })
+    if (check.orNumber === null && check.receiptType === null && check.receiptAmount === null && !file) {
+      throw new DomainError('RECEIPT_REQUIRED', 'This check has no receipt to remove.')
+    }
+    if (check.status !== 'RELEASED') {
+      throw new DomainError('ILLEGAL_TRANSITION', `A receipt is removed only from a RELEASED check; this one is ${check.status}.`)
+    }
+    if (check.clearingStatus !== 'NONE' || check.crNumber !== null || check.clearedDate !== null) {
+      throw new DomainError('CLEARED', 'The bank has cleared this check; its receipt is not removed.')
+    }
+    const receiptEvents = await tx.portalEvent.findMany({ where: { checkId: check.id, kind: 'RECEIPT' } })
+    const delivered = receiptEvents.filter((e) =>
+      e.status === 'SYNCED' && !(e.lastError ?? '').startsWith('superseded by') && !(e.lastError ?? '').startsWith('stale:'))
+    if (delivered.length > 0) {
+      throw new DomainError(
+        'RECEIPT_DELIVERED',
+        'This receipt was already sent to the supplier portal, which cannot be told to remove it. Settle it there first.',
+      )
+    }
+    const waiting = receiptEvents.filter((e) => e.status !== 'SYNCED').map((e) => e.id)
+    if (waiting.length > 0) {
+      await tx.portalEvent.updateMany({
+        where: { id: { in: waiting } }, data: { status: 'SYNCED', lastError: 'closed: receipt removed' },
+      })
+    }
+
+    const updated = await tx.check.update({
+      where: { id: check.id }, data: { orNumber: null, orDate: null, receiptType: null, receiptAmount: null },
+    })
+    if (file) await tx.checkReceiptFile.delete({ where: { checkId: check.id } })
+    await writeAudit(tx, {
+      checkId: check.id, actorType: 'USER', userId: args.userId, action: RECEIPT_REMOVED_ACTION, remarks: reason,
+      details: {
+        orNumber: check.orNumber, orDate: check.orDate?.toISOString() ?? null, receiptType: check.receiptType,
+        receiptAmount: check.receiptAmount?.toFixed(2) ?? null, file, closedPortalEvents: waiting,
+      },
+    })
+    return updated
+  })
 }
 
 /**
