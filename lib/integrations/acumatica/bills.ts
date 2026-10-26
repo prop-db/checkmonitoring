@@ -53,6 +53,18 @@ export function billsInScopeFilter(tenant: AcumaticaTenant): string {
   return `${BILL_FEED_COLUMNS[tenant].date} ge datetime'${IN_SCOPE_FROM}'`
 }
 
+/**
+ * The applications of ONE payment, by its own reference — the direct lookup the
+ * BILLS run makes for a held check that still has no APV (2026-10-26; see
+ * `lookUpApvLess` in `lib/sync/bills.ts`). The tenant's own column name: a
+ * filter on the Go-Live name is a 500 on MANUFACTURING. An `eq` on this column
+ * works on both (measured on CV-HF000161, Go-Live, 2026-10-26). A quote in the
+ * reference is doubled, the OData literal escape.
+ */
+export function billsForPaymentFilter(tenant: AcumaticaTenant, paymentRef: string): string {
+  return `${BILL_FEED_COLUMNS[tenant].paymentRef} eq '${paymentRef.replace(/'/g, "''")}'`
+}
+
 export function billFeedSelect(tenant: AcumaticaTenant): string[] {
   return Object.values(BILL_FEED_COLUMNS[tenant])
 }
