@@ -234,14 +234,14 @@ export default async function SyncPage() {
         ))}
       </div>
 
-      {/* The daily auto-sign (lib/sync/auto-sign.ts) records each run as one
-          audit row; this is the latest. A FAILED run is shown the way a failed
-          sync is, because a silent failure here is a pile of unsigned cheques. */}
+      {/* Auto-sign is retired (lib/sync/auto-sign.ts, user ruling 2026-10-27):
+          every run records DISABLED and signs nothing. The latest row is shown
+          so an admin can see the clock is not signing. */}
       <section className="rounded-2xl bg-white p-6 ring-1 ring-hairline">
         <h2 className="text-[11px] font-semibold tracking-widest text-slate-400">LAST AUTO-SIGN</h2>
         {lastAutoSign === null ? (
           <p className="mt-2 text-sm text-slate-600">
-            Auto-sign has not run yet. It runs at 12:00 and 18:00 Manila, after the sync, and signs on Mondays and Tuesdays.
+            Auto-sign is switched off: signing is manual (SIGN ALL on the SIGNATURE PENDING list). The cron still records a run here.
           </p>
         ) : lastAutoSign.outcome === 'FAILED' ? (
           <div className="mt-2 space-y-2 rounded-xl bg-danger-bg p-4 ring-1 ring-danger-ink/20">
@@ -264,7 +264,7 @@ export default async function SyncPage() {
               : <>: {n(lastAutoSign.signed)} check(s) signed</>)}
             {lastAutoSign.outcome === 'IDLE' && <>: not a Monday or Tuesday — nothing due</>}
             {lastAutoSign.skipped > 0 && <>, {n(lastAutoSign.skipped)} skipped because they changed first</>}
-            {lastAutoSign.outcome === 'DISABLED' && <>: switched off in settings</>}
+            {lastAutoSign.outcome === 'DISABLED' && <>: switched off — signing is manual since 2026-10-22</>}
           </p>
         )}
       </section>

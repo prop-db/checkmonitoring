@@ -12,7 +12,6 @@ import {
   DEFAULT_EMAIL_FREE_FAILURES as EMAIL_FREE_FAILURES,
   DEFAULT_IP_FREE_FAILURES as IP_FREE_FAILURES,
   DEFAULT_SIGNUP_IP_PER_HOUR as SIGNUP_IP_PER_HOUR,
-  DEFAULT_AUTO_SIGN_MONDAY_ENABLED as AUTO_SIGN_MONDAY_ENABLED,
 } from './defaults'
 import { DEFAULT_CATEGORIES, isCategory } from './categories'
 
@@ -36,14 +35,13 @@ export { DEFAULT_CATEGORIES, isCategory }
  * Pure. Imports only constants.
  */
 
-export type SettingGroup = 'SYNC' | 'CAPS' | 'LOGIN' | 'WORKFLOW' | 'CATEGORIES'
+export type SettingGroup = 'SYNC' | 'CAPS' | 'LOGIN' | 'CATEGORIES'
 
 export type IntKey =
   | 'sync.staleAfterHours' | 'sync.abandonedAfterMinutes' | 'sync.inProgressMinutes'
   | 'caps.bulkSelection' | 'caps.exportRows' | 'caps.voucherScreenRows'
   | 'login.windowMinutes' | 'login.emailFreeFailures' | 'login.ipFreeFailures'
   | 'signup.ipPerHour'
-  | 'autoSign.mondayEnabled'
 export type SettingKey = IntKey | 'categories'
 
 export type IntSettingDef = {
@@ -87,9 +85,6 @@ export const SETTINGS: readonly SettingDef[] = [
   { kind: 'int', key: 'signup.ipPerHour', group: 'LOGIN', label: 'REGISTRATIONS PER ADDRESS PER HOUR', unit: 'accounts',
     help: 'How many accounts one client address may create on the sign-up page in a rolling hour. Every submission counts, accepted or refused.',
     default: SIGNUP_IP_PER_HOUR, min: 1, max: 100 },
-  { kind: 'int', key: 'autoSign.mondayEnabled', group: 'WORKFLOW', label: 'AUTO-SIGN ACUMATICA CHECKS ON MONDAY AND TUESDAY', unit: '1 = on, 0 = off',
-    help: "At 12:00 and 18:00 every Monday, a pending Acumatica check first read before that Monday is signed; on Tuesday, one first read before that Tuesday. Monday's checks are therefore signed on Tuesday, and the rest on the next Monday.",
-    default: AUTO_SIGN_MONDAY_ENABLED, min: 0, max: 1 },
   { kind: 'list', key: 'categories', group: 'CATEGORIES', label: 'CATEGORIES',
     help: 'What a check or a planned outflow may be filed under. One per line. Anything else is refused on the form.',
     default: DEFAULT_CATEGORIES },

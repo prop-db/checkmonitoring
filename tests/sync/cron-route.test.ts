@@ -241,7 +241,7 @@ describe('GET /api/cron/sync — the voucher read (BILLS)', () => {
   })
 })
 
-describe('GET /api/cron/sync — auto-sign after the syncs', () => {
+describe('GET /api/cron/sync — auto-sign after the syncs (retired, user ruling 2026-10-27)', () => {
   // Tuesday 29 Sep 2026, 12:00 Manila. Only Date is faked so DB timers stay real.
   beforeEach(() => { vi.useFakeTimers({ now: new Date('2026-09-29T04:00:00Z'), toFake: ['Date'] }) })
   afterEach(() => { vi.useRealTimers() })
@@ -255,24 +255,24 @@ describe('GET /api/cron/sync — auto-sign after the syncs', () => {
     })
   }
 
-  it('signs the due checks and reports it', async () => {
+  it('records DISABLED and leaves the due checks pending', async () => {
     await watermarked('GOLIVE'); await watermarked('MANUFACTURING')
     const c = await duePending()
     const res = await get(`Bearer ${SECRET}`)
     const body = await res.json()
     expect(res.status).toBe(200)
-    expect(body.autoSign).toMatchObject({ outcome: 'OK', signed: 1, enabled: true })
-    expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('SIGNED')
+    expect(body.autoSign).toMatchObject({ outcome: 'DISABLED', signed: 0, enabled: false })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('SIGNATURE_PENDING')
   })
 
-  it('still auto-signs when a tenant sync failed', async () => {
+  it('still records the run when a tenant sync failed, and signs nothing', async () => {
     await watermarked('GOLIVE'); await watermarked('MANUFACTURING')
     state.failFor = 'GOLIVE'
     const c = await duePending()
     const res = await get(`Bearer ${SECRET}`)
     expect(res.status).toBe(500)
-    expect((await res.json()).autoSign.outcome).toBe('OK')
-    expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('SIGNED')
+    expect((await res.json()).autoSign.outcome).toBe('DISABLED')
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('SIGNATURE_PENDING')
   })
 
   it('answers 500 when auto-sign fails, even though both syncs ran', async () => {
@@ -291,12 +291,12 @@ describe('GET /api/cron/sync — auto-sign after the syncs', () => {
   })
 })
 
-describe('GET /api/cron/sync — auto-sign on a Monday', () => {
+describe('GET /api/cron/sync — auto-sign on a Monday (retired)', () => {
   // Monday 12 Oct 2026, 12:00 Manila. Only Date is faked so DB timers stay real.
   beforeEach(() => { vi.useFakeTimers({ now: new Date('2026-10-12T04:00:00Z'), toFake: ['Date'] }) })
   afterEach(() => { vi.useRealTimers() })
 
-  it('signs last week’s check', async () => {
+  it('leaves last week’s check pending', async () => {
     await watermarked('GOLIVE'); await watermarked('MANUFACTURING')
     const { makeCheck } = await import('../helpers/factory')
     const made = await makeCheck({ status: 'SIGNATURE_PENDING' })
@@ -306,8 +306,8 @@ describe('GET /api/cron/sync — auto-sign on a Monday', () => {
     })
     const res = await get(`Bearer ${SECRET}`)
     expect(res.status).toBe(200)
-    expect((await res.json()).autoSign).toMatchObject({ outcome: 'OK', signed: 1, enabled: true })
-    expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('SIGNED')
+    expect((await res.json()).autoSign).toMatchObject({ outcome: 'DISABLED', signed: 0, enabled: false })
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('SIGNATURE_PENDING')
   })
 })
 
