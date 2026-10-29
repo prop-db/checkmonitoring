@@ -401,8 +401,17 @@ to"*; spec `2026-10-29-cancelled-check-detaches-from-ap-design.md`). The portal 
 per BILL, keyed by APV; this app keeps events per check. A void and re-issue is two checks on one bill,
 and the voided check's CANCELLED event cancelled the bill's row in the portal, so the replacement's
 RELEASED was refused — `6000354974`..`77` on `AP-ST039900`/`07`/`10`/`12`, released 26 Oct, four
-RELEASED events parked *"cancelled in the portal; a super must resolve"* (resolved by a portal super
-re-opening the rows, then RETRY on `/admin/portal`). Now `voidCheck` / `cancelCheck` call
+RELEASED events parked *"cancelled in the portal; a super must resolve"*. **That message names no
+screen: the portal has no manual restore of a cancelled row, and its Excel re-issue path is retired.
+The resolution is in the portal's code** (`prop-db/Supplier-Database`, `src/integrations/check-monitoring.js`,
+branch `claude/reissue-revives-cancelled-row`, 2026-10-29): a RELEASED arriving on a row the portal
+cancelled on Check Monitoring's own CANCELLED (`cancel_requested_at` null) under a DIFFERENT check
+number is applied as the re-issue it is; the same number, or a portal user's cancellation, stays
+refused. Once the portal is deployed with it, RETRY on `/admin/portal` delivers the four and their
+receipts follow. **It also covers the 23 voided checks detached today: their CANCELLED events were
+delivered weeks ago, so their replacements will meet the same refusal when released.** On 2026-10-29
+the user reversed and re-released the four (receipts removed and re-typed), which changed nothing at
+the portal — do not do that again; the parked rows wait for the portal deploy. Now `voidCheck` / `cancelCheck` call
 `detachFromBills` (`lib/domain/actions.ts`): `apvNumbers` emptied, `CheckBill` rows deleted, NO
 portal event, `portalSyncStatus = NOT_APPLICABLE`; the `cancelled` / `voided` row carries
 `apvNumbersDetached`, `billsDetached` (whole rows) and, for a routed check, `portalNotified: false,

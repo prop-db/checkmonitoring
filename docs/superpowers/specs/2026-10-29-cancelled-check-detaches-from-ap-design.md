@@ -84,12 +84,26 @@ closed 0 open CANCELLED events, 0 still connected. Snapshots
 `snapshots/detach-cancelled-apvs-2026-10-29T08-06-47-676Z.json` and `…T08-14-04-455Z.json`.
 Lesson for the next one-off: print a line per row, or at least the count, before the loop.
 
-## The four checks of 26 October
+## The four checks of 26 October, and the portal's side
 
-Unchanged by this build. Their RELEASED events stay PARKED until a portal super re-opens the rows
-for AP-ST039900, 039907, 039910 and 039912; then RETRY on `/admin/portal` re-sends RELEASED and the
-portal applies it. Any receipt typed with those releases is held behind the parked event and follows
-on its own. The old voided checks will be detached by the script above.
+Unchanged by this build here. Read on 2026-10-29 with `scripts/inspect-portal-checks.ts`: on 26 October
+each was readied and released within a minute, so the outbox's latest-wins dropped the MARK_AVAILABLE
+and the portal received only RELEASED, refused on the row its own CANCELLED (for the voided twin) had
+closed. The user then reversed and re-released them (receipts removed and re-typed); RELEASE_REVERSED
+was refused the same way and nothing changed at the portal.
+
+**"A super must resolve" names no screen.** The portal's spec `2026-09-23-check-availability-tabs-and-
+cancellation` says there is no manual restore of a cancelled row; the one re-issue path was the Excel
+availability import, retired 2026-10-22; the only reviving event is MARK_AVAILABLE. So the fix is in
+the portal (`prop-db/Supplier-Database`, `src/integrations/check-monitoring.js`, branch
+`claude/reissue-revives-cancelled-row`): `applyOne` RELEASED on a CANCELLED row applies when the row
+was cancelled by Check Monitoring (`cancel_requested_at` null — a portal user's `approveCancel` keeps
+the request columns) AND the event's check number differs from the row's, through the same `fromImport`
+update the 2026-10-19 internal revive uses; `reissue: true` on the result; the same number, a portal
+user's cancellation, and RELEASE_REVERSED stay refused. Three tests added there; 49/49 check-monitoring
+tests pass. After the portal deploys it, RETRY on `/admin/portal` delivers the four RELEASED events and
+their held RECEIPTs follow. The 23 checks detached here today had their CANCELLED delivered to the
+portal weeks ago, so their replacements need this too.
 
 ## Tests
 
