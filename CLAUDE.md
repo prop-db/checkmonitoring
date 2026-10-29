@@ -417,8 +417,15 @@ cancelled with no replacement keeps whatever state the portal had until someone 
 `scripts/detach-cancelled-apvs.ts [--apply]` (`lib/admin/detach-cancelled-apvs.ts`) detaches the
 checks cancelled or voided before the rule and closes their open CANCELLED events unsent
 (`unmatchable: …`, counted on `/admin/portal`), snapshot first, one `apv_detached_on_cancel` row each —
-**not yet run**; the user runs it. `queueCancelledForStale` (`--queue-cancelled`) is superseded and
-must not be run again. The 2026-10-01 guard below is subsumed: a cancelled check never has an APV now.
+**run 2026-10-29 by the user, from a Mac, in two passes** (the first was interrupted after a few
+checks because the script prints nothing while it works; the second found 23 left, all VOIDED, and
+detached 23 of 23, 0 open CANCELLED events, 0 still connected; snapshots
+`snapshots/detach-cancelled-apvs-2026-10-29T08-06-47-676Z.json` and `…T08-14-04-455Z.json`, on the
+user's machine). `queueCancelledForStale` (`--queue-cancelled`) is superseded and
+must not be run again. **The user's scripts now run from a Mac** (`~/Projects/checkmonitoring`,
+plain `npx`); the `npx.cmd` note above is for the Windows machine. The Neon address has two
+databases on one project: `check_monitoring` is NOT production and lacks recent columns —
+`check_monitoring_prod` is. The 2026-10-01 guard below is subsumed: a cancelled check never has an APV now.
 
 **A void or cancel of a check with no APV queues nothing for the portal** (2026-10-01, spec
 `2026-10-01-cheque-numbering-and-cancel-guard-design.md`; subsumed by the 2026-10-29 rule above). The portal matches on APV and the client

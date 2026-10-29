@@ -77,8 +77,12 @@ then per check in one transaction: `detachFromBills`, open CANCELLED events (PEN
 PARKED) closed SYNCED with `lastError = 'unmatchable: detached from its AP bills on cancel'` (the
 prefix `/admin/portal` counts), `portalSyncStatus = NOT_APPLICABLE`, one `apv_detached_on_cancel`
 SYSTEM audit row carrying what was detached. A check no longer cancelled when its turn comes is left
-alone. Status is never touched. **Not yet run** — the user runs it, from a terminal, against
-production. Measuring the count is the dry run's job; nothing here assumes it.
+alone. Status is never touched. **Run 2026-10-29 by the user from a Mac, in two passes:** the
+first apply was interrupted after a few checks (the script prints nothing while it works, which
+read as a hang); the second dry run found 23 left, all VOIDED, and the apply detached 23 of 23,
+closed 0 open CANCELLED events, 0 still connected. Snapshots
+`snapshots/detach-cancelled-apvs-2026-10-29T08-06-47-676Z.json` and `…T08-14-04-455Z.json`.
+Lesson for the next one-off: print a line per row, or at least the count, before the loop.
 
 ## The four checks of 26 October
 
