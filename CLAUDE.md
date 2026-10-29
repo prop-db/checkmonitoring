@@ -407,8 +407,12 @@ The resolution is in the portal's code** (`prop-db/Supplier-Database`, `src/inte
 branch `claude/reissue-revives-cancelled-row`, 2026-10-29): a RELEASED arriving on a row the portal
 cancelled on Check Monitoring's own CANCELLED (`cancel_requested_at` null) under a DIFFERENT check
 number is applied as the re-issue it is; the same number, or a portal user's cancellation, stays
-refused. Once the portal is deployed with it, RETRY on `/admin/portal` delivers the four and their
-receipts follow. **It also covers the 23 voided checks detached today: their CANCELLED events were
+refused. **Deployed 2026-10-29 ~17:20 Manila by the user (`npx vercel --prod` from a ZIP of the branch,
+Vercel project `supplier-portal`); RETRY then delivered the four RELEASED events and their receipts,
+0 parked after. The branch is merged into the portal's `main` (fast-forward) and this one into
+`master`, because both systems deploy the LOCAL tree and a later deploy from main would otherwise drop
+the fix. Check Monitoring was deployed from `~/Projects/checkmonitoring` the same day (Ready in 53 s);
+Vercel reports that project as "linked by git", so a push to `master` may deploy it as well.** **It also covers the 23 voided checks detached today: their CANCELLED events were
 delivered weeks ago, so their replacements will meet the same refusal when released.** On 2026-10-29
 the user reversed and re-released the four (receipts removed and re-typed), which changed nothing at
 the portal — do not do that again; the parked rows wait for the portal deploy. Now `voidCheck` / `cancelCheck` call
