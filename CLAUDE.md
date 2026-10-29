@@ -158,6 +158,7 @@ npx tsx scripts/mark-ready-from-release-list.ts "<for-release>.xlsx" --apply    
 npx tsx scripts/revert-detail1-ready.ts "<for-release>.xlsx" <ready-from-list snapshot> [--apply]  # Detail1-only READY back to prior status (run 2026-09-25)
 npx tsx scripts/void-acumatica-voided.ts [--apply]                # void what Acumatica voided (live or RELEASED here)
 npx tsx scripts/close-unmatchable-cancelled.ts [--apply]         # parked CANCELLED events whose check has no APV: close unsent
+npx tsx scripts/detach-cancelled-apvs.ts [--apply]               # CANCELLED/VOIDED checks still on an AP bill: detach, close their open CANCELLED events (ruling 2026-10-29)
 npx tsx scripts/backfill-check-books.ts GOLIVE [--apply]       # record a missing check book from CashAccount; also moves or clears a book that differs from Acumatica's (§G1) (MANUFACTURING likewise)
 npx tsx scripts/link-vouchers-from-acumatica.ts "<for-release>.xlsx" [--apply]  # link list vouchers via AP-PAYMENTS-WITH-BILLS, ready their checks
 npx tsx scripts/sync.ts GOLIVE --bills --dry-run     # read AP-PAYMENTS-WITH-BILLS, write nothing (MANUFACTURING likewise)
@@ -185,7 +186,8 @@ These are safety properties, not preferences. Each exists because of a specific 
    stop aging there; the portal records them silently. MARK_AVAILABLE, REVERT and RECEIPT are never
    sent, and the check row never carries portal state (`check_internal_never_routes_to_portal`).
    The actions decide (`queuesQuietStatus`), and the portal client asserts it again
-   (`INTERNAL_PORTAL_KINDS`). Two independent checks, deliberately.
+   (`INTERNAL_PORTAL_KINDS`). Two independent checks, deliberately. **Since 2026-10-29 CANCELLED is
+   not sent for any check** — see "A cancelled or voided check is detached from its AP bills" below.
 3. **Acumatica is read-only.** `lib/integrations/acumatica/client.ts` exposes no mutating method,
    and a test asserts it. Read-only by construction, not by callers being careful.
 4. **An import never changes a check's status.** Acumatica does not know whether Finance has signed
@@ -393,8 +395,33 @@ the middleware sends an anonymous bare `/` there and every other guarded path to
 before, and sign-out lands on `/welcome`. `requireUser()` still redirects to `/login`. The page
 reads no data and must never show a figure: it is the one page a stranger can load.
 
+**A cancelled or voided check is detached from its AP bills, and the portal is not told** (user
+ruling 2026-10-29: *"Once the check is cancelled, it should not be connected to the AP it was applied
+to"*; spec `2026-10-29-cancelled-check-detaches-from-ap-design.md`). The portal keeps one release row
+per BILL, keyed by APV; this app keeps events per check. A void and re-issue is two checks on one bill,
+and the voided check's CANCELLED event cancelled the bill's row in the portal, so the replacement's
+RELEASED was refused — `6000354974`..`77` on `AP-ST039900`/`07`/`10`/`12`, released 26 Oct, four
+RELEASED events parked *"cancelled in the portal; a super must resolve"* (resolved by a portal super
+re-opening the rows, then RETRY on `/admin/portal`). Now `voidCheck` / `cancelCheck` call
+`detachFromBills` (`lib/domain/actions.ts`): `apvNumbers` emptied, `CheckBill` rows deleted, NO
+portal event, `portalSyncStatus = NOT_APPLICABLE`; the `cancelled` / `voided` row carries
+`apvNumbersDetached`, `billsDetached` (whole rows) and, for a routed check, `portalNotified: false,
+portalSkipReason: DETACHED_SKIP_REASON`, and its remark names the APVs. Nothing re-links a dead check:
+the BILLS read skips a CANCELLED/VOIDED check (counted `cancelledHere`, named in the run message —
+Acumatica still lists a voided payment's applications), `upsertCheck` merges no voucher onto one, and
+`matchBills` (approval workbook) never matches one — so a voucher naming a voided check and its live
+re-issue resolves to the re-issue. `restoreCancelled` re-attaches the detached vouchers (not the bills)
+unless a live/RELEASED check of the company has taken one since. **Consequence, accepted with the
+ruling:** the portal hears of no cancellation at all, re-issue or not; a bill whose check was
+cancelled with no replacement keeps whatever state the portal had until someone there changes it.
+`scripts/detach-cancelled-apvs.ts [--apply]` (`lib/admin/detach-cancelled-apvs.ts`) detaches the
+checks cancelled or voided before the rule and closes their open CANCELLED events unsent
+(`unmatchable: …`, counted on `/admin/portal`), snapshot first, one `apv_detached_on_cancel` row each —
+**not yet run**; the user runs it. `queueCancelledForStale` (`--queue-cancelled`) is superseded and
+must not be run again. The 2026-10-01 guard below is subsumed: a cancelled check never has an APV now.
+
 **A void or cancel of a check with no APV queues nothing for the portal** (2026-10-01, spec
-`2026-10-01-cheque-numbering-and-cancel-guard-design.md`). The portal matches on APV and the client
+`2026-10-01-cheque-numbering-and-cancel-guard-design.md`; subsumed by the 2026-10-29 rule above). The portal matches on APV and the client
 refuses an event with none, so such an event parked on its first attempt and RETRY parked it again —
 which is how `6000354350` and `1791259553` reached `/admin/portal`. `voidCheck` / `cancelCheck` now
 ask `portalApvs` (`lib/integrations/portal/apvs.ts`, the same rule the client uses) first; a routed

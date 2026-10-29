@@ -95,6 +95,28 @@ describe('runBillsSync — linking vouchers', () => {
     expect(result.chequesChanged).toBe(1)
   })
 
+  it('never links a CANCELLED or VOIDED cheque, counts it, and says so in the run message (ruling 2026-10-29)', async () => {
+    const voided = await heldCheque('CV-ST012345', { status: 'VOIDED', apvNumbers: [] })
+    const cancelled = await heldCheque('CV-ST012346', { status: 'CANCELLED', apvNumbers: [] })
+    const live = await heldCheque('CV-ST012347', { status: 'SIGNED', apvNumbers: [] })
+    const result = await bills([
+      billRow({ AdjgRefNbr: 'CV-ST012345', AdjdRefNbr: 'AP-ST000001' }),
+      billRow({ AdjgRefNbr: 'CV-ST012346', AdjdRefNbr: 'AP-ST000002' }),
+      billRow({ AdjgRefNbr: 'CV-ST012347', AdjdRefNbr: 'AP-ST000001' }),
+    ], { since: new Date('2026-09-29T00:00:00Z') }).result
+
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: voided.id } })).apvNumbers).toEqual([])
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: cancelled.id } })).apvNumbers).toEqual([])
+    expect((await testDb.check.findUniqueOrThrow({ where: { id: live.id } })).apvNumbers).toEqual(['AP-ST000001'])
+    expect(result.cancelledHere).toBe(2)
+    expect(result.vouchersAdded).toBe(1)
+    expect(result.errors).toBe(0)
+    expect(result.watermark).not.toBeNull()
+    expect(await testDb.auditLog.count({ where: { action: VOUCHER_LINKED_ACTION } })).toBe(1)
+    const run = await testDb.syncRun.findFirstOrThrow({ where: { id: result.syncRunId } })
+    expect(run.message).toContain('2 payment(s) whose check is cancelled or voided here were not linked')
+  })
+
   it('keeps vouchers already present and never removes one; a second identical run writes nothing', async () => {
     const c = await heldCheque('CV-ST012345', { apvNumbers: ['AP-OLD'] })
     await bills([billRow({ AdjdRefNbr: 'AP-NEW' })]).result

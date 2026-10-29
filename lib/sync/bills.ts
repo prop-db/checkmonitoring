@@ -11,7 +11,7 @@ import {
   billsSinceFilter,
   mapBillApplication,
 } from '@/lib/integrations/acumatica/bills'
-import { LIVE_STATUSES } from '@/lib/domain/check-status'
+import { LIVE_STATUSES, type CheckStatus } from '@/lib/domain/check-status'
 import { naiveDate } from '@/lib/integrations/acumatica/map'
 import { loadSettings } from '@/lib/settings/read'
 import { BILLS_MODE } from '@/lib/sync/modes'
@@ -90,6 +90,12 @@ export type BillsRunResult = {
   chequesChanged: number
   /** Distinct payment references this system holds no cheque for. */
   notHeld: number
+  /**
+   * Payments whose cheque is CANCELLED or VOIDED here: their applications are
+   * not linked (user ruling 2026-10-29 — a cancelled cheque stays detached from
+   * its AP bills). Not errors.
+   */
+  cancelledHere: number
   /** Held checks with no APV this run asked the inquiry about directly (incremental runs only). */
   lookedUp: number
   /** Of those, the checks that gained at least one voucher. */
@@ -139,6 +145,7 @@ export async function runBillsSync(db: Db, args: BillsSyncArgs): Promise<BillsRu
   let vouchersAdded = 0
   let chequesChanged = 0
   let notHeld = 0
+  let cancelledHere = 0
   let lookedUp = 0
   let linkedByLookup = 0
   let errors = 0
@@ -155,7 +162,7 @@ export async function runBillsSync(db: Db, args: BillsSyncArgs): Promise<BillsRu
         staged: notHeld,
         errors,
         watermark,
-        message: runMessage(problems, notHeldRefs, tenant, { lookedUp, linkedByLookup }),
+        message: runMessage(problems, notHeldRefs, tenant, { lookedUp, linkedByLookup, cancelledHere }),
       },
     })
   }
@@ -204,14 +211,14 @@ export async function runBillsSync(db: Db, args: BillsSyncArgs): Promise<BillsRu
   // transaction. The cron has a 60-second ceiling, and a re-read of an
   // already-linked set (every incremental run overlaps the last by 120
   // minutes) would otherwise open one transaction per cheque for nothing.
-  const held = new Map<string, { id: string; apvNumbers: readonly string[] }>() // paymentRef -> cheque
+  const held = new Map<string, { id: string; apvNumbers: readonly string[]; status: CheckStatus }>() // paymentRef -> cheque
   for (let i = 0; i < refs.length; i += IN_CHUNK) {
     const found = await db.check.findMany({
       where: { acumaticaPaymentId: { in: refs.slice(i, i + IN_CHUNK) } },
-      select: { id: true, acumaticaPaymentId: true, apvNumbers: true },
+      select: { id: true, acumaticaPaymentId: true, apvNumbers: true, status: true },
     })
     for (const c of found) {
-      if (c.acumaticaPaymentId) held.set(c.acumaticaPaymentId, { id: c.id, apvNumbers: c.apvNumbers })
+      if (c.acumaticaPaymentId) held.set(c.acumaticaPaymentId, { id: c.id, apvNumbers: c.apvNumbers, status: c.status })
     }
   }
 
@@ -220,6 +227,15 @@ export async function runBillsSync(db: Db, args: BillsSyncArgs): Promise<BillsRu
     if (!cheque) {
       notHeld++
       notHeldRefs.push(paymentRef)
+      continue
+    }
+    // A cancelled or voided cheque stays detached from its AP bills (user
+    // ruling 2026-10-29): Acumatica still lists the voided payment's
+    // applications, and linking them back would put the dead cheque on the
+    // bill beside its replacement — the pairing that cancelled the bill in
+    // the portal. Counted, never written.
+    if (isDetachedStatus(cheque.status)) {
+      cancelledHere++
       continue
     }
     const checkId = cheque.id
@@ -268,8 +284,13 @@ export async function runBillsSync(db: Db, args: BillsSyncArgs): Promise<BillsRu
 
   return {
     syncRunId: run.id, tenant,
-    fetched, ignored, vouchersAdded, chequesChanged, notHeld, lookedUp, linkedByLookup, errors, watermark,
+    fetched, ignored, vouchersAdded, chequesChanged, notHeld, cancelledHere, lookedUp, linkedByLookup, errors, watermark,
   }
+}
+
+/** CANCELLED and VOIDED: the statuses a cheque is never re-linked at (ruling 2026-10-29). */
+function isDetachedStatus(status: CheckStatus): boolean {
+  return status === 'CANCELLED' || status === 'VOIDED'
 }
 
 /**
@@ -286,9 +307,12 @@ async function appendVouchers(
 ): Promise<number> {
   const { checkId, vouchers, paymentRef, tenant, lookup } = args
   return inTx(db, async (tx) => {
-    const locked = await tx.$queryRaw<{ apvNumbers: string[] }[]>(Prisma.sql`
-      SELECT "apvNumbers" FROM "Check" WHERE "id" = ${checkId} FOR UPDATE`)
+    const locked = await tx.$queryRaw<{ apvNumbers: string[]; status: CheckStatus }[]>(Prisma.sql`
+      SELECT "apvNumbers", "status" FROM "Check" WHERE "id" = ${checkId} FOR UPDATE`)
     if (locked.length === 0) throw new Error(`Check ${checkId} no longer exists.`)
+    // Re-checked under the lock: a cancel that committed between the unlocked
+    // read and here has detached the cheque, and this append must not undo it.
+    if (isDetachedStatus(locked[0].status)) return 0
     const have = new Set(locked[0].apvNumbers)
     const missing = [...vouchers].filter((v) => !have.has(v)).sort()
     if (missing.length === 0) return 0
@@ -389,12 +413,17 @@ function runMessage(
   problems: readonly string[],
   notHeldRefs: readonly string[],
   tenant: AcumaticaTenant,
-  lookups: { lookedUp: number; linkedByLookup: number },
+  lookups: { lookedUp: number; linkedByLookup: number; cancelledHere: number },
 ): string | null {
   const parts: string[] = []
   if (lookups.lookedUp > 0) {
     parts.push(
       `${lookups.lookedUp} held check(s) with no APV looked up directly: ${lookups.linkedByLookup} linked.`,
+    )
+  }
+  if (lookups.cancelledHere > 0) {
+    parts.push(
+      `${lookups.cancelledHere} payment(s) whose check is cancelled or voided here were not linked (a cancelled check stays detached from its AP bills).`,
     )
   }
   if (notHeldRefs.length > 0) {

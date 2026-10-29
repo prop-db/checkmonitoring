@@ -42,7 +42,7 @@ export type PortalDomain = 'LOCAL' | 'BROKER'
 export function portalRoute(eligibility: Eligibility): PortalDomain | null {
   if (eligibility === 'SUPPLIER') return 'LOCAL'
   if (eligibility === 'BROKER') return 'BROKER'
-  return null // portalRoute never ROUTES an INTERNAL check; its quiet status events are queued by queuesQuietStatus in lib/domain/actions.ts (ruling 2026-10-19)
+  return null // portalRoute never ROUTES an INTERNAL check; its quiet RELEASED / RELEASE_REVERSED events are queued by the actions in lib/domain/actions.ts (ruling 2026-10-19; CANCELLED no longer goes at all, ruling 2026-10-29)
 }
 
 export const INTERNAL_CATEGORIES: readonly string[] = [

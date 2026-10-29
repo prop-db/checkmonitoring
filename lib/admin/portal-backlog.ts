@@ -52,6 +52,13 @@ export async function summariseBacklog(db: Db) {
  * Only a routed cheque with at least one APV number (portalApvs) is queued:
  * the portal matches on APV, so a CANCELLED event for a cheque without one
  * would park forever.
+ *
+ * SUPERSEDED 2026-10-29 — DO NOT RUN `--queue-cancelled` AGAIN. The user ruled
+ * that a cancelled cheque is detached from its AP bills and the portal is not
+ * told (`detachFromBills`, lib/domain/actions.ts): a CANCELLED event cancels
+ * the BILL's row in the portal, which refused the re-issued cheque's RELEASED.
+ * Kept as the record of the 2026-09-26 backlog; after
+ * `scripts/detach-cancelled-apvs.ts` it finds nothing to queue.
  */
 export async function queueCancelledForStale(db: Db, args: { now: Date; apply: boolean }) {
   const candidates = await db.check.findMany({
