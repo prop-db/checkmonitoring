@@ -244,6 +244,7 @@ async function bills(t: AcumaticaTenant) {
   console.log(`  vouchers added                ${res.vouchersAdded.toLocaleString()}`)
   console.log(`  cheques changed               ${res.chequesChanged.toLocaleString()}`)
   console.log(`  payments not held here        ${res.notHeld.toLocaleString()}`)
+  console.log(`  no-APV checks looked up       ${res.lookedUp.toLocaleString()} (${res.linkedByLookup.toLocaleString()} linked)`)
   console.log(`  errors                        ${res.errors.toLocaleString()}`)
   console.log(`  next watermark                ${res.watermark ? res.watermark.toISOString() : '(unchanged)'}\n`)
   // A failed cheque write holds the watermark (lib/sync/bills.ts) so its
